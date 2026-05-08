@@ -16,7 +16,7 @@ from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.events.bus import EventBus
 from medre.core.planning import FallbackResolver, RelationResolver
-from medre.core.rendering.matrix import MatrixRenderer
+from medre.adapters.matrix.renderer import MatrixRenderer
 from medre.core.rendering.renderer import RenderingPipeline, RenderingResult
 from medre.core.routing import Route, RouteSource, RouteTarget, Router
 from medre.core.storage import SQLiteStorage

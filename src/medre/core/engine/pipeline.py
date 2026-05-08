@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Callable, Awaitable, Literal
 
-from medre.adapters.base import AdapterCapabilities, BaseAdapter
+from medre.adapters.base import AdapterCapabilities, AdapterDeliveryResult, BaseAdapter
 from medre.core.events.canonical import (
     CanonicalEvent,
     DeliveryReceipt,
@@ -711,10 +711,11 @@ class PipelineRunner:
 
         # Deliver the rendered result via adapter.
         delivery_exc: Exception | None = None
+        adapter_result: AdapterDeliveryResult | None = None
         try:
             deliver_fn: Callable[..., Any] | None = getattr(adapter, "deliver", None)
             if deliver_fn is not None and callable(deliver_fn):
-                await deliver_fn(rendering_result)
+                adapter_result = await deliver_fn(rendering_result)
             else:
                 self._log.warning(
                     "Adapter %r has no deliver() method; skipping delivery",
@@ -780,19 +781,21 @@ class PipelineRunner:
             )
             await self._config.storage.append_receipt(dead_receipt)
 
-        # Store native ref mapping (outbound direction).
-        native_ref = NativeMessageRef(
-            id=f"nref-{uuid.uuid4()}",
-            event_id=event.event_id,
-            adapter=adapter_id or "",
-            native_channel_id=target.channel,
-            native_message_id=f"native-{event.event_id}",
-            native_thread_id=None,
-            native_relation_id=None,
-            direction="outbound",
-            created_at=now,
-        )
-        await self._config.storage.store_native_ref(native_ref)
+        # Store native ref mapping (outbound direction) ONLY on success.
+        # Use adapter-provided native IDs; never fabricate synthetic IDs.
+        if status == "sent" and adapter_result is not None and adapter_result.native_message_id is not None:
+            native_ref = NativeMessageRef(
+                id=f"nref-{uuid.uuid4()}",
+                event_id=event.event_id,
+                adapter=adapter_id or "",
+                native_channel_id=adapter_result.native_channel_id or target.channel,
+                native_message_id=adapter_result.native_message_id,
+                native_thread_id=adapter_result.native_thread_id,
+                native_relation_id=adapter_result.native_relation_id,
+                direction="outbound",
+                created_at=now,
+            )
+            await self._config.storage.store_native_ref(native_ref)
 
         # Re-raise adapter errors so that callers (deliver_to_targets)
         # can inspect the exception type for transient/permanent classification.

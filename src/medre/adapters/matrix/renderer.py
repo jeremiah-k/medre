@@ -4,8 +4,12 @@ The :class:`MatrixRenderer` converts canonical events into Matrix-ready
 content payloads (``m.room.message`` dicts with ``msgtype``, ``body``,
 optional ``m.relates_to``, and a MEDRE metadata envelope).
 
-This renderer is registered with the rendering pipeline and dispatches
-events whose ``target_adapter`` starts with ``"matrix"``.
+This renderer is owned by the Matrix adapter package and is registered
+with the rendering pipeline.  It dispatches events whose
+``target_adapter`` starts with ``"matrix"``.
+
+**Tranche 1 scope**: text messages and native replies are supported.
+Reactions are deferred to a later tranche.
 """
 from __future__ import annotations
 
@@ -19,7 +23,7 @@ class MatrixRenderer:
     """Renderer for Matrix presentation targets.
 
     Produces ``m.room.message`` content dicts with ``m.text`` msgtype,
-    a body string, optional relation metadata (replies, reactions),
+    a body string, optional relation metadata (replies only in tranche 1),
     and a MEDRE provenance envelope.
 
     Matches any ``target_adapter`` that starts with ``"matrix"``.
@@ -65,8 +69,8 @@ class MatrixRenderer:
         * ``msgtype``: ``"m.text"``
         * ``body``: extracted text from the event payload
         * ``medre.envelope``: provenance metadata
-        * ``m.relates_to``: added when the event carries reply or
-          reaction relations
+        * ``m.relates_to``: added when the event carries a reply relation.
+          Reaction relations are deferred to a later tranche.
 
         Parameters
         ----------
@@ -89,7 +93,7 @@ class MatrixRenderer:
             "body": body,
         }
 
-        # Handle relations
+        # Handle relations — reply only for tranche 1
         if event.relations:
             rel = event.relations[0]
 
@@ -112,18 +116,10 @@ class MatrixRenderer:
                     }
                 }
 
-            elif rel.relation_type == "reaction" and rel.key:
-                native_ref = rel.target_native_ref
-                target_event_id = (
-                    native_ref.native_message_id
-                    if native_ref
-                    else (rel.target_event_id or "")
-                )
-                content["m.relates_to"] = {
-                    "rel_type": "m.annotation",
-                    "event_id": target_event_id,
-                    "key": rel.key,
-                }
+            elif rel.relation_type == "reaction":
+                # Reaction rendering is deferred to a later tranche.
+                # The event body text is still rendered as m.text.
+                pass
 
         # Embed metadata envelope
         envelope = MatrixMetadataEnvelope(

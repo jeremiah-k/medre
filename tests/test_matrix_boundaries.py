@@ -11,7 +11,7 @@ import pytest
 from medre.adapters import FakeMatrixAdapter
 from medre.adapters.matrix.codec import MatrixCodec
 from medre.adapters.matrix.config import MatrixConfig
-from medre.core.rendering.matrix import MatrixRenderer
+from medre.adapters.matrix.renderer import MatrixRenderer
 
 
 class TestMatrixBoundaries:
@@ -22,17 +22,12 @@ class TestMatrixBoundaries:
         # Import core and check matrix adapter modules are not loaded
         import medre.core  # noqa: F401
 
-        matrix_modules = [k for k in sys.modules if "medre.adapters.matrix" in k]
-        # The rendering/matrix.py imports from adapters.matrix, so the
-        # import above may trigger it via the test suite.  Instead verify
-        # that core itself does not list matrix in its direct dependencies.
-        # We check that core modules don't reference matrix adapter directly.
+        # No core module should contain "matrix" in its name at all.
+        # MatrixRenderer is now owned by the adapter package.
         core_modules = [k for k in sys.modules if k.startswith("medre.core.") and "matrix" in k]
-        # core.rendering.matrix is the renderer (expected), but no adapter import
-        for mod_name in core_modules:
-            assert mod_name == "medre.core.rendering.matrix", (
-                f"Unexpected core module importing matrix: {mod_name}"
-            )
+        assert len(core_modules) == 0, (
+            f"Core modules must not reference matrix: {core_modules}"
+        )
 
     def test_matrix_does_not_import_other_adapters(self) -> None:
         """Matrix adapter package does not import other adapter modules."""

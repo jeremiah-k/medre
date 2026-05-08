@@ -8,7 +8,7 @@ from __future__ import annotations
 import pytest
 
 from medre.adapters import AdapterRole, FakeMatrixAdapter
-from medre.adapters.base import AdapterContext
+from medre.adapters.base import AdapterContext, AdapterDeliveryResult
 from medre.core.events import CanonicalEvent, EventMetadata, EventRelation, NativeRef
 from medre.core.events.kinds import EventKind
 from medre.core.rendering.renderer import RenderingResult
@@ -102,9 +102,13 @@ class TestFakeMatrixAdapterDeliver:
             payload={"msgtype": "m.text", "body": "hello matrix"},
             metadata={"renderer": "matrix"},
         )
-        await adapter.deliver(result)
+        delivery = await adapter.deliver(result)
         assert len(adapter.delivered_payloads) == 1
         assert adapter.delivered_payloads[0].payload["body"] == "hello matrix"
+        # Returns AdapterDeliveryResult with deterministic Matrix-like event ID.
+        assert isinstance(delivery, AdapterDeliveryResult)
+        assert delivery.native_message_id == "$fake_evt-1"
+        assert delivery.native_channel_id == "room-1"
 
     async def test_deliver_does_not_reformat(self) -> None:
         adapter = FakeMatrixAdapter("m")

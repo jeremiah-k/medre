@@ -39,6 +39,7 @@ from medre.core.rendering.renderer import RenderingResult
 from medre.adapters.base import (
     AdapterCapabilities,
     AdapterContext,
+    AdapterDeliveryResult,
     AdapterInfo,
     AdapterRole,
     BaseAdapter,
@@ -139,12 +140,14 @@ class FakeMatrixAdapter(BaseAdapter):
 
     # -- Outbound delivery --------------------------------------------------
 
-    async def deliver(self, result: RenderingResult | CanonicalEvent) -> None:
+    async def deliver(self, result: RenderingResult | CanonicalEvent) -> AdapterDeliveryResult | None:
         """Accept an outbound rendered payload or canonical event for delivery.
 
         When a :class:`RenderingResult` is supplied it is stored in
         :attr:`delivered_payloads` for test inspection, proving the
-        rendering boundary is respected.
+        rendering boundary is respected.  Returns an
+        :class:`AdapterDeliveryResult` with a deterministic Matrix-like
+        event ID derived from the rendering result's ``event_id``.
 
         When a :class:`CanonicalEvent` is supplied (backward-compatible
         path) it is appended to :attr:`received_events`.
@@ -153,11 +156,25 @@ class FakeMatrixAdapter(BaseAdapter):
         ----------
         result:
             The rendering result or canonical event to deliver.
+
+        Returns
+        -------
+        AdapterDeliveryResult | None
+            Native delivery metadata when a RenderingResult is delivered,
+            or ``None`` for the backward-compatible CanonicalEvent path.
         """
         if isinstance(result, RenderingResult):
             self.delivered_payloads.append(result)
+            # Deterministic Matrix-like event ID for test verification.
+            fake_event_id = f"$fake_{result.event_id}"
+            channel_id = result.target_channel or ""
+            return AdapterDeliveryResult(
+                native_message_id=fake_event_id,
+                native_channel_id=channel_id,
+            )
         else:
             self.received_events.append(result)
+            return None
 
     # -- Test helpers -------------------------------------------------------
 

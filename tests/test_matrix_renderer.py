@@ -10,7 +10,7 @@ import pytest
 
 from medre.core.events import CanonicalEvent, EventMetadata, EventRelation, NativeRef
 from medre.core.events.kinds import EventKind
-from medre.core.rendering.matrix import MatrixRenderer
+from medre.adapters.matrix.renderer import MatrixRenderer
 from medre.core.rendering.renderer import RenderingResult
 
 
@@ -95,7 +95,8 @@ class TestMatrixRenderer:
         assert "m.in_reply_to" in relates
         assert relates["m.in_reply_to"]["event_id"] == "$orig-native"
 
-    async def test_render_with_reaction_relation(self) -> None:
+    async def test_render_with_reaction_relation_deferred(self) -> None:
+        """Reaction relations are deferred for tranche 1 — rendered as plain text."""
         renderer = MatrixRenderer()
         relation = EventRelation(
             relation_type="reaction",
@@ -113,11 +114,10 @@ class TestMatrixRenderer:
             relations=(relation,),
         )
         result = await renderer.render(event, "matrix_instance")
-        assert "m.relates_to" in result.payload
-        relates = result.payload["m.relates_to"]
-        assert relates["rel_type"] == "m.annotation"
-        assert relates["key"] == "👍"
-        assert relates["event_id"] == "$orig-native"
+        # No m.relates_to for reactions in tranche 1.
+        assert "m.relates_to" not in result.payload
+        # Body is rendered as plain text.
+        assert result.payload["body"] == "👍"
 
     async def test_render_with_envelope(self) -> None:
         renderer = MatrixRenderer()

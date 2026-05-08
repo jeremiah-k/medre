@@ -18,6 +18,7 @@ from typing import Any
 from medre.adapters.base import (
     AdapterCapabilities,
     AdapterContext,
+    AdapterDeliveryResult,
     AdapterInfo,
     AdapterRole,
     BaseAdapter,
@@ -35,7 +36,7 @@ _MATRIX_CAPABILITIES = AdapterCapabilities(
     text=True,
     title=False,
     replies="native",
-    reactions="native",
+    reactions="unsupported",
     edits="native",
     deletes="native",
     attachments=True,
@@ -169,21 +170,33 @@ class MatrixAdapter(BaseAdapter):
 
     # -- Outbound delivery --------------------------------------------------
 
-    async def deliver(self, result: RenderingResult) -> None:
+    async def deliver(self, result: RenderingResult) -> AdapterDeliveryResult | None:
         """Send a pre-rendered payload to a Matrix room.
 
         The *result.payload* is expected to be an ``m.room.message``
-        content dict already rendered by :class:`~medre.core.rendering.matrix.MatrixRenderer`.
+        content dict already rendered by :class:`~medre.adapters.matrix.renderer.MatrixRenderer`.
+
+        On success, returns an :class:`AdapterDeliveryResult` populated
+        with the ``event_id`` from the homeserver's ``RoomSendResponse``
+        and the ``room_id`` as the native channel ID.  If the response
+        lacks an ``event_id``, the result is returned without one (the
+        pipeline will not store a native ref in that case).
 
         Parameters
         ----------
         result:
             The rendered payload to deliver.
 
+        Returns
+        -------
+        AdapterDeliveryResult | None
+            Native delivery metadata from the Matrix homeserver.
+
         Raises
         ------
         MatrixSendError
-            If the homeserver rejects the message.
+            If the homeserver rejects the message or the client is not
+            connected.
         """
         if self._client is None:
             raise MatrixSendError("client is not connected")
@@ -201,8 +214,11 @@ class MatrixAdapter(BaseAdapter):
 
         # Check for nio error responses
         if hasattr(response, "event_id"):
-            # Success — pipeline records receipt and native ref
-            pass
+            event_id = response.event_id
+            return AdapterDeliveryResult(
+                native_message_id=event_id,
+                native_channel_id=room_id,
+            )
         else:
             # Error response
             raise MatrixSendError(str(response))

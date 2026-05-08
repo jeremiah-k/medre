@@ -380,7 +380,9 @@ class TestDeliveryContract:
         assert getattr(BaseAdapter.deliver, "__isabstractmethod__", False) is True
 
     async def test_fake_transport_deliver_stores_rendering_result(self) -> None:
-        """FakeTransportAdapter.deliver() stores RenderingResult in delivered_payloads."""
+        """FakeTransportAdapter.deliver() stores RenderingResult and returns AdapterDeliveryResult."""
+        from medre.adapters.base import AdapterDeliveryResult
+
         adapter = FakeTransportAdapter("test_t")
         result = RenderingResult(
             event_id="evt-1",
@@ -389,14 +391,19 @@ class TestDeliveryContract:
             payload={"text": "transported message"},
             metadata={"renderer": "text"},
         )
-        await adapter.deliver(result)
+        delivery = await adapter.deliver(result)
         assert len(adapter.delivered_payloads) == 1
         stored = adapter.delivered_payloads[0]
         assert isinstance(stored, RenderingResult)
         assert stored.payload["text"] == "transported message"
+        # Returns deterministic native ID.
+        assert isinstance(delivery, AdapterDeliveryResult)
+        assert delivery.native_message_id == "fake-transport-evt-1"
 
     async def test_fake_presentation_deliver_stores_rendering_result(self) -> None:
         """FakePresentationAdapter.deliver(RenderingResult) stores in delivered_payloads."""
+        from medre.adapters.base import AdapterDeliveryResult
+
         adapter = FakePresentationAdapter("test_p")
         result = RenderingResult(
             event_id="evt-1",
@@ -405,9 +412,12 @@ class TestDeliveryContract:
             payload={"text": "presented message"},
             metadata={"renderer": "text"},
         )
-        await adapter.deliver(result)
+        delivery = await adapter.deliver(result)
         assert len(adapter.delivered_payloads) == 1
         assert adapter.delivered_payloads[0] is result
+        # Returns deterministic native ID.
+        assert isinstance(delivery, AdapterDeliveryResult)
+        assert delivery.native_message_id == "fake-pres-evt-1"
 
     async def test_adapter_deliver_does_not_reformat(self) -> None:
         """Adapter stores the RenderingResult payload verbatim.
@@ -615,6 +625,7 @@ class TestFaultyPresentationAdapter:
     async def test_succeed_never_raises(self) -> None:
         """succeed mode never raises and stores payloads."""
         from medre.adapters.fake_presentation import FaultyPresentationAdapter
+        from medre.adapters.base import AdapterDeliveryResult
 
         adapter = FaultyPresentationAdapter(
             adapter_id="always-ok", failure_mode="succeed",
@@ -627,7 +638,8 @@ class TestFaultyPresentationAdapter:
         )
 
         for _ in range(5):
-            await adapter.deliver(result)
+            delivery = await adapter.deliver(result)
+            assert isinstance(delivery, AdapterDeliveryResult)
 
         assert adapter.call_count == 5
         assert len(adapter.delivered_payloads) == 5
@@ -635,6 +647,7 @@ class TestFaultyPresentationAdapter:
     async def test_fail_n_then_succeed(self) -> None:
         """fail_n_then_succeed raises for first N calls then succeeds."""
         from medre.adapters.fake_presentation import FaultyPresentationAdapter
+        from medre.adapters.base import AdapterDeliveryResult
 
         adapter = FaultyPresentationAdapter(
             adapter_id="recover", failure_mode="fail_n_then_succeed", fail_count=3,
@@ -652,13 +665,15 @@ class TestFaultyPresentationAdapter:
                 await adapter.deliver(result)
             assert adapter.call_count == i + 1
 
-        # 4th call succeeds
-        await adapter.deliver(result)
+        # 4th call succeeds and returns AdapterDeliveryResult
+        delivery = await adapter.deliver(result)
+        assert isinstance(delivery, AdapterDeliveryResult)
         assert adapter.call_count == 4
         assert len(adapter.delivered_payloads) == 1
 
         # 5th call also succeeds
-        await adapter.deliver(result)
+        delivery2 = await adapter.deliver(result)
+        assert isinstance(delivery2, AdapterDeliveryResult)
         assert adapter.call_count == 5
         assert len(adapter.delivered_payloads) == 2
 

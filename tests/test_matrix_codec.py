@@ -136,7 +136,8 @@ class TestMatrixCodec:
 
     # -- Encode ---------------------------------------------------------
 
-    def test_encode_basic_message(self) -> None:
+    def test_encode_raises_not_implemented(self) -> None:
+        """MatrixCodec.encode() raises NotImplementedError — renderer owns outbound."""
         codec = MatrixCodec("matrix-1", _make_config())
         event = CanonicalEvent(
             event_id="evt-1",
@@ -152,14 +153,15 @@ class TestMatrixCodec:
             payload={"body": "hello"},
             metadata=EventMetadata(),
         )
-        content = codec.encode(event, target=None)
-        assert content["msgtype"] == "m.text"
-        assert content["body"] == "hello"
+        with pytest.raises(NotImplementedError, match="MatrixRenderer"):
+            codec.encode(event, target=None)
 
-    def test_encode_with_envelope(self) -> None:
+    def test_encode_not_runtime_outbound_renderer(self) -> None:
+        """MatrixCodec.encode makes clear that runtime outbound rendering
+        is handled by MatrixRenderer, not the codec."""
         codec = MatrixCodec("matrix-1", _make_config())
         event = CanonicalEvent(
-            event_id="evt-2",
+            event_id="evt-x",
             event_kind="message.created",
             schema_version=1,
             timestamp=datetime.now(timezone.utc),
@@ -172,29 +174,8 @@ class TestMatrixCodec:
             payload={"body": "test"},
             metadata=EventMetadata(),
         )
-        content = codec.encode(event, target=None)
-        assert "medre" in content
-        assert "envelope" in content["medre"]
-
-    def test_encode_round_trip(self) -> None:
-        codec = MatrixCodec("matrix-1", _make_config())
-        original_body = "round trip message"
-        event = CanonicalEvent(
-            event_id="evt-3",
-            event_kind="message.created",
-            schema_version=1,
-            timestamp=datetime.now(timezone.utc),
-            source_adapter="transport",
-            source_transport_id="node-1",
-            source_channel_id="ch-0",
-            parent_event_id=None,
-            lineage=(),
-            relations=(),
-            payload={"body": original_body},
-            metadata=EventMetadata(),
-        )
-        content = codec.encode(event, target=None)
-        assert content["body"] == original_body
+        with pytest.raises(NotImplementedError):
+            codec.encode(event, target=None)
 
     def test_decode_unsupported_msgtype(self) -> None:
         codec = MatrixCodec("matrix-1", _make_config())

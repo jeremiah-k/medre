@@ -32,6 +32,7 @@ from medre.core.rendering.renderer import RenderingResult
 from medre.adapters.base import (
     AdapterCapabilities,
     AdapterContext,
+    AdapterDeliveryResult,
     AdapterInfo,
     AdapterRole,
     BaseAdapter,
@@ -145,19 +146,30 @@ class FakeTransportAdapter(BaseAdapter):
 
     # -- Outbound delivery --------------------------------------------------
 
-    async def deliver(self, result: RenderingResult) -> None:
+    async def deliver(self, result: RenderingResult) -> AdapterDeliveryResult | None:
         """Accept a pre-rendered payload for delivery.
 
         This adapter does **not** perform event-kind-specific formatting.
         The :class:`RenderingResult` is stored in :attr:`delivered_payloads`
         for test inspection, proving the rendering boundary is respected.
+        Returns an :class:`AdapterDeliveryResult` with a deterministic
+        native ID.
 
         Parameters
         ----------
         result:
             The rendered payload to deliver.
+
+        Returns
+        -------
+        AdapterDeliveryResult | None
+            Native delivery metadata.
         """
         self.delivered_payloads.append(result)
+        return AdapterDeliveryResult(
+            native_message_id=f"fake-transport-{result.event_id}",
+            native_channel_id=result.target_channel,
+        )
 
     # -- Test helpers -------------------------------------------------------
 

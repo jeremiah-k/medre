@@ -12,6 +12,8 @@ Public symbols
   dataclass.
 * :class:`~medre.adapters.matrix.codec.MatrixCodec` — encode / decode
   helper.
+* :class:`~medre.adapters.matrix.renderer.MatrixRenderer` — platform
+  renderer for Matrix content payloads.
 * :class:`~medre.adapters.matrix.metadata.MatrixMetadataEnvelope` —
   provenance envelope embedded in message content.
 * :class:`~medre.adapters.matrix.relations.MatrixRelationHandler` —
@@ -35,6 +37,7 @@ from medre.adapters.matrix.errors import (
 )
 from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
 from medre.adapters.matrix.relations import MatrixRelationHandler
+from medre.adapters.matrix.renderer import MatrixRenderer
 
 __all__ = [
     "MatrixAdapter",
@@ -46,5 +49,6 @@ __all__ = [
     "MatrixError",
     "MatrixMetadataEnvelope",
     "MatrixRelationHandler",
+    "MatrixRenderer",
     "MatrixSendError",
 ]

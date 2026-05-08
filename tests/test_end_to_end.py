@@ -167,18 +167,31 @@ class TestFullPipeline:
             # ------------------------------------------------------------------
             # 6. Fake presentation receives event (deliver)
             # ------------------------------------------------------------------
-            await presentation.deliver(event)
-            assert event in presentation.received_events
+            from medre.core.rendering.renderer import RenderingResult
+
+            render_result = RenderingResult(
+                event_id=event.event_id,
+                target_adapter="fake_presentation",
+                target_channel="ch-0",
+                payload={"text": "Hello from radio"},
+            )
+            delivery_result = await presentation.deliver(render_result)
+            assert len(presentation.delivered_payloads) == 1
 
             # ------------------------------------------------------------------
-            # 7. Native ref is stored
+            # 7. Native ref is stored using adapter-provided native IDs
             # ------------------------------------------------------------------
+            # The fake presentation adapter returns deterministic native IDs.
+            assert delivery_result is not None
+            assert delivery_result.native_message_id is not None
+            native_msg_id = delivery_result.native_message_id
+
             native_ref_mapping = NativeMessageRef(
                 id=f"nref-{event.event_id}",
                 event_id=event.event_id,
                 adapter="fake_presentation",
                 native_channel_id="ch-0",
-                native_message_id=f"native-{event.event_id}",
+                native_message_id=native_msg_id,
                 native_thread_id=None,
                 native_relation_id=None,
                 direction="outbound",
@@ -188,7 +201,7 @@ class TestFullPipeline:
 
             # Verify it can be resolved back.
             resolved_id = await storage.resolve_native_ref(
-                "fake_presentation", "ch-0", f"native-{event.event_id}"
+                "fake_presentation", "ch-0", native_msg_id
             )
             assert resolved_id == event.event_id
 
@@ -206,14 +219,16 @@ class TestFullPipeline:
 
             # Store the reply and its native ref.
             await storage.append(reply_event)
+            # Use adapter-provided native IDs for reply.
+            reply_native_id = f"fake-pres-{reply_event.event_id}"
             reply_native_ref = NativeMessageRef(
                 id=f"nref-{reply_event.event_id}",
                 event_id=reply_event.event_id,
                 adapter="fake_presentation",
                 native_channel_id="ch-0",
-                native_message_id=f"native-{reply_event.event_id}",
+                native_message_id=reply_native_id,
                 native_thread_id=None,
-                native_relation_id=f"native-{event.event_id}",
+                native_relation_id=native_msg_id,
                 direction="inbound",
             )
             await storage.store_native_ref(reply_native_ref)
@@ -229,7 +244,7 @@ class TestFullPipeline:
                 target_native_ref=NativeRef(
                     adapter="fake_presentation",
                     native_channel_id="ch-0",
-                    native_message_id=f"native-{event.event_id}",
+                    native_message_id=native_msg_id,
                 ),
                 key=None,
                 fallback_text=None,
@@ -247,10 +262,10 @@ class TestFullPipeline:
             assert event.event_id in all_ids
             assert reply_event.event_id in all_ids
 
-            # Native ref for original event resolves correctly.
+            # Native ref for original event resolves correctly using adapter-provided ID.
             assert (
                 await storage.resolve_native_ref(
-                    "fake_presentation", "ch-0", f"native-{event.event_id}"
+                    "fake_presentation", "ch-0", native_msg_id
                 )
                 == event.event_id
             )

@@ -124,38 +124,24 @@ class MatrixCodec(AdapterCodec):
     def encode(self, event: CanonicalEvent, target: Any) -> dict:
         """Encode a canonical event into a Matrix content dict.
 
-        Returns a plain dict suitable for passing to
-        ``client.room_send(message_type="m.room.message", content=...)``.
+        .. deprecated::
+            Runtime outbound rendering is handled by
+            :class:`~medre.adapters.matrix.renderer.MatrixRenderer`.
+            This method raises :class:`NotImplementedError` to signal
+            that the codec should not be used for runtime outbound
+            payload construction.
 
-        Parameters
-        ----------
-        event:
-            The canonical event to encode.
-        target:
-            Adapter-specific target (unused; kept for protocol conformance).
-
-        Returns
-        -------
-        dict
-            A Matrix ``m.room.message`` content dict.
+        Raises
+        ------
+        NotImplementedError
+            Always.  Use :class:`~medre.adapters.matrix.renderer.MatrixRenderer`
+            for outbound rendering.
         """
-        body = self._extract_body(event)
-
-        content: dict[str, object] = {
-            "msgtype": "m.text",
-            "body": body,
-        }
-
-        # Embed metadata envelope
-        envelope = MatrixMetadataEnvelope(
-            canonical_event_id=event.event_id,
-            source_adapter=event.source_adapter,
-            source_channel=event.source_channel_id or "",
-            metadata_mode="safe",
+        raise NotImplementedError(
+            "MatrixCodec.encode() is not the runtime outbound renderer. "
+            "Use medre.adapters.matrix.renderer.MatrixRenderer for "
+            "outbound payload construction."
         )
-        content.update(envelope.to_content())
-
-        return content
 
     # ------------------------------------------------------------------
     # Private helpers

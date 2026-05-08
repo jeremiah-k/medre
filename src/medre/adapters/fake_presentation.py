@@ -39,6 +39,7 @@ from medre.core.rendering.renderer import RenderingResult
 from medre.adapters.base import (
     AdapterCapabilities,
     AdapterContext,
+    AdapterDeliveryResult,
     AdapterInfo,
     AdapterRole,
     BaseAdapter,
@@ -141,13 +142,14 @@ class FakePresentationAdapter(BaseAdapter):
 
     # -- Outbound delivery --------------------------------------------------
 
-    async def deliver(self, result: RenderingResult | CanonicalEvent) -> None:
+    async def deliver(self, result: RenderingResult | CanonicalEvent) -> AdapterDeliveryResult | None:
         """Accept an outbound rendered payload or canonical event for delivery.
 
         This adapter does **not** perform event-kind-specific formatting.
         When a :class:`RenderingResult` is supplied it is stored in
         :attr:`delivered_payloads` for test inspection, proving the
-        rendering boundary is respected.
+        rendering boundary is respected.  Returns an
+        :class:`AdapterDeliveryResult` with a deterministic native ID.
 
         When a :class:`CanonicalEvent` is supplied (backward-compatible
         path) it is appended to :attr:`received_events`.
@@ -156,11 +158,22 @@ class FakePresentationAdapter(BaseAdapter):
         ----------
         result:
             The rendering result or canonical event to deliver.
+
+        Returns
+        -------
+        AdapterDeliveryResult | None
+            Native delivery metadata for RenderingResult, or ``None``
+            for the backward-compatible CanonicalEvent path.
         """
         if isinstance(result, RenderingResult):
             self.delivered_payloads.append(result)
+            return AdapterDeliveryResult(
+                native_message_id=f"fake-pres-{result.event_id}",
+                native_channel_id=result.target_channel,
+            )
         else:
             self.received_events.append(result)
+            return None
 
     # -- Test helpers -------------------------------------------------------
 
@@ -415,16 +428,29 @@ class FaultyPresentationAdapter(BaseAdapter):
 
     # -- Delivery with injection --------------------------------------------
 
-    async def deliver(self, result: Any) -> None:
+    async def deliver(self, result: Any) -> AdapterDeliveryResult | None:
         """Deliver with deterministic failure injection.
 
         Increments the internal call counter and raises or succeeds
-        based on the configured ``failure_mode``.
+        based on the configured ``failure_mode``.  On success, returns
+        an :class:`AdapterDeliveryResult` with a deterministic native ID.
+
+        Returns
+        -------
+        AdapterDeliveryResult | None
+            Native delivery metadata on success.
         """
+        from medre.adapters.base import AdapterDeliveryResult
+
         self._call_count += 1
         if self._should_fail():
             self._raise_failure()
         self.delivered_payloads.append(result)
+        # Produce a deterministic result for the success path.
+        event_id = getattr(result, "event_id", None) or "unknown"
+        return AdapterDeliveryResult(
+            native_message_id=f"faulty-{event_id}",
+        )
 
     @property
     def call_count(self) -> int:

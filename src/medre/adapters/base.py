@@ -26,10 +26,51 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from types import MappingProxyType
 from typing import Any, Awaitable, Callable
 
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.rendering.renderer import RenderingResult
+
+
+# ---------------------------------------------------------------------------
+# Adapter delivery result
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class AdapterDeliveryResult:
+    """Immutable result returned by adapters after successful delivery.
+
+    Adapters populate this with platform-native IDs obtained from the
+    external system.  The pipeline uses these IDs to store
+    :class:`~medre.core.events.canonical.NativeMessageRef` mappings.
+    The pipeline owns receipts and storage; adapters only report what
+    the platform returned.
+
+    Attributes
+    ----------
+    native_message_id:
+        Platform-native message ID (e.g. a Matrix ``event_id``).
+        ``None`` when the platform did not return one.
+    native_channel_id:
+        Platform-native channel / room / conversation ID.
+    native_thread_id:
+        Platform-native thread or parent message ID, if applicable.
+    native_relation_id:
+        Platform-native ID of the related entity (e.g. the message
+        being replied to), if applicable.
+    metadata:
+        Adapter-specific immutable metadata about the delivery.
+    """
+
+    native_message_id: str | None = None
+    native_channel_id: str | None = None
+    native_thread_id: str | None = None
+    native_relation_id: str | None = None
+    metadata: MappingProxyType[str, object] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -242,11 +283,13 @@ class BaseAdapter(ABC):
     delivery method (:meth:`deliver`).
 
     **Delivery contract**: every adapter must implement :meth:`deliver`
-    which accepts a :class:`~medre.core.rendering.renderer.RenderingResult`.
-    The pipeline renders canonical events into adapter-ready payloads
-    *before* calling ``deliver``.  Adapters must **not** perform
-    event-kind-specific formatting inside ``deliver``; they merely
-    transport the pre-rendered payload to the external platform.
+    which accepts a :class:`~medre.core.rendering.renderer.RenderingResult`
+    and returns an :class:`AdapterDeliveryResult` on success (or ``None``
+    when the adapter has no native ID to report).  The pipeline renders
+    canonical events into adapter-ready payloads *before* calling
+    ``deliver``.  Adapters must **not** perform event-kind-specific
+    formatting inside ``deliver``; they merely transport the pre-rendered
+    payload to the external platform and report native delivery metadata.
 
     Optionally, adapters can expose an :class:`AdapterCodec` via
     :meth:`get_codec` to support the codec pattern.
@@ -266,7 +309,7 @@ class BaseAdapter(ABC):
     role: AdapterRole
 
     @abstractmethod
-    async def deliver(self, result: RenderingResult) -> None:
+    async def deliver(self, result: RenderingResult) -> AdapterDeliveryResult | None:
         """Deliver a pre-rendered payload to the external platform.
 
         The pipeline guarantees that *result* has already been rendered
@@ -274,10 +317,26 @@ class BaseAdapter(ABC):
         adapter must **not** re-render, reformat, or inspect the event
         kind to decide formatting.  It merely transports the payload.
 
+        On success, adapters return an :class:`AdapterDeliveryResult`
+        populated with platform-native IDs (message ID, channel ID, etc.)
+        so that the pipeline can store native message mappings.  Return
+        ``None`` when the adapter has no native ID to report.
+
         Parameters
         ----------
         result:
             The rendered payload ready for delivery.
+
+        Returns
+        -------
+        AdapterDeliveryResult | None
+            Native delivery metadata from the platform, or ``None``.
+
+        Raises
+        ------
+        Exception
+            If delivery fails.  The pipeline records a failed receipt
+            and does **not** store a native outbound ref for failures.
         """
 
     @abstractmethod
