@@ -10,6 +10,8 @@ Re-exported symbols
 * :class:`EventNotFoundError` – event-not-found exception.
 * :class:`StorageInitializationError` – initialisation failure.
 * :class:`SchemaValidationError` – schema validation failure.
+* From :mod:`~meshnet_framework.core.storage.replay`:
+  ``ReplayMode``, ``ReplayRequest``, ``ReplayResult``, ``ReplayEngine``.
 """
 
 from meshnet_framework.core.storage.backend import (
@@ -21,11 +23,21 @@ from meshnet_framework.core.storage.backend import (
     StorageGuarantees,
     StorageInitializationError,
 )
+from meshnet_framework.core.storage.replay import (
+    ReplayEngine,
+    ReplayMode,
+    ReplayRequest,
+    ReplayResult,
+)
 from meshnet_framework.core.storage.sqlite import SQLiteStorage
 
 __all__ = [
     "EventFilter",
     "EventNotFoundError",
+    "ReplayEngine",
+    "ReplayMode",
+    "ReplayRequest",
+    "ReplayResult",
     "SchemaValidationError",
     "SQLiteStorage",
     "StorageBackend",
