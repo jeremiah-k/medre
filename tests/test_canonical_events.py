@@ -1540,3 +1540,349 @@ class TestEventTaxonomyAudit:
         assert len(delivery_kinds) > 0
         assert len(message_kinds) > 0
         assert set(delivery_kinds).isdisjoint(set(message_kinds))
+
+
+# ===================================================================
+# Protocol-neutral readiness (Track 5)
+# ===================================================================
+
+
+class TestProtocolNeutralReadiness:
+    """Verify that existing canonical mechanisms support future externally
+    initiated adapters (webhooks, RPC, request/response) without schema
+    changes.
+
+    These tests exercise the usage patterns documented in
+    docs/contracts/phase-1-limitations.md Section 2.2.
+    """
+
+    # -- Correlation via trace_id --
+
+    def test_trace_id_survives_construction(self) -> None:
+        """trace_id can be set to any string value."""
+        kw = _valid_kwargs()
+        kw["trace_id"] = "corr-abc-123"
+        event = CanonicalEvent(**kw)
+        assert event.trace_id == "corr-abc-123"
+
+    def test_trace_id_none_is_valid(self) -> None:
+        """Events without correlation context leave trace_id as None."""
+        kw = _valid_kwargs()
+        kw["trace_id"] = None
+        event = CanonicalEvent(**kw)
+        assert event.trace_id is None
+
+    def test_trace_id_json_round_trip(self) -> None:
+        """trace_id survives JSON encode/decode."""
+        kw = _valid_kwargs()
+        kw["trace_id"] = "webhook-corr-xyz"
+        event = CanonicalEvent(**kw)
+        decoded = msgspec.json.decode(
+            msgspec.json.encode(event), type=CanonicalEvent
+        )
+        assert decoded.trace_id == "webhook-corr-xyz"
+
+    def test_trace_id_msgpack_round_trip(self) -> None:
+        """trace_id survives msgpack encode/decode."""
+        kw = _valid_kwargs()
+        kw["trace_id"] = "rpc-trace-456"
+        event = CanonicalEvent(**kw)
+        decoded = msgspec.msgpack.decode(
+            msgspec.msgpack.encode(event), type=CanonicalEvent
+        )
+        assert decoded.trace_id == "rpc-trace-456"
+
+    # -- Idempotency via metadata.custom --
+
+    def test_idempotency_key_in_custom(self) -> None:
+        """metadata.custom can carry an idempotency key."""
+        meta = EventMetadata(
+            custom={"idempotency_key": "req_abc123"}
+        )
+        event = CanonicalEvent(**{**_valid_kwargs(), "metadata": meta})
+        assert event.metadata.custom["idempotency_key"] == "req_abc123"
+
+    def test_idempotency_key_round_trip(self) -> None:
+        """Idempotency key in custom dict survives JSON round-trip."""
+        meta = EventMetadata(
+            custom={"idempotency_key": "req_def456", "source": "webhook"}
+        )
+        event = CanonicalEvent(**{**_valid_kwargs(), "metadata": meta})
+        decoded = msgspec.json.decode(
+            msgspec.json.encode(event), type=CanonicalEvent
+        )
+        assert decoded.metadata.custom["idempotency_key"] == "req_def456"
+        assert decoded.metadata.custom["source"] == "webhook"
+
+    def test_idempotency_key_immutability(self) -> None:
+        """The idempotency key in custom is frozen after construction."""
+        meta = EventMetadata(
+            custom={"idempotency_key": "req_ghi789"}
+        )
+        with pytest.raises(TypeError, match="immutable"):
+            meta.custom["idempotency_key"] = "tampered"
+
+    # -- Principal/auth context via metadata.custom --
+
+    def test_principal_context_in_custom(self) -> None:
+        """metadata.custom can carry a principal dict."""
+        principal = {
+            "type": "bearer_token",
+            "subject": "service-account-42",
+            "claims": {"role": "operator"},
+        }
+        meta = EventMetadata(custom={"principal": principal})
+        event = CanonicalEvent(**{**_valid_kwargs(), "metadata": meta})
+        stored = event.metadata.custom["principal"]
+        assert isinstance(stored, dict)
+        assert stored["type"] == "bearer_token"
+        assert stored["subject"] == "service-account-42"
+
+    def test_principal_context_round_trip(self) -> None:
+        """Principal dict survives JSON round-trip with deep freezing."""
+        principal = {"type": "apikey", "subject": "client-7", "scopes": ("read",)}
+        meta = EventMetadata(custom={"principal": principal})
+        event = CanonicalEvent(**{**_valid_kwargs(), "metadata": meta})
+        decoded = msgspec.json.decode(
+            msgspec.json.encode(event), type=CanonicalEvent
+        )
+        p = decoded.metadata.custom["principal"]
+        assert isinstance(p, dict)
+        assert p["type"] == "apikey"
+        assert p["subject"] == "client-7"
+
+    def test_principal_context_immutable(self) -> None:
+        """Principal dict in custom is deeply frozen."""
+        principal = {"type": "basic", "subject": "user-1"}
+        meta = EventMetadata(custom={"principal": principal})
+        p = meta.custom["principal"]
+        assert isinstance(p, dict)
+        with pytest.raises(TypeError, match="immutable"):
+            p["subject"] = "tampered"
+
+    # -- Request/response lineage --
+
+    def test_request_response_lineage(self) -> None:
+        """A response event can link to its request via parent_event_id
+        and lineage."""
+        now = datetime.now(timezone.utc)
+        request = CanonicalEvent(
+            event_id="req-001",
+            event_kind="message.text",
+            schema_version=1,
+            timestamp=now,
+            source_adapter="webhook-incoming",
+            source_transport_id="api-client-1",
+            source_channel_id="/webhooks/alerts",
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"body": "alert triggered"},
+            metadata=EventMetadata(
+                transport=TransportMetadata(protocol="http"),
+                custom={"idempotency_key": "req_001"},
+            ),
+            trace_id="trace-webhook-1",
+        )
+
+        response = CanonicalEvent(
+            event_id="resp-001",
+            event_kind="message.text",
+            schema_version=1,
+            timestamp=now,
+            source_adapter="bridge-engine",
+            source_transport_id="internal",
+            source_channel_id=None,
+            parent_event_id="req-001",
+            lineage=("req-001",),
+            relations=(),
+            payload={"body": "alert forwarded"},
+            metadata=EventMetadata(),
+            trace_id="trace-webhook-1",
+        )
+
+        assert response.parent_event_id == "req-001"
+        assert request.event_id in response.lineage
+        assert response.trace_id == request.trace_id
+
+    def test_lineage_chain_preserved_in_round_trip(self) -> None:
+        """A multi-hop lineage chain survives serialization."""
+        kw = _valid_kwargs()
+        kw["parent_event_id"] = "evt-parent"
+        kw["lineage"] = ("evt-origin", "evt-parent")
+        kw["trace_id"] = "multi-hop-trace"
+        event = CanonicalEvent(**kw)
+        decoded = msgspec.json.decode(
+            msgspec.json.encode(event), type=CanonicalEvent
+        )
+        assert decoded.lineage == ("evt-origin", "evt-parent")
+        assert decoded.parent_event_id == "evt-parent"
+        assert decoded.trace_id == "multi-hop-trace"
+
+    # -- Inbound provenance --
+
+    def test_inbound_provenance_fields(self) -> None:
+        """source_adapter, source_transport_id, and source_channel_id
+        can represent an externally initiated source."""
+        meta = EventMetadata(
+            transport=TransportMetadata(
+                protocol="http", gateway_id="webhook-relay"
+            ),
+        )
+        event = CanonicalEvent(
+            event_id="evt-wh-1",
+            event_kind="message.text",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="webhook-incoming",
+            source_transport_id="api-client-42",
+            source_channel_id="/webhooks/alerts",
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"body": "incoming webhook payload"},
+            metadata=meta,
+            trace_id="wh-trace-1",
+        )
+        assert event.source_adapter == "webhook-incoming"
+        assert event.source_transport_id == "api-client-42"
+        assert event.source_channel_id == "/webhooks/alerts"
+        assert event.metadata.transport is not None
+        assert event.metadata.transport.protocol == "http"
+        assert event.metadata.transport.gateway_id == "webhook-relay"
+
+    def test_provenance_round_trip(self) -> None:
+        """Externally initiated provenance fields survive serialization."""
+        meta = EventMetadata(
+            transport=TransportMetadata(protocol="http"),
+            custom={
+                "http.method": "POST",
+                "http.path": "/webhooks/alerts",
+                "idempotency_key": "wh_req_123",
+            },
+        )
+        event = CanonicalEvent(
+            event_id="evt-wh-2",
+            event_kind="message.text",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="webhook-incoming",
+            source_transport_id="ext-svc-1",
+            source_channel_id="/api/v1/events",
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"body": "test"},
+            metadata=meta,
+            trace_id="wh-trace-2",
+        )
+        decoded = msgspec.json.decode(
+            msgspec.json.encode(event), type=CanonicalEvent
+        )
+        assert decoded.source_adapter == "webhook-incoming"
+        assert decoded.source_transport_id == "ext-svc-1"
+        assert decoded.source_channel_id == "/api/v1/events"
+        assert decoded.metadata.transport is not None
+        assert decoded.metadata.transport.protocol == "http"
+        assert decoded.metadata.custom["http.method"] == "POST"
+        assert decoded.metadata.custom["idempotency_key"] == "wh_req_123"
+        assert decoded.trace_id == "wh-trace-2"
+
+    # -- Combined protocol-neutral event --
+
+    def test_full_protocol_neutral_event_round_trip(self) -> None:
+        """An event using all protocol-neutral mechanisms survives full
+        JSON and msgpack round-trip with every field intact."""
+        meta = EventMetadata(
+            transport=TransportMetadata(
+                protocol="http",
+                gateway_id="api-gateway",
+            ),
+            native=NativeMetadata(
+                data={"http.headers": {"content-type": "application/json"}}
+            ),
+            custom={
+                "idempotency_key": "req_full_001",
+                "principal": {
+                    "type": "bearer_token",
+                    "subject": "svc-acct-1",
+                },
+                "http.method": "POST",
+                "http.path": "/webhooks/events",
+            },
+        )
+        now = datetime(2026, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
+        event = CanonicalEvent(
+            event_id="evt-pn-full",
+            event_kind="message.text",
+            schema_version=1,
+            timestamp=now,
+            source_adapter="webhook-incoming",
+            source_transport_id="external-service-a",
+            source_channel_id="/webhooks/events",
+            parent_event_id="evt-origin-1",
+            lineage=("evt-origin-1",),
+            relations=(),
+            payload={"body": "full protocol-neutral test"},
+            metadata=meta,
+            trace_id="pn-trace-full-001",
+        )
+
+        # JSON round-trip
+        json_decoded = msgspec.json.decode(
+            msgspec.json.encode(event), type=CanonicalEvent
+        )
+        assert json_decoded.event_id == "evt-pn-full"
+        assert json_decoded.trace_id == "pn-trace-full-001"
+        assert json_decoded.source_adapter == "webhook-incoming"
+        assert json_decoded.source_transport_id == "external-service-a"
+        assert json_decoded.source_channel_id == "/webhooks/events"
+        assert json_decoded.parent_event_id == "evt-origin-1"
+        assert json_decoded.lineage == ("evt-origin-1",)
+        assert json_decoded.metadata.custom["idempotency_key"] == "req_full_001"
+        principal = json_decoded.metadata.custom["principal"]
+        assert isinstance(principal, dict)
+        assert principal["subject"] == "svc-acct-1"
+        assert json_decoded.metadata.transport is not None
+        assert json_decoded.metadata.transport.protocol == "http"
+
+        # msgpack round-trip
+        msgpack_decoded = msgspec.msgpack.decode(
+            msgspec.msgpack.encode(event), type=CanonicalEvent
+        )
+        assert msgpack_decoded.event_id == "evt-pn-full"
+        assert msgpack_decoded.trace_id == "pn-trace-full-001"
+        assert msgpack_decoded.metadata.custom["idempotency_key"] == "req_full_001"
+
+    # -- Native namespace extensibility --
+
+    def test_native_namespace_carries_adapter_specific_data(self) -> None:
+        """metadata.native can carry arbitrary transport-specific fields
+        without affecting the canonical schema."""
+        meta = EventMetadata(
+            native=NativeMetadata(
+                data={
+                    "webhook": {
+                        "signature": "sha256=abc123",
+                        "event_type": "incident.created",
+                        "delivery_id": "dlv-xyz",
+                    }
+                }
+            ),
+        )
+        event = CanonicalEvent(**{**_valid_kwargs(), "metadata": meta})
+        assert event.metadata.native is not None
+        native_data = event.metadata.native.data
+        wh = native_data["webhook"]
+        assert isinstance(wh, dict)
+        assert wh["event_type"] == "incident.created"
+        assert wh["delivery_id"] == "dlv-xyz"
+
+        # Round-trip preserves native data
+        decoded = msgspec.json.decode(
+            msgspec.json.encode(event), type=CanonicalEvent
+        )
+        assert decoded.metadata.native is not None
+        wh_rt = decoded.metadata.native.data["webhook"]
+        assert isinstance(wh_rt, dict)
+        assert wh_rt["event_type"] == "incident.created"

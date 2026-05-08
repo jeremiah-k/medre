@@ -28,7 +28,10 @@ from medre.adapters.base import (
     AdapterRole,
     BaseAdapter,
 )
-from medre.adapters.fake_presentation import FakePresentationAdapter
+from medre.adapters.fake_presentation import (
+    FakePresentationAdapter,
+    FaultyPresentationAdapter,
+)
 from medre.adapters.fake_transport import FakeTransportAdapter
 
 __all__ = [
@@ -42,4 +45,5 @@ __all__ = [
     # fake adapters
     "FakePresentationAdapter",
     "FakeTransportAdapter",
+    "FaultyPresentationAdapter",
 ]

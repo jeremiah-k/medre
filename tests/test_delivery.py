@@ -845,3 +845,175 @@ class TestDeliveryOutcomeWithFailureKind:
         assert outcome.receipt is None
         assert outcome.error is None
         assert outcome.duration_ms == 0.0
+
+
+# ===================================================================
+# Track 6: Retry/dead-letter observability and deterministic outcomes
+# ===================================================================
+
+
+class TestRetryDeadLetterObservability:
+    """Verify observability snapshots across retry exhaustion and dead-letter."""
+
+    def test_full_retry_exhaustion_flow_with_snapshots(self) -> None:
+        """Simulate 3-attempt retry exhaustion with Diagnostician snapshots."""
+        policy = RetryPolicy(max_attempts=3, jitter=False)
+        executor = RetryExecutor(policy)
+        diag = Diagnostician()
+
+        # Attempt 1 fails
+        assert executor.is_exhausted(1) is False
+        r1 = executor.build_retry_receipt(
+            event_id="evt-obs-1",
+            delivery_plan_id="plan-obs",
+            target_adapter="adapter-obs",
+            previous_receipt_id=None,
+            attempt_number=1,
+            error="ConnectionError: timeout",
+        )
+        diag.record_adapter_failure("evt-obs-1", "adapter-obs", "ConnectionError: timeout")
+
+        # Attempt 2 fails
+        assert executor.is_exhausted(2) is False
+        r2 = executor.build_retry_receipt(
+            event_id="evt-obs-1",
+            delivery_plan_id="plan-obs",
+            target_adapter="adapter-obs",
+            previous_receipt_id=r1.receipt_id,
+            attempt_number=2,
+            error="ConnectionError: timeout",
+        )
+        diag.record_adapter_failure("evt-obs-1", "adapter-obs", "ConnectionError: timeout")
+
+        # Attempt 3 fails — exhausted
+        assert executor.is_exhausted(3) is True
+
+        # Dead letter
+        dl = executor.build_dead_letter_receipt(
+            event_id="evt-obs-1",
+            delivery_plan_id="plan-obs",
+            target_adapter="adapter-obs",
+            previous_receipt_id=r2.receipt_id,
+            attempt_number=4,
+            error="Retry exhausted after 3 attempts",
+        )
+        assert dl.status == "dead_lettered"
+        assert dl.parent_receipt_id == r2.receipt_id
+        assert dl.next_retry_at is None
+
+        # Verify receipt lineage chain
+        assert r1.parent_receipt_id is None
+        assert r2.parent_receipt_id == r1.receipt_id
+        assert dl.parent_receipt_id == r2.receipt_id
+
+        # Observability snapshot
+        snap = diag.snapshot()
+        assert snap["adapter_failures"]["adapter-obs"] == 2  # Only 2 recorded (not at attempt 3)
+        assert snap["planner_failures"] == {}
+        assert snap["renderer_failures"] == {}
+
+    def test_retry_receipt_backoff_chain_deterministic(self) -> None:
+        """Retry receipt chain with jitter=False produces exact backoff times."""
+        policy = RetryPolicy(max_attempts=5, backoff_base=2.0, jitter=False, max_delay_seconds=60.0)
+        executor = RetryExecutor(policy)
+
+        receipts = []
+        prev_id = None
+        for attempt in range(1, 6):
+            r = executor.build_retry_receipt(
+                event_id="evt-chain",
+                delivery_plan_id="plan-chain",
+                target_adapter="chain-target",
+                previous_receipt_id=prev_id,
+                attempt_number=attempt,
+                error="ConnectionError",
+            )
+            receipts.append(r)
+            prev_id = r.receipt_id
+
+        # Verify chain
+        assert receipts[0].parent_receipt_id is None
+        for i in range(1, 5):
+            assert receipts[i].parent_receipt_id == receipts[i - 1].receipt_id
+
+        # Verify backoff progression: base * 2^(attempt-1)
+        # attempt 1: 2.0, attempt 2: 4.0, attempt 3: 8.0, attempt 4: 16.0, attempt 5: 32.0
+        for i, r in enumerate(receipts):
+            expected_backoff = 2.0 * (2 ** i)
+            actual_backoff = (r.next_retry_at - r.created_at).total_seconds()
+            assert abs(actual_backoff - expected_backoff) < 0.01, (
+                f"Attempt {i+1}: expected backoff {expected_backoff}s, got {actual_backoff}s"
+            )
+
+    def test_dead_letter_receipt_observability(self) -> None:
+        """Dead-letter receipt flow produces complete observability trail."""
+        policy = RetryPolicy(max_attempts=2, jitter=False)
+        executor = RetryExecutor(policy)
+        diag = Diagnostician()
+
+        # Attempt 1
+        r1 = executor.build_retry_receipt(
+            event_id="evt-dl-obs",
+            delivery_plan_id="plan-dl",
+            target_adapter="dl-target",
+            previous_receipt_id=None,
+            attempt_number=1,
+            error="ConnectionError: refused",
+        )
+        diag.record_adapter_failure("evt-dl-obs", "dl-target", "ConnectionError: refused")
+
+        # Attempt 2 — still under max
+        assert executor.is_exhausted(2) is True
+
+        # Dead letter
+        dl = executor.build_dead_letter_receipt(
+            event_id="evt-dl-obs",
+            delivery_plan_id="plan-dl",
+            target_adapter="dl-target",
+            previous_receipt_id=r1.receipt_id,
+            attempt_number=3,
+            error="Retry exhausted after 2 attempts",
+        )
+
+        # Verify dead-letter receipt properties
+        assert dl.status == "dead_lettered"
+        assert dl.attempt_number == 3
+        assert dl.next_retry_at is None
+        assert "exhausted" in (dl.error or "")
+
+        # Snapshot: only the intermediate failures recorded, not the dead letter itself
+        snap = diag.snapshot()
+        assert snap["adapter_failures"]["dl-target"] == 1
+
+    def test_classify_failure_coverage(self) -> None:
+        """All failure kinds produce correct retryability classification."""
+        # ADAPTER_TRANSIENT is retryable
+        assert RetryExecutor.classify_failure(
+            ConnectionError("net"), adapter_registered=True,
+        ) is DeliveryFailureKind.ADAPTER_TRANSIENT
+
+        # PLANNER_FAILURE
+        assert RetryExecutor.classify_failure(
+            RuntimeError("x"), planner_failed=True,
+        ) is DeliveryFailureKind.PLANNER_FAILURE
+
+        # RENDERER_FAILURE
+        assert RetryExecutor.classify_failure(
+            RuntimeError("x"), renderer_failed=True,
+        ) is DeliveryFailureKind.RENDERER_FAILURE
+
+        # TARGET_NOT_FOUND
+        assert RetryExecutor.classify_failure(
+            RuntimeError("x"), adapter_registered=False,
+        ) is DeliveryFailureKind.TARGET_NOT_FOUND
+
+        # DEADLINE_EXCEEDED
+        past = datetime.now(timezone.utc) - timedelta(hours=1)
+        assert RetryExecutor.classify_failure(
+            TimeoutError("x"), deadline=past,
+        ) is DeliveryFailureKind.DEADLINE_EXCEEDED
+
+        # ADAPTER_PERMANENT for non-transient
+        assert RetryExecutor.classify_failure(
+            RuntimeError("business error"),
+        ) is DeliveryFailureKind.ADAPTER_PERMANENT

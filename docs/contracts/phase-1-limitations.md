@@ -119,41 +119,162 @@ A true retry mode requires receipt deduplication, dead-letter queue integration,
 
 ---
 
-## 2. Protocol-Neutral Readiness
+## 2. Protocol-Neutral Readiness (Track 5)
 
-### What Exists
+This section documents how the existing canonical event model, metadata namespaces, and adapter contracts support future externally initiated adapters (webhooks, request/response systems, RPC) without requiring schema changes. No concrete transport, server, or auth framework is built here. The goal is verified readiness: the mechanisms exist, they survive round-trip serialization, and their usage conventions are locked in.
 
-The canonical event model is transport-agnostic by design:
+### 2.1 What Exists Now
 
-| Feature | Location | Status |
-|---------|----------|--------|
-| Correlation IDs | `trace_id` field on `CanonicalEvent` | Available, not populated by default |
-| Idempotency keys | `metadata.custom["idempotency_key"]` | Convention; not enforced |
-| Principal/auth context | `metadata.custom["principal"]` | Reserved; not populated |
-| Request/response lineage | `lineage` + `parent_event_id` | Mechanism exists |
-| Inbound provenance | `source_adapter` + `source_transport_id` | Always populated |
-| Event kind registry | `EventKind` constants + `KNOWN_KINDS` | 18 kinds across 7 domains |
+The canonical event model is transport-agnostic by design. Every concept needed for externally initiated adapters maps to an existing field or namespace:
 
-### What Phase 1 Does NOT Implement
+| Concept | Canonical Location | Status | Round-Trip Verified |
+|---------|-------------------|--------|---------------------|
+| Correlation IDs | `CanonicalEvent.trace_id` | Optional `str`, survives JSON/msgpack | Yes |
+| Idempotency keys | `EventMetadata.custom["idempotency_key"]` | Convention, `_FrozenDict`-protected | Yes |
+| Principal/auth context | `EventMetadata.custom["principal"]` | Reserved dict slot, not populated | Yes |
+| Request/response lineage | `CanonicalEvent.parent_event_id` + `lineage` | Mechanism exists, immutable tuples | Yes |
+| Inbound provenance | `CanonicalEvent.source_adapter` + `source_transport_id` | Always populated, extensible for new transports | Yes |
+| Transport protocol | `TransportMetadata.protocol` | Free-form `str`, already used for `"mqtt"`, `"lxmf"`, etc. | Yes |
+| Gateway identity | `TransportMetadata.gateway_id` | Optional `str` for relay/proxy identification | Yes |
+| Native field passthrough | `NativeMetadata.data` | Adapter-specific opaque dict, `_FrozenDict`-protected | Yes |
+| Plugin extensibility | `EventMetadata.custom` | Reverse-DNS namespaced key-value pairs | Yes |
+| Event kind extensibility | `plugin.custom` kind + `KNOWN_KINDS` | Plugin-defined events without schema changes | Yes |
 
-- No HTTP/webhook server or listener
-- No RPC framework or API surface
+### 2.2 Usage Patterns for Future Externally Initiated Adapters
+
+These patterns show how a future adapter would populate existing fields. They are conventions, not enforced contracts. No adapter implementing these patterns exists in Phase 1.
+
+#### Correlation via `trace_id`
+
+A future HTTP webhook adapter receives a request with an `X-Correlation-ID` header. The adapter maps it to `trace_id`:
+
+```python
+CanonicalEvent(
+    ...,
+    trace_id=inbound_headers.get("x-correlation-id"),  # or generated UUIDv7
+)
+```
+
+The `trace_id` field is optional (`str | None`), so events without correlation context simply leave it as `None`. Downstream consumers and the delivery pipeline can use `trace_id` to correlate events across hops without inspecting metadata.
+
+#### Idempotency via `metadata.custom`
+
+A future adapter receives a webhook with an `Idempotency-Key` header. The adapter stores it in the existing `custom` namespace:
+
+```python
+EventMetadata(
+    custom={
+        "idempotency_key": "req_abc123",
+        # other custom keys as needed
+    }
+)
+```
+
+Deduplication logic (to be built in a future phase) would look up `metadata.custom["idempotency_key"]` in storage before processing. The key namespace is flat under `custom`, following the same reverse-DNS convention used by plugins.
+
+#### Principal/Auth Context via `metadata.custom`
+
+A future adapter receiving authenticated requests maps the caller identity:
+
+```python
+EventMetadata(
+    custom={
+        "principal": {
+            "type": "bearer_token",
+            "subject": "service-account-42",
+            "claims": {"role": "operator"},
+        },
+    }
+)
+```
+
+The shape of the `principal` dict is a future adapter concern, not a canonical contract. The `custom` namespace provides the container. No auth framework, token validation, or permission checking exists in Phase 1.
+
+#### Request/Response Lineage
+
+A future request/response adapter creates a response event linked to the request:
+
+```python
+# Request event
+request_event = CanonicalEvent(
+    event_id="req-001",
+    ...,
+    parent_event_id=None,
+    lineage=(),
+)
+
+# Response event
+response_event = CanonicalEvent(
+    event_id="resp-001",
+    ...,
+    parent_event_id="req-001",
+    lineage=("req-001",),
+)
+```
+
+The existing `parent_event_id` and `lineage` fields support this pattern directly. The `lineage` tuple is append-only and immutable, preserving the full chain from origin to current event.
+
+#### Inbound Provenance
+
+A future webhook adapter identifies itself and the external caller:
+
+```python
+CanonicalEvent(
+    ...,
+    source_adapter="webhook-incoming",     # Adapter instance name
+    source_transport_id="api-client-42",   # External caller identity
+    source_channel_id="/webhooks/alerts",  # Endpoint path or channel
+)
+```
+
+These three fields are already required or optional on every `CanonicalEvent`. A new adapter simply populates them with values meaningful to its transport. The routing engine and identity resolver treat them the same as any other adapter's values.
+
+### 2.3 What Phase 1 Does NOT Implement
+
+The following do not exist anywhere in Phase 1. This list is exhaustive for Track 5:
+
+- No HTTP server, webhook listener, or REST API endpoint
+- No RPC framework, gRPC service, or request/response handler
 - No authentication or authorization framework
+- No token validation, API key checking, or permission system
+- No webhook configuration, secret management, or signature verification
 - No Matrix transport implementation
-- No real transport adapters (only the event model and contracts)
+- No concrete transport adapters (only the event model and contracts)
 - No protocol-specific fields beyond what adapters define in `metadata.native`
+- No inbound rate limiting per source
+- No request routing or URL dispatching
+- No TLS termination or certificate management
 
-### Future Webhook Readiness
+### 2.4 Verified Test Coverage
 
-The following protocol-neutral concepts are documented here for future reference but are **not** implemented:
+The following existing test coverage validates that the protocol-neutral mechanisms work correctly through construction, serialization, and immutability:
 
-| Concept | Notes |
-|---------|-------|
-| **Correlation IDs** | `trace_id` on `CanonicalEvent`; maps to HTTP `X-Correlation-ID` or similar headers |
-| **Idempotency keys** | Consumers should use `metadata.custom["idempotency_key"]` for deduplication |
-| **Principal/auth context** | Reserved in `metadata.custom["principal"]`; no auth framework exists |
-| **Request/response lineage** | Use `parent_event_id` and `lineage` to correlate request-response pairs |
-| **Inbound provenance** | `source_adapter` + `source_transport_id` identify the origin; extensible for new transports |
+| Test Class | What It Verifies |
+|------------|-----------------|
+| `TestCanonicalEvent.test_construction_with_all_fields` | `trace_id` survives construction |
+| `TestCanonicalEvent.test_default_optional_fields` | `trace_id` defaults to `None` |
+| `TestJsonRoundTrip` | `trace_id`, `metadata.custom`, `lineage` survive JSON encode/decode |
+| `TestMsgpackRoundTrip` | Same fields survive msgpack encode/decode |
+| `TestImmutability` | All protocol-neutral fields are deeply frozen after construction |
+| `TestConstructorInputIsolation` | Mutable inputs (dicts for `custom`, lists for `lineage`) are defensively copied |
+| `TestEventMetadata.test_full_metadata` | All sub-namespaces including `custom` and `native` populate correctly |
+| `TestUnknownMetadataFields` | Unknown keys in `custom` are preserved through round-trip |
+
+### 2.5 Custom Namespace Convention for External Adapters
+
+Future externally initiated adapters should namespace their `custom` keys to avoid collisions:
+
+| Key Pattern | Purpose | Example |
+|-------------|---------|---------|
+| `idempotency_key` | Deduplication key from external request | `"req_abc123"` |
+| `principal` | Authenticated caller identity | `{"type": "bearer", "subject": "svc-42"}` |
+| `http.method` | HTTP verb (if applicable) | `"POST"` |
+| `http.path` | URL path (if applicable) | `"/webhooks/alerts"` |
+| `http.headers.*` | Selected inbound headers | `{"content-type": "application/json"}` |
+| `rpc.service` | RPC service name (if applicable) | `"AlertService"` |
+| `rpc.method` | RPC method name (if applicable) | `"SendAlert"` |
+
+These are conventions, not enforced fields. Adapters populate only what they need. The `custom` dict is frozen at construction and survives all serialization paths.
 
 ---
 

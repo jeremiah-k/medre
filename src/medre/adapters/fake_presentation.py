@@ -344,3 +344,111 @@ class FakePresentationAdapter(BaseAdapter):
         """Whether :meth:`start` has been called without a corresponding
         :meth:`stop`."""
         return self._started
+
+
+# ---------------------------------------------------------------------------
+# Deterministic failure injector for hardening tests
+# ---------------------------------------------------------------------------
+
+
+class FaultyPresentationAdapter(BaseAdapter):
+    """Deterministic failure-injecting presentation adapter for hardening tests.
+
+    Configurable delivery behaviour:
+
+    * ``"always_fail"`` – every call raises.
+    * ``"fail_n_then_succeed"`` – raises for the first *n* calls, then
+      succeeds.
+    * ``"transient_fail"`` – raises :class:`ConnectionError` (retryable).
+    * ``"permanent_fail"`` – raises :class:`RuntimeError` (permanent).
+    * ``"succeed"`` – never raises.
+
+    Parameters
+    ----------
+    adapter_id:
+        Unique adapter identifier.
+    failure_mode:
+        One of ``"always_fail"``, ``"fail_n_then_succeed"``,
+        ``"transient_fail"``, ``"permanent_fail"``, ``"succeed"``.
+    fail_count:
+        Number of times to fail before switching to success mode.
+        Only used when ``failure_mode="fail_n_then_succeed"``.
+    """
+
+    adapter_id: str
+    platform: str = "faulty_presentation"
+    role: AdapterRole = AdapterRole.PRESENTATION
+
+    def __init__(
+        self,
+        adapter_id: str = "faulty_presentation",
+        failure_mode: str = "always_fail",
+        fail_count: int = 1,
+    ) -> None:
+        self.adapter_id = adapter_id
+        self._failure_mode = failure_mode
+        self._fail_count = fail_count
+        self._call_count: int = 0
+        self.delivered_payloads: list[Any] = []
+        self.received_events: list[Any] = []
+        self._started: bool = False
+        self.ctx: AdapterContext | None = None
+
+    # -- Lifecycle ----------------------------------------------------------
+
+    async def start(self, ctx: AdapterContext) -> None:
+        self.ctx = ctx
+        self._started = True
+
+    async def stop(self, timeout: float = 5.0) -> None:
+        self._started = False
+
+    async def health_check(self) -> AdapterInfo:
+        return AdapterInfo(
+            adapter_id=self.adapter_id,
+            platform=self.platform,
+            role=self.role,
+            version="0.1.0",
+            capabilities=_FAKE_PRESENTATION_CAPABILITIES,
+            health="healthy" if self._started else "unknown",
+        )
+
+    # -- Delivery with injection --------------------------------------------
+
+    async def deliver(self, result: Any) -> None:
+        """Deliver with deterministic failure injection.
+
+        Increments the internal call counter and raises or succeeds
+        based on the configured ``failure_mode``.
+        """
+        self._call_count += 1
+        if self._should_fail():
+            self._raise_failure()
+        self.delivered_payloads.append(result)
+
+    @property
+    def call_count(self) -> int:
+        """Number of times :meth:`deliver` has been invoked."""
+        return self._call_count
+
+    def _should_fail(self) -> bool:
+        if self._failure_mode == "succeed":
+            return False
+        if self._failure_mode == "always_fail":
+            return True
+        if self._failure_mode == "transient_fail":
+            return True
+        if self._failure_mode == "permanent_fail":
+            return True
+        if self._failure_mode == "fail_n_then_succeed":
+            return self._call_count <= self._fail_count
+        return False
+
+    def _raise_failure(self) -> None:
+        if self._failure_mode == "transient_fail":
+            raise ConnectionError(f"faulty adapter {self.adapter_id}: transient")
+        raise RuntimeError(f"faulty adapter {self.adapter_id}: permanent")
+
+    @property
+    def is_started(self) -> bool:
+        return self._started

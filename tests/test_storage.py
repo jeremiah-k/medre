@@ -725,3 +725,80 @@ class TestReceiptLineage:
         assert len(receipts_b) == 1
         assert receipts_a[0].attempt_number == 2
         assert receipts_b[0].attempt_number == 1
+
+
+# ===================================================================
+# Track 6: Receipt sequence monotonicity
+# ===================================================================
+
+
+class TestReceiptSequenceMonotonicity:
+    """Receipt sequence numbers are strictly monotonic across all receipts."""
+
+    async def test_sequence_monotonic_across_many_events(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Appending receipts for 10 events × 3 adapters yields monotonic sequences."""
+        for i in range(10):
+            event = _make_event(event_id=f"monoton-{i}")
+            await temp_storage.append(event)
+
+            for adapter in ("adapter_x", "adapter_y", "adapter_z"):
+                receipt = DeliveryReceipt(
+                    receipt_id=f"rcpt-mono-{i}-{adapter}",
+                    event_id=event.event_id,
+                    delivery_plan_id=f"plan-mono-{i}",
+                    target_adapter=adapter,
+                    status="sent",
+                )
+                await temp_storage.append_receipt(receipt)
+
+        rows = await temp_storage._read_all(
+            "SELECT sequence FROM delivery_receipts ORDER BY sequence ASC",
+            (),
+        )
+        assert len(rows) == 30
+
+        seqs = [r["sequence"] for r in rows]
+        for i in range(1, len(seqs)):
+            assert seqs[i] > seqs[i - 1], (
+                f"Sequence not monotonic: {seqs[i]} <= {seqs[i-1]} at index {i}"
+            )
+
+    async def test_receipt_ordering_across_retry_chain(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Retry chain: failed → failed → dead_lettered preserves sequence order."""
+        event = _make_event(event_id="evt-retry-seq")
+        await temp_storage.append(event)
+
+        statuses = ["failed", "failed", "dead_lettered"]
+        prev_id = None
+        for i, st in enumerate(statuses):
+            receipt = DeliveryReceipt(
+                receipt_id=f"rcpt-retry-seq-{i}",
+                event_id="evt-retry-seq",
+                delivery_plan_id="plan-retry-seq",
+                target_adapter="retry_adapter",
+                status=st,  # type: ignore[arg-type]
+                attempt_number=i + 1,
+                parent_receipt_id=prev_id,
+            )
+            await temp_storage.append_receipt(receipt)
+            prev_id = receipt.receipt_id
+
+        rows = await temp_storage._read_all(
+            "SELECT sequence, status, attempt_number, parent_receipt_id "
+            "FROM delivery_receipts WHERE event_id = ? ORDER BY sequence ASC",
+            ("evt-retry-seq",),
+        )
+        assert len(rows) == 3
+        assert [r["status"] for r in rows] == ["failed", "failed", "dead_lettered"]
+        assert [r["attempt_number"] for r in rows] == [1, 2, 3]
+        assert rows[0]["parent_receipt_id"] is None
+        assert rows[1]["parent_receipt_id"] == "rcpt-retry-seq-0"
+        assert rows[2]["parent_receipt_id"] == "rcpt-retry-seq-1"
+
+        # Sequences strictly increasing
+        seqs = [r["sequence"] for r in rows]
+        assert seqs[0] < seqs[1] < seqs[2]

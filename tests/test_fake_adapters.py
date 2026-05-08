@@ -564,3 +564,118 @@ class TestPluginBoundary:
         }
         with pytest.raises(PluginBoundaryError):
             validate_plugin_payload([meshtastic_data], "naive_plugin")
+
+
+# ===================================================================
+# Track 6: FaultyPresentationAdapter failure injector
+# ===================================================================
+
+
+class TestFaultyPresentationAdapter:
+    """Deterministic failure injection via FaultyPresentationAdapter."""
+
+    async def test_always_fail_raises_runtime_error(self) -> None:
+        """permanent_fail mode raises RuntimeError on every deliver."""
+        from medre.adapters.fake_presentation import FaultyPresentationAdapter
+
+        adapter = FaultyPresentationAdapter(
+            adapter_id="always-fail", failure_mode="always_fail",
+        )
+        result = RenderingResult(
+            event_id="evt-1",
+            target_adapter="always-fail",
+            target_channel="ch-0",
+            payload={"text": "test"},
+        )
+
+        for _ in range(5):
+            with pytest.raises(RuntimeError, match="permanent"):
+                await adapter.deliver(result)
+
+        assert adapter.call_count == 5
+        assert len(adapter.delivered_payloads) == 0
+
+    async def test_transient_fail_raises_connection_error(self) -> None:
+        """transient_fail mode raises ConnectionError (retryable)."""
+        from medre.adapters.fake_presentation import FaultyPresentationAdapter
+
+        adapter = FaultyPresentationAdapter(
+            adapter_id="transient", failure_mode="transient_fail",
+        )
+        result = RenderingResult(
+            event_id="evt-2",
+            target_adapter="transient",
+            target_channel="ch-0",
+            payload={"text": "test"},
+        )
+
+        with pytest.raises(ConnectionError, match="transient"):
+            await adapter.deliver(result)
+
+    async def test_succeed_never_raises(self) -> None:
+        """succeed mode never raises and stores payloads."""
+        from medre.adapters.fake_presentation import FaultyPresentationAdapter
+
+        adapter = FaultyPresentationAdapter(
+            adapter_id="always-ok", failure_mode="succeed",
+        )
+        result = RenderingResult(
+            event_id="evt-3",
+            target_adapter="always-ok",
+            target_channel="ch-0",
+            payload={"text": "test"},
+        )
+
+        for _ in range(5):
+            await adapter.deliver(result)
+
+        assert adapter.call_count == 5
+        assert len(adapter.delivered_payloads) == 5
+
+    async def test_fail_n_then_succeed(self) -> None:
+        """fail_n_then_succeed raises for first N calls then succeeds."""
+        from medre.adapters.fake_presentation import FaultyPresentationAdapter
+
+        adapter = FaultyPresentationAdapter(
+            adapter_id="recover", failure_mode="fail_n_then_succeed", fail_count=3,
+        )
+        result = RenderingResult(
+            event_id="evt-4",
+            target_adapter="recover",
+            target_channel="ch-0",
+            payload={"text": "test"},
+        )
+
+        # First 3 calls fail
+        for i in range(3):
+            with pytest.raises(RuntimeError, match="permanent"):
+                await adapter.deliver(result)
+            assert adapter.call_count == i + 1
+
+        # 4th call succeeds
+        await adapter.deliver(result)
+        assert adapter.call_count == 4
+        assert len(adapter.delivered_payloads) == 1
+
+        # 5th call also succeeds
+        await adapter.deliver(result)
+        assert adapter.call_count == 5
+        assert len(adapter.delivered_payloads) == 2
+
+    async def test_faulty_adapter_lifecycle(self, make_adapter_context) -> None:
+        """FaultyPresentationAdapter supports start/stop lifecycle."""
+        from medre.adapters.fake_presentation import FaultyPresentationAdapter
+
+        adapter = FaultyPresentationAdapter(adapter_id="lifecycle")
+        assert adapter.is_started is False
+
+        ctx = make_adapter_context("lifecycle")
+        await adapter.start(ctx)
+        assert adapter.is_started is True
+
+        info = await adapter.health_check()
+        assert info.adapter_id == "lifecycle"
+        assert info.health == "healthy"
+
+        await adapter.stop()
+        assert adapter.is_started is False
