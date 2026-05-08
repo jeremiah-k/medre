@@ -57,23 +57,25 @@ class Adapter(Protocol):
         """
         ...
 
-    async def stop(self, timeout: float) -> None:
-        """Gracefully shut down. Drain queues within timeout seconds.
+    async def stop(self) -> None:
+        """Gracefully shut down.
 
-        Complete in-flight deliveries. Reject new ones. Clean up connections.
-        If timeout expires, abort remaining operations.
+        Complete in-flight deliveries if applicable, reject new work, and
+        clean up connections. Phase 1 fake adapters have no background
+        queues or connections to drain.
         """
         ...
 
-    async def deliver(self, plan: DeliveryPlan) -> DeliveryReceipt:
-        """Deliver a rendered event to this adapter's target.
+    async def deliver(self, result: RenderingResult) -> None:
+        """Deliver a rendered payload to this adapter's target.
 
-        The plan contains the event, target channel/destination, and
-        rendering details. The adapter encodes the event into its native
-        format (using its codec), sends it, and returns a receipt.
+        The pipeline guarantees that *result* has already been rendered
+        by a Renderer. The adapter must not re-render, reformat, or
+        inspect the event kind to decide formatting. It merely transports
+        the payload.
 
         This is the only outbound method. There is no send(), no push(),
-        no emit(). Delivery is always plan-driven.
+        no emit(). Delivery is always rendering-result-driven.
         """
         ...
 
@@ -107,13 +109,12 @@ async def _listen(self, connection) -> None:
         await self.ctx.publish_inbound(event)  # Push into the pipeline
 ```
 
-For outbound, the `deliver()` method uses the codec internally:
+For outbound, the `deliver()` method receives a pre-rendered `RenderingResult`:
 
 ```python
-async def deliver(self, plan: DeliveryPlan) -> DeliveryReceipt:
-    outbound = await self.codec.encode(plan.event, plan)
-    result = await self._send(outbound)
-    return DeliveryReceipt(...)
+async def deliver(self, result: RenderingResult) -> None:
+    # The result is already rendered. Just transport the payload.
+    await self._send(result.payload)
 ```
 
 
@@ -123,30 +124,31 @@ Each adapter receives an `AdapterContext` on startup. This is the adapter's only
 
 ```python
 from dataclasses import dataclass
-from typing import Callable, Awaitable
+from typing import Callable, Awaitable, Any
+import logging
 
 @dataclass
 class AdapterContext:
-    config: dict                       # Adapter-specific configuration from YAML
+    adapter_id: str                     # Unique adapter instance identifier
+    event_bus: Any                      # Opaque reference to the framework event bus
     publish_inbound: Callable[[CanonicalEvent], Awaitable[None]]
-                                       # Publish an inbound canonical event into the pipeline.
-                                       # This is the only way to inject events.
-    storage: StorageBackend            # For querying historical events and storing native refs
-    identity_resolver: IdentityResolver  # For resolving native IDs to canonical actors
-    logger: BoundLogger                # Structured logger pre-bound with adapter context
-    schema_registry: SchemaRegistry    # For looking up event schemas
+                                        # Publish an inbound canonical event into the pipeline.
+                                        # This is the only way to inject events.
+    logger: logging.Logger              # Pre-configured logger scoped to the adapter
+    clock: Callable[[], datetime]       # Callable returning current UTC datetime (for deterministic testing)
+    shutdown_event: Any                 # asyncio.Event set when graceful shutdown is requested
 ```
 
 ### 3.1 What Each Field Provides
 
 | Field | Purpose |
 |---|---|
-| `config` | The adapter's block from `runtime.yaml`. Connection settings, channel mappings, rate limit overrides. Shape is adapter-specific. |
+| `adapter_id` | Unique identifier for this adapter instance. |
+| `event_bus` | Opaque reference to the framework's internal event bus. Adapters should prefer `publish_inbound` over direct bus interaction. |
 | `publish_inbound` | The ingress point. Call this with a `CanonicalEvent` to inject it into the pipeline. The event passes through ingress policy, storage, enrichment, transforms, and routing. |
-| `storage` | Access to `store_native_ref`, `resolve_native_ref`, `query`, and other `StorageBackend` methods (see Spec Section 12.4). |
-| `identity_resolver` | Resolve `NativeIdentity` to `CanonicalActor` during enrichment. |
-| `logger` | A `structlog.BoundLogger` with adapter name and instance already bound. Use this for all logging. |
-| `schema_registry` | Look up validation functions for `(event_kind, schema_version)` pairs. |
+| `logger` | A pre-configured `logging.Logger` scoped to the adapter. Use this for all logging. |
+| `clock` | Callable returning current UTC `datetime`. Use this instead of `datetime.utcnow()` for deterministic testing. |
+| `shutdown_event` | An `asyncio.Event` that the framework sets when a graceful shutdown is requested. |
 
 ### 3.2 What Adapters Cannot Do
 
@@ -354,7 +356,7 @@ class AdapterInfo:
     """Static and runtime metadata about an adapter instance.
 
     Registered in the adapter registry at startup. Queried by the
-    routing engine, delivery planner, and management API.
+    routing engine, delivery planner, and future management interface.
     """
     name: str                              # Unique instance name
     adapter_type: str                      # Adapter type key (e.g., "meshcore", "matrix", "lxmf")
@@ -495,36 +497,30 @@ class DeliveryPlan:
     target: RouteTarget                    # Structured target (adapter, channel, destination)
     primary_strategy: DeliveryStrategy
     fallback_chain: list[DeliveryStrategy] # Ordered fallback attempts
-    retry_policy: RetryPolicy
-    ordering_key: str | None               # For in-order delivery within a group
-    deduplication_scope: str               # Scope for delivery dedup
+    retry_policy: RetryPolicy | None
     deadline: datetime | None              # Maximum time to keep attempting delivery
 ```
 
 ### 8.3 DeliveryReceipt
 
 ```python
-class DeliveryStatus(str, Enum):
-    ACCEPTED = "accepted"                  # Adapter accepted the event for delivery
-    QUEUED = "queued"                      # Event is queued, delivery pending
-    SENT = "sent"                          # Event was sent to the external platform
-    ACKNOWLEDGED = "acknowledged"          # External platform confirmed receipt
-    FAILED = "failed"                      # Delivery failed, will retry per plan
-    DEAD_LETTERED = "dead_lettered"        # All delivery attempts exhausted
-
 @dataclass(frozen=True)
 class DeliveryReceipt:
-    receipt_id: str
-    event_id: str
-    delivery_plan_id: str
-    target_adapter: str
-    status: DeliveryStatus
-    timestamp: datetime
-    adapter_message_id: str | None         # Platform-specific message ID after send
-    error: str | None                      # Error details if failed
-    retry_count: int
-    next_retry_at: datetime | None
+    sequence: int = 0                      # Monotonically increasing sequence number
+    receipt_id: str = ""                   # Unique receipt record identifier
+    event_id: str = ""                     # The canonical event being delivered
+    delivery_plan_id: str = ""             # Delivery plan this receipt belongs to
+    target_adapter: str = ""               # Name of the target adapter
+    status: Literal["accepted", "queued", "sent", "confirmed", "failed", "dead_lettered"] = "accepted"
+    error: str | None = None               # Error message if delivery failed
+    adapter_message_id: str | None = None  # Platform-specific message ID after send
+    next_retry_at: datetime | None = None  # Scheduled time for next retry attempt
+    attempt_number: int = 1                # 1-indexed attempt number (1 for first attempt)
+    parent_receipt_id: str | None = None   # Receipt ID of preceding attempt in the chain
+    created_at: datetime = ...             # Timestamp when this receipt was created
 ```
+
+Phase 1 does not define a `DeliveryStatus` enum in code. Receipt status is a string literal constrained to the values shown above.
 
 ### 8.4 Receipt Rules
 
@@ -534,13 +530,11 @@ class DeliveryReceipt:
 
 ### 8.5 What deliver() Must Do
 
-1. Extract the canonical event from the plan.
-2. Encode the event into native format (using the codec).
-3. Send the native payload to the transport.
-4. Record a native message ref via `ctx.storage.store_native_ref` (for correlation).
-5. Return a `DeliveryReceipt` with the appropriate status.
+1. Receive the pre-rendered `RenderingResult` from the pipeline.
+2. Transport the rendered payload to the external platform.
+3. The pipeline (not the adapter) records delivery receipts and native message refs.
 
-If the send fails, return a receipt with `status=FAILED` and the error message. Do not retry internally; the delivery executor handles retries based on the plan's `retry_policy`.
+If the send fails, raise an exception. The pipeline handles retry logic and receipt recording based on the delivery plan's retry policy.
 
 
 ## 9. Adapter Registry
@@ -738,7 +732,8 @@ from core.adapter import Adapter, AdapterCodec
 
 # Data structures to populate
 from core.events.canonical import CanonicalEvent, EventRelation, EventMetadata
-from core.delivery import DeliveryPlan, DeliveryReceipt, DeliveryStatus
+from core.delivery import DeliveryPlan, DeliveryReceipt
+from core.rendering.renderer import RenderingResult
 from core.adapter import (
     AdapterRole, AdapterLifecycleState, AdapterContext,
     AdapterInfo, AdapterHealth, AdapterCapabilities,

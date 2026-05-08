@@ -20,54 +20,83 @@ Every storage implementation must satisfy this interface:
 
 ```python
 class StorageBackend(Protocol):
-    async def append(self, event: CanonicalEvent) -> None:
-        """Persist a canonical event to the event log."""
-        ...
+    """Protocol defining the interface all storage backends must implement.
 
-    async def query(self, filter: EventFilter) -> AsyncIterator[CanonicalEvent]:
-        """Query events matching the given filter."""
+    Contractual guarantees: Events are append-only.  Delivery receipts are
+    append-only.  Native refs are idempotent.  Relations queryable by
+    event_id.  Query results ordered by timestamp ascending.
+    """
+
+    # -- Event CRUD ---------------------------------------------------------
+
+    async def append(self, event: CanonicalEvent) -> None:
+        """Persist a canonical event together with its inline relations."""
         ...
 
     async def get(self, event_id: str) -> CanonicalEvent | None:
-        """Retrieve a single event by ID."""
+        """Retrieve a single event by its unique identifier."""
         ...
 
-    async def append_receipt(self, receipt: DeliveryReceipt) -> None:
-        """Append a delivery receipt row. Never updates existing rows."""
+    async def query(self, filter: EventFilter) -> AsyncIterator[CanonicalEvent]:
+        """Yield events matching filter, ordered by timestamp."""
         ...
 
-    async def archive_raw(self, event_id: str, adapter: str, data: bytes) -> None:
-        """Compress and store raw native data linked to a canonical event."""
-        ...
+    # -- Native ref correlation ---------------------------------------------
 
     async def store_native_ref(self, ref: NativeMessageRef) -> None:
-        """Store a native message reference for cross-adapter correlation."""
+        """Persist a native-to-canonical message mapping."""
         ...
 
     async def resolve_native_ref(
-        self, adapter: str, native_channel_id: str, native_message_id: str
+        self, adapter: str, native_channel_id: str | None, native_message_id: str
     ) -> str | None:
-        """Look up a canonical event ID from a native message reference.
+        """Look up the canonical event ID for a native message reference.
         Returns None if no mapping exists."""
         ...
 
-    async def resolve_native_relation(
-        self, adapter: str, native_relation_id: str
-    ) -> str | None:
-        """Look up a canonical event ID from a native relation reference.
-        Returns None if no mapping exists."""
-        ...
+    # -- Relations ----------------------------------------------------------
 
     async def store_relation(self, event_id: str, relation: EventRelation) -> None:
-        """Persist an event relation as a row in event_relations."""
+        """Persist a single relation for an existing event."""
         ...
 
-    async def list_relations(self, event_id: str) -> list[EventEvent]:
-        """Reconstruct the relations list for an event from event_relations rows."""
+    async def list_relations(self, event_id: str) -> list[EventRelation]:
+        """Return all relations belonging to event_id."""
+        ...
+
+    # -- Receipts -----------------------------------------------------------
+
+    async def append_receipt(self, receipt: DeliveryReceipt) -> None:
+        """Append a delivery receipt record. Never updates existing rows."""
+        ...
+
+    async def delivery_status(
+        self, delivery_plan_id: str, target_adapter: str
+    ) -> DeliveryReceipt | None:
+        """Return the latest receipt for a delivery plan / adapter pair.
+        Returns None when no receipt exists."""
+        ...
+
+    async def list_receipts_for_plan(
+        self, delivery_plan_id: str, target_adapter: str
+    ) -> list[DeliveryReceipt]:
+        """Return all receipts for a delivery plan / adapter in attempt order."""
+        ...
+
+    # -- Lifecycle ----------------------------------------------------------
+
+    async def initialize(self) -> None:
+        """Prepare the backend for use (open connections, create schema)."""
+        ...
+
+    async def close(self) -> None:
+        """Release all resources held by the backend."""
         ...
 ```
 
-`resolve_native_ref` takes `native_channel_id` as a parameter because the uniqueness constraint on native refs is `(adapter, native_channel_id, native_message_id)`. A message ID may not be unique within an adapter alone (e.g., the same packet ID on different MeshCore channel slots).
+> **Note on `archive_raw` and `resolve_native_relation`:** These methods appear in the master spec (Section 12.4) but are not part of the Phase 1 `StorageBackend` protocol. Raw archiving is a future capability. Native relation resolution is handled through `resolve_native_ref` with the `native_relation_id` column index on `native_message_refs`.
+
+`resolve_native_ref` takes `native_channel_id` as an optional parameter (`str | None`) because the uniqueness constraint on native refs is `(adapter, native_channel_id, native_message_id)`. A message ID may not be unique within an adapter alone (e.g., the same packet ID on different MeshCore channel slots).
 
 ## 3. SQLite Schema
 
@@ -82,13 +111,14 @@ CREATE TABLE canonical_events (
     schema_version INTEGER NOT NULL,
     timestamp TEXT NOT NULL,         -- ISO 8601 with nanoseconds
     source_adapter TEXT NOT NULL,
-    source_transport_id TEXT,        -- Native actor/source identity (not native message ID)
+    source_transport_id TEXT NOT NULL,  -- Native actor/source identity (not native message ID)
     source_channel_id TEXT,          -- Native channel/room/topic on source adapter
     parent_event_id TEXT,
     lineage TEXT,                    -- JSON array of event IDs
     payload TEXT NOT NULL,           -- JSON
     metadata TEXT NOT NULL,          -- JSON
-    tags TEXT,                       -- JSON array
+    depth INTEGER NOT NULL DEFAULT 0,
+    trace_id TEXT,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
@@ -171,14 +201,13 @@ CREATE TABLE delivery_receipts (
     event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
     delivery_plan_id TEXT NOT NULL,
     target_adapter TEXT NOT NULL,
-    status TEXT NOT NULL,
-    timestamp TEXT NOT NULL,
-    adapter_message_id TEXT,
+    status TEXT NOT NULL,             -- "accepted", "queued", "sent", "confirmed", "failed", "dead_lettered"
     error TEXT,
-    retry_count INTEGER DEFAULT 0,
+    adapter_message_id TEXT,
     next_retry_at TEXT,
     attempt_number INTEGER NOT NULL DEFAULT 1,
-    parent_receipt_id TEXT
+    parent_receipt_id TEXT,
+    created_at TEXT NOT NULL
 );
 ```
 
@@ -186,11 +215,13 @@ CREATE TABLE delivery_receipts (
 
 Every delivery attempt produces a new row. Existing rows are never updated or deleted. A delivery that retried three times produces four rows.
 
-Status values correspond to `DeliveryStatus`: `accepted`, `queued`, `sent`, `acknowledged`, `failed`, `dead_lettered`.
+Status values are `accepted`, `queued`, `sent`, `confirmed`, `failed`, `dead_lettered`. Note: `confirmed` (not `acknowledged`) is the status for transport-level acknowledgement.
 
 `attempt_number` is the 1-indexed attempt number for this receipt. The first delivery attempt is `1`; retries increment from there. Enables receipt lineage ordering without relying on timestamps.
 
 `parent_receipt_id` is the receipt ID of the preceding attempt in this delivery chain. `NULL` for the first attempt. Together with `attempt_number` this provides explicit receipt lineage.
+
+Receipts are **append-only records**. The "current status" of a delivery is a **projection**: the latest receipt for a given `(delivery_plan_id, target_adapter)` tuple, provided by the `delivery_status` view (Section 3.5). No code path writes to the view directly. To change the "current status", append a new receipt row.
 
 ### 3.5 delivery_status View
 
@@ -198,21 +229,10 @@ The current delivery status for any plan is a projection: the latest receipt row
 
 ```sql
 CREATE VIEW delivery_status AS
-SELECT
-    dr.event_id,
-    dr.delivery_plan_id,
-    dr.target_adapter,
-    dr.status AS current_status,
-    dr.timestamp AS last_updated,
-    dr.retry_count,
-    dr.next_retry_at,
-    dr.adapter_message_id,
-    dr.error
-FROM delivery_receipts dr
-INNER JOIN (
+SELECT dr.* FROM delivery_receipts dr
+JOIN (
     SELECT delivery_plan_id, target_adapter, MAX(sequence) AS max_seq
-    FROM delivery_receipts
-    GROUP BY delivery_plan_id, target_adapter
+    FROM delivery_receipts GROUP BY delivery_plan_id, target_adapter
 ) latest ON dr.sequence = latest.max_seq;
 ```
 
@@ -378,47 +398,32 @@ storage:
 - Never updates an existing row. Every call creates a new row with a new `sequence` value.
 - The current status of a delivery is read from the `delivery_status` view, not from any single row.
 
-### 5.8 archive_raw(event_id, adapter, data)
+### 5.8 archive_raw(event_id, adapter, data) (Future)
 
-- Compresses raw native data (gzip by default, zstd if available).
-- Stores in `native_archive` linked to the canonical event.
-- Only called when raw archiving is enabled for the adapter in configuration.
+> **Note:** `archive_raw` is not part of the Phase 1 `StorageBackend` protocol. It appears in the master spec as a future capability. The `native_archive` table schema is defined in Section 3.8 for reference but is not created or used in Phase 1.
 
 ## 6. Replay Interface
 
-The canonical event log supports replaying events through the pipeline.
+The canonical event log supports replaying events through the pipeline. The replay interface is defined in the dedicated replay contract (`docs/contracts/07-replay-event-log-contract.md`), which specifies `ReplayRequest`, `ReplayMode`, stage guarantees, and constraints.
 
-### 6.1 ReplayRequest
-
-```python
-class ReplayRequest:
-    source: Literal["storage", "file", "stream"]
-    filter: EventFilter               # Time range, event kinds, source adapter, etc.
-    target_stages: list[str]           # Which pipeline stages to replay through
-    target_adapters: list[str] | None  # If None, replay to all current adapters
-    dry_run: bool                      # If true, log results but don't deliver
-    replay_mode: Literal["reprocess", "replay_only"]
-    # "reprocess": create new derived events, new receipts
-    # "replay_only": deliver existing derived events to new targets
-```
-
-### 6.2 Replay Constraints
+### 6.1 Key Constraints (Summary)
 
 - Replay never modifies existing events. It creates new derived events and new receipts.
-- Replay is rate-limited to avoid overwhelming adapters.
 - Replay can target specific stages (e.g., re-run transforms only, skip policy).
-- Replay progress is tracked and resumable.
+- Phase 1 does not implement replay rate limiting, progress tracking, or resumption.
+- Phase 1 does not implement receipt deduplication during replay.
+- Phase 1 does not preserve historical renderer or adapter versions during replay.
 
-### 6.3 Use Cases
+### 6.2 Use Cases
 
-| Scenario | replay_mode | target_stages |
+| Scenario | Mode | target_stages |
 |---|---|---|
-| New plugin wants historical events | `reprocess` | transform, policy, routing |
-| New adapter added, needs past events | `replay_only` | delivery |
-| Routing rules changed, re-evaluate | `reprocess` | routing, delivery |
-| Debug current config against past events | `reprocess` with `dry_run=true` | all |
+| New plugin wants historical events | `RE_RENDER` or `BEST_EFFORT` | render, deliver |
+| New adapter added, needs past events | `BEST_EFFORT` | deliver |
+| Routing rules changed, re-evaluate | `RE_ROUTE` | route, plan |
+| Debug current config against past events | `DRY_RUN` | all |
 
-### 6.4 Future Backend Compatibility
+### 6.3 Future Backend Compatibility
 
 The replay interface works against the `StorageBackend.query` method and remains the same regardless of backend. Future streaming backends (NATS JetStream, Redis Streams, Kafka) replace the storage query with a stream consumer, but the `ReplayRequest` model and constraints stay identical.
 

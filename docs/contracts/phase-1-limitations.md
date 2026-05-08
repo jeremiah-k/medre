@@ -121,7 +121,7 @@ A true retry mode requires receipt deduplication, dead-letter queue integration,
 
 ## 2. Protocol-Neutral Readiness (Track 5)
 
-This section documents how the existing canonical event model, metadata namespaces, and adapter contracts support future externally initiated adapters (webhooks, request/response systems, RPC) without requiring schema changes. No concrete transport, server, or auth framework is built here. The goal is verified readiness: the mechanisms exist, they survive round-trip serialization, and their usage conventions are locked in.
+This section documents how the existing canonical event model, metadata namespaces, and adapter contracts support future externally initiated adapters (webhooks, request/response systems) without requiring schema changes. No concrete transport, server, or auth framework is built here. The goal is verified readiness: the mechanisms exist, they survive round-trip serialization, and their usage conventions are locked in.
 
 ### 2.1 What Exists Now
 
@@ -244,6 +244,11 @@ The following do not exist anywhere in Phase 1. This list is exhaustive for Trac
 - No inbound rate limiting per source
 - No request routing or URL dispatching
 - No TLS termination or certificate management
+- No admin API or management interface
+- No plugin ecosystem beyond boundary scaffolding (see Section 5.3 of the plugin API contract)
+- No real transports, no webhook server, no auth framework
+- No background retry scheduler or automatic retry execution
+- No receipt deduplication during replay
 
 ### 2.4 Verified Test Coverage
 
@@ -271,8 +276,8 @@ Future externally initiated adapters should namespace their `custom` keys to avo
 | `http.method` | HTTP verb (if applicable) | `"POST"` |
 | `http.path` | URL path (if applicable) | `"/webhooks/alerts"` |
 | `http.headers.*` | Selected inbound headers | `{"content-type": "application/json"}` |
-| `rpc.service` | RPC service name (if applicable) | `"AlertService"` |
-| `rpc.method` | RPC method name (if applicable) | `"SendAlert"` |
+| `ext.service` | External service name (if applicable) | `"AlertService"` |
+| `ext.method` | External method name (if applicable) | `"SendAlert"` |
 
 These are conventions, not enforced fields. Adapters populate only what they need. The `custom` dict is frozen at construction and survives all serialization paths.
 

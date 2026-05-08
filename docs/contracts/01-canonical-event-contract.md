@@ -358,7 +358,7 @@ core/events/
 
 ## 12. Protocol-Neutral Readiness (Future)
 
-The canonical event model is designed to be transport-agnostic. The following extensions are reserved for future protocol-neutral integration (e.g., webhook, RPC) but are **not** implemented in Phase 1:
+The canonical event model is designed to be transport-agnostic. The following extensions are reserved for future protocol-neutral integration (e.g., webhooks, request/response adapters) but are **not** implemented in Phase 1:
 
 | Concept | Reserved Location | Notes |
 |---------|-------------------|-------|
@@ -367,6 +367,6 @@ The canonical event model is designed to be transport-agnostic. The following ex
 | **Principal/auth context** | `metadata.custom["principal"]` | Reserved for future auth context; not populated in Phase 1 |
 | **Request/response lineage** | `lineage` + `parent_event_id` | Existing mechanism supports request-response correlation |
 | **Inbound provenance** | `source_adapter` + `source_transport_id` | Already present; extensible for new transports |
-| **Webhook readiness** | docs/contracts only | No HTTP/webhook server implemented; contract is transport-neutral |
+| **Webhook readiness** | docs/contracts only | No HTTP/webhook server implemented; schema and field contracts are transport-neutral, ready for future adapter implementation |
 
 These are documented here so that future protocol adapters can rely on existing fields rather than requiring schema changes.

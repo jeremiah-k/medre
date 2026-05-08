@@ -460,7 +460,7 @@ Core planning modules:
 
 | Module | Responsibility |
 |---|---|
-| `delivery_plan.py` | Constructs `DeliveryPlan` instances with primary strategy, fallback chain, retry policy, ordering, and dedup scope |
+| `delivery_plan.py` | Constructs `DeliveryPlan` instances with primary strategy, fallback chain, retry policy, and deadline |
 | `relation_resolution.py` | Maps reply threading, reactions, and edit correlation across adapters using `native_message_refs`. Falls back to inline text when the target lacks native support |
 | `capability_fallback.py` | Degrades event features based on target adapter capabilities (e.g., drops reactions when adapter reports `reactions: false`, renders edits as new messages when `edits: metadata_native_or_fallback`) |
 
@@ -472,9 +472,7 @@ class DeliveryPlan:
     target: RouteTarget        # Structured target (adapter, channel, destination) — see Section 8.1
     primary_strategy: DeliveryStrategy
     fallback_chain: list[DeliveryStrategy]  # Ordered fallback attempts
-    retry_policy: RetryPolicy
-    ordering_key: str | None   # For in-order delivery within a group
-    deduplication_scope: str   # Scope for delivery dedup
+    retry_policy: RetryPolicy | None
     deadline: datetime | None  # Maximum time to keep attempting delivery
 ```
 
@@ -525,12 +523,12 @@ class Adapter(Protocol):
         """Initialize the adapter. Inbound events are published via context.publish_inbound()."""
         ...
 
-    async def stop(self, timeout: float) -> None:
-        """Gracefully shut down. Drain queues within timeout."""
+    async def stop(self) -> None:
+        """Gracefully shut down."""
         ...
 
-    async def deliver(self, plan: DeliveryPlan) -> DeliveryReceipt:
-        """Deliver a rendered event to this adapter's target. Return a receipt."""
+    async def deliver(self, result: RenderingResult) -> None:
+        """Deliver a pre-rendered payload. The pipeline records receipts."""
         ...
 
     async def health_check(self) -> AdapterHealth:
@@ -592,12 +590,12 @@ Each adapter receives an `AdapterContext` providing controlled access to runtime
 ```python
 @dataclass
 class AdapterContext:
-    config: dict                      # Adapter-specific configuration
+    adapter_id: str                   # Unique adapter instance identifier
+    event_bus: Any                    # Opaque event bus reference
     publish_inbound: Callable[[CanonicalEvent], Awaitable[None]]  # Publish inbound event into pipeline
-    storage: StorageBackend            # For querying historical events and storing native refs
-    identity_resolver: IdentityResolver # For resolving native IDs to canonical actors
-    logger: BoundLogger                # Structured logger with adapter context
-    schema_registry: SchemaRegistry    # For looking up event schemas
+    logger: logging.Logger            # Adapter-scoped logger
+    clock: Callable[[], datetime]     # Deterministic clock hook
+    shutdown_event: Any               # Graceful shutdown signal placeholder
 ```
 
 Adapters do not get direct access to other adapters. All communication goes through the event pipeline.
@@ -609,36 +607,30 @@ Adapters do not get direct access to other adapters. All communication goes thro
 
 Every delivery attempt produces a receipt:
 
-```python
-class DeliveryStatus(str, Enum):
-    ACCEPTED = "accepted"         # Adapter accepted the event for delivery
-    QUEUED = "queued"             # Event is queued, delivery pending
-    SENT = "sent"                 # Event was sent to the external platform
-    ACKNOWLEDGED = "acknowledged" # External platform confirmed receipt
-    FAILED = "failed"             # Delivery failed, will retry per plan
-    DEAD_LETTERED = "dead_lettered" # All delivery attempts exhausted
-```
+Phase 1 does not define a `DeliveryStatus` enum in code. Receipt status is a string literal constrained to `"accepted"`, `"queued"`, `"sent"`, `"confirmed"`, `"failed"`, or `"dead_lettered"`.
 
 ### 10.2 Receipt Record
 
 ```python
 @dataclass(frozen=True)
 class DeliveryReceipt:
+    sequence: int = 0
     receipt_id: str
     event_id: str
     delivery_plan_id: str
     target_adapter: str
-    status: DeliveryStatus
-    timestamp: datetime
+    status: Literal["accepted", "queued", "sent", "confirmed", "failed", "dead_lettered"]
+    error: str | None
     adapter_message_id: str | None   # Platform-specific message ID (e.g., Matrix event ID)
-    error: str | None                # Error details if failed
-    retry_count: int
     next_retry_at: datetime | None
+    attempt_number: int = 1
+    parent_receipt_id: str | None = None
+    created_at: datetime
 ```
 
 ### 10.3 Receipt Processing
 
-- Receipts are **append-only records**. Every delivery attempt produces a new `DeliveryReceipt` row in storage. Existing receipt rows are never updated or deleted. A delivery that retried three times produces four receipt rows (one per attempt), each with its own `timestamp` and `status`.
+- Receipts are **append-only records**. Every delivery attempt produces a new `DeliveryReceipt` row in storage. Existing receipt rows are never updated or deleted. A delivery that retried three times produces four receipt rows (one per attempt), each with its own `created_at` value and `status`.
 - The "current status" of a delivery is a **projection**: the latest receipt for a given `(event_id, delivery_plan_id, target_adapter)` tuple determines the current state. This projection is provided by the `delivery_status` view (Section 12.3), not by mutating receipt rows.
 - **Phase 1 storage model**: Delivery receipts are stored as rows in the `delivery_receipts` table, not as `delivery.receipt` canonical events. The receipt row is the authoritative record of what happened in the delivery layer.
 - `delivery.receipt` canonical events are system/audit-only records, not routeable through normal user routes unless explicitly enabled by the operator. They may be added in a later phase as optional audit mirroring of receipt rows, but they are not the primary storage mechanism.
@@ -788,13 +780,14 @@ CREATE TABLE canonical_events (
     schema_version INTEGER NOT NULL,
     timestamp TEXT NOT NULL,         -- ISO 8601 with nanoseconds
     source_adapter TEXT NOT NULL,
-    source_transport_id TEXT,        -- Native actor/source identity (not native message ID)
+    source_transport_id TEXT NOT NULL, -- Native actor/source identity (not native message ID)
     source_channel_id TEXT,          -- Native channel/room/topic on source adapter
     parent_event_id TEXT,
     lineage TEXT,                    -- JSON array of event IDs
     payload TEXT NOT NULL,           -- JSON
     metadata TEXT NOT NULL,          -- JSON
-    tags TEXT,                       -- JSON array
+    depth INTEGER NOT NULL DEFAULT 0,
+    trace_id TEXT,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
@@ -809,12 +802,13 @@ CREATE TABLE delivery_receipts (
     event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
     delivery_plan_id TEXT NOT NULL,
     target_adapter TEXT NOT NULL,
-    status TEXT NOT NULL,
-    timestamp TEXT NOT NULL,
-    adapter_message_id TEXT,
+    status TEXT NOT NULL,             -- "accepted", "queued", "sent", "confirmed", "failed", "dead_lettered"
     error TEXT,
-    retry_count INTEGER DEFAULT 0,
-    next_retry_at TEXT
+    adapter_message_id TEXT,
+    next_retry_at TEXT,
+    attempt_number INTEGER NOT NULL DEFAULT 1,
+    parent_receipt_id TEXT,
+    created_at TEXT NOT NULL
 );
 
 CREATE TABLE event_relations (
@@ -822,9 +816,12 @@ CREATE TABLE event_relations (
     event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
     relation_type TEXT NOT NULL CHECK(relation_type IN ('reply', 'reaction', 'edit', 'delete', 'thread')),
     target_event_id TEXT,                -- Canonical event ID of the target, once resolved
-    target_native_ref TEXT,              -- JSON: NativeRef dict when canonical ID not yet known
+    target_native_adapter TEXT,
+    target_native_channel_id TEXT,
+    target_native_message_id TEXT,
     key TEXT,                            -- Relation-specific key (e.g., emoji for reactions)
     fallback_text TEXT,
+    metadata TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
@@ -835,21 +832,10 @@ CREATE INDEX idx_relations_type ON event_relations(relation_type);
 -- Current delivery status is a projection from the latest receipt per delivery plan.
 -- Uses MAX(sequence) for deterministic ordering (avoids timestamp collisions).
 CREATE VIEW delivery_status AS
-SELECT
-    dr.event_id,
-    dr.delivery_plan_id,
-    dr.target_adapter,
-    dr.status AS current_status,
-    dr.timestamp AS last_updated,
-    dr.retry_count,
-    dr.next_retry_at,
-    dr.adapter_message_id,
-    dr.error
-FROM delivery_receipts dr
-INNER JOIN (
+SELECT dr.* FROM delivery_receipts dr
+JOIN (
     SELECT delivery_plan_id, target_adapter, MAX(sequence) AS max_seq
-    FROM delivery_receipts
-    GROUP BY delivery_plan_id, target_adapter
+    FROM delivery_receipts GROUP BY delivery_plan_id, target_adapter
 ) latest ON dr.sequence = latest.max_seq;
 
 CREATE TABLE plugin_state (
@@ -1294,8 +1280,8 @@ The following test cases must pass for LXMF integration to be considered complet
 | **Inbound LXMF to Canonical Message** | An inbound `LXMessage` with text content is decoded by the codec into a `CanonicalEvent` with `event_kind="message.text"`, correct `source_adapter`, `source_transport_id` set to the source hash, and payload containing the message text. |
 | **LXMF org.* Metadata to Relation Resolution** | An inbound `LXMessage` with `fields["org.medre.event"].relation` set to `{"type": "reply", "parent_event_id": "..."}` produces a `CanonicalEvent` with an `EventRelation(relation_type="reply", target_event_id="...")`. The relation is first-class, not buried in metadata. |
 | **Matrix Reply to LXMF Metadata-Native Relation** | A Matrix reply (`m.relates_to` with `m.in_reply_to`) is correlated to the originating LXMF message via `native_message_refs`, producing a `CanonicalEvent` with `EventRelation(relation_type="reply", target_event_id=<canonical id of the LXMF message>)`. The LXMF adapter encodes this relation into the outbound `LXMessage.fields` dict for framework-aware peers. |
-| **LXMF Delivery Callback to Receipt** | The LXMF per-message delivery callback fires with `LXMessage.state=DELIVERED`. The adapter appends a `DeliveryReceipt` row with `status=ACKNOWLEDGED` and stores a `native_message_ref` mapping the LXMF message ID to the canonical event that was delivered. |
-| **Propagated LXMF Queued/Delayed Receipt** | An outbound LXMF message sent via propagation (no direct link) initially appends a `DeliveryReceipt` row with `status=QUEUED`. When the propagation node later confirms delivery, the adapter appends a new `DeliveryReceipt` row with `status=ACKNOWLEDGED`. The delivery plan's deadline and retry policy govern how long to wait before appending a `status=FAILED` row. |
+| **LXMF Delivery Callback to Receipt** | The LXMF per-message delivery callback fires with `LXMessage.state=DELIVERED`. A future adapter would append a `DeliveryReceipt` row with `status=confirmed` and store a `native_message_ref` mapping the LXMF message ID to the canonical event that was delivered. |
+| **Propagated LXMF Queued/Delayed Receipt** | An outbound LXMF message sent via propagation (no direct link) would initially append a `DeliveryReceipt` row with `status=queued`. When the propagation node later confirms delivery, the adapter would append a new `DeliveryReceipt` row with `status=confirmed`. The delivery plan's deadline and retry policy govern how long to wait before appending a `status=failed` row. |
 | **LXMF Unknown Peer Identity Auto-Create** | An inbound `LXMessage` from an unknown source hash triggers identity auto-creation: a new `CanonicalActor` with `verification_status="unverified"` and a `NativeIdentity` with `adapter="lxmf-node-a"`, `native_id=<source_hash>`. Subsequent messages from the same source hash resolve to the same actor. |
 
 The adapter is organized as follows:
@@ -1327,7 +1313,7 @@ For debugging, compliance, or advanced analysis, operators may want to retain th
 - Raw data is compressed (gzip by default, zstd if available) and stored in the `native_archive` table, linked to the canonical event by `event_id`.
 - Raw data is **never embedded** into Matrix or other presentation events. It lives in storage only.
 - Archive retention is configurable (time-based or count-based pruning).
-- Archived raw data is accessible via the API and CLI for debugging.
+- Archived raw data is accessible via the storage backend for debugging (future: management interface and CLI).
 
 ### 18.3 Configuration Example
 
@@ -1359,6 +1345,8 @@ The canonical event log supports replaying events through the pipeline. This ena
 
 ### 19.2 Replay Interface
 
+> **Note:** The current Phase 1 implementation uses the `ReplayRequest` and `ReplayMode` interface defined in `docs/contracts/07-replay-event-log-contract.md`. The model below is a conceptual outline from an earlier spec revision. For the implemented interface, see the replay contract.
+
 ```python
 class ReplayRequest:
     source: Literal["storage", "file", "stream"]
@@ -1374,9 +1362,8 @@ class ReplayRequest:
 ### 19.3 Replay Constraints
 
 - Replay does not modify existing events. It creates new derived events and receipts.
-- Replay is rate-limited to avoid overwhelming adapters.
 - Replay can target specific stages (e.g., re-run transforms only, skip policy).
-- Replay progress is tracked and resumable.
+- Replay progress tracking and rate limiting are future capabilities, not Phase 1.
 
 ### 19.4 Future Streaming
 
@@ -1636,13 +1623,13 @@ Events carry a trace context through the pipeline. Each stage creates a span. Di
 │   ├── host.py                   # Plugin loader and sandbox
 │   ├── map_viz.py                # Example: map visualization plugin
 │   └── alert_rules.py            # Example: alert rule plugin
-├── api/                          # HTTP/WebSocket API for management
+├── management/                   # Management interface (future, not Phase 1)
 │   ├── __init__.py
-│   ├── server.py                 # FastAPI/Starlette server
-│   ├── routes_events.py          # Event query/replay endpoints
-│   ├── routes_routes.py          # Route management endpoints
-│   ├── routes_adapters.py        # Adapter status/endpoints
-│   └── routes_plugins.py         # Plugin management endpoints
+│   ├── interface.py              # Future management interface boundary
+│   ├── events.py                 # Event query/replay interface (future)
+│   ├── routes.py                 # Route management interface (future)
+│   ├── adapters.py               # Adapter status interface (future)
+│   └── plugins.py                # Plugin management interface (future)
 └── tests/
     ├── __init__.py
     ├── conftest.py
@@ -1711,9 +1698,9 @@ Events carry a trace context through the pipeline. Each stage creates a span. Di
 
 - [ ] Plugin host loads and executes plugins within capability boundaries, including convenience APIs.
 - [ ] Replay engine can reprocess historical events.
-- [ ] All metrics exposed via Prometheus-compatible endpoint.
+- [ ] Metrics can be exported through a production observability integration.
 - [ ] OpenTelemetry tracing through all pipeline stages.
-- [ ] Management API for routes, adapters, events, plugins.
+- [ ] Management interface for routes, adapters, events, plugins.
 - [ ] CLI for configuration validation, event querying, replay triggering.
 - [ ] Graceful shutdown drains all adapter queues.
 - [ ] Schema versioning handles at least one version upgrade path.
@@ -1764,16 +1751,16 @@ Focus: LXMF transport adapter over Reticulum.
 | 15 | `core/rendering/lxmf.py` for LXMF fields dict rendering. LXMF relation handling (metadata-native relations via fields). Nullable security metadata normalization. |
 | 16 | LXMF test suite: inbound canonical event, org.* metadata relation resolution, Matrix reply to LXMF relation, delivery callback receipt, propagated queued receipt behavior, unknown peer identity auto-create. |
 
-### Phase 5: Plugins, Replay, API Hardening (Weeks 17-20)
+### Phase 5: Plugins, Replay, Production Hardening (Weeks 17-20)
 
-Focus: Plugin system, replay engine, management API, production readiness.
+Focus: Plugin system, replay engine, management interface, production readiness.
 
 | Week | Deliverables |
 |---|---|
 | 17 | `plugins/` host with capability scoping, convenience APIs (reply, send, react, emit). Example plugins. Raw native archive mode. |
 | 18 | Replay engine. `core/observability/` metrics and tracing. Schema versioning upgrade path. |
-| 19 | `api/` management endpoints. CLI polish. Graceful shutdown guarantees. Error recovery paths. Dead letter processing. |
-| 20 | Security review of plugin boundaries. API authentication. Performance testing. Final documentation pass. Integration test coverage. |
+| 19 | Management interface boundary. CLI polish. Graceful shutdown guarantees. Error recovery paths. Dead letter processing. |
+| 20 | Security review of plugin boundaries. Management interface access control. Performance testing. Final documentation pass. Integration test coverage. |
 
 
 ## 25. Future Document Split
@@ -1940,7 +1927,7 @@ plugins:
 observability:
   metrics:
     enabled: true
-    port: 9090                             # Prometheus metrics endpoint
+    port: 9090                             # Prometheus-compatible metrics export (future)
   tracing:
     enabled: false
     exporter: "otlp"                       # otlp | jaeger | none
@@ -1949,12 +1936,10 @@ observability:
     structured: true
     format: "json"                         # json | text
 
-api:
-  enabled: true
-  host: "127.0.0.1"
-  port: 8080
-  auth: {}                                 # API authentication config
-  cors: {}                                 # CORS config
+management:
+  enabled: false                    # Future management interface, not Phase 1
+  # Concrete server, access-control, and network binding settings are intentionally
+  # omitted from Phase 1. The current foundation does not implement an admin API.
 ```
 
 ## 29. Appendix: Illustrative Snippets

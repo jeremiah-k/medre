@@ -1549,7 +1549,7 @@ class TestEventTaxonomyAudit:
 
 class TestProtocolNeutralReadiness:
     """Verify that existing canonical mechanisms support future externally
-    initiated adapters (webhooks, RPC, request/response) without schema
+    initiated adapters (webhooks, request/response) without schema
     changes.
 
     These tests exercise the usage patterns documented in
@@ -1585,12 +1585,12 @@ class TestProtocolNeutralReadiness:
     def test_trace_id_msgpack_round_trip(self) -> None:
         """trace_id survives msgpack encode/decode."""
         kw = _valid_kwargs()
-        kw["trace_id"] = "rpc-trace-456"
+        kw["trace_id"] = "ext-trace-456"
         event = CanonicalEvent(**kw)
         decoded = msgspec.msgpack.decode(
             msgspec.msgpack.encode(event), type=CanonicalEvent
         )
-        assert decoded.trace_id == "rpc-trace-456"
+        assert decoded.trace_id == "ext-trace-456"
 
     # -- Idempotency via metadata.custom --
 

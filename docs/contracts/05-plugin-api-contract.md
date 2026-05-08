@@ -5,6 +5,17 @@
 
 This document defines the complete interface a plugin author writes against. If you are writing a plugin, this is the only contract you need.
 
+> **Phase 1 Limitation: Boundary Scaffolding Only**
+>
+> The plugin interfaces defined in this document (Plugin, PluginContext, PluginStateStore, PluginCapability, convenience methods) are **spec-level definitions only**. Phase 1 does not implement:
+> - No `PluginContext` class or instance construction
+> - No `PluginStateStore` implementation (the `plugin_state` SQL table exists in the schema but is not wired to any runtime service)
+> - No plugin loader, plugin host, or capability enforcement
+> - No convenience methods (reply, send, react, emit)
+> - No plugin event routing or lifecycle management
+>
+> The plugin contract documents the intended interface for future implementation. Plugin authors should treat this as the target API, not as currently available.
+
 ---
 
 ## 1. Plugin Interface
@@ -258,13 +269,16 @@ Plugins receive and emit events using the canonical event model. The event kinds
 |---|---|---|
 | `message.text` | Plain text message | Respond to user messages |
 | `message.file` | File or attachment | Process attachments |
-| `telemetry` | Device telemetry | Alert on thresholds |
-| `position` | Location update | Map visualization |
-| `presence` | Online/offline change | Notification triggers |
-| `metrics.update` | Internal metric | Dashboard plugins |
-| `plugin.event` | Plugin-generated signal | Inter-plugin communication |
+| `telemetry.received` | Raw telemetry data received from a node | Alert on thresholds |
+| `telemetry.position` | Geographic-position telemetry report | Map visualization |
+| `presence.changed` | Node or user presence state changed | Notification triggers |
+| `system.audit` | Audit-log entry produced by the framework | Monitoring |
+| `system.lifecycle` | Lifecycle event (start, stop, reload) | React to system state |
+| `plugin.custom` | Plugin-defined custom event | Inter-plugin communication |
 
-Plugins that emit custom events should use `plugin.event` as the event kind and put the custom type in the `payload` dict. This keeps the event kind registry clean while allowing plugins to define their own subtypes.
+> **Note:** `metrics.update`, `channel.announcement`, `transform.output`, and `policy.action` from earlier spec drafts are not implemented in Phase 1. The canonical taxonomy defines 18 event kinds; the full list is in `docs/contracts/01-canonical-event-contract.md` Section 5.
+
+Plugins that emit custom events should use `plugin.custom` as the event kind and put the custom type in the `payload` dict. This keeps the event kind registry clean while allowing plugins to define their own subtypes.
 
 The full canonical event model, including `CanonicalEvent` fields, `EventRelation`, and metadata namespaces, is defined in the master spec (Sections 5, 14).
 

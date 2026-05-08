@@ -177,6 +177,14 @@ Phase 1 does not implement a separate `RETRY` replay mode. Retry semantics are a
 
 This approach is honest about what Phase 1 provides: replay with delivery, scoped to specific events. A future `RETRY` mode could add receipt-awareness (skipping already-succeeded deliveries) and dead-letter integration, but the current model is sufficient for operational retry use cases.
 
+**Phase 1 Replay Caveats:**
+
+- **No automatic retry scheduling.** The pipeline records `next_retry_at` on failed receipts but does not automatically re-attempt delivery. Manual replay via BEST_EFFORT mode is required.
+- **No receipt deduplication.** Replaying events that already have successful delivery receipts will produce duplicate receipts.
+- **No preserved historical renderer or adapter versions.** Replay uses the current pipeline configuration, current renderers, and current adapter capabilities. If a renderer or adapter has changed since the original delivery, replay output will differ.
+- **No replay rate limiting.** Phase 1 does not rate-limit replay operations per adapter.
+- **No replay progress tracking or resumption.** Replay runs to completion or failure without intermediate checkpoints.
+
 **Why not a RETRY mode?** A true retry mode requires:
 - Receipt deduplication (skip deliveries that already succeeded).
 - Dead-letter queue integration (select events from dead-letter state).
@@ -202,6 +210,8 @@ This approach is honest about what Phase 1 provides: replay with delivery, scope
 
 ## 8. Raw Native Archive Mode
 
+> **Phase 1 Note:** Raw archiving is not implemented in Phase 1. The `native_archive` table schema is defined for future use but is not created or populated. The `archive_raw` method is not part of the Phase 1 `StorageBackend` protocol.
+
 Raw archiving stores the original native packets received from transports, separate from the canonical event. This is for debugging, compliance, and advanced analysis.
 
 ### 8.1 Behavior
@@ -210,7 +220,7 @@ Raw archiving stores the original native packets received from transports, separ
 - Raw data is **compressed** (gzip by default, zstd if available) and stored in the `native_archive` table, linked to the canonical event by `event_id`.
 - Raw data is **never embedded** into Matrix or other presentation events. Storage only.
 - Archive retention is configurable: time-based pruning (`max_age_days`), count-based pruning (`max_count`), or both.
-- Archived raw data is accessible via the API and CLI for debugging.
+- Archived raw data access is a future capability (management interface and CLI).
 
 ### 8.2 Storage Schema
 
@@ -241,7 +251,9 @@ storage:
       matrix-home: false       # Don't archive Matrix raw data
 ```
 
-### 8.4 StorageBackend Archive Method
+### 8.4 StorageBackend Archive Method (Future)
+
+> **Not implemented in Phase 1.** The following interface is defined for future implementation:
 
 ```python
 async def archive_raw(self, event_id: str, adapter: str, data: bytes) -> None:
@@ -249,7 +261,7 @@ async def archive_raw(self, event_id: str, adapter: str, data: bytes) -> None:
     ...
 ```
 
-The archive is written at ingress time, before the event enters the pipeline. Only adapters with `native_archive.adapters.<name>: true` produce archive entries.
+The archive would be written at ingress time, before the event enters the pipeline. Only adapters with `native_archive.adapters.<name>: true` would produce archive entries.
 
 
 ## 9. Storage Backend Protocol
@@ -258,17 +270,28 @@ The replay engine depends on this protocol. Phase 1 implements it with SQLite. F
 
 ```python
 class StorageBackend(Protocol):
+    """Protocol defining the interface all storage backends must implement.
+
+    Contractual guarantees: Events are append-only.  Delivery receipts are
+    append-only.  Native refs are idempotent.  Relations queryable by
+    event_id.  Query results ordered by timestamp ascending.
+    """
+
     async def append(self, event: CanonicalEvent) -> None: ...
     async def query(self, filter: EventFilter) -> AsyncIterator[CanonicalEvent]: ...
     async def get(self, event_id: str) -> CanonicalEvent | None: ...
     async def append_receipt(self, receipt: DeliveryReceipt) -> None: ...
-    async def archive_raw(self, event_id: str, adapter: str, data: bytes) -> None: ...
     async def store_native_ref(self, ref: NativeMessageRef) -> None: ...
-    async def resolve_native_ref(self, adapter: str, native_channel_id: str, native_message_id: str) -> str | None: ...
-    async def resolve_native_relation(self, adapter: str, native_relation_id: str) -> str | None: ...
+    async def resolve_native_ref(self, adapter: str, native_channel_id: str | None, native_message_id: str) -> str | None: ...
     async def store_relation(self, event_id: str, relation: EventRelation) -> None: ...
     async def list_relations(self, event_id: str) -> list[EventRelation]: ...
+    async def delivery_status(self, delivery_plan_id: str, target_adapter: str) -> DeliveryReceipt | None: ...
+    async def list_receipts_for_plan(self, delivery_plan_id: str, target_adapter: str) -> list[DeliveryReceipt]: ...
+    async def initialize(self) -> None: ...
+    async def close(self) -> None: ...
 ```
+
+> **Not in Phase 1 protocol:** `archive_raw` and `resolve_native_relation` appear in the master spec but are not part of the current `StorageBackend` protocol. Raw archiving is a future capability. Native relation resolution is handled through `resolve_native_ref` with the `native_relation_id` column index.
 
 The `query` method is the primary entry point for replay. It returns an `AsyncIterator[CanonicalEvent]` matching the filter, ordered by timestamp. The replay engine consumes this iterator and feeds events into the requested pipeline stages.
 
@@ -304,13 +327,14 @@ CREATE TABLE canonical_events (
     schema_version INTEGER NOT NULL,
     timestamp TEXT NOT NULL,         -- ISO 8601 with nanoseconds
     source_adapter TEXT NOT NULL,
-    source_transport_id TEXT,
+    source_transport_id TEXT NOT NULL,
     source_channel_id TEXT,
     parent_event_id TEXT,
     lineage TEXT,                    -- JSON array of event IDs
     payload TEXT NOT NULL,           -- JSON
     metadata TEXT NOT NULL,          -- JSON
-    tags TEXT,                       -- JSON array
+    depth INTEGER NOT NULL DEFAULT 0,
+    trace_id TEXT,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
@@ -326,31 +350,21 @@ CREATE TABLE delivery_receipts (
     event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
     delivery_plan_id TEXT NOT NULL,
     target_adapter TEXT NOT NULL,
-    status TEXT NOT NULL,
-    timestamp TEXT NOT NULL,
-    adapter_message_id TEXT,
+    status TEXT NOT NULL,             -- "accepted", "queued", "sent", "confirmed", "failed", "dead_lettered"
     error TEXT,
-    retry_count INTEGER DEFAULT 0,
-    next_retry_at TEXT
+    adapter_message_id TEXT,
+    next_retry_at TEXT,
+    attempt_number INTEGER NOT NULL DEFAULT 1,
+    parent_receipt_id TEXT,
+    created_at TEXT NOT NULL
 );
 
 -- Current delivery status projection
 CREATE VIEW delivery_status AS
-SELECT
-    dr.event_id,
-    dr.delivery_plan_id,
-    dr.target_adapter,
-    dr.status AS current_status,
-    dr.timestamp AS last_updated,
-    dr.retry_count,
-    dr.next_retry_at,
-    dr.adapter_message_id,
-    dr.error
-FROM delivery_receipts dr
-INNER JOIN (
+SELECT dr.* FROM delivery_receipts dr
+JOIN (
     SELECT delivery_plan_id, target_adapter, MAX(sequence) AS max_seq
-    FROM delivery_receipts
-    GROUP BY delivery_plan_id, target_adapter
+    FROM delivery_receipts GROUP BY delivery_plan_id, target_adapter
 ) latest ON dr.sequence = latest.max_seq;
 
 -- Event relations (first-class, not in metadata)
@@ -359,18 +373,21 @@ CREATE TABLE event_relations (
     event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
     relation_type TEXT NOT NULL CHECK(relation_type IN ('reply', 'reaction', 'edit', 'delete', 'thread')),
     target_event_id TEXT,
-    target_native_ref TEXT,              -- JSON: NativeRef dict
+    target_native_adapter TEXT,
+    target_native_channel_id TEXT,
+    target_native_message_id TEXT,
     key TEXT,
     fallback_text TEXT,
+    metadata TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
 -- Native message references (cross-adapter correlation)
 CREATE TABLE native_message_refs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id TEXT PRIMARY KEY,
     event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
     adapter TEXT NOT NULL,
-    native_channel_id TEXT NOT NULL,
+    native_channel_id TEXT,
     native_message_id TEXT NOT NULL,
     native_thread_id TEXT,
     native_relation_id TEXT,

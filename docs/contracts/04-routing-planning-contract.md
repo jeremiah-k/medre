@@ -20,6 +20,10 @@ This contract covers everything between "the pipeline has a derived event ready 
 
 What this contract does **not** cover: adapter internals, codec implementation, transform logic, identity resolution details, or storage backend implementation.
 
+### Phase 1 Limitation: Policy Pipeline
+
+Phase 1 provides **policy package scaffolding only**. The four-stage policy architecture (ingress, event, route, delivery) is a spec-level design, not a runtime pipeline in the current implementation. No `Policy` protocol, `PolicyResult`, concrete policy classes, or policy evaluation stage exist in Phase 1. The built-in policies listed in Section 10.4 (e.g., `RouteRateLimitPolicy`, `QuietHoursPolicy`, `MaxLengthPolicy`) are spec-level definitions, not implemented classes. Current runtime flow proceeds directly from routing to delivery planning without policy evaluation.
+
 
 ## 2. Route Data Model
 
@@ -246,22 +250,22 @@ class DeliveryPlan:
     target: RouteTarget        # Structured target (adapter, channel, destination)
     primary_strategy: DeliveryStrategy
     fallback_chain: list[DeliveryStrategy]  # Ordered fallback attempts
-    retry_policy: RetryPolicy
-    ordering_key: str | None   # For in-order delivery within a group
-    deduplication_scope: str   # Scope for delivery dedup
+    retry_policy: RetryPolicy | None
     deadline: datetime | None  # Maximum time to keep attempting delivery
 ```
 
 The planner constructs one `DeliveryPlan` per `(event, RouteTarget)` pair.
+
+> **Delivery plans are operational artifacts, not canonical events.** They exist during pipeline execution to coordinate delivery. They are not stored in the canonical event log and are not subject to immutability guarantees. Delivery plans may be reconstructed at any time by re-running the routing and planning stages against current configuration.
 
 ### 6.2 DeliveryStrategy
 
 ```python
 @dataclass
 class DeliveryStrategy:
-    method: str                # Delivery method identifier (adapter-specific)
-    parameters: dict           # Method-specific parameters
-    timeout: float             # Per-attempt timeout in seconds
+    method: str                # Delivery method identifier
+    max_retries: int = 3       # Maximum attempts before permanent failure
+    timeout_seconds: float = 30.0  # Per-attempt timeout in seconds
 ```
 
 `DeliveryStrategy` defines how a single delivery attempt works. The `method` field is interpreted by the target adapter. The `primary_strategy` is the first attempt. If it fails, each entry in `fallback_chain` is tried in order.
@@ -459,34 +463,30 @@ derived event
 ### 11.1 Receipt Dataclass
 
 ```python
-class DeliveryStatus(str, Enum):
-    ACCEPTED = "accepted"         # Adapter accepted the event for delivery
-    QUEUED = "queued"             # Event is queued, delivery pending
-    SENT = "sent"                 # Event was sent to the external platform
-    ACKNOWLEDGED = "acknowledged" # External platform confirmed receipt
-    FAILED = "failed"             # Delivery failed, will retry per plan
-    DEAD_LETTERED = "dead_lettered" # All delivery attempts exhausted
-
 @dataclass(frozen=True)
 class DeliveryReceipt:
-    receipt_id: str
-    event_id: str
-    delivery_plan_id: str
-    target_adapter: str
-    status: DeliveryStatus
-    timestamp: datetime
-    adapter_message_id: str | None   # Platform-specific message ID (e.g., Matrix event ID)
-    error: str | None                # Error details if failed
-    retry_count: int
-    next_retry_at: datetime | None
+    sequence: int = 0                      # Monotonically increasing sequence number
+    receipt_id: str = ""                   # Unique receipt record identifier
+    event_id: str = ""                     # The canonical event being delivered
+    delivery_plan_id: str = ""             # Delivery plan this receipt belongs to
+    target_adapter: str = ""               # Name of the target adapter
+    status: Literal["accepted", "queued", "sent", "confirmed", "failed", "dead_lettered"] = "accepted"
+    error: str | None = None               # Error message if delivery failed
+    adapter_message_id: str | None = None  # Platform-specific message ID (e.g., Matrix event ID)
+    next_retry_at: datetime | None = None  # Scheduled time for next retry attempt
+    attempt_number: int = 1                # 1-indexed attempt number
+    parent_receipt_id: str | None = None   # Receipt ID of preceding attempt
+    created_at: datetime = ...             # Timestamp when this receipt was created
 ```
+
+Phase 1 does not define a `DeliveryStatus` enum in code. Receipt status is a string literal constrained to the values shown above.
 
 ### 11.2 Append-Only Semantics
 
 Receipts are **append-only records**. Every delivery attempt produces a new `DeliveryReceipt` row in storage.
 
 - Existing receipt rows are **never updated or deleted**.
-- A delivery that retried three times produces **four receipt rows** (one per attempt), each with its own `timestamp` and `status`.
+- A delivery that retried three times produces **four receipt rows** (one per attempt), each with its own `created_at` value and `status`.
 - The storage table uses an auto-increment `sequence` column for deterministic ordering:
 
 ```sql
@@ -497,11 +497,12 @@ CREATE TABLE delivery_receipts (
     delivery_plan_id TEXT NOT NULL,
     target_adapter TEXT NOT NULL,
     status TEXT NOT NULL,
-    timestamp TEXT NOT NULL,
-    adapter_message_id TEXT,
     error TEXT,
-    retry_count INTEGER DEFAULT 0,
-    next_retry_at TEXT
+    adapter_message_id TEXT,
+    next_retry_at TEXT,
+    attempt_number INTEGER NOT NULL DEFAULT 1,
+    parent_receipt_id TEXT,
+    created_at TEXT NOT NULL
 );
 ```
 
@@ -526,21 +527,10 @@ The "current status" of a delivery is a **projection**, not a stored value. The 
 
 ```sql
 CREATE VIEW delivery_status AS
-SELECT
-    dr.event_id,
-    dr.delivery_plan_id,
-    dr.target_adapter,
-    dr.status AS current_status,
-    dr.timestamp AS last_updated,
-    dr.retry_count,
-    dr.next_retry_at,
-    dr.adapter_message_id,
-    dr.error
-FROM delivery_receipts dr
-INNER JOIN (
+SELECT dr.* FROM delivery_receipts dr
+JOIN (
     SELECT delivery_plan_id, target_adapter, MAX(sequence) AS max_seq
-    FROM delivery_receipts
-    GROUP BY delivery_plan_id, target_adapter
+    FROM delivery_receipts GROUP BY delivery_plan_id, target_adapter
 ) latest ON dr.sequence = latest.max_seq;
 ```
 
@@ -549,7 +539,7 @@ INNER JOIN (
 - The view groups receipts by `(delivery_plan_id, target_adapter)`.
 - It selects the row with the highest `sequence` for each group.
 - `MAX(sequence)` is used instead of `MAX(timestamp)` to avoid timestamp collision ambiguity.
-- `current_status` is the status from the latest receipt row. It is never written directly.
+- The returned row's `status` is the current status from the latest receipt row. It is never written directly.
 - Querying this view is the correct way to check the current delivery state of any event.
 
 ### 12.3 Key Invariant
@@ -606,14 +596,13 @@ Plugins with the `MODIFY_ROUTES` capability can add or remove routes programmati
 class StorageBackend(Protocol):
     async def append_receipt(self, receipt: DeliveryReceipt) -> None: ...
     async def store_native_ref(self, ref: NativeMessageRef) -> None: ...
-    async def resolve_native_ref(self, adapter: str, native_channel_id: str, native_message_id: str) -> str | None: ...
-    async def resolve_native_relation(self, adapter: str, native_relation_id: str) -> str | None: ...
+    async def resolve_native_ref(self, adapter: str, native_channel_id: str | None, native_message_id: str) -> str | None: ...
 ```
 
 ### 15.2 Relation Resolution Queries
 
 - `resolve_native_ref(adapter, native_channel_id, native_message_id)` returns the canonical `event_id` or `None`.
-- `resolve_native_relation(adapter, native_relation_id)` returns the canonical `event_id` for a native relation reference (e.g., Matrix `relates_to` event ID) or `None`.
+- Native relation ID lookups (e.g., Matrix `relates_to` event ID) are resolved through `resolve_native_ref` using the `native_relation_id` column index on `native_message_refs`.
 
 Both queries use the `native_message_refs` table indexes:
 
