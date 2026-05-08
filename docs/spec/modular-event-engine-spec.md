@@ -172,10 +172,18 @@ Relations between events are first-class, not hidden in metadata. Every reply, r
 
 ```python
 @dataclass(frozen=True)
+class NativeRef:
+    """Structured native reference for cross-adapter relation resolution."""
+    adapter: str                    # Adapter instance name (e.g., "matrix-home")
+    native_channel_id: str | None   # Native channel/room/topic on the adapter
+    native_message_id: str          # Native message ID on the adapter
+    native_thread_id: str | None    # Native thread/conversation ID if applicable
+
+@dataclass(frozen=True)
 class EventRelation:
     relation_type: Literal["reply", "reaction", "edit", "delete", "thread"]
     target_event_id: str | None        # Canonical event ID of the target event
-    target_native_ref: str | None      # Native reference when canonical ID is not yet known
+    target_native_ref: NativeRef | None  # Structured native reference when canonical ID is not yet known
     key: str | None                    # Relation-specific key (e.g., emoji for reactions)
     fallback_text: str | None          # Inline text representation when target adapter lacks native support
 ```
@@ -186,7 +194,7 @@ Relation fields:
 |---|---|
 | `relation_type` | The semantic type of the relation. |
 | `target_event_id` | The canonical event ID this relation points to. Set when the target event has been correlated. |
-| `target_native_ref` | The native reference (e.g., Matrix event ID, Meshtastic packet ID) when the canonical event ID has not been resolved yet. The relation resolution stage resolves `target_native_ref` to `target_event_id` via the `native_message_refs` table. |
+| `target_native_ref` | A structured `NativeRef` (adapter, native_channel_id, native_message_id, native_thread_id) identifying the native reference when the canonical event ID has not been resolved yet. The relation resolution stage resolves `target_native_ref` to `target_event_id` via the `native_message_refs` table. |
 | `key` | Type-specific data. For `reaction`, this is the emoji or reaction identifier. For other types, it may carry a reason or label. |
 | `fallback_text` | Inline text representation used when the target adapter does not support this relation type natively (e.g., `[Alice] re: original msg > reply text`). |
 
@@ -206,8 +214,8 @@ Relations are canonical. They are stored with the event and used by the relation
 | `system.lifecycle` | Adapter start/stop, connection state change | System |
 | `plugin.event` | Plugin-generated signal (custom kind in payload) | Plugins |
 | `delivery.receipt` | Result of a delivery attempt | Delivery system |
-| `transform.output` | Output of a transform stage | Transform pipeline |
-| `policy.action` | Policy decision (drop, flag, rate-limit) | Policy pipeline |
+| `transform.output` | Output of a transform stage *(optional audit/system event, not routeable through the normal pipeline)* | Transform pipeline |
+| `policy.action` | Policy decision (drop, flag, rate-limit) *(optional audit/system event, not routeable through the normal pipeline)* | Policy pipeline |
 
 ### 5.3 Immutability Rules
 
@@ -259,13 +267,18 @@ class EventTransform(Protocol):
 | **TelemetryToMetrics** | `telemetry` | `metrics.update` | Extracts numeric values for internal observability storage. |
 | **TelemetryToDatabaseOnly** | `telemetry` | (no output, tagged `storage-only`) | Marks telemetry for storage but not delivery to any presentation adapter. |
 | **PositionToMapUpdate** | `position` | `plugin.event` (kind: map) | Feeds position data to map visualization plugins. |
-| **MessageToDiscordEmbed** | `message.text` + routing metadata | `message.text` with Discord-specific formatting | Adds embed structure, webhook payload hints. |
-| **MessageToMatrixFormatted** | `message.text` + routing metadata | `message.text` with Matrix HTML hints | Adds org namespace custom content fields for Matrix. |
-| **MatrixToMeshCoreText** | `message.text` with Matrix HTML | `message.text` plain | Strips Matrix HTML formatting for MeshCore 160-byte text delivery. |
-| **ReplyFallbackRendering** | `message.text` with relation metadata | `message.text` with fallback prefix | Renders reply context as inline text prefix when target adapter lacks native reply support (e.g., `[Alice] re: original msg > reply text`). |
 | **MeshCoreTruncation** | `message.text` (long) | `message.text` (truncated) | Truncates or splits messages exceeding adapter byte limits (e.g., 160 bytes for MeshCore). |
 | **LXMFFieldEmbedding** | `message.text` + relation metadata | `message.text` with LXMF fields dict | Embeds canonical event ID, relation, and schema metadata into LXMF `fields` dict for framework-aware LXMF peers. |
 | **PluginEventRouter** | `plugin.event` | Varies | Routes plugin outputs to the correct event kind based on plugin type. |
+
+> **Rendering vs. Transform boundary.** The following transforms produce output that is specific to a single presentation adapter's formatting model (HTML, embeds, namespace-specific metadata). These are architecturally **rendering concerns** (handled by `core/rendering/`) and should not be configured as pipeline transforms in production. They are listed here as built-in transforms for backward compatibility during development. In a future revision, they will be removed from the transform registry and relocated to `core/rendering/` as dedicated renderers:
+>
+> | Transform | Target Adapter | Rendering Concern |
+> |---|---|---|
+> | **MessageToDiscordEmbed** | Discord | Discord embed structure, webhook payload hints. Moves to `core/rendering/discord.py`. |
+> | **MessageToMatrixFormatted** | Matrix | Matrix HTML, `org.*` custom content fields. Moves to `core/rendering/matrix.py`. |
+> | **MatrixToMeshCoreText** | MeshCore | Strips Matrix HTML for plain text. Moves to `core/rendering/meshcore.py`. |
+> | **ReplyFallbackRendering** | Any (fallback) | Inline text prefix for adapters without native reply. Moves to `core/rendering/` as shared fallback renderer. |
 
 ### 6.4 Transform Chain Ordering
 
@@ -362,6 +375,7 @@ class RouteDestination:
     kind: Literal["channel", "lxmf_destination", "meshcore_contact", "matrix_room"]
     destination_hash: str | None     # Hash or opaque ID (e.g., LXMF destination hash)
     destination_name: str | None     # Human-readable name for config readability
+    metadata: dict = field(default_factory=dict)  # Extensible destination-specific parameters
 
 @dataclass
 class Route:
@@ -603,6 +617,8 @@ class DeliveryReceipt:
 
 ### 10.3 Receipt Processing
 
+- Receipts are **append-only records**. Every delivery attempt produces a new `DeliveryReceipt` row in storage. Existing receipt rows are never updated or deleted. A delivery that retried three times produces four receipt rows (one per attempt), each with its own `timestamp` and `status`.
+- The "current status" of a delivery is a **projection**: the latest receipt for a given `(event_id, delivery_plan_id, target_adapter)` tuple determines the current state. This projection is provided by the `delivery_status` view (Section 12.3), not by mutating receipt rows.
 - Receipts are written to storage as `delivery.receipt` events.
 - The correlation engine links receipts back to originating events via the delivery plan.
 - Dead-lettered events trigger alerts and are available for manual reprocessing.
@@ -739,7 +755,7 @@ This table is required for:
 | MeshCore | `native_message_id` = MeshCore message reference | MeshCore to Matrix correlation |
 | LXMF | `native_message_id` = LXMF message ID, source hash as `native_channel_id` | LXMF to Matrix correlation |
 
-Relation resolution queries this table: given a `target_native_ref` from an `EventRelation`, the resolver looks up `(adapter, target_native_ref)` to find the canonical `event_id`.
+Relation resolution queries this table: given a `target_native_ref` (a `NativeRef` with adapter, native_channel_id, native_message_id, and optional native_thread_id) from an `EventRelation`, the resolver looks up `(adapter, native_channel_id, native_message_id)` to find the canonical `event_id`.
 
 ### 12.3 Storage Schema (Conceptual)
 
@@ -777,6 +793,50 @@ CREATE TABLE delivery_receipts (
     next_retry_at TEXT
 );
 
+CREATE TABLE event_relations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
+    relation_type TEXT NOT NULL CHECK(relation_type IN ('reply', 'reaction', 'edit', 'delete', 'thread')),
+    target_event_id TEXT,                -- Canonical event ID of the target, once resolved
+    target_native_ref TEXT,              -- JSON: NativeRef dict when canonical ID not yet known
+    key TEXT,                            -- Relation-specific key (e.g., emoji for reactions)
+    fallback_text TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE INDEX idx_relations_event ON event_relations(event_id);
+CREATE INDEX idx_relations_target ON event_relations(target_event_id);
+CREATE INDEX idx_relations_type ON event_relations(relation_type);
+
+-- Current delivery status is a projection from the latest receipt per delivery plan.
+CREATE VIEW delivery_status AS
+SELECT
+    dr.event_id,
+    dr.delivery_plan_id,
+    dr.target_adapter,
+    dr.status AS current_status,
+    dr.timestamp AS last_updated,
+    dr.retry_count,
+    dr.next_retry_at,
+    dr.adapter_message_id,
+    dr.error
+FROM delivery_receipts dr
+INNER JOIN (
+    SELECT delivery_plan_id, target_adapter, MAX(timestamp) AS max_ts
+    FROM delivery_receipts
+    GROUP BY delivery_plan_id, target_adapter
+) latest ON dr.delivery_plan_id = latest.delivery_plan_id
+        AND dr.target_adapter = latest.target_adapter
+        AND dr.timestamp = latest.max_ts;
+
+CREATE TABLE plugin_state (
+    plugin_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL DEFAULT '{}',  -- JSON
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    PRIMARY KEY (plugin_id, key)
+);
+
 CREATE TABLE native_archive (
     archive_id TEXT PRIMARY KEY,
     event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
@@ -806,7 +866,7 @@ class StorageBackend(Protocol):
     async def append_receipt(self, receipt: DeliveryReceipt) -> None: ...
     async def archive_raw(self, event_id: str, adapter: str, data: bytes) -> None: ...
     async def store_native_ref(self, ref: NativeMessageRef) -> None: ...
-    async def resolve_native_ref(self, adapter: str, native_message_id: str) -> str | None: ...
+    async def resolve_native_ref(self, adapter: str, native_channel_id: str, native_message_id: str) -> str | None: ...
     async def resolve_native_relation(self, adapter: str, native_relation_id: str) -> str | None: ...
 ```
 
@@ -823,10 +883,10 @@ class StorageBackend(Protocol):
 
 ### 13.2 Version Strategy
 
-- Schema versions are integers, monotonically increasing.
-- The current schema version is stored in the event's `schema_version` field.
+- Schema versions are **monotonically increasing integers** (1, 2, 3, ...). Each integer represents a distinct schema revision. There is no sub-versioning: every change, whether additive or breaking, increments the integer by one.
+- The current schema version is stored in the event's `schema_version` field (type `int`).
 - The schema registry maps `(event_kind, schema_version)` to a validation function.
-- Breaking changes increment the major version. Additive changes increment the minor version (tracked as decimal in the integer, e.g., v2 = second major, v3 = third).
+- Breaking and additive changes are both represented by a new integer. Consumers distinguish between them by comparing version numbers: a consumer that understands version N can read any version <= N. Unknown fields in higher versions are preserved but not acted on.
 
 ### 13.3 Handling Unknown Versions
 
@@ -1317,8 +1377,24 @@ class PluginContext:
     identity_resolver: IdentityResolver # Scoped to READ_IDENTITY capability
     logger: BoundLogger
     plugin_id: str
-    rate_limiter: RateLimiter           # Per-plugin rate limiter
+    state: PluginStateStore             # Scoped KV store backed by plugin_state table
 ```
+
+`PluginStateStore` provides scoped key-value persistence for plugins:
+
+```python
+class PluginStateStore(Protocol):
+    async def get(self, key: str) -> dict | None:
+        """Retrieve a JSON value by key from this plugin's scoped state."""
+        ...
+
+    async def set(self, key: str, value: dict) -> None:
+        """Store a JSON value under the given key in this plugin's scoped state.
+        Overwrites any existing value for the same key."""
+        ...
+```
+
+Keys are scoped to `plugin_id`. Plugins cannot read or write state belonging to other plugins. The backing `plugin_state` SQL table is defined in Section 12.3.
 
 ### 20.5 Plugin Convenience APIs
 
@@ -1511,6 +1587,7 @@ Events carry a trace context through the pipeline. Each stage creates a span. Di
     ├── test_delivery.py
     ├── test_identity.py
     ├── test_storage.py
+    ├── test_receipt_immutability.py  # Verifies receipts are append-only and never mutated
     ├── test_meshcore_adapter.py
     ├── test_matrix_adapter.py
     ├── test_lxmf_adapter.py
@@ -1534,6 +1611,7 @@ Events carry a trace context through the pipeline. Each stage creates a span. Di
 - [ ] Event pipeline stages execute in order: ingress policy, store, enrich, transform, event policy, route, route policy, delivery plan, delivery policy/render, deliver.
 - [ ] Immutability invariant holds: no event is mutated after creation.
 - [ ] Delivery receipts are recorded for every delivery attempt.
+- [ ] Receipt immutability: multiple delivery attempts for the same plan produce separate receipt rows; no receipt row is ever updated or deleted. The current delivery status is derived from the latest receipt via the `delivery_status` view, not by mutating receipt records.
 - [ ] Relation resolution resolves `target_native_ref` to `target_event_id` via `native_message_refs`.
 - [ ] Structured logging covers all pipeline stages.
 - [ ] Configuration is loaded from a single YAML file.
@@ -1746,7 +1824,7 @@ storage:
 adapters:
   <adapter-name>:
     type: <adapter-type>                   # meshcore | meshtastic | matrix | lxmf | discord | telegram | mqtt
-    role: transport | presentation | hybrid
+    # role: transport | presentation | hybrid  — READ-ONLY. Inferred from adapter type at load time.
     enabled: true
     connection: {}                         # Adapter-specific connection config (see adapter sections)
     channels: {}                           # Adapter-specific channel/slot mapping
@@ -1824,7 +1902,6 @@ These snippets illustrate interfaces and data structures. They are not implement
 adapters:
   meshcore-radio-1:
     type: meshcore
-    role: transport
     connection:
       method: tcp
       host: 192.168.1.100
@@ -1836,7 +1913,6 @@ adapters:
 
   matrix-home:
     type: matrix
-    role: presentation
     homeserver: https://matrix.example.com
     user_id: "@relay:example.com"
     access_token: ${MATRIX_TOKEN}
@@ -1864,7 +1940,11 @@ routes:
       adapter: meshcore-radio-1
       event_kinds: ["telemetry", "position"]
     to:
-      - adapter: storage   # Special internal "adapter"
+      # NOTE: Using a transform with output tagged `storage-only` (see TelemetryToDatabaseOnly
+      # in Section 6.3) is the preferred pattern for storing events without delivering them to
+      # a presentation adapter. Routing to a fictitious "storage" adapter is an anti-pattern:
+      # storage happens at the "Store Source Event" pipeline stage for every event regardless of
+      # routing. This route is shown only for illustration and should not be used in production.
     priority: 5
 
   - id: all-to-discord
@@ -1930,7 +2010,6 @@ policies:
 adapters:
   lxmf-node-a:
     type: lxmf
-    role: transport
     reticulum:
       storage_path: ~/.reticulum/storage
       identity_path: ~/.meshnet-framework/reticulum_identity  # Auto-generated if absent
