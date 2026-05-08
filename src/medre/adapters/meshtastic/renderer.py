@@ -23,17 +23,36 @@ class MeshtasticRenderer:
     Produces content dicts with ``text``, ``channel_index``, and optional
     ``meshnet_name``.
 
-    Matches any ``target_adapter`` that starts with ``"meshtastic"``.
+    Renderer selection is **not** based solely on adapter ID prefix.
+    A set of known Meshtastic adapter IDs can be passed at construction
+    time via *known_adapters*.  ``can_render`` matches if the target
+    adapter starts with ``"meshtastic"`` **or** is in the explicit set.
+    This avoids forcing realistic adapter IDs like ``"local-radio"`` or
+    ``"garage-mesh"`` to use an artificial prefix.
+
+    Parameters
+    ----------
+    known_adapters:
+        Optional set of adapter IDs that this renderer should handle.
     """
 
     name: str = "meshtastic"
+
+    def __init__(self, known_adapters: set[str] | None = None) -> None:
+        self._known_adapters: set[str] = known_adapters or set()
 
     # ------------------------------------------------------------------
     # Capability check
     # ------------------------------------------------------------------
 
     def can_render(self, event: CanonicalEvent, target_adapter: str) -> bool:
-        """Return ``True`` when *target_adapter* starts with ``"meshtastic"``.
+        """Return ``True`` when *target_adapter* is a Meshtastic target.
+
+        A target is considered Meshtastic when:
+
+        * its ID starts with ``"meshtastic"`` (convention), **or**
+        * its ID is in the *known_adapters* set passed at construction
+          (preferred for realistic IDs).
 
         Parameters
         ----------
@@ -47,7 +66,7 @@ class MeshtasticRenderer:
         bool
             Whether this renderer handles events for the given adapter.
         """
-        return target_adapter.startswith("meshtastic")
+        return target_adapter.startswith("meshtastic") or target_adapter in self._known_adapters
 
     # ------------------------------------------------------------------
     # Rendering

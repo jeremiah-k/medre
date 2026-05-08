@@ -63,16 +63,19 @@ async def _make_pipeline(
             event_kinds=("message.created",),
             channel="0",
         ),
-        targets=[RouteTarget(adapter="fake_meshtastic_out", channel="0")],
+        targets=[RouteTarget(adapter="mesh-out", channel="0")],
     )
     router = Router(routes=[route])
 
-    # Create an outbound fake adapter to receive deliveries
-    out_config = MeshtasticConfig(adapter_id="fake_meshtastic_out")
+    # Create an outbound fake adapter to receive deliveries.
+    # Use a realistic adapter ID (not starting with "meshtastic") to
+    # prove renderer selection works without prefix dependency.
+    out_adapter_id = "mesh-out"
+    out_config = MeshtasticConfig(adapter_id=out_adapter_id)
     out_adapter = FakeMeshtasticAdapter(out_config)
 
     rp = rendering_pipeline or RenderingPipeline()
-    rp.register(MeshtasticRenderer(), priority=50)
+    rp.register(MeshtasticRenderer(known_adapters={out_adapter_id}), priority=50)
     rp.register(TextRenderer(), priority=100)
 
     config = PipelineConfig(
@@ -82,7 +85,7 @@ async def _make_pipeline(
         relation_resolver=RelationResolver(storage=storage),
         adapters={
             "fake_meshtastic": mesh_adapter,
-            "fake_meshtastic_out": out_adapter,
+            out_adapter_id: out_adapter,
         },
         event_bus=EventBus(),
         rendering_pipeline=rp,
@@ -192,6 +195,64 @@ class TestMeshtasticPipelineIntegration:
         event = inbound_collector.events[0]
         assert event.event_kind == "message.created"
 
+    async def test_outbound_delivery_uses_meshtastic_renderer(
+        self, temp_storage
+    ) -> None:
+        """Outbound delivery to realistic Meshtastic IDs uses MeshtasticRenderer,
+        not TextRenderer. Proves can_render selection via known_adapters works."""
+        in_adapter = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="radio-in"))
+        out_adapter = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="local-radio"))
+
+        route = Route(
+            id="mesh-renderer-check",
+            source=RouteSource(
+                adapter="radio-in",
+                event_kinds=("message.created",),
+                channel="0",
+            ),
+            targets=[RouteTarget(adapter="local-radio", channel="0")],
+        )
+        router = Router(routes=[route])
+
+        rp = RenderingPipeline()
+        rp.register(MeshtasticRenderer(known_adapters={"local-radio"}), priority=50)
+        rp.register(TextRenderer(), priority=100)
+
+        runner = PipelineRunner(PipelineConfig(
+            storage=temp_storage,
+            router=router,
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters={"radio-in": in_adapter, "local-radio": out_adapter},
+            event_bus=EventBus(),
+            rendering_pipeline=rp,
+        ))
+
+        ctx = _make_adapter_context_for_pipeline("radio-in", runner)
+        await in_adapter.start(ctx)
+
+        packet = _make_text_packet(text="renderer check 42", packet_id=9999)
+        await in_adapter.simulate_inbound(packet)
+
+        # After pipeline delivery, verify the outbound router's delivered_payloads
+        assert len(out_adapter.delivered_payloads) == 1
+        payload = out_adapter.delivered_payloads[0]
+
+        # CRITICAL: Prove MeshtasticRenderer rendered this, not TextRenderer.
+        # TextRenderer produces {"text": ...}; MeshtasticRenderer produces
+        # {"text": ..., "channel_index": ..., "meshnet_name": ...}.
+        assert payload.metadata["renderer"] == "meshtastic"
+        assert "channel_index" in payload.payload
+        assert "meshnet_name" in payload.payload
+
+        # Outbound native ref should also persist
+        resolved = await temp_storage.resolve_native_ref(
+            adapter="local-radio",
+            native_channel_id="0",
+            native_message_id="1",
+        )
+        assert resolved is not None
+
     async def test_pipeline_does_not_call_meshtastic_sleep(self) -> None:
         """Pipeline does not perform Meshtastic-specific sleeping.
 
@@ -288,7 +349,7 @@ class TestMeshtasticNativeRefPersistence:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        rp.register(MeshtasticRenderer(), priority=50)
+        rp.register(MeshtasticRenderer(known_adapters={"mesh-out"}), priority=50)
         rp.register(TextRenderer(), priority=100)
 
         runner = PipelineRunner(PipelineConfig(
@@ -339,7 +400,7 @@ class TestMeshtasticNativeRefPersistence:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        rp.register(MeshtasticRenderer(), priority=50)
+        rp.register(MeshtasticRenderer(known_adapters={"mesh-fail-out"}), priority=50)
         rp.register(TextRenderer(), priority=100)
 
         runner = PipelineRunner(PipelineConfig(

@@ -55,6 +55,22 @@ class TestMeshtasticRenderer:
         event = _make_event()
         assert renderer.can_render(event, "matrix_instance") is False
 
+    def test_can_render_known_adapters(self) -> None:
+        """Renderer matches realistic IDs via known_adapters, not prefix."""
+        renderer = MeshtasticRenderer(known_adapters={"local-radio", "garage-mesh"})
+        event = _make_event()
+        assert renderer.can_render(event, "local-radio") is True
+        assert renderer.can_render(event, "garage-mesh") is True
+        assert renderer.can_render(event, "unknown-node") is False
+
+    def test_can_render_prefix_still_works(self) -> None:
+        """Prefix matching still works alongside known_adapters."""
+        renderer = MeshtasticRenderer()
+        event = _make_event()
+        assert renderer.can_render(event, "meshtastic_node") is True
+        assert renderer.can_render(event, "meshtastic-node") is True
+        assert renderer.can_render(event, "meshtastic_out") is True
+
     async def test_render_basic_text(self) -> None:
         renderer = MeshtasticRenderer()
         event = _make_event(payload={"body": "hello mesh"})
