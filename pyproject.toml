@@ -13,6 +13,9 @@ dev = [
 matrix = [
     "mindroom-nio>=0.25",
 ]
+meshtastic = [
+    "mtjk",
+]
 
 [build-system]
 requires = ["setuptools>=68"]

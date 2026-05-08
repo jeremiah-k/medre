@@ -41,18 +41,16 @@ class TestMatrixBoundaries:
 
     def test_matrix_does_not_import_other_adapters(self) -> None:
         """Matrix adapter package does not import other adapter modules."""
-        from medre.adapters import matrix as matrix_pkg  # noqa: F401
+        import medre.adapters.matrix.adapter as adapter_mod
+        import medre.adapters.matrix.codec as codec_mod
+        import medre.adapters.matrix.renderer as renderer_mod
+        import medre.adapters.matrix.config as config_mod
 
-        # Verify the MatrixAdapter class exists but doesn't trigger
-        # imports of meshtastic or other adapter packages
-        other_adapters = [
-            k for k in sys.modules
-            if "medre.adapters" in k
-            and "meshtastic" in k
-        ]
-        assert len(other_adapters) == 0, (
-            f"Matrix adapter triggered import of other adapters: {other_adapters}"
-        )
+        for mod in (adapter_mod, codec_mod, renderer_mod, config_mod):
+            source = open(mod.__file__).read()
+            assert "meshtastic" not in source.lower(), (
+                f"{mod.__name__} references meshtastic"
+            )
 
     def test_matrix_adapter_does_not_route(self) -> None:
         """FakeMatrixAdapter has no route matching or routing methods."""
