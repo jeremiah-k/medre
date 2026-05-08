@@ -1,9 +1,16 @@
 """Renderer protocol and pipeline for target-specific event rendering.
 
-This module separates the *rendering* concern (converting a canonical event
-into an adapter-ready payload) from both transforms and adapters.  A
-:class:`Renderer` is a structural-typed protocol; any object satisfying the
-``name``, ``can_render`` and ``render`` interface can be registered with the
+**Rendering Boundary Separation**
+
+Renderer produces :class:`RenderingResult`.  Adapters consume
+:class:`RenderingResult`.  No adapter shall perform rendering logic.  No
+renderer shall deliver.
+
+This module enforces the rendering boundary: the *rendering* concern
+(converting a canonical event into an adapter-ready payload) is strictly
+separated from both transforms and adapters.  A :class:`Renderer` is a
+structural-typed protocol; any object satisfying the ``name``,
+``can_render`` and ``render`` interface can be registered with the
 :class:`RenderingPipeline`.
 
 The pipeline tries registered renderers in priority order (lower value first)
@@ -69,6 +76,10 @@ class RenderingResult:
 @runtime_checkable
 class Renderer(Protocol):
     """Protocol for target-specific renderers.
+
+    Renderer produces :class:`RenderingResult`.  Adapters consume
+    :class:`RenderingResult`.  No adapter shall perform rendering logic.
+    No renderer shall deliver.
 
     A renderer converts a :class:`CanonicalEvent` into a
     :class:`RenderingResult` suitable for a particular adapter.  Renderers

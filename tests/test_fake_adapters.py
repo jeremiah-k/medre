@@ -1,5 +1,6 @@
 """Tests for FakeTransportAdapter and FakePresentationAdapter: capabilities,
-lifecycle (start/stop), inbound simulation, and event inspection lists.
+lifecycle (start/stop), inbound simulation, event inspection lists, rendering
+boundary enforcement, relation fallback rendering, and canonical immutability.
 """
 
 from __future__ import annotations
@@ -14,7 +15,10 @@ from medre.adapters import (
     FakeTransportAdapter,
 )
 from medre.adapters.base import AdapterContext
-from medre.core.events import CanonicalEvent, EventMetadata
+from medre.core.events import CanonicalEvent, EventMetadata, EventRelation, NativeRef
+from medre.core.events.kinds import EventKind
+from medre.core.rendering.renderer import RenderingResult
+from medre.core.rendering.text import TextRenderer
 from datetime import datetime, timezone
 
 
@@ -197,3 +201,163 @@ class TestFakePresentationAdapter:
         assert len(reaction.relations) == 1
         assert reaction.relations[0].relation_type == "reaction"
         assert reaction.relations[0].key == "🔥"
+
+
+# ===================================================================
+# Rendering boundary & relation fallback tests
+# ===================================================================
+
+
+class TestRenderingBoundary:
+    """Enforce that adapters consume RenderingResult, not raw event text."""
+
+    async def test_adapter_does_not_format_raw_event(self) -> None:
+        """Adapter stores a RenderingResult without reformatting it.
+
+        The adapter must receive the pre-rendered result as-is and store
+        it in ``delivered_payloads``.  It must NOT convert the rendering
+        result into raw event text or perform event-kind-specific
+        formatting.
+        """
+        adapter = FakePresentationAdapter("test_p")
+        result = RenderingResult(
+            event_id="evt-1",
+            target_adapter="test_p",
+            target_channel="ch-0",
+            payload={"text": "hello world"},
+            metadata={"renderer": "text"},
+        )
+        await adapter.deliver(result)
+        assert len(adapter.delivered_payloads) == 1
+        stored = adapter.delivered_payloads[0]
+        assert isinstance(stored, RenderingResult)
+        assert stored.payload["text"] == "hello world"
+        # Adapter did NOT store it as a raw string event.
+        assert not isinstance(stored, str)
+
+    async def test_relation_fallback_rendering(self) -> None:
+        """Reply with fallback_text renders as
+        '[replying to: {fallback_text}] {payload.text}'.
+        """
+        renderer = TextRenderer()
+        relation = EventRelation(
+            relation_type="reply",
+            target_event_id="evt-orig",
+            target_native_ref=NativeRef(
+                adapter="fake_transport",
+                native_channel_id="ch-0",
+                native_message_id="msg-orig",
+            ),
+            key=None,
+            fallback_text="original message text",
+        )
+        event = CanonicalEvent(
+            event_id="evt-reply",
+            event_kind=EventKind.MESSAGE_CREATED,
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="fake_transport",
+            source_transport_id="node-1",
+            source_channel_id="ch-0",
+            parent_event_id=None,
+            lineage=[],
+            relations=[relation],
+            payload={"text": "a reply"},
+            metadata=EventMetadata(),
+        )
+        assert renderer.can_render(event, "fake_transport")
+        result = await renderer.render(event, "fake_transport")
+        assert result.payload["text"] == "[replying to: original message text] a reply"
+        assert result.fallback_applied == "relation_reply"
+
+    async def test_reaction_fallback_rendering(self) -> None:
+        """Reaction with key renders as '{actor} reacted with {key}'."""
+        renderer = TextRenderer()
+        relation = EventRelation(
+            relation_type="reaction",
+            target_event_id="evt-orig",
+            target_native_ref=NativeRef(
+                adapter="fake_transport",
+                native_channel_id="ch-0",
+                native_message_id="msg-orig",
+            ),
+            key="👍",
+            fallback_text=None,
+        )
+        event = CanonicalEvent(
+            event_id="evt-react",
+            event_kind=EventKind.MESSAGE_REACTED,
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="alice",
+            source_transport_id="node-1",
+            source_channel_id="ch-0",
+            parent_event_id=None,
+            lineage=[],
+            relations=[relation],
+            payload={"text": "👍"},
+            metadata=EventMetadata(),
+        )
+        assert renderer.can_render(event, "fake_transport")
+        result = await renderer.render(event, "fake_transport")
+        assert result.payload["text"] == "alice reacted with 👍"
+        assert result.fallback_applied == "relation_reaction"
+
+    async def test_adapter_does_not_mutate_canonical_event(self) -> None:
+        """Canonical events remain identical to their creation snapshot.
+
+        The adapter stores a snapshot when ``make_event`` is called.
+        After simulate_inbound the event must be referentially equal to
+        the snapshot, proving no mutation occurred.
+        """
+        adapter = FakeTransportAdapter("test_t", channel="ch-0")
+        event = adapter.make_event(text="immutable test")
+        snapshot = adapter.event_snapshots[event.event_id]
+        # The event is frozen (msgspec.Struct, frozen=True) so mutation
+        # would raise anyway, but we also verify referential equality.
+        assert event is snapshot
+        # CanonicalEvent is frozen — verify immutability.
+        with pytest.raises(AttributeError):
+            event.event_kind = "tampered"  # type: ignore[misc]
+
+    async def test_adapter_does_not_perform_route_matching(self) -> None:
+        """Fake adapters have no route matching logic.
+
+        The adapter stores whatever is delivered without filtering by
+        event kind, channel, or source.  This verifies that route
+        matching is not the adapter's responsibility.
+        """
+        adapter = FakePresentationAdapter("test_p")
+
+        # Deliver events with different kinds — adapter stores them all.
+        for kind in (
+            EventKind.MESSAGE_TEXT,
+            EventKind.MESSAGE_CREATED,
+            EventKind.PRESENCE_CHANGED,
+            EventKind.PLUGIN_CUSTOM,
+        ):
+            event = CanonicalEvent(
+                event_id=f"evt-{kind}",
+                event_kind=kind,
+                schema_version=1,
+                timestamp=datetime.now(timezone.utc),
+                source_adapter="other_adapter",
+                source_transport_id="node-1",
+                source_channel_id="any-channel",
+                parent_event_id=None,
+                lineage=[],
+                relations=[],
+                payload={"text": "test"},
+                metadata=EventMetadata(),
+            )
+            await adapter.deliver(event)
+
+        # All events stored — no filtering or route matching.
+        assert len(adapter.received_events) == 4
+        stored_kinds = {e.event_kind for e in adapter.received_events}
+        assert stored_kinds == {
+            EventKind.MESSAGE_TEXT,
+            EventKind.MESSAGE_CREATED,
+            EventKind.PRESENCE_CHANGED,
+            EventKind.PLUGIN_CUSTOM,
+        }

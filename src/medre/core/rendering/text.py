@@ -54,6 +54,7 @@ class TextRenderer:
             EventKind.MESSAGE_CREATED,
             EventKind.MESSAGE_EDITED,
             EventKind.MESSAGE_DELETED,
+            EventKind.MESSAGE_REACTED,
             EventKind.PRESENCE_CHANGED,
             EventKind.PLUGIN_CUSTOM,
         )
@@ -77,6 +78,12 @@ class TextRenderer:
         * ``message.deleted`` — return ``"[deleted]"``.
         * ``presence.changed`` — format as ``"{user} is now {status}"``.
         * ``plugin.custom`` — extract ``payload["text"]`` if available.
+
+        **Relation fallback rendering** — when the event carries relations:
+
+        * *reply* — ``"[replying to: {fallback_text}] {payload_text}"``
+        * *reaction* — ``"{actor} reacted with {key}"``
+        * *edit* — ``"[edited] {payload_text}"``
 
         Text exceeding 500 characters is truncated with an ellipsis marker
         and the ``truncated`` flag is set on the result.
@@ -105,6 +112,12 @@ class TextRenderer:
             "original_length": len(raw_text),
         }
 
+        fallback_applied: str | None = None
+        if event.relations:
+            rel = event.relations[0]
+            if rel.relation_type in ("reply", "reaction", "edit"):
+                fallback_applied = f"relation_{rel.relation_type}"
+
         return RenderingResult(
             event_id=event.event_id,
             target_adapter=target_adapter,
@@ -112,6 +125,7 @@ class TextRenderer:
             payload={"text": text},
             metadata=metadata,
             truncated=truncated,
+            fallback_applied=fallback_applied,
         )
 
     # ------------------------------------------------------------------
@@ -120,9 +134,29 @@ class TextRenderer:
 
     @staticmethod
     def _extract_text(event: CanonicalEvent) -> str:
-        """Extract the raw (pre-truncation) text from *event*."""
+        """Extract the raw (pre-truncation) text from *event*.
+
+        When the event carries relations the text is augmented with
+        fallback formatting before kind-based logic is applied.
+        """
         kind = event.event_kind
 
+        # -- Relation fallback rendering ------------------------------------
+        if event.relations:
+            rel = event.relations[0]
+            if rel.relation_type == "reply" and rel.fallback_text:
+                payload_text = str(event.payload.get("text", ""))
+                return f"[replying to: {rel.fallback_text}] {payload_text}"
+
+            if rel.relation_type == "reaction" and rel.key:
+                actor = str(event.payload.get("user", event.source_adapter))
+                return f"{actor} reacted with {rel.key}"
+
+            if rel.relation_type == "edit":
+                payload_text = str(event.payload.get("text", ""))
+                return f"[edited] {payload_text}"
+
+        # -- Kind-based rendering -------------------------------------------
         if kind in (EventKind.MESSAGE_TEXT, EventKind.MESSAGE_CREATED):
             return str(event.payload.get("text", ""))
 
@@ -131,6 +165,10 @@ class TextRenderer:
 
         if kind == EventKind.MESSAGE_DELETED:
             return "[deleted]"
+
+        if kind == EventKind.MESSAGE_REACTED:
+            # Without a relation, render the payload text if present.
+            return str(event.payload.get("text", ""))
 
         if kind == EventKind.PRESENCE_CHANGED:
             user = str(event.payload.get("user", "unknown"))

@@ -56,6 +56,12 @@ _FAKE_TRANSPORT_CAPABILITIES = AdapterCapabilities(
 class FakeTransportAdapter(BaseAdapter):
     """Simulated transport adapter for testing.
 
+    **Canonical Event Immutability**: this adapter must **not** mutate
+    canonical events after creation.  :class:`CanonicalEvent` is a frozen
+    ``msgspec.Struct``; any attempt to set fields will raise at runtime.
+    The adapter stores a snapshot of every event at creation time in
+    :attr:`event_snapshots` so tests can verify no mutation occurred.
+
     Stores every event delivered via :meth:`simulate_inbound` and
     every event received via outbound delivery in public lists that
     test code can inspect.
@@ -75,6 +81,10 @@ class FakeTransportAdapter(BaseAdapter):
     received_events:
         Events delivered outbound to this adapter (for future outbound
         delivery support).
+    event_snapshots:
+        Frozen snapshots of events at creation time, keyed by
+        ``event_id``, used to verify that canonical events are never
+        mutated after creation.
     ctx:
         The :class:`AdapterContext` injected by :meth:`start`, or
         ``None`` if the adapter has not been started.
@@ -94,6 +104,7 @@ class FakeTransportAdapter(BaseAdapter):
         self.ctx: AdapterContext | None = None
         self.delivered_events: list[CanonicalEvent] = []
         self.received_events: list[CanonicalEvent] = []
+        self.event_snapshots: dict[str, CanonicalEvent] = {}
         self._started: bool = False
 
     # -- Lifecycle ----------------------------------------------------------
@@ -181,7 +192,7 @@ class FakeTransportAdapter(BaseAdapter):
         from medre.core.events.metadata import EventMetadata
 
         ch = channel or self._channel
-        return CanonicalEvent(
+        event = CanonicalEvent(
             event_id=str(uuid.uuid4()),
             event_kind=event_kind,
             schema_version=1,
@@ -195,6 +206,9 @@ class FakeTransportAdapter(BaseAdapter):
             payload={"body": text, **extra_payload},
             metadata=EventMetadata(),
         )
+        # Snapshot at creation time for immutability verification.
+        self.event_snapshots[event.event_id] = event
+        return event
 
     @property
     def is_started(self) -> bool:

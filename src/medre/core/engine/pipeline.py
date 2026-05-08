@@ -24,10 +24,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Callable, Awaitable
+from typing import TYPE_CHECKING, Any, Callable, Awaitable, Literal
 
 from medre.adapters.base import AdapterCapabilities, BaseAdapter
 from medre.core.events.canonical import (
@@ -36,7 +37,8 @@ from medre.core.events.canonical import (
     NativeMessageRef,
 )
 from medre.core.events.bus import EventBus, EventMiddleware
-from medre.core.planning.delivery_plan import DeliveryPlan
+from medre.core.observability.metrics import Diagnostician
+from medre.core.planning.delivery_plan import DeliveryOutcome, DeliveryPlan
 from medre.core.planning.fallback_resolution import FallbackResolver
 from medre.core.planning.relation_resolution import RelationResolver
 from medre.core.routing.models import Route, RouteTarget
@@ -78,6 +80,9 @@ class PipelineConfig:
         Mapping of adapter ID to adapter instance.
     event_bus:
         The event bus used for internal event distribution.
+    diagnostician:
+        Diagnostic recorder for failure and replay events.  If ``None``,
+        a default :class:`Diagnostician` is created automatically.
     logger:
         Optional logger override; defaults to the module logger.
     """
@@ -88,6 +93,7 @@ class PipelineConfig:
     relation_resolver: RelationResolver
     adapters: dict[str, BaseAdapter]
     event_bus: EventBus
+    diagnostician: Diagnostician | None = None
     logger: logging.Logger | None = None
 
 
@@ -106,6 +112,22 @@ class _PipelineLoggingMiddleware:
             event.event_kind,
         )
         return event
+
+
+class _AdapterDeliveryError(Exception):
+    """Raised by ``deliver_to_target`` after persisting a failed receipt.
+
+    Carries the adapter ID, error string, and the original exception so
+    that callers can classify the failure as transient or permanent.
+    """
+
+    def __init__(
+        self, adapter_id: str, error: str, original: Exception | None = None
+    ) -> None:
+        self.adapter_id = adapter_id
+        self.error = error
+        self.original = original
+        super().__init__(error)
 
 
 # ---------------------------------------------------------------------------
@@ -146,6 +168,9 @@ class PipelineRunner:
     def __init__(self, config: PipelineConfig) -> None:
         self._config = config
         self._log: logging.Logger = config.logger or _logger
+        self._diagnostician: Diagnostician = (
+            config.diagnostician or Diagnostician()
+        )
         self._middleware: _PipelineLoggingMiddleware | None = None
 
     # -- Lifecycle ----------------------------------------------------------
@@ -180,7 +205,9 @@ class PipelineRunner:
         """
         return self.handle_ingress
 
-    async def handle_ingress(self, event: CanonicalEvent) -> None:
+    async def handle_ingress(
+        self, event: CanonicalEvent
+    ) -> list[DeliveryOutcome]:
         """Process an inbound event through the full pipeline.
 
         Flow:
@@ -194,6 +221,11 @@ class PipelineRunner:
         ----------
         event:
             The canonical event to process.
+
+        Returns
+        -------
+        list[DeliveryOutcome]
+            Per-target delivery outcomes.  Empty when no routes matched.
         """
         self._log.info(
             "Ingress: event_id=%s kind=%s source=%s",
@@ -209,24 +241,46 @@ class PipelineRunner:
         await self.store_event(event)
 
         # Stages 3-4 – route, plan, deliver
-        deliveries = await self.route_event(event)
+        try:
+            deliveries = await self.route_event(event)
+        except Exception as exc:
+            self._diagnostician.record_planner_failure(
+                event.event_id, f"{type(exc).__name__}: {exc}"
+            )
+            return [
+                DeliveryOutcome(
+                    event_id=event.event_id,
+                    target_adapter="",
+                    target_channel=None,
+                    route_id="",
+                    delivery_plan_id="",
+                    status="permanent_failure",
+                    receipt=None,
+                    error=f"Planner error: {type(exc).__name__}: {exc}",
+                    duration_ms=0.0,
+                )
+            ]
 
         if not deliveries:
             self._log.info(
                 "No routes matched for event_id=%s", event.event_id
             )
-            return
+            return []
 
-        # Deliver to all targets concurrently with error isolation.
-        results = await self._deliver_all(event, deliveries)
+        # Deliver to all targets independently with error isolation.
+        outcomes = await self.deliver_to_targets(event, deliveries)
 
+        succeeded = sum(1 for o in outcomes if o.status == "success")
+        failed = len(outcomes) - succeeded
         self._log.info(
             "Pipeline complete: event_id=%s targets=%d succeeded=%d failed=%d",
             event.event_id,
             len(deliveries),
-            sum(1 for r in results if r is not None),
-            sum(1 for r in results if r is None),
+            succeeded,
+            failed,
         )
+
+        return outcomes
 
     # -- Stage 1: Validation -----------------------------------------------
 
@@ -316,6 +370,133 @@ class PipelineRunner:
 
     # -- Stage 5-6: Delivery + Receipts ------------------------------------
 
+    async def deliver_to_targets(
+        self,
+        event: CanonicalEvent,
+        route_targets: list[tuple[Route, DeliveryPlan]],
+    ) -> list[DeliveryOutcome]:
+        """Deliver *event* to every target and return categorised outcomes.
+
+        Each target is attempted independently; one target's failure never
+        prevents delivery to sibling targets.  Adapter errors are
+        classified as transient or permanent based on exception type, and
+        every failure is recorded via the :class:`Diagnostician`.
+
+        Parameters
+        ----------
+        event:
+            The canonical event to deliver.
+        route_targets:
+            Paired routes and their per-target delivery plans, as
+            returned by :meth:`route_event`.
+
+        Returns
+        -------
+        list[DeliveryOutcome]
+            One :class:`DeliveryOutcome` per target, preserving the
+            order of *route_targets*.
+        """
+
+        async def _deliver_one(
+            route: Route, plan: DeliveryPlan
+        ) -> DeliveryOutcome:
+            target = plan.target
+            adapter_id = target.adapter or ""
+            t0 = time.monotonic()
+            try:
+                receipt = await self.deliver_to_target(event, route, plan)
+                elapsed = (time.monotonic() - t0) * 1000.0
+                return DeliveryOutcome(
+                    event_id=event.event_id,
+                    target_adapter=adapter_id,
+                    target_channel=target.channel,
+                    route_id=route.id,
+                    delivery_plan_id=plan.plan_id,
+                    status="success",
+                    receipt=receipt,
+                    error=None,
+                    duration_ms=elapsed,
+                )
+            except _AdapterDeliveryError as exc:
+                elapsed = (time.monotonic() - t0) * 1000.0
+                self._diagnostician.record_adapter_failure(
+                    event.event_id, adapter_id, exc.error
+                )
+                # Classify based on the original adapter exception.
+                if exc.original is not None:
+                    outcome_status = self._classify_adapter_error(exc.original)
+                else:
+                    outcome_status = "transient_failure"
+                return DeliveryOutcome(
+                    event_id=event.event_id,
+                    target_adapter=adapter_id,
+                    target_channel=target.channel,
+                    route_id=route.id,
+                    delivery_plan_id=plan.plan_id,
+                    status=outcome_status,
+                    receipt=None,
+                    error=exc.error,
+                    duration_ms=elapsed,
+                )
+            except Exception as exc:
+                elapsed = (time.monotonic() - t0) * 1000.0
+                exc_type = type(exc)
+                status = self._classify_adapter_error(exc)
+                error_msg = f"{exc_type.__name__}: {exc}"
+                self._diagnostician.record_adapter_failure(
+                    event.event_id, adapter_id, error_msg
+                )
+                return DeliveryOutcome(
+                    event_id=event.event_id,
+                    target_adapter=adapter_id,
+                    target_channel=target.channel,
+                    route_id=route.id,
+                    delivery_plan_id=plan.plan_id,
+                    status=status,
+                    receipt=None,
+                    error=error_msg,
+                    duration_ms=elapsed,
+                )
+
+        return list(
+            await asyncio.gather(
+                *[_deliver_one(r, p) for r, p in route_targets]
+            )
+        )
+
+    @staticmethod
+    def _classify_adapter_error(
+        exc: Exception,
+    ) -> Literal["transient_failure", "permanent_failure"]:
+        """Classify an adapter exception as transient or permanent.
+
+        Transient failures are retryable (timeouts, connection errors,
+        temporary OS-level issues).  All other exceptions are treated as
+        permanent failures.
+
+        Parameters
+        ----------
+        exc:
+            The exception raised by the adapter.
+
+        Returns
+        -------
+        str
+            ``"transient_failure"`` or ``"permanent_failure"``.
+        """
+        transient_types = (
+            TimeoutError,
+            ConnectionError,
+            ConnectionRefusedError,
+            ConnectionResetError,
+            ConnectionAbortedError,
+            BrokenPipeError,
+            OSError,
+        )
+        if isinstance(exc, transient_types):
+            return "transient_failure"
+        return "permanent_failure"
+
     async def deliver_to_target(
         self,
         event: CanonicalEvent,
@@ -372,6 +553,7 @@ class PipelineRunner:
             return receipt
 
         # Deliver via adapter.
+        delivery_exc: Exception | None = None
         try:
             deliver_fn: Callable[..., Any] | None = getattr(adapter, "deliver", None)
             if deliver_fn is not None and callable(deliver_fn):
@@ -393,6 +575,7 @@ class PipelineRunner:
         except Exception as exc:
             status = "failed"
             error = f"{type(exc).__name__}: {exc}"
+            delivery_exc = exc
             self._log.exception(
                 "Delivery failed: event_id=%s → adapter=%s",
                 event.event_id,
@@ -425,6 +608,14 @@ class PipelineRunner:
             created_at=now,
         )
         await self._config.storage.store_native_ref(native_ref)
+
+        # Re-raise adapter errors so that callers (deliver_to_targets)
+        # can inspect the exception type for transient/permanent classification.
+        # The receipt and native ref are already persisted at this point.
+        if status == "failed":
+            raise _AdapterDeliveryError(
+                adapter_id or "", error or "", delivery_exc
+            ) from None
 
         return receipt
 

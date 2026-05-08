@@ -1,5 +1,6 @@
 """Tests for SQLiteStorage: append/get, native ref resolve, relations,
-receipts, query with EventFilter, and close/reopen persistence.
+receipts, query with EventFilter, idempotent native refs, append-only
+receipts, ordering guarantees, and close/reopen persistence.
 """
 
 from __future__ import annotations
@@ -323,3 +324,252 @@ class TestPersistence:
             await storage2.close()
         finally:
             os.unlink(db_path)
+
+
+# ===================================================================
+# Idempotent native refs
+# ===================================================================
+
+
+class TestIdempotentNativeRef:
+    """store_native_ref with duplicate (adapter, channel, message) is idempotent."""
+
+    async def test_store_same_ref_twice_is_idempotent(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Storing the same native ref twice must not raise and must resolve."""
+        event = _make_event(event_id="evt-idem-1")
+        await temp_storage.append(event)
+
+        ref = NativeMessageRef(
+            id="nref-idem-1",
+            event_id="evt-idem-1",
+            adapter="fake_transport",
+            native_channel_id="ch-0",
+            native_message_id="msg-dup",
+            native_thread_id=None,
+            native_relation_id=None,
+            direction="inbound",
+        )
+        await temp_storage.store_native_ref(ref)
+        # Second store with identical (adapter, native_channel_id, native_message_id).
+        await temp_storage.store_native_ref(ref)
+
+        resolved = await temp_storage.resolve_native_ref(
+            "fake_transport", "ch-0", "msg-dup"
+        )
+        assert resolved == "evt-idem-1"
+
+    async def test_store_different_refs_same_event_allowed(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Multiple distinct native refs pointing to the same event are allowed."""
+        event = _make_event(event_id="evt-multi-ref")
+        await temp_storage.append(event)
+
+        ref_a = NativeMessageRef(
+            id="nref-mr-a",
+            event_id="evt-multi-ref",
+            adapter="adapter_a",
+            native_channel_id="ch-a",
+            native_message_id="msg-a",
+            native_thread_id=None,
+            native_relation_id=None,
+            direction="inbound",
+        )
+        ref_b = NativeMessageRef(
+            id="nref-mr-b",
+            event_id="evt-multi-ref",
+            adapter="adapter_b",
+            native_channel_id="ch-b",
+            native_message_id="msg-b",
+            native_thread_id=None,
+            native_relation_id=None,
+            direction="inbound",
+        )
+        await temp_storage.store_native_ref(ref_a)
+        await temp_storage.store_native_ref(ref_b)
+
+        assert await temp_storage.resolve_native_ref("adapter_a", "ch-a", "msg-a") == "evt-multi-ref"
+        assert await temp_storage.resolve_native_ref("adapter_b", "ch-b", "msg-b") == "evt-multi-ref"
+
+    async def test_missing_native_ref_returns_none(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Resolving a native ref that was never stored returns None."""
+        result = await temp_storage.resolve_native_ref(
+            "no_such_adapter", None, "no_such_msg"
+        )
+        assert result is None
+
+
+# ===================================================================
+# Append-only receipts
+# ===================================================================
+
+
+class TestAppendOnlyReceipts:
+    """Receipts are append-only; delivery_status is a read-only projection."""
+
+    async def test_append_receipt_creates_new_row_each_time(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Each append_receipt call creates a new row in delivery_receipts."""
+        event = _make_event(event_id="evt-rcpt-row")
+        await temp_storage.append(event)
+
+        for i, st in enumerate(["queued", "sent", "confirmed"]):
+            receipt = DeliveryReceipt(
+                receipt_id=f"rcpt-row-{i}",
+                event_id="evt-rcpt-row",
+                delivery_plan_id="plan-row",
+                target_adapter="adapter_x",
+                status=st,  # type: ignore[arg-type]
+            )
+            await temp_storage.append_receipt(receipt)
+
+        rows = await temp_storage._read_all(
+            "SELECT * FROM delivery_receipts WHERE delivery_plan_id = ? AND target_adapter = ? ORDER BY sequence ASC",
+            ("plan-row", "adapter_x"),
+        )
+        assert len(rows) == 3
+        assert rows[0]["status"] == "queued"
+        assert rows[1]["status"] == "sent"
+        assert rows[2]["status"] == "confirmed"
+
+    async def test_delivery_status_is_projection_not_mutable(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """delivery_status returns the latest receipt via MAX(sequence) projection."""
+        event = _make_event(event_id="evt-proj")
+        await temp_storage.append(event)
+
+        for i, st in enumerate(["queued", "sent", "confirmed"]):
+            receipt = DeliveryReceipt(
+                receipt_id=f"rcpt-proj-{i}",
+                event_id="evt-proj",
+                delivery_plan_id="plan-proj",
+                target_adapter="adapter_y",
+                status=st,  # type: ignore[arg-type]
+            )
+            await temp_storage.append_receipt(receipt)
+
+        status = await temp_storage.delivery_status("plan-proj", "adapter_y")
+        assert status is not None
+        assert status.status == "confirmed"
+        assert status.receipt_id == "rcpt-proj-2"
+
+    async def test_receipts_never_updated_or_deleted(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """All historical receipt rows persist after reading delivery_status."""
+        event = _make_event(event_id="evt-hist")
+        await temp_storage.append(event)
+
+        for i, st in enumerate(["queued", "sent", "failed"]):
+            receipt = DeliveryReceipt(
+                receipt_id=f"rcpt-hist-{i}",
+                event_id="evt-hist",
+                delivery_plan_id="plan-hist",
+                target_adapter="adapter_z",
+                status=st,  # type: ignore[arg-type]
+            )
+            await temp_storage.append_receipt(receipt)
+
+        # Consume delivery_status — this must not mutate receipt rows.
+        await temp_storage.delivery_status("plan-hist", "adapter_z")
+
+        rows = await temp_storage._read_all(
+            "SELECT receipt_id, status FROM delivery_receipts WHERE delivery_plan_id = ? AND target_adapter = ? ORDER BY sequence ASC",
+            ("plan-hist", "adapter_z"),
+        )
+        assert len(rows) == 3
+        assert [r["receipt_id"] for r in rows] == ["rcpt-hist-0", "rcpt-hist-1", "rcpt-hist-2"]
+        assert [r["status"] for r in rows] == ["queued", "sent", "failed"]
+
+
+# ===================================================================
+# Ordering guarantees
+# ===================================================================
+
+
+class TestOrderingGuarantees:
+    """Relations and query results respect ordering guarantees."""
+
+    async def test_list_relations_ordered_by_insertion(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Relations are returned in insertion (id ASC) order."""
+        event = _make_event(event_id="evt-ord-rel")
+        await temp_storage.append(event)
+
+        relation_types = ["reply", "reaction", "thread"]
+        for i, rt in enumerate(relation_types):
+            relation = EventRelation(
+                relation_type=rt,  # type: ignore[arg-type]
+                target_event_id=f"target-{i}",
+                target_native_ref=None,
+                key=None,
+                fallback_text=None,
+            )
+            await temp_storage.store_relation("evt-ord-rel", relation)
+
+        relations = await temp_storage.list_relations("evt-ord-rel")
+        assert [r.relation_type for r in relations] == ["reply", "reaction", "thread"]
+
+    async def test_query_ordered_by_timestamp(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """query() returns events ordered by timestamp ascending."""
+        base = datetime(2025, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+        events = [
+            CanonicalEvent(
+                event_id="ts-3",
+                event_kind="message.created",
+                schema_version=1,
+                timestamp=base.replace(hour=3),
+                source_adapter="fake_transport",
+                source_transport_id="node-1",
+                source_channel_id="ch-0",
+                parent_event_id=None,
+                lineage=[],
+                relations=[],
+                payload={"text": "hour3"},
+                metadata=EventMetadata(),
+            ),
+            CanonicalEvent(
+                event_id="ts-1",
+                event_kind="message.created",
+                schema_version=1,
+                timestamp=base.replace(hour=1),
+                source_adapter="fake_transport",
+                source_transport_id="node-1",
+                source_channel_id="ch-0",
+                parent_event_id=None,
+                lineage=[],
+                relations=[],
+                payload={"text": "hour1"},
+                metadata=EventMetadata(),
+            ),
+            CanonicalEvent(
+                event_id="ts-2",
+                event_kind="message.created",
+                schema_version=1,
+                timestamp=base.replace(hour=2),
+                source_adapter="fake_transport",
+                source_transport_id="node-1",
+                source_channel_id="ch-0",
+                parent_event_id=None,
+                lineage=[],
+                relations=[],
+                payload={"text": "hour2"},
+                metadata=EventMetadata(),
+            ),
+        ]
+        # Append in non-sorted order.
+        for e in [events[0], events[1], events[2]]:
+            await temp_storage.append(e)
+
+        filt = EventFilter(limit=10)
+        results = [e async for e in temp_storage.query(filt)]
+        assert [e.event_id for e in results] == ["ts-1", "ts-2", "ts-3"]

@@ -34,6 +34,7 @@ from medre.core.events.canonical import (
     NativeRef,
 )
 from medre.core.events.kinds import EventKind
+from medre.core.rendering.renderer import RenderingResult
 
 from medre.adapters.base import (
     AdapterCapabilities,
@@ -62,6 +63,11 @@ _FAKE_PRESENTATION_CAPABILITIES = AdapterCapabilities(
 class FakePresentationAdapter(BaseAdapter):
     """Simulated presentation-layer adapter for testing.
 
+    **Rendering Boundary**: this adapter consumes :class:`RenderingResult`
+    objects and must **not** contain event-kind-specific formatting logic.
+    All rendering is performed upstream by renderers; the adapter merely
+    stores and delivers the pre-rendered payload.
+
     Stores every outbound event delivered via :meth:`deliver` and every
     inbound event published via :meth:`simulate_inbound` in public lists
     that test code can inspect.
@@ -77,6 +83,11 @@ class FakePresentationAdapter(BaseAdapter):
     ----------
     received_events:
         Events delivered outbound to this adapter via :meth:`deliver`.
+    delivered_payloads:
+        :class:`RenderingResult` payloads stored for test inspection.
+        When a :class:`RenderingResult` is passed to :meth:`deliver`,
+        it is recorded here so tests can verify that the adapter received
+        a rendered result (not raw event text).
     inbound_events:
         Events published inbound via :meth:`simulate_inbound`.
     ctx:
@@ -97,6 +108,7 @@ class FakePresentationAdapter(BaseAdapter):
         self._channel: str = channel
         self.ctx: AdapterContext | None = None
         self.received_events: list[CanonicalEvent] = []
+        self.delivered_payloads: list[RenderingResult] = []
         self.inbound_events: list[CanonicalEvent] = []
         self._started: bool = False
 
@@ -129,19 +141,26 @@ class FakePresentationAdapter(BaseAdapter):
 
     # -- Outbound delivery --------------------------------------------------
 
-    async def deliver(self, event: CanonicalEvent) -> None:
-        """Accept an outbound event for delivery to the fake platform.
+    async def deliver(self, event: CanonicalEvent | RenderingResult) -> None:
+        """Accept an outbound event or rendered payload for delivery.
 
-        The event is appended to :attr:`received_events` for test
-        inspection.  In a real adapter this would post the message to
-        the chat platform.
+        This adapter does **not** perform event-kind-specific formatting.
+        When a :class:`RenderingResult` is supplied it is stored in
+        :attr:`delivered_payloads` for test inspection, proving the
+        rendering boundary is respected.
+
+        When a :class:`CanonicalEvent` is supplied (backward-compatible
+        path) it is appended to :attr:`received_events`.
 
         Parameters
         ----------
         event:
-            The canonical event to deliver.
+            The canonical event or rendering result to deliver.
         """
-        self.received_events.append(event)
+        if isinstance(event, RenderingResult):
+            self.delivered_payloads.append(event)
+        else:
+            self.received_events.append(event)
 
     # -- Test helpers -------------------------------------------------------
 

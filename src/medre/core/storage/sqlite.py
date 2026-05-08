@@ -140,7 +140,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 _INSERT_NATIVE_REF = """
-INSERT INTO native_message_refs
+INSERT OR IGNORE INTO native_message_refs
     (id, event_id, adapter, native_channel_id,
      native_message_id, native_thread_id, native_relation_id,
      direction, metadata, created_at)
@@ -156,7 +156,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 
 _SELECT_EVENT = "SELECT * FROM canonical_events WHERE event_id = ?"
 
-_SELECT_RELATIONS = "SELECT * FROM event_relations WHERE event_id = ?"
+_SELECT_RELATIONS = "SELECT * FROM event_relations WHERE event_id = ? ORDER BY id ASC"
 
 _RESOLVE_NATIVE_REF = """
 SELECT event_id FROM native_message_refs
@@ -285,7 +285,7 @@ def _build_query_sql(filt: EventFilter) -> tuple[str, tuple[Any, ...]]:
         params.append(filt.time_end.isoformat())
 
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
-    sql = f"SELECT * FROM canonical_events{where} ORDER BY timestamp DESC LIMIT ?"
+    sql = f"SELECT * FROM canonical_events{where} ORDER BY timestamp ASC LIMIT ?"
     params.append(filt.limit)
     return sql, tuple(params)
 
@@ -507,7 +507,7 @@ class SQLiteStorage:
         return _row_to_event(row, [_row_to_relation(r) for r in rel_rows])
 
     async def query(self, filter: EventFilter) -> AsyncIterator[CanonicalEvent]:
-        """Yield events matching *filter*, newest-first."""
+        """Yield events matching *filter*, ordered by timestamp ascending."""
         sql, params = _build_query_sql(filter)
         rows = await self._read_all(sql, params)
         if not rows:
@@ -532,7 +532,12 @@ class SQLiteStorage:
     # -- Native ref correlation ---------------------------------------------
 
     async def store_native_ref(self, ref: NativeMessageRef) -> None:
-        """Persist a native-to-canonical message mapping."""
+        """Persist a native-to-canonical message mapping.
+
+        Duplicate ``(adapter, native_channel_id, native_message_id)`` triples
+        are silently ignored (idempotent).  Use :meth:`resolve_native_ref` to
+        retrieve the canonical ``event_id`` for an existing mapping.
+        """
         await self._write(
             _INSERT_NATIVE_REF,
             (
@@ -601,7 +606,12 @@ class SQLiteStorage:
     # -- Receipts -----------------------------------------------------------
 
     async def append_receipt(self, receipt: DeliveryReceipt) -> None:
-        """Append a delivery receipt record."""
+        """Append a delivery receipt record.
+
+        Receipts are append-only: every call creates a new row.  Existing
+        receipt rows are never updated or deleted.  The ``delivery_status``
+        view projects the latest receipt as a ``MAX(sequence)`` aggregation.
+        """
         await self._write(
             _INSERT_RECEIPT,
             (

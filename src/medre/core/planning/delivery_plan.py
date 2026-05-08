@@ -13,9 +13,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
+    from medre.core.events.canonical import DeliveryReceipt
     from medre.core.routing.models import RouteTarget
 
 
@@ -116,3 +117,61 @@ class DeliveryPlan:
     fallback_chain: list[DeliveryStrategy] = field(default_factory=list)
     retry_policy: RetryPolicy | None = None
     deadline: datetime | None = None
+
+
+# ---------------------------------------------------------------------------
+# Delivery outcome
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class DeliveryOutcome:
+    """Result of a single target delivery attempt within the pipeline.
+
+    Each delivery target produces an independent outcome so that
+    per-target failures can be tracked, categorised, and surfaced
+    to observability without affecting sibling targets.
+
+    Attributes
+    ----------
+    event_id:
+        The canonical event ID that was delivered.
+    target_adapter:
+        Name of the adapter the event was sent to.
+    target_channel:
+        Channel on the target adapter, if applicable.
+    route_id:
+        ID of the route that matched this delivery.
+    delivery_plan_id:
+        ID of the delivery plan governing this attempt.
+    status:
+        Categorised outcome:
+        ``"success"`` – adapter accepted the event.
+        ``"queued"`` – delivery was accepted asynchronously.
+        ``"transient_failure"`` – a retryable error occurred.
+        ``"permanent_failure"`` – an unrecoverable error occurred.
+        ``"skipped"`` – delivery was intentionally skipped (e.g. no
+        renderer).
+    receipt:
+        The recorded :class:`DeliveryReceipt`, if one was produced.
+    error:
+        Human-readable error description on failure; ``None`` on success.
+    duration_ms:
+        Wall-clock time spent on this delivery attempt in milliseconds.
+    """
+
+    event_id: str
+    target_adapter: str
+    target_channel: str | None
+    route_id: str
+    delivery_plan_id: str
+    status: Literal[
+        "success",
+        "queued",
+        "transient_failure",
+        "permanent_failure",
+        "skipped",
+    ]
+    receipt: DeliveryReceipt | None
+    error: str | None
+    duration_ms: float

@@ -14,13 +14,15 @@ Public symbols
 * :class:`ReplayMode` – behavioural mode enum.
 * :class:`ReplayRequest` – filter and targeting for a replay operation.
 * :class:`ReplayResult` – outcome of replaying a single event through one stage.
+* :class:`ReplayState` – aggregate state tracker for a replay operation.
+* :func:`collect_replay_state` – consume results into a :class:`ReplayState`.
 * :class:`ReplayEngine` – the main replay orchestrator.
 """
 
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import (
@@ -235,6 +237,77 @@ class ReplayResult:
     output: Any = None
     error: str | None = None
     duration_ms: float = 0.0
+    lineage: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ReplayState:
+    """Aggregate state tracker for a replay operation.
+
+    Accumulates counters and diagnostics across all :class:`ReplayResult`
+    items produced by a single :meth:`ReplayEngine.replay` call.
+
+    Attributes
+    ----------
+    events_processed:
+        Total number of ``(event, stage)`` results recorded.
+    events_passed:
+        Count of results with ``status == "passed"``.
+    events_skipped:
+        Count of results with ``status == "skipped"``.
+    events_failed:
+        Count of results with ``status in ("failed", "error")``.
+    current_lineage:
+        Lineage of the most recently processed event.  Updated on
+        every :meth:`record` call so callers can track derivation
+        ancestry across the replay.
+    errors:
+        Collected error messages from ``"failed"`` and ``"error"``
+        results.  In :attr:`ReplayMode.BEST_EFFORT` mode this list
+        doubles as the diagnostic log.
+    """
+
+    events_processed: int = 0
+    events_passed: int = 0
+    events_skipped: int = 0
+    events_failed: int = 0
+    current_lineage: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+
+    def record(self, result: ReplayResult) -> None:
+        """Update state from a single *result*.
+
+        Increments the appropriate counter, appends error messages
+        when present, and refreshes ``current_lineage`` from the
+        result's :attr:`~ReplayResult.lineage` field.
+        """
+        self.events_processed += 1
+        if result.status == "passed":
+            self.events_passed += 1
+        elif result.status == "skipped":
+            self.events_skipped += 1
+        elif result.status in ("failed", "error"):
+            self.events_failed += 1
+            if result.error:
+                self.errors.append(result.error)
+        if result.lineage:
+            self.current_lineage = list(result.lineage)
+
+
+async def collect_replay_state(
+    results: AsyncIterator[ReplayResult],
+) -> ReplayState:
+    """Consume all *results* and return the accumulated :class:`ReplayState`.
+
+    Convenience wrapper that iterates over an async iterator of
+    :class:`ReplayResult` items (as returned by
+    :meth:`ReplayEngine.replay`) and accumulates them into a single
+    :class:`ReplayState`.
+    """
+    state = ReplayState()
+    async for result in results:
+        state.record(result)
+    return state
 
 
 # ---------------------------------------------------------------------------
@@ -373,12 +446,16 @@ class ReplayEngine:
                     async for result in self._replay_missing(event_id, stages):
                         yield result
                 else:
-                    async for result in self._replay_event(event, stages):
+                    async for result in self._replay_event_safe(
+                        event, stages, request.mode,
+                    ):
                         yield result
         else:
             event_filter = _request_to_filter(request)
             async for event in self._storage.query(event_filter):  # type: ignore[union-attr]
-                async for result in self._replay_event(event, stages):
+                async for result in self._replay_event_safe(
+                    event, stages, request.mode,
+                ):
                     yield result
 
     async def count_matching(self, request: ReplayRequest) -> int:
@@ -447,6 +524,35 @@ class ReplayEngine:
 
     # -- Internal per-event replay ------------------------------------------
 
+    async def _replay_event_safe(
+        self,
+        event: CanonicalEvent,
+        stages: tuple[str, ...],
+        mode: ReplayMode,
+    ) -> AsyncIterator[ReplayResult]:
+        """Replay a single event, wrapping with BEST_EFFORT crash-safety.
+
+        Delegates to :meth:`_replay_event` inside a ``try`` block.  In
+        :attr:`ReplayMode.BEST_EFFORT` mode any unexpected exception is
+        caught and yielded as a single ``"error"`` result so the caller
+        is never crashed by an individual event failure.  Other modes
+        re-raise the exception.
+        """
+        try:
+            async for result in self._replay_event(event, stages):
+                yield result
+        except Exception as exc:
+            if mode is ReplayMode.BEST_EFFORT:
+                yield ReplayResult(
+                    event_id=event.event_id,
+                    stage="unknown",
+                    status="error",
+                    error=f"Unexpected error in BEST_EFFORT mode: {exc}",
+                    lineage=list(event.lineage),
+                )
+            else:
+                raise
+
     async def _replay_missing(
         self,
         event_id: str,
@@ -508,6 +614,7 @@ class ReplayEngine:
                     status="skipped",
                     error=f"Unknown stage: {stage!r}",
                 )
+            result.lineage = list(event.lineage)
             yield result
 
     # -- Stage implementations ----------------------------------------------

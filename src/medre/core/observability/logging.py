@@ -99,3 +99,45 @@ def get_logger(name: str) -> logging.Logger:
         A child logger suitable for use in any framework subsystem.
     """
     return logging.getLogger(f"medre.{name}")
+
+
+# ---------------------------------------------------------------------------
+# Diagnostic events
+# ---------------------------------------------------------------------------
+
+
+_diagnostic_logger = logging.getLogger("medre.diagnostics")
+
+
+def diagnostic_event(
+    event_id: str,
+    category: str,
+    message: str,
+    **context: Any,
+) -> None:
+    """Emit a structured diagnostic log entry.
+
+    Diagnostic events are distinct from regular application logs: they
+    carry an explicit *category* and optional key–value *context* so that
+    downstream log aggregators can filter and alert on specific failure
+    modes.
+
+    Parameters
+    ----------
+    event_id:
+        The canonical event ID this diagnostic relates to.
+    category:
+        A dot-namespaced category string (e.g. ``"adapter_failure"``,
+        ``"replay_skip"``).
+    message:
+        Human-readable description of the diagnostic condition.
+    **context:
+        Arbitrary key–value pairs appended to the log entry.
+    """
+    _diagnostic_logger.warning(
+        "diagnostic event_id=%s category=%s message=%s %s",
+        event_id,
+        category,
+        message,
+        " ".join(f"{k}={v!r}" for k, v in context.items()) if context else "",
+    )

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import msgspec
 import pytest
 
 from medre.core.events import (
@@ -518,3 +519,236 @@ class TestMetadataEmbeddingMode:
         assert MetadataEmbeddingMode.MINIMAL.value == "minimal"
         assert MetadataEmbeddingMode.SAFE.value == "safe"
         assert MetadataEmbeddingMode.FULL.value == "full"
+
+
+# ===================================================================
+# Round-trip serialisation
+# ===================================================================
+
+
+def _make_event() -> CanonicalEvent:
+    """Helper that builds a valid CanonicalEvent for round-trip tests."""
+    return CanonicalEvent(
+        event_id="evt-rt-1",
+        event_kind="message.text",
+        schema_version=1,
+        timestamp=datetime(2026, 1, 15, 10, 30, 0, tzinfo=timezone.utc),
+        source_adapter="test",
+        source_transport_id="t-1",
+        source_channel_id="ch-1",
+        parent_event_id=None,
+        lineage=["root"],
+        relations=[
+            EventRelation(
+                relation_type="reply",
+                target_event_id="t-2",
+                target_native_ref=None,
+                key=None,
+                fallback_text=None,
+            ),
+        ],
+        payload={"body": "hello"},
+        metadata=EventMetadata(
+            transport=TransportMetadata(protocol="mqtt"),
+        ),
+        depth=0,
+        trace_id="trace-1",
+    )
+
+
+class TestJsonRoundTrip:
+    """JSON encode → decode must preserve every field."""
+
+    def test_json_round_trip_all_fields(self) -> None:
+        event = _make_event()
+        encoded = msgspec.json.encode(event)
+        decoded = msgspec.json.decode(encoded, type=CanonicalEvent)
+        assert decoded.event_id == event.event_id
+        assert decoded.event_kind == event.event_kind
+        assert decoded.schema_version == event.schema_version
+        assert decoded.timestamp == event.timestamp
+        assert decoded.source_adapter == event.source_adapter
+        assert decoded.source_transport_id == event.source_transport_id
+        assert decoded.source_channel_id == event.source_channel_id
+        assert decoded.parent_event_id == event.parent_event_id
+        assert decoded.lineage == event.lineage
+        assert len(decoded.relations) == 1
+        assert decoded.relations[0].relation_type == "reply"
+        assert decoded.relations[0].target_event_id == "t-2"
+        assert decoded.payload == event.payload
+        assert decoded.metadata.transport is not None
+        assert decoded.metadata.transport.protocol == "mqtt"
+        assert decoded.depth == event.depth
+        assert decoded.trace_id == event.trace_id
+
+
+class TestMsgpackRoundTrip:
+    """msgpack encode → decode must match JSON-decoded result."""
+
+    def test_msgpack_round_trip_equals_json(self) -> None:
+        event = _make_event()
+        json_decoded = msgspec.json.decode(
+            msgspec.json.encode(event), type=CanonicalEvent
+        )
+        msgpack_decoded = msgspec.msgpack.decode(
+            msgspec.msgpack.encode(event), type=CanonicalEvent
+        )
+        assert msgpack_decoded.event_id == json_decoded.event_id
+        assert msgpack_decoded.event_kind == json_decoded.event_kind
+        assert msgpack_decoded.schema_version == json_decoded.schema_version
+        assert msgpack_decoded.timestamp == json_decoded.timestamp
+        assert msgpack_decoded.source_adapter == json_decoded.source_adapter
+        assert msgpack_decoded.source_transport_id == json_decoded.source_transport_id
+        assert msgpack_decoded.source_channel_id == json_decoded.source_channel_id
+        assert msgpack_decoded.parent_event_id == json_decoded.parent_event_id
+        assert msgpack_decoded.lineage == json_decoded.lineage
+        assert msgpack_decoded.relations == json_decoded.relations
+        assert msgpack_decoded.payload == json_decoded.payload
+        assert msgpack_decoded.depth == json_decoded.depth
+        assert msgpack_decoded.trace_id == json_decoded.trace_id
+
+
+# ===================================================================
+# Immutability enforcement
+# ===================================================================
+
+
+class TestImmutability:
+    """Frozen struct must reject field mutation and list mutation."""
+
+    def test_cannot_set_field(self) -> None:
+        event = _make_event()
+        with pytest.raises(AttributeError):
+            event.event_id = "hacked"  # type: ignore[misc]
+
+    def test_cannot_reassign_relations(self) -> None:
+        """Field reassignment is blocked by frozen=True."""
+        event = _make_event()
+        with pytest.raises(AttributeError):
+            event.relations = []  # type: ignore[misc]
+
+    def test_relations_list_is_not_deeply_frozen(self) -> None:
+        """msgspec frozen structs do not deeply-freeze mutable containers.
+
+        The struct field cannot be reassigned, but list contents remain
+        mutable.  This test documents that known limitation.
+        """
+        event = _make_event()
+        # Append succeeds — the list is a regular Python list
+        event.relations.append(
+            EventRelation(
+                relation_type="reaction",
+                target_event_id="t-3",
+                target_native_ref=None,
+                key=None,
+                fallback_text=None,
+            )
+        )
+        assert len(event.relations) == 2
+
+
+# ===================================================================
+# Malformed event validation (__post_init__)
+# ===================================================================
+
+
+class TestMalformedCanonicalEvent:
+    """CanonicalEvent.__post_init__ must reject invalid fields."""
+
+    def _valid_kwargs(self) -> dict:
+        """Base kwargs that produce a valid CanonicalEvent."""
+        return dict(
+            event_id="evt-ok",
+            event_kind="message.text",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="test",
+            source_transport_id="t-1",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=[],
+            relations=[],
+            payload={},
+            metadata=EventMetadata(),
+        )
+
+    def test_empty_event_id_raises(self) -> None:
+        kw = self._valid_kwargs()
+        kw["event_id"] = ""
+        with pytest.raises(ValueError, match="event_id"):
+            CanonicalEvent(**kw)
+
+    def test_empty_event_kind_raises(self) -> None:
+        kw = self._valid_kwargs()
+        kw["event_kind"] = ""
+        with pytest.raises(ValueError, match="event_kind"):
+            CanonicalEvent(**kw)
+
+    def test_naive_timestamp_raises(self) -> None:
+        kw = self._valid_kwargs()
+        kw["timestamp"] = datetime(2026, 1, 1, 0, 0, 0)  # no tzinfo
+        with pytest.raises(ValueError, match="timezone-aware"):
+            CanonicalEvent(**kw)
+
+    def test_negative_depth_raises(self) -> None:
+        kw = self._valid_kwargs()
+        kw["depth"] = -1
+        with pytest.raises(ValueError, match="depth"):
+            CanonicalEvent(**kw)
+
+    def test_negative_schema_version_does_not_raise(self) -> None:
+        """schema_version is not validated by __post_init__ (no constraint specified)."""
+        kw = self._valid_kwargs()
+        kw["schema_version"] = -1
+        # Should construct without error — no validation rule for schema_version
+        event = CanonicalEvent(**kw)
+        assert event.schema_version == -1
+
+    def test_lineage_none_raises(self) -> None:
+        kw = self._valid_kwargs()
+        kw["lineage"] = None  # type: ignore[arg-type]
+        with pytest.raises(ValueError, match="lineage"):
+            CanonicalEvent(**kw)
+
+    def test_relations_none_raises(self) -> None:
+        kw = self._valid_kwargs()
+        kw["relations"] = None  # type: ignore[arg-type]
+        with pytest.raises(ValueError, match="relations"):
+            CanonicalEvent(**kw)
+
+
+# ===================================================================
+# SchemaRegistry hardening
+# ===================================================================
+
+
+class TestSchemaRegistryHardening:
+    """SchemaRegistry callable check, register_or_replace, unregistered kind."""
+
+    def test_validate_rejects_non_callable_validator(self) -> None:
+        """If a non-callable slips into the registry, validate returns False."""
+        registry = SchemaRegistry()
+        # Directly inject a non-callable to simulate corruption
+        registry._schemas[("bad.kind", 1)] = "not-a-callable"  # type: ignore[assignment]
+        errors: list[str] = []
+        result = registry.validate("bad.kind", {}, errors=errors)
+        assert result is False
+        assert any("not callable" in e for e in errors)
+
+    def test_register_or_replace_overwrites(self) -> None:
+        """register_or_replace overwrites an existing validator."""
+        registry = SchemaRegistry()
+        registry.register("msg", 1, lambda p: ["old error"])
+        registry.register_or_replace("msg", 1, lambda p: [])
+        assert registry.validate("msg", {}) is True
+
+    def test_register_or_replace_fresh(self) -> None:
+        """register_or_replace works when no prior registration exists."""
+        registry = SchemaRegistry()
+        registry.register_or_replace("new.kind", 2, lambda p: [])
+        assert registry.validate("new.kind", {}, schema_version=2) is True
+
+    def test_unregistered_kind_returns_false(self) -> None:
+        """validate returns False for an unregistered event kind."""
+        registry = SchemaRegistry()
+        assert registry.validate("absent.kind", {}) is False

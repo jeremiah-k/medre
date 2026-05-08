@@ -118,6 +118,29 @@ class SchemaRegistry:
         """
         self._schemas[(event_kind, schema_version)] = validator
 
+    def register_or_replace(
+        self,
+        event_kind: str,
+        schema_version: int,
+        validator: Validator,
+    ) -> None:
+        """Register a validator, explicitly overwriting any existing one.
+
+        Unlike :meth:`register`, this method is named to make the
+        overwrite semantics explicit at the call site.
+
+        Parameters
+        ----------
+        event_kind:
+            The event kind string (e.g. ``"message.text"``).
+        schema_version:
+            The schema version number.
+        validator:
+            A callable that accepts a payload dict and returns a list of
+            error strings (empty if valid).
+        """
+        self._schemas[(event_kind, schema_version)] = validator
+
     # -- Query ------------------------------------------------------------
 
     def get(self, event_kind: str, schema_version: int = 1) -> Validator | None:
@@ -180,6 +203,14 @@ class SchemaRegistry:
                 errors.append(
                     f"No schema registered for kind={event_kind!r} "
                     f"version={version}"
+                )
+            return False
+
+        if not callable(validator):
+            if errors is not None:
+                errors.append(
+                    f"Registered validator for kind={event_kind!r} "
+                    f"version={version} is not callable"
                 )
             return False
 

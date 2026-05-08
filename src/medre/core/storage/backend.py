@@ -122,6 +122,12 @@ class StorageBackend(Protocol):
 
     Every method is async to allow implementations that perform I/O
     (network databases, remote APIs, …) without blocking the event loop.
+
+    Contractual guarantees
+    ----------------------
+    Events are append-only.  Delivery receipts are append-only.
+    Native refs are idempotent.  Relations queryable by event_id.
+    Query results ordered by timestamp ascending.
     """
 
     # -- Event CRUD ---------------------------------------------------------

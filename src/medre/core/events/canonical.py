@@ -260,3 +260,21 @@ class CanonicalEvent(msgspec.Struct, frozen=True):
     metadata: EventMetadata
     depth: int = 0
     trace_id: str | None = None
+
+    def __post_init__(self) -> None:
+        """Validate invariants after construction.
+
+        Raises :class:`ValueError` if any invariant is violated.
+        """
+        if not isinstance(self.event_id, str) or not self.event_id:
+            raise ValueError("event_id must be a non-empty string")
+        if not isinstance(self.event_kind, str) or not self.event_kind:
+            raise ValueError("event_kind must be a non-empty string")
+        if self.timestamp.tzinfo is None:
+            raise ValueError("timestamp must be timezone-aware (UTC)")
+        if self.depth < 0:
+            raise ValueError("depth must be >= 0")
+        if self.lineage is None:
+            raise ValueError("lineage must not be None")
+        if self.relations is None:
+            raise ValueError("relations must not be None")

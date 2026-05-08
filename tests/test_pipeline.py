@@ -3,7 +3,8 @@
 Tests the full event lifecycle from ingress through storage, routing,
 delivery planning, adapter delivery, and receipt recording.  Exercises
 error isolation, middleware-based event dropping, multi-target fanout,
-and reaction event handling.
+reaction event handling, target-scoped failure semantics, and
+diagnostics.
 """
 
 from __future__ import annotations
@@ -17,8 +18,9 @@ from medre.adapters.fake_transport import FakeTransportAdapter
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.events.bus import EventBus
-from medre.core.observability.metrics import EventMetrics
+from medre.core.observability.metrics import Diagnostician, EventMetrics
 from medre.core.planning import FallbackResolver, RelationResolver
+from medre.core.planning.delivery_plan import DeliveryOutcome
 from medre.core.routing import Route, RouteSource, RouteTarget, Router
 from medre.core.storage import SQLiteStorage
 
@@ -389,3 +391,201 @@ class TestEventMetrics:
         # Mutating the snapshot does not affect the metrics.
         snap["ingressed"]["message.created"] = 999
         assert metrics.events_ingressed["message.created"] == 1
+
+
+# ===================================================================
+# Target-scoped failure semantics
+# ===================================================================
+
+
+class TestTargetScopedFailures:
+    """Verify target-scoped delivery outcomes and diagnostics."""
+
+    async def test_fanout_partial_failure(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Fanout to three targets where one fails produces mixed outcomes."""
+        diag = Diagnostician()
+        good_a = FakePresentationAdapter(adapter_id="good-a")
+        good_b = FakePresentationAdapter(adapter_id="good-b")
+
+        class _BrokenAdapter:
+            adapter_id = "broken"
+
+            def __init__(self) -> None:
+                self.received_events: list[CanonicalEvent] = []
+
+            async def deliver(self, event: CanonicalEvent) -> None:
+                raise RuntimeError("boom")
+
+        broken = _BrokenAdapter()
+
+        route = Route(
+            id="fanout-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel=None
+            ),
+            targets=[
+                RouteTarget(adapter="good-a"),
+                RouteTarget(adapter="broken"),
+                RouteTarget(adapter="good-b"),
+            ],
+        )
+        router = Router(routes=[route])
+
+        config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={"good-a": good_a, "broken": broken, "good-b": good_b},
+        )
+        config.diagnostician = diag
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = _make_event(event_id="fanout-001", source_adapter="src")
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+
+            # Three outcomes, one per target.
+            assert len(outcomes) == 3
+
+            by_adapter = {o.target_adapter: o for o in outcomes}
+            assert by_adapter["good-a"].status == "success"
+            assert by_adapter["good-b"].status == "success"
+            assert by_adapter["broken"].status == "permanent_failure"
+            assert "RuntimeError" in by_adapter["broken"].error
+
+            # Good adapters actually received the event.
+            assert event in good_a.received_events
+            assert event in good_b.received_events
+            assert len(broken.received_events) == 0
+
+            # Diagnostician captured the failure.
+            snap = diag.snapshot()
+            assert snap["adapter_failures"]["broken"] == 1
+        finally:
+            await runner.stop()
+
+    async def test_transient_failure_does_not_affect_other_targets(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """A transient failure in one target does not prevent other targets from succeeding."""
+
+        class _TransientlyBroken:
+            """Adapter that raises ConnectionError (transient)."""
+
+            adapter_id = "transient-broken"
+
+            def __init__(self) -> None:
+                self.received_events: list[CanonicalEvent] = []
+
+            async def deliver(self, event: CanonicalEvent) -> None:
+                raise ConnectionError("network unreachable")
+
+        diag = Diagnostician()
+        good = FakePresentationAdapter(adapter_id="stable")
+        flaky = _TransientlyBroken()
+
+        route = Route(
+            id="transient-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel=None
+            ),
+            targets=[
+                RouteTarget(adapter="stable"),
+                RouteTarget(adapter="transient-broken"),
+            ],
+        )
+        router = Router(routes=[route])
+
+        config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={"stable": good, "transient-broken": flaky},
+        )
+        config.diagnostician = diag
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = _make_event(
+            event_id="transient-001", source_adapter="src"
+        )
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+
+            by_adapter = {o.target_adapter: o for o in outcomes}
+
+            # Good adapter succeeded.
+            assert by_adapter["stable"].status == "success"
+            assert event in good.received_events
+
+            # Flaky adapter classified as transient.
+            assert (
+                by_adapter["transient-broken"].status == "transient_failure"
+            )
+            assert (
+                "ConnectionError" in by_adapter["transient-broken"].error
+            )
+
+            # Diagnostician recorded the adapter failure.
+            snap = diag.snapshot()
+            assert "transient-broken" in snap["adapter_failures"]
+        finally:
+            await runner.stop()
+
+    async def test_diagnostics_emitted_on_failure(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Diagnostician records are emitted when delivery fails."""
+        diag = Diagnostician()
+
+        class _FailAdapter:
+            adapter_id = "fail-adapter"
+
+            def __init__(self) -> None:
+                self.received_events: list[CanonicalEvent] = []
+
+            async def deliver(self, event: CanonicalEvent) -> None:
+                raise RuntimeError("deliberate failure")
+
+        adapter = _FailAdapter()
+
+        route = Route(
+            id="diag-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel=None
+            ),
+            targets=[RouteTarget(adapter="fail-adapter")],
+        )
+        router = Router(routes=[route])
+
+        config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={"fail-adapter": adapter},
+        )
+        config.diagnostician = diag
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = _make_event(event_id="diag-001", source_adapter="src")
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+
+            assert len(outcomes) == 1
+            assert outcomes[0].status == "permanent_failure"
+            assert outcomes[0].target_adapter == "fail-adapter"
+
+            # Diagnostician captured the failure.
+            snap = diag.snapshot()
+            assert snap["adapter_failures"]["fail-adapter"] == 1
+            assert snap["planner_failures"] == {}
+            assert snap["renderer_failures"] == {}
+        finally:
+            await runner.stop()
