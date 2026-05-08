@@ -286,6 +286,7 @@ class CanonicalEvent(msgspec.Struct, frozen=True):
     relations: tuple[EventRelation, ...]
     payload: dict[str, object]
     metadata: EventMetadata
+    source_native_ref: NativeRef | None = None
     depth: int = 0
     trace_id: str | None = None
 

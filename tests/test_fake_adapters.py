@@ -156,20 +156,41 @@ class TestFakePresentationAdapter:
         assert adapter.is_started is False
 
     async def test_deliver_stores_received_event(self) -> None:
-        """deliver() appends the event to received_events."""
+        """deliver() raises TypeError when called with CanonicalEvent."""
         adapter = FakePresentationAdapter("test_p")
         event = _make_event()
-        await adapter.deliver(event)
-        assert event in adapter.received_events
+        with pytest.raises(TypeError, match="RenderingResult only"):
+            await adapter.deliver(event)
 
-    async def test_received_events_list_for_inspection(self) -> None:
-        """Multiple delivered events accumulate in received_events."""
+    async def test_deliver_rendering_result_stores_payload(self) -> None:
+        """deliver(RenderingResult) stores in delivered_payloads."""
+        adapter = FakePresentationAdapter("test_p")
+        result = RenderingResult(
+            event_id="evt-1",
+            target_adapter="test_p",
+            target_channel="ch-0",
+            payload={"text": "hello"},
+            metadata={"renderer": "text"},
+        )
+        delivery = await adapter.deliver(result)
+        assert len(adapter.delivered_payloads) == 1
+        assert adapter.delivered_payloads[0] is result
+        assert isinstance(delivery, object)  # AdapterDeliveryResult
+
+    async def test_delivered_payloads_list_for_inspection(self) -> None:
+        """Multiple delivered RenderingResults accumulate in delivered_payloads."""
         adapter = FakePresentationAdapter("test_p")
         for i in range(3):
-            await adapter.deliver(_make_event(event_id=f"evt-{i}"))
-        assert len(adapter.received_events) == 3
-        assert adapter.received_events[0].event_id == "evt-0"
-        assert adapter.received_events[2].event_id == "evt-2"
+            result = RenderingResult(
+                event_id=f"evt-{i}",
+                target_adapter="test_p",
+                target_channel="ch-0",
+                payload={"text": f"msg-{i}"},
+            )
+            await adapter.deliver(result)
+        assert len(adapter.delivered_payloads) == 3
+        assert adapter.delivered_payloads[0].event_id == "evt-0"
+        assert adapter.delivered_payloads[2].event_id == "evt-2"
 
     async def test_simulate_inbound_publishes_event(
         self, make_adapter_context, inbound_collector
@@ -323,44 +344,29 @@ class TestRenderingBoundary:
     async def test_adapter_does_not_perform_route_matching(self) -> None:
         """Fake adapters have no route matching logic.
 
-        The adapter stores whatever is delivered without filtering by
-        event kind, channel, or source.  This verifies that route
-        matching is not the adapter's responsibility.
+        The adapter stores whatever RenderingResult is delivered without
+        filtering by event kind, channel, or source.  This verifies that
+        route matching is not the adapter's responsibility.
         """
         adapter = FakePresentationAdapter("test_p")
 
-        # Deliver events with different kinds — adapter stores them all.
+        # Deliver rendering results with different underlying event kinds.
         for kind in (
             EventKind.MESSAGE_TEXT,
             EventKind.MESSAGE_CREATED,
             EventKind.PRESENCE_CHANGED,
             EventKind.PLUGIN_CUSTOM,
         ):
-            event = CanonicalEvent(
+            result = RenderingResult(
                 event_id=f"evt-{kind}",
-                event_kind=kind,
-                schema_version=1,
-                timestamp=datetime.now(timezone.utc),
-                source_adapter="other_adapter",
-                source_transport_id="node-1",
-                source_channel_id="any-channel",
-                parent_event_id=None,
-                lineage=(),
-                relations=(),
+                target_adapter="test_p",
+                target_channel="any-channel",
                 payload={"text": "test"},
-                metadata=EventMetadata(),
             )
-            await adapter.deliver(event)
+            await adapter.deliver(result)
 
-        # All events stored — no filtering or route matching.
-        assert len(adapter.received_events) == 4
-        stored_kinds = {e.event_kind for e in adapter.received_events}
-        assert stored_kinds == {
-            EventKind.MESSAGE_TEXT,
-            EventKind.MESSAGE_CREATED,
-            EventKind.PRESENCE_CHANGED,
-            EventKind.PLUGIN_CUSTOM,
-        }
+        # All payloads stored — no filtering or route matching.
+        assert len(adapter.delivered_payloads) == 4
 
 
 # ===================================================================
@@ -457,6 +463,33 @@ class TestDeliveryContract:
         assert hasattr(presentation, "deliver")
         assert callable(transport.deliver)
         assert callable(presentation.deliver)
+
+    async def test_fake_presentation_rejects_canonical_event(self) -> None:
+        """FakePresentationAdapter.deliver raises TypeError on CanonicalEvent."""
+        adapter = FakePresentationAdapter("test_p")
+        event = _make_event()
+        with pytest.raises(TypeError, match="RenderingResult only"):
+            await adapter.deliver(event)
+
+    async def test_fake_matrix_rejects_canonical_event(self) -> None:
+        """FakeMatrixAdapter.deliver raises TypeError on CanonicalEvent."""
+        from medre.adapters import FakeMatrixAdapter
+
+        adapter = FakeMatrixAdapter("test_m")
+        event = _make_event()
+        with pytest.raises(TypeError, match="RenderingResult only"):
+            await adapter.deliver(event)
+
+    async def test_faulty_presentation_rejects_canonical_event(self) -> None:
+        """FaultyPresentationAdapter.deliver raises TypeError on CanonicalEvent."""
+        from medre.adapters.fake_presentation import FaultyPresentationAdapter
+
+        adapter = FaultyPresentationAdapter(
+            adapter_id="test", failure_mode="succeed",
+        )
+        event = _make_event()
+        with pytest.raises(TypeError, match="RenderingResult only"):
+            await adapter.deliver(event)
 
 
 # ===================================================================

@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from medre.adapters.matrix.codec import MatrixCodec
 from medre.adapters.matrix.config import MatrixConfig
 from medre.adapters.matrix.errors import MatrixCodecError
-from medre.core.events.canonical import CanonicalEvent
+from medre.core.events.canonical import CanonicalEvent, NativeRef
 from medre.core.events.kinds import EventKind
 from medre.core.events.metadata import EventMetadata
 
@@ -184,3 +184,84 @@ class TestMatrixCodec:
         event = codec.decode(native, room_id="!room:server")
         assert event.event_kind == EventKind.MESSAGE_CREATED
         assert event.payload["body"] == "notice text"
+
+    # -- source_native_ref ------------------------------------------------
+
+    def test_decode_populates_source_native_ref(self) -> None:
+        """decode sets source_native_ref when event_id is non-empty."""
+        codec = MatrixCodec("matrix-1", _make_config())
+        native = _make_native_event(event_id="$evt-abc")
+        event = codec.decode(native, room_id="!room:server")
+        assert event.source_native_ref is not None
+        assert event.source_native_ref.adapter == "matrix-1"
+        assert event.source_native_ref.native_channel_id == "!room:server"
+        assert event.source_native_ref.native_message_id == "$evt-abc"
+
+    def test_decode_empty_event_id_no_source_native_ref(self) -> None:
+        """decode leaves source_native_ref None when event_id is empty."""
+        codec = MatrixCodec("matrix-1", _make_config())
+        native = _make_native_event(event_id="")
+        event = codec.decode(native, room_id="!room:server")
+        assert event.source_native_ref is None
+
+    # -- reply relation ---------------------------------------------------
+
+    def test_decode_reply_creates_relation(self) -> None:
+        """decode creates an EventRelation for Matrix reply events."""
+        codec = MatrixCodec("matrix-1", _make_config())
+        content = {
+            "msgtype": "m.text",
+            "body": "a reply",
+            "m.relates_to": {
+                "m.in_reply_to": {"event_id": "$original-msg-001"},
+            },
+        }
+        native = _make_native_event(body="a reply", event_id="$reply-001", content=content)
+        event = codec.decode(native, room_id="!room:server")
+
+        assert len(event.relations) == 1
+        rel = event.relations[0]
+        assert rel.relation_type == "reply"
+        assert rel.target_event_id is None
+        assert rel.target_native_ref is not None
+        assert rel.target_native_ref.adapter == "matrix-1"
+        assert rel.target_native_ref.native_channel_id == "!room:server"
+        assert rel.target_native_ref.native_message_id == "$original-msg-001"
+
+    def test_decode_no_reply_no_relation(self) -> None:
+        """decode produces no relation when content has no m.relates_to."""
+        codec = MatrixCodec("matrix-1", _make_config())
+        native = _make_native_event(body="plain message")
+        event = codec.decode(native, room_id="!room:server")
+        assert len(event.relations) == 0
+
+    def test_decode_malformed_reply_no_crash(self) -> None:
+        """decode does not crash on malformed m.relates_to."""
+        codec = MatrixCodec("matrix-1", _make_config())
+        content = {
+            "msgtype": "m.text",
+            "body": "broken reply",
+            "m.relates_to": {"event_id": None},
+        }
+        native = _make_native_event(body="broken reply", content=content)
+        event = codec.decode(native, room_id="!room:server")
+        # No reply relation should be created; no crash.
+        assert len(event.relations) == 0
+
+    def test_decode_reply_preserves_source_native_ref(self) -> None:
+        """decode populates both source_native_ref and reply relation."""
+        codec = MatrixCodec("matrix-1", _make_config())
+        content = {
+            "msgtype": "m.text",
+            "body": "reply with ref",
+            "m.relates_to": {
+                "m.in_reply_to": {"event_id": "$orig-001"},
+            },
+        }
+        native = _make_native_event(body="reply with ref", event_id="$reply-002", content=content)
+        event = codec.decode(native, room_id="!room:server")
+
+        assert event.source_native_ref is not None
+        assert event.source_native_ref.native_message_id == "$reply-002"
+        assert len(event.relations) == 1
+        assert event.relations[0].target_native_ref.native_message_id == "$orig-001"

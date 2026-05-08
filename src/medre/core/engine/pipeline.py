@@ -35,6 +35,7 @@ from medre.core.events.canonical import (
     CanonicalEvent,
     DeliveryReceipt,
     NativeMessageRef,
+    NativeRef,
 )
 from medre.core.events.bus import EventBus, EventMiddleware
 from medre.core.observability.metrics import Diagnostician
@@ -262,9 +263,11 @@ class PipelineRunner:
         Flow:
 
         1. Validate required fields.
-        2. Store the event.
-        3. Route the event and create delivery plans.
-        4. Deliver to each target independently.
+        2. Resolve relations (native refs → canonical event IDs).
+        3. Store the event.
+        4. Persist inbound native ref (if source_native_ref is present).
+        5. Route the event and create delivery plans.
+        6. Deliver to each target independently.
 
         Parameters
         ----------
@@ -286,10 +289,16 @@ class PipelineRunner:
         # Stage 1 – validate
         self._validate_event(event)
 
-        # Stage 2 – store
+        # Stage 2 – resolve relations (pipeline-owned, not adapter/codec).
+        event = await self._resolve_relations(event)
+
+        # Stage 3 – store
         await self.store_event(event)
 
-        # Stages 3-4 – route, plan, deliver
+        # Stage 4 – persist inbound native ref
+        await self._persist_inbound_native_ref(event)
+
+        # Stages 5-6 – route, plan, deliver
         try:
             deliveries = await self.route_event(event)
         except Exception as exc:
@@ -366,6 +375,51 @@ class PipelineRunner:
             event.event_kind,
         )
         await self._config.storage.append(event)
+
+    # -- Stage 2: Relation resolution ------------------------------------
+
+    async def _resolve_relations(
+        self, event: CanonicalEvent
+    ) -> CanonicalEvent:
+        """Resolve event-level relations using the relation resolver.
+
+        Delegates to :class:`RelationResolver` to look up
+        ``target_native_ref`` → ``target_event_id`` mappings.  Unresolved
+        native refs are preserved.  Returns the original event when no
+        changes are needed; returns a new (immutable) event otherwise.
+        """
+        return await self._config.relation_resolver.resolve_event_relations(event)
+
+    # -- Stage 4: Inbound native ref persistence -------------------------
+
+    async def _persist_inbound_native_ref(
+        self, event: CanonicalEvent
+    ) -> None:
+        """Persist an inbound native ref when ``source_native_ref`` exists.
+
+        Creates a :class:`NativeMessageRef` with ``direction="inbound"``
+        mapping the source native ref fields to the canonical ``event_id``.
+        Idempotent: duplicate ``(adapter, native_channel_id,
+        native_message_id)`` triples are silently ignored by the storage
+        layer.
+        """
+        snr = event.source_native_ref
+        if snr is None or not snr.native_message_id:
+            return
+
+        now = datetime.now(tz=timezone.utc)
+        inbound_ref = NativeMessageRef(
+            id=f"nref-inbound-{uuid.uuid4()}",
+            event_id=event.event_id,
+            adapter=snr.adapter,
+            native_channel_id=snr.native_channel_id,
+            native_message_id=snr.native_message_id,
+            native_thread_id=snr.native_thread_id,
+            native_relation_id=None,
+            direction="inbound",
+            created_at=now,
+        )
+        await self._config.storage.store_native_ref(inbound_ref)
 
     # -- Stage 3-4: Routing + Planning -------------------------------------
 

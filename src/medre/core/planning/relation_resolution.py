@@ -15,6 +15,8 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
+from msgspec.structs import replace
+
 from medre.core.events.canonical import (
     CanonicalEvent,
     EventRelation,
@@ -49,6 +51,72 @@ class RelationResolver:
         self._storage = storage
 
     # -- Async API --------------------------------------------------------
+
+    async def resolve_event_relations(
+        self,
+        event: CanonicalEvent,
+    ) -> CanonicalEvent:
+        """Resolve all unresolved relations on *event* in-place.
+
+        For each relation that has a ``target_native_ref`` but no
+        ``target_event_id``, look up the canonical event ID via storage.
+        Returns the original event when no changes are needed, or a new
+        event with resolved relations otherwise.
+
+        Parameters
+        ----------
+        event:
+            The canonical event whose relations may need resolution.
+
+        Returns
+        -------
+        CanonicalEvent
+            The original event (if no changes needed) or a new event
+            with ``target_event_id`` populated on resolved relations.
+        """
+        if not event.relations:
+            return event
+
+        resolved_rels: list[EventRelation] = []
+        changed = False
+
+        for rel in event.relations:
+            if rel.target_event_id is not None or rel.target_native_ref is None:
+                resolved_rels.append(rel)
+                continue
+
+            # Attempt to resolve native ref to canonical event_id.
+            resolve_fn = getattr(self._storage, "resolve_native_ref", None)
+            if resolve_fn is None:
+                resolved_rels.append(rel)
+                continue
+
+            target_event_id = await resolve_fn(
+                rel.target_native_ref.adapter,
+                rel.target_native_ref.native_channel_id,
+                rel.target_native_ref.native_message_id,
+            )
+
+            if target_event_id is not None:
+                resolved_rels.append(
+                    EventRelation(
+                        relation_type=rel.relation_type,
+                        target_event_id=target_event_id,
+                        target_native_ref=rel.target_native_ref,
+                        key=rel.key,
+                        fallback_text=rel.fallback_text,
+                        metadata=rel.metadata,
+                    )
+                )
+                changed = True
+            else:
+                # Preserve unresolved native ref.
+                resolved_rels.append(rel)
+
+        if not changed:
+            return event
+
+        return replace(event, relations=tuple(resolved_rels))
 
     async def resolve_relation(
         self,

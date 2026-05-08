@@ -18,6 +18,7 @@ from typing import Any
 from medre.adapters.base import AdapterCodec
 from medre.adapters.matrix.errors import MatrixCodecError
 from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
+from medre.adapters.matrix.relations import extract_reply_target
 from medre.core.events.canonical import CanonicalEvent, EventRelation, NativeRef
 from medre.core.events.kinds import EventKind
 from medre.core.events.metadata import EventMetadata, NativeMetadata
@@ -94,13 +95,34 @@ class MatrixCodec(AdapterCodec):
         # Build event metadata
         metadata = EventMetadata(native=native_meta)
 
-        # Resolve relations from envelope if available
-        relations: tuple[EventRelation, ...] = ()
-        if envelope and envelope.relation_info:
-            # The envelope may carry relation context but the actual
-            # relation details are extracted separately by the relation
-            # handler during inbound processing.
-            pass
+        # Populate source_native_ref when Matrix event_id is non-empty.
+        source_native_ref: NativeRef | None = None
+        if event_id:
+            source_native_ref = NativeRef(
+                adapter=self._adapter_id,
+                native_channel_id=room_id,
+                native_message_id=event_id,
+            )
+
+        # Resolve relations from envelope if present
+        relations: list[EventRelation] = []
+
+        # Extract Matrix reply relation without storage lookup.
+        reply_event_id = extract_reply_target(source)
+        if reply_event_id:
+            relations.append(
+                EventRelation(
+                    relation_type="reply",
+                    target_event_id=None,
+                    target_native_ref=NativeRef(
+                        adapter=self._adapter_id,
+                        native_channel_id=room_id,
+                        native_message_id=reply_event_id,
+                    ),
+                    key=None,
+                    fallback_text=None,
+                )
+            )
 
         return CanonicalEvent(
             event_id=str(uuid.uuid4()),
@@ -112,9 +134,10 @@ class MatrixCodec(AdapterCodec):
             source_channel_id=room_id,
             parent_event_id=None,
             lineage=(),
-            relations=relations,
+            relations=tuple(relations),
             payload=payload,
             metadata=metadata,
+            source_native_ref=source_native_ref,
         )
 
     # ------------------------------------------------------------------

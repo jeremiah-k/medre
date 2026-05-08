@@ -46,7 +46,7 @@ def _make_pipeline_config(
         storage=cast(StorageBackend, storage),
         router=router,
         fallback_resolver=FallbackResolver(),
-        relation_resolver=RelationResolver(storage=object()),
+        relation_resolver=RelationResolver(storage=storage),
         adapters=adapters or {},
         event_bus=event_bus or EventBus(),
         rendering_pipeline=pipeline,

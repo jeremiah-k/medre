@@ -25,6 +25,7 @@ class CanonicalEvent(msgspec.Struct, frozen=True):
     source_adapter: str         # Adapter that created this event
     source_transport_id: str    # Native actor/source identity (not native message ID)
     source_channel_id: str | None  # Native channel/room/topic on source adapter
+    source_native_ref: NativeRef | None  # Inbound native message reference carried from codec
     parent_event_id: str | None # For derived events, points to origin
     lineage: tuple[str, ...]    # Chain of event_ids from origin to current (immutable)
     relations: tuple[EventRelation, ...]  # First-class relations (replies, reactions, etc.)
@@ -48,6 +49,8 @@ class CanonicalEvent(msgspec.Struct, frozen=True):
 | MeshCore | Node number (string) | `1234` |
 
 **`source_channel_id`** is the native channel, room, or topic where the event originated. A core field so route matching can evaluate source channels without pulling from metadata.
+
+**`source_native_ref`** carries the inbound native message reference from the adapter codec. Set by `MatrixCodec.decode()` (and analogous codecs) during inbound processing. For Matrix, this is a `NativeRef` wrapping the Matrix event ID. `None` for outbound events or events created internally. The pipeline persists this as an inbound `NativeMessageRef` after canonical event storage.
 
 | Transport | source_channel_id | Example |
 |-----------|-------------------|---------|
@@ -261,6 +264,10 @@ CREATE TABLE canonical_events (
     source_adapter TEXT NOT NULL,
     source_transport_id TEXT,        -- Native actor/source identity (not native message ID)
     source_channel_id TEXT,          -- Native channel/room/topic on source adapter
+    source_native_adapter TEXT,      -- Source NativeRef.adapter for inbound native reference
+    source_native_channel_id TEXT,   -- Source NativeRef.native_channel_id
+    source_native_message_id TEXT,   -- Source NativeRef.native_message_id
+    source_native_thread_id TEXT,    -- Source NativeRef.native_thread_id
     parent_event_id TEXT,
     lineage TEXT,                    -- JSON array of event IDs
     payload TEXT NOT NULL,           -- JSON
@@ -331,10 +338,10 @@ The `relations` tuple on a `CanonicalEvent` is **not** duplicated inside the `ca
 
 **Resolution flow**:
 
-1. Adapter creates a `CanonicalEvent` with an `EventRelation` where `target_native_ref` is set and `target_event_id` is `None`.
-2. The relation resolution stage queries `native_message_refs` using the `NativeRef` fields.
+1. Adapter codec creates a `CanonicalEvent` with an `EventRelation` where `target_native_ref` is set and `target_event_id` is `None`.
+2. The pipeline invokes `RelationResolver` during ingress, after decode and before storage, to resolve `target_native_ref` to `target_event_id` by querying `native_message_refs`.
 3. If found, the relation is updated: `target_event_id` is set, `target_native_ref` is cleared.
-4. If not found, the relation remains unresolved. `fallback_text` may be used by the delivery stage.
+4. If not found, the relation remains unresolved. The native ref is preserved. Routing and rendering continue without error. `fallback_text` may be used by the delivery stage.
 
 
 ---

@@ -17,7 +17,7 @@ import pytest
 from medre.adapters.fake_presentation import FakePresentationAdapter
 from medre.adapters.fake_transport import FakeTransportAdapter
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
-from medre.core.events import CanonicalEvent, EventMetadata
+from medre.core.events import CanonicalEvent, EventMetadata, NativeRef
 from medre.core.events.bus import EventBus
 from medre.core.observability.metrics import Diagnostician, EventMetrics
 from medre.core.planning import FallbackResolver, RelationResolver
@@ -57,7 +57,7 @@ def _make_pipeline_config(
         storage=cast(StorageBackend, storage),
         router=router,
         fallback_resolver=FallbackResolver(),
-        relation_resolver=RelationResolver(storage=object()),
+        relation_resolver=RelationResolver(storage=storage),
         adapters=adapters or {},
         event_bus=event_bus or EventBus(),
     )
@@ -1965,5 +1965,334 @@ class TestRendererDowngradeFallback:
             assert len(str(rendered.payload["text"])) == 500
             assert rendered.truncated is True
             assert rendered.metadata["original_length"] == 600
+        finally:
+            await runner.stop()
+
+
+# ===================================================================
+# Inbound native ref persistence
+# ===================================================================
+
+
+class TestInboundNativeRefPersistence:
+    """Pipeline persists inbound NativeMessageRef when source_native_ref exists."""
+
+    async def test_inbound_native_ref_persisted(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Pipeline stores inbound NativeMessageRef for events with source_native_ref."""
+        adapter = FakePresentationAdapter(adapter_id="target")
+        route = Route(
+            id="inbound-ref-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel=None
+            ),
+            targets=[RouteTarget(adapter="target")],
+        )
+        router = Router(routes=[route])
+        config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={"target": adapter},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        nref = NativeRef(
+            adapter="matrix",
+            native_channel_id="!room:server",
+            native_message_id="$event-001",
+        )
+        event = _make_event(
+            event_id="inbound-ref-001",
+            source_adapter="src",
+        )
+        # Manually construct event with source_native_ref
+        event = CanonicalEvent(
+            event_id="inbound-ref-001",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=event.timestamp,
+            source_adapter="src",
+            source_transport_id="node-1",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"text": "hello"},
+            metadata=EventMetadata(),
+            source_native_ref=nref,
+        )
+
+        try:
+            await runner.handle_ingress(event)
+
+            # Verify inbound native ref was persisted
+            resolved = await temp_storage.resolve_native_ref(
+                "matrix", "!room:server", "$event-001"
+            )
+            assert resolved == "inbound-ref-001"
+        finally:
+            await runner.stop()
+
+    async def test_no_inbound_ref_when_source_native_ref_is_none(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Pipeline does not persist inbound ref when source_native_ref is None."""
+        adapter = FakePresentationAdapter(adapter_id="target")
+        route = Route(
+            id="no-ref-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel=None
+            ),
+            targets=[RouteTarget(adapter="target")],
+        )
+        router = Router(routes=[route])
+        config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={"target": adapter},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = _make_event(event_id="no-ref-001", source_adapter="src")
+
+        try:
+            await runner.handle_ingress(event)
+
+            # No inbound native ref should exist for this event
+            rows = await temp_storage._read_all(
+                "SELECT * FROM native_message_refs WHERE event_id = ? AND direction = 'inbound'",
+                ("no-ref-001",),
+            )
+            assert len(rows) == 0
+        finally:
+            await runner.stop()
+
+    async def test_inbound_native_ref_idempotent(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Storing the same inbound native ref twice is idempotent."""
+        adapter = FakePresentationAdapter(adapter_id="target")
+        route = Route(
+            id="idem-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel=None
+            ),
+            targets=[RouteTarget(adapter="target")],
+        )
+        router = Router(routes=[route])
+        config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={"target": adapter},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        nref = NativeRef(
+            adapter="matrix",
+            native_channel_id="!room:server",
+            native_message_id="$idem-001",
+        )
+        ts = datetime.now(timezone.utc)
+        event = CanonicalEvent(
+            event_id="idem-001",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=ts,
+            source_adapter="src",
+            source_transport_id="node-1",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"text": "hello"},
+            metadata=EventMetadata(),
+            source_native_ref=nref,
+        )
+
+        try:
+            # First ingress
+            await runner.handle_ingress(event)
+            # Second ingress with same event (will fail FK due to same event_id,
+            # but the native ref insert is OR IGNORE so it's idempotent)
+            # Instead, test idempotency at the storage layer directly
+            from medre.core.events import NativeMessageRef
+
+            ref2 = NativeMessageRef(
+                id="nref-idem-dup",
+                event_id="idem-001",
+                adapter="matrix",
+                native_channel_id="!room:server",
+                native_message_id="$idem-001",
+                native_thread_id=None,
+                native_relation_id=None,
+                direction="inbound",
+            )
+            await temp_storage.store_native_ref(ref2)
+
+            resolved = await temp_storage.resolve_native_ref(
+                "matrix", "!room:server", "$idem-001"
+            )
+            assert resolved == "idem-001"
+        finally:
+            await runner.stop()
+
+
+# ===================================================================
+# Relation resolution in pipeline ingress
+# ===================================================================
+
+
+class TestRelationResolutionInPipeline:
+    """Pipeline resolves relations during ingress."""
+
+    async def test_reply_resolved_when_storage_has_target(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Pipeline resolves reply target_event_id when native ref is in storage."""
+        # Pre-store the target event and its native ref
+        from medre.core.events import NativeMessageRef
+
+        target_event = _make_event(event_id="target-evt-001", source_adapter="src")
+        await temp_storage.append(target_event)
+        target_nref = NativeMessageRef(
+            id="nref-target-1",
+            event_id="target-evt-001",
+            adapter="matrix",
+            native_channel_id="!room:server",
+            native_message_id="$orig-msg",
+            native_thread_id=None,
+            native_relation_id=None,
+            direction="inbound",
+        )
+        await temp_storage.store_native_ref(target_nref)
+
+        adapter = FakePresentationAdapter(adapter_id="target")
+        route = Route(
+            id="resolve-reply-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel=None
+            ),
+            targets=[RouteTarget(adapter="target")],
+        )
+        router = Router(routes=[route])
+        config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={"target": adapter},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        # Create event with unresolved reply relation
+        from medre.core.events import EventRelation
+
+        reply_rel = EventRelation(
+            relation_type="reply",
+            target_event_id=None,
+            target_native_ref=NativeRef(
+                adapter="matrix",
+                native_channel_id="!room:server",
+                native_message_id="$orig-msg",
+            ),
+            key=None,
+            fallback_text=None,
+        )
+        ts = datetime.now(timezone.utc)
+        event = CanonicalEvent(
+            event_id="reply-evt-001",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=ts,
+            source_adapter="src",
+            source_transport_id="node-1",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(reply_rel,),
+            payload={"text": "a reply"},
+            metadata=EventMetadata(),
+        )
+
+        try:
+            await runner.handle_ingress(event)
+
+            # Check stored event has resolved relation
+            stored = await temp_storage.get("reply-evt-001")
+            assert stored is not None
+            assert len(stored.relations) == 1
+            assert stored.relations[0].target_event_id == "target-evt-001"
+            assert stored.relations[0].target_native_ref is not None
+        finally:
+            await runner.stop()
+
+    async def test_reply_unresolved_when_storage_lacks_target(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Pipeline preserves unresolved target_native_ref when target not in storage."""
+        adapter = FakePresentationAdapter(adapter_id="target")
+        route = Route(
+            id="unresolved-reply-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel=None
+            ),
+            targets=[RouteTarget(adapter="target")],
+        )
+        router = Router(routes=[route])
+        config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={"target": adapter},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        from medre.core.events import EventRelation
+
+        reply_rel = EventRelation(
+            relation_type="reply",
+            target_event_id=None,
+            target_native_ref=NativeRef(
+                adapter="matrix",
+                native_channel_id="!room:server",
+                native_message_id="$unknown-msg",
+            ),
+            key=None,
+            fallback_text=None,
+        )
+        ts = datetime.now(timezone.utc)
+        event = CanonicalEvent(
+            event_id="unresolved-reply-001",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=ts,
+            source_adapter="src",
+            source_transport_id="node-1",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(reply_rel,),
+            payload={"text": "unresolved reply"},
+            metadata=EventMetadata(),
+        )
+
+        try:
+            await runner.handle_ingress(event)
+
+            # Stored event preserves unresolved native ref
+            stored = await temp_storage.get("unresolved-reply-001")
+            assert stored is not None
+            assert len(stored.relations) == 1
+            assert stored.relations[0].target_event_id is None
+            assert stored.relations[0].target_native_ref is not None
+            assert stored.relations[0].target_native_ref.native_message_id == "$unknown-msg"
         finally:
             await runner.stop()

@@ -37,9 +37,9 @@ _MATRIX_CAPABILITIES = AdapterCapabilities(
     title=False,
     replies="native",
     reactions="unsupported",
-    edits="native",
-    deletes="native",
-    attachments=True,
+    edits="unsupported",
+    deletes="unsupported",
+    attachments=False,
     metadata_fields=False,
     delivery_receipts=True,
     store_and_forward=False,
@@ -201,7 +201,10 @@ class MatrixAdapter(BaseAdapter):
         if self._client is None:
             raise MatrixSendError("client is not connected")
 
-        room_id = result.target_channel or result.payload.get("room_id", "")
+        payload_room_id = result.payload.get("room_id")
+        room_id = result.target_channel or (
+            payload_room_id if isinstance(payload_room_id, str) else ""
+        )
         if not room_id:
             raise MatrixSendError("no room_id in result")
 

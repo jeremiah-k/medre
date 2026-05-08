@@ -113,6 +113,10 @@ CREATE TABLE canonical_events (
     source_adapter TEXT NOT NULL,
     source_transport_id TEXT NOT NULL,  -- Native actor/source identity (not native message ID)
     source_channel_id TEXT,          -- Native channel/room/topic on source adapter
+    source_native_adapter TEXT,      -- Source NativeRef.adapter for inbound native reference
+    source_native_channel_id TEXT,   -- Source NativeRef.native_channel_id
+    source_native_message_id TEXT,   -- Source NativeRef.native_message_id
+    source_native_thread_id TEXT,    -- Source NativeRef.native_thread_id
     parent_event_id TEXT,
     lineage TEXT,                    -- JSON array of event IDs
     payload TEXT NOT NULL,           -- JSON
@@ -131,6 +135,8 @@ CREATE INDEX idx_events_parent ON canonical_events(parent_event_id);
 `source_transport_id` identifies the native actor (who produced the event), not the native message. Native message IDs belong in `native_message_refs`.
 
 `source_channel_id` is the native channel/room/topic where the event originated. `NULL` if the transport has no channel concept.
+
+The `source_native_*` columns persist the optional `CanonicalEvent.source_native_ref` for inbound events as split nullable fields. They carry the native message reference from the adapter codec; the pipeline persists the same values as an inbound `NativeMessageRef` after canonical event storage. All four fields are `NULL` for outbound events or events created internally.
 
 `relations` on the in-memory `CanonicalEvent` are not stored in the `payload` or `metadata` columns. They are reconstructed at load time from `event_relations`.
 
@@ -373,6 +379,8 @@ storage:
 - Inserts a row into `native_message_refs`.
 - If `(adapter, native_channel_id, native_message_id)` already exists, the insert is a no-op (idempotent).
 - The `direction` field records whether this ref was created on ingress (`inbound`) or delivery (`outbound`).
+- For inbound events, the pipeline calls `store_native_ref` with `direction="inbound"` after canonical event storage, using the native message ID carried on `CanonicalEvent.source_native_ref`.
+- For outbound events, the pipeline calls `store_native_ref` with `direction="outbound"` after successful delivery, using the native event ID returned by the adapter.
 
 ### 5.4 resolve_native_ref(adapter, native_channel_id, native_message_id)
 

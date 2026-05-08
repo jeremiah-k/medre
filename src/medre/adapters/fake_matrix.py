@@ -50,7 +50,7 @@ _FAKE_MATRIX_CAPABILITIES = AdapterCapabilities(
     text=True,
     title=False,
     replies="native",
-    reactions="native",
+    reactions="unsupported",
     edits="unsupported",
     deletes="unsupported",
     attachments=False,
@@ -140,41 +140,43 @@ class FakeMatrixAdapter(BaseAdapter):
 
     # -- Outbound delivery --------------------------------------------------
 
-    async def deliver(self, result: RenderingResult | CanonicalEvent) -> AdapterDeliveryResult | None:
-        """Accept an outbound rendered payload or canonical event for delivery.
+    async def deliver(self, result: RenderingResult) -> AdapterDeliveryResult | None:
+        """Accept an outbound rendered payload for delivery.
 
-        When a :class:`RenderingResult` is supplied it is stored in
-        :attr:`delivered_payloads` for test inspection, proving the
-        rendering boundary is respected.  Returns an
-        :class:`AdapterDeliveryResult` with a deterministic Matrix-like
-        event ID derived from the rendering result's ``event_id``.
-
-        When a :class:`CanonicalEvent` is supplied (backward-compatible
-        path) it is appended to :attr:`received_events`.
+        This adapter consumes :class:`RenderingResult` only.  Passing a
+        raw :class:`CanonicalEvent` raises :class:`TypeError`, enforcing
+        the rendering boundary at the adapter level.
 
         Parameters
         ----------
         result:
-            The rendering result or canonical event to deliver.
+            The rendering result to deliver.
 
         Returns
         -------
-        AdapterDeliveryResult | None
-            Native delivery metadata when a RenderingResult is delivered,
-            or ``None`` for the backward-compatible CanonicalEvent path.
+        AdapterDeliveryResult
+            Native delivery metadata with a deterministic Matrix-like
+            event ID derived from the rendering result's ``event_id``.
+
+        Raises
+        ------
+        TypeError
+            If *result* is not a :class:`RenderingResult`.
         """
-        if isinstance(result, RenderingResult):
-            self.delivered_payloads.append(result)
-            # Deterministic Matrix-like event ID for test verification.
-            fake_event_id = f"$fake_{result.event_id}"
-            channel_id = result.target_channel or ""
-            return AdapterDeliveryResult(
-                native_message_id=fake_event_id,
-                native_channel_id=channel_id,
+        if not isinstance(result, RenderingResult):
+            raise TypeError(
+                f"FakeMatrixAdapter.deliver() accepts RenderingResult only, "
+                f"got {type(result).__name__}. Use simulate_inbound() for "
+                f"the inbound path."
             )
-        else:
-            self.received_events.append(result)
-            return None
+        self.delivered_payloads.append(result)
+        # Deterministic Matrix-like event ID for test verification.
+        fake_event_id = f"$fake_{result.event_id}"
+        channel_id = result.target_channel or ""
+        return AdapterDeliveryResult(
+            native_message_id=fake_event_id,
+            native_channel_id=channel_id,
+        )
 
     # -- Test helpers -------------------------------------------------------
 

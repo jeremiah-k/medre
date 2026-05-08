@@ -57,6 +57,10 @@ CREATE TABLE IF NOT EXISTS canonical_events (
     metadata TEXT NOT NULL DEFAULT '{}',
     depth INTEGER NOT NULL DEFAULT 0,
     trace_id TEXT,
+    source_native_adapter TEXT,
+    source_native_channel_id TEXT,
+    source_native_message_id TEXT,
+    source_native_thread_id TEXT,
     created_at TEXT NOT NULL
 );
 
@@ -128,8 +132,10 @@ INSERT INTO canonical_events
     (event_id, event_kind, schema_version, timestamp,
      source_adapter, source_transport_id, source_channel_id,
      parent_event_id, lineage, payload, metadata, depth,
-     trace_id, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     trace_id, source_native_adapter, source_native_channel_id,
+     source_native_message_id, source_native_thread_id,
+     created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 _INSERT_RELATION = """
@@ -213,6 +219,15 @@ def _row_to_event(
     relations: list[EventRelation],
 ) -> CanonicalEvent:
     """Map a database row (plus pre-fetched relations) to a :class:`CanonicalEvent`."""
+    # Reconstruct source_native_ref from split nullable columns.
+    source_native_ref: NativeRef | None = None
+    if row.get("source_native_adapter") and row.get("source_native_message_id"):
+        source_native_ref = NativeRef(
+            adapter=row["source_native_adapter"],
+            native_channel_id=row.get("source_native_channel_id"),
+            native_message_id=row["source_native_message_id"],
+            native_thread_id=row.get("source_native_thread_id"),
+        )
     return CanonicalEvent(
         event_id=row["event_id"],
         event_kind=row["event_kind"],
@@ -228,6 +243,7 @@ def _row_to_event(
         metadata=_deserialize_metadata(row["metadata"]),
         depth=row["depth"],
         trace_id=row["trace_id"],
+        source_native_ref=source_native_ref,
     )
 
 
@@ -484,6 +500,7 @@ class SQLiteStorage:
 
     async def append(self, event: CanonicalEvent) -> None:
         """Persist a canonical event together with its inline relations."""
+        snr = event.source_native_ref
         ops: list[tuple[str, tuple[Any, ...]]] = [
             (
                 _INSERT_EVENT,
@@ -501,6 +518,10 @@ class SQLiteStorage:
                     _serialize_metadata(event.metadata),
                     event.depth,
                     event.trace_id,
+                    snr.adapter if snr else None,
+                    snr.native_channel_id if snr else None,
+                    snr.native_message_id if snr else None,
+                    snr.native_thread_id if snr else None,
                     _now_iso(),
                 ),
             )

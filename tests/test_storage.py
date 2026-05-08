@@ -802,3 +802,116 @@ class TestReceiptSequenceMonotonicity:
         # Sequences strictly increasing
         seqs = [r["sequence"] for r in rows]
         assert seqs[0] < seqs[1] < seqs[2]
+
+
+# ===================================================================
+# source_native_ref round-trip
+# ===================================================================
+
+
+class TestSourceNativeRefRoundTrip:
+    """Events with / without source_native_ref round-trip through storage."""
+
+    async def test_event_without_source_native_ref_round_trip(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Event with source_native_ref=None survives append/get."""
+        event = _make_event(event_id="evt-no-snr")
+        await temp_storage.append(event)
+        retrieved = await temp_storage.get("evt-no-snr")
+        assert retrieved is not None
+        assert retrieved.source_native_ref is None
+
+    async def test_event_with_source_native_ref_round_trip(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Event with populated source_native_ref survives append/get."""
+        nref = NativeRef(
+            adapter="matrix",
+            native_channel_id="!room:server",
+            native_message_id="$event-001",
+            native_thread_id=None,
+        )
+        event = CanonicalEvent(
+            event_id="evt-with-snr",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="matrix",
+            source_transport_id="node-1",
+            source_channel_id="!room:server",
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"text": "hello"},
+            metadata=EventMetadata(),
+            source_native_ref=nref,
+        )
+        await temp_storage.append(event)
+        retrieved = await temp_storage.get("evt-with-snr")
+        assert retrieved is not None
+        assert retrieved.source_native_ref is not None
+        assert retrieved.source_native_ref.adapter == "matrix"
+        assert retrieved.source_native_ref.native_channel_id == "!room:server"
+        assert retrieved.source_native_ref.native_message_id == "$event-001"
+        assert retrieved.source_native_ref.native_thread_id is None
+
+    async def test_inbound_native_ref_duplicate_is_idempotent(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Storing the same inbound NativeMessageRef twice is idempotent."""
+        event = _make_event(event_id="evt-inbound-idem")
+        await temp_storage.append(event)
+
+        ref = NativeMessageRef(
+            id="nref-inbound-1",
+            event_id="evt-inbound-idem",
+            adapter="matrix",
+            native_channel_id="!room:server",
+            native_message_id="$msg-001",
+            native_thread_id=None,
+            native_relation_id=None,
+            direction="inbound",
+        )
+        await temp_storage.store_native_ref(ref)
+        # Second store with same (adapter, native_channel_id, native_message_id) is silently ignored.
+        ref2 = NativeMessageRef(
+            id="nref-inbound-1-dup",
+            event_id="evt-inbound-idem",
+            adapter="matrix",
+            native_channel_id="!room:server",
+            native_message_id="$msg-001",
+            native_thread_id=None,
+            native_relation_id=None,
+            direction="inbound",
+        )
+        await temp_storage.store_native_ref(ref2)
+
+        resolved = await temp_storage.resolve_native_ref(
+            "matrix", "!room:server", "$msg-001"
+        )
+        assert resolved == "evt-inbound-idem"
+
+    async def test_resolve_native_ref_returns_event_id(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """resolve_native_ref(adapter, channel, message_id) returns canonical event_id."""
+        event = _make_event(event_id="evt-resolve-target")
+        await temp_storage.append(event)
+
+        ref = NativeMessageRef(
+            id="nref-resolve-1",
+            event_id="evt-resolve-target",
+            adapter="matrix",
+            native_channel_id="!room:server",
+            native_message_id="$target-msg",
+            native_thread_id=None,
+            native_relation_id=None,
+            direction="inbound",
+        )
+        await temp_storage.store_native_ref(ref)
+
+        result = await temp_storage.resolve_native_ref(
+            "matrix", "!room:server", "$target-msg"
+        )
+        assert result == "evt-resolve-target"

@@ -120,6 +120,78 @@ class TestCanonicalEvent:
         )
         assert event.depth == 0
         assert event.trace_id is None
+        assert event.source_native_ref is None
+
+    def test_source_native_ref_default_none(self) -> None:
+        """source_native_ref defaults to None when not provided."""
+        event = CanonicalEvent(
+            event_id="evt-snr-default",
+            event_kind="message.text",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="a",
+            source_transport_id="t",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={},
+            metadata=EventMetadata(),
+        )
+        assert event.source_native_ref is None
+
+    def test_source_native_ref_explicit_retained(self) -> None:
+        """source_native_ref is retained when explicitly provided."""
+        nref = NativeRef(
+            adapter="matrix",
+            native_channel_id="!room:server",
+            native_message_id="$event123",
+            native_thread_id=None,
+        )
+        event = CanonicalEvent(
+            event_id="evt-snr-explicit",
+            event_kind="message.text",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="a",
+            source_transport_id="t",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={},
+            metadata=EventMetadata(),
+            source_native_ref=nref,
+        )
+        assert event.source_native_ref is not None
+        assert event.source_native_ref.adapter == "matrix"
+        assert event.source_native_ref.native_channel_id == "!room:server"
+        assert event.source_native_ref.native_message_id == "$event123"
+
+    def test_source_native_ref_immutable(self) -> None:
+        """source_native_ref cannot be reassigned on a frozen event."""
+        nref = NativeRef(
+            adapter="matrix",
+            native_channel_id="!room:server",
+            native_message_id="$event123",
+        )
+        event = CanonicalEvent(
+            event_id="evt-snr-imm",
+            event_kind="message.text",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="a",
+            source_transport_id="t",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={},
+            metadata=EventMetadata(),
+            source_native_ref=nref,
+        )
+        with pytest.raises(AttributeError):
+            event.source_native_ref = None  # type: ignore[misc]
 
 
 # ===================================================================
@@ -607,6 +679,38 @@ class TestJsonRoundTrip:
         assert decoded.metadata.transport.protocol == "mqtt"
         assert decoded.depth == event.depth
         assert decoded.trace_id == event.trace_id
+        assert decoded.source_native_ref is None
+
+    def test_json_round_trip_with_source_native_ref(self) -> None:
+        """source_native_ref survives JSON encode/decode roundtrip."""
+        nref = NativeRef(
+            adapter="matrix",
+            native_channel_id="!room:server",
+            native_message_id="$evt-001",
+            native_thread_id=None,
+        )
+        event = CanonicalEvent(
+            event_id="evt-snr-rt",
+            event_kind="message.text",
+            schema_version=1,
+            timestamp=datetime(2026, 1, 15, 10, 30, 0, tzinfo=timezone.utc),
+            source_adapter="test",
+            source_transport_id="t-1",
+            source_channel_id="ch-1",
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"body": "hello"},
+            metadata=EventMetadata(),
+            source_native_ref=nref,
+        )
+        encoded = msgspec.json.encode(event)
+        decoded = msgspec.json.decode(encoded, type=CanonicalEvent)
+        assert decoded.source_native_ref is not None
+        assert decoded.source_native_ref.adapter == "matrix"
+        assert decoded.source_native_ref.native_channel_id == "!room:server"
+        assert decoded.source_native_ref.native_message_id == "$evt-001"
+        assert decoded.source_native_ref.native_thread_id is None
 
 
 class TestMsgpackRoundTrip:

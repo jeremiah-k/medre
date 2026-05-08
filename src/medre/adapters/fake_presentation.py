@@ -142,38 +142,39 @@ class FakePresentationAdapter(BaseAdapter):
 
     # -- Outbound delivery --------------------------------------------------
 
-    async def deliver(self, result: RenderingResult | CanonicalEvent) -> AdapterDeliveryResult | None:
-        """Accept an outbound rendered payload or canonical event for delivery.
+    async def deliver(self, result: RenderingResult) -> AdapterDeliveryResult | None:
+        """Accept an outbound rendered payload for delivery.
 
-        This adapter does **not** perform event-kind-specific formatting.
-        When a :class:`RenderingResult` is supplied it is stored in
-        :attr:`delivered_payloads` for test inspection, proving the
-        rendering boundary is respected.  Returns an
-        :class:`AdapterDeliveryResult` with a deterministic native ID.
-
-        When a :class:`CanonicalEvent` is supplied (backward-compatible
-        path) it is appended to :attr:`received_events`.
+        This adapter consumes :class:`RenderingResult` only.  Passing a
+        raw :class:`CanonicalEvent` raises :class:`TypeError`, enforcing
+        the rendering boundary at the adapter level.
 
         Parameters
         ----------
         result:
-            The rendering result or canonical event to deliver.
+            The rendering result to deliver.
 
         Returns
         -------
-        AdapterDeliveryResult | None
-            Native delivery metadata for RenderingResult, or ``None``
-            for the backward-compatible CanonicalEvent path.
+        AdapterDeliveryResult
+            Native delivery metadata with a deterministic native ID.
+
+        Raises
+        ------
+        TypeError
+            If *result* is not a :class:`RenderingResult`.
         """
-        if isinstance(result, RenderingResult):
-            self.delivered_payloads.append(result)
-            return AdapterDeliveryResult(
-                native_message_id=f"fake-pres-{result.event_id}",
-                native_channel_id=result.target_channel,
+        if not isinstance(result, RenderingResult):
+            raise TypeError(
+                f"FakePresentationAdapter.deliver() accepts RenderingResult only, "
+                f"got {type(result).__name__}. Use simulate_inbound() for "
+                f"the inbound path."
             )
-        else:
-            self.received_events.append(result)
-            return None
+        self.delivered_payloads.append(result)
+        return AdapterDeliveryResult(
+            native_message_id=f"fake-pres-{result.event_id}",
+            native_channel_id=result.target_channel,
+        )
 
     # -- Test helpers -------------------------------------------------------
 
@@ -435,12 +436,19 @@ class FaultyPresentationAdapter(BaseAdapter):
         based on the configured ``failure_mode``.  On success, returns
         an :class:`AdapterDeliveryResult` with a deterministic native ID.
 
-        Returns
-        -------
-        AdapterDeliveryResult | None
-            Native delivery metadata on success.
+        Raises
+        ------
+        TypeError
+            If *result* is not a :class:`RenderingResult`.
         """
         from medre.adapters.base import AdapterDeliveryResult
+        from medre.core.rendering.renderer import RenderingResult
+
+        if not isinstance(result, RenderingResult):
+            raise TypeError(
+                f"FaultyPresentationAdapter.deliver() accepts RenderingResult only, "
+                f"got {type(result).__name__}."
+            )
 
         self._call_count += 1
         if self._should_fail():
