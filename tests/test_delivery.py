@@ -638,6 +638,40 @@ class TestRetryExecutor:
             assert timedelta(seconds=base_delay * 0.5) <= backoff
             assert backoff <= timedelta(seconds=base_delay)
 
+    def test_compute_backoff_jitter_is_deterministic(self) -> None:
+        """Repeated calls with the same policy and attempt return identical values."""
+        policy = RetryPolicy(
+            backoff_base=4.0, jitter=True, max_delay_seconds=1000.0
+        )
+        executor = RetryExecutor(policy)
+        for attempt in range(1, 6):
+            values = [executor.compute_backoff(attempt) for _ in range(20)]
+            assert len(set(values)) == 1, (
+                f"Attempt {attempt}: jitter is nondeterministic, got {set(values)}"
+            )
+
+    def test_compute_backoff_jitter_different_attempts_differ(self) -> None:
+        """Different attempt numbers produce different jittered backoffs."""
+        policy = RetryPolicy(
+            backoff_base=2.0, jitter=True, max_delay_seconds=1000.0
+        )
+        executor = RetryExecutor(policy)
+        backoffs = {attempt: executor.compute_backoff(attempt) for attempt in range(1, 6)}
+        # Each attempt should produce a distinct jittered value (before capping)
+        assert len(set(backoffs.values())) == len(backoffs), (
+            f"All attempts should produce distinct backoffs, got {backoffs}"
+        )
+
+    def test_compute_backoff_jitter_different_policies_differ(self) -> None:
+        """Different policies produce different jittered backoffs for the same attempt."""
+        policy_a = RetryPolicy(backoff_base=2.0, jitter=True, max_delay_seconds=1000.0)
+        policy_b = RetryPolicy(backoff_base=3.0, jitter=True, max_delay_seconds=1000.0)
+        executor_a = RetryExecutor(policy_a)
+        executor_b = RetryExecutor(policy_b)
+        # Same attempt, different policy → different hash seed → different result
+        for attempt in range(1, 4):
+            assert executor_a.compute_backoff(attempt) != executor_b.compute_backoff(attempt)
+
     def test_is_exhausted_within_max_attempts(self) -> None:
         """Not exhausted when attempts remaining."""
         policy = RetryPolicy(max_attempts=3)

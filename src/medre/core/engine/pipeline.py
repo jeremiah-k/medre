@@ -130,16 +130,24 @@ class _PipelineLoggingMiddleware:
 class _AdapterDeliveryError(Exception):
     """Raised by ``deliver_to_target`` after persisting a failed receipt.
 
-    Carries the adapter ID, error string, and the original exception so
-    that callers can classify the failure as transient or permanent.
+    Carries the adapter ID, error string, the original exception, and
+    an optional pre-classified ``failure_kind`` so that callers can
+    produce a deterministic :class:`DeliveryOutcome` without re-inspecting
+    the exception type.
     """
 
     def __init__(
-        self, adapter_id: str, error: str, original: Exception | None = None
+        self,
+        adapter_id: str,
+        error: str,
+        original: Exception | None = None,
+        *,
+        failure_kind: DeliveryFailureKind | None = None,
     ) -> None:
         self.adapter_id = adapter_id
         self.error = error
         self.original = original
+        self.failure_kind = failure_kind
         super().__init__(error)
 
 
@@ -465,15 +473,18 @@ class PipelineRunner:
                 self._diagnostician.record_adapter_failure(
                     event.event_id, adapter_id, exc.error
                 )
-                # Classify based on the original adapter exception.
-                failure_kind = (
-                    RetryExecutor.classify_failure(
-                        exc.original or exc,
+                # Use pre-classified failure_kind when available (e.g.
+                # TARGET_NOT_FOUND, DEADLINE_EXCEEDED); otherwise classify
+                # based on the original adapter exception.
+                if exc.failure_kind is not None:
+                    failure_kind = exc.failure_kind
+                elif exc.original is not None:
+                    failure_kind = RetryExecutor.classify_failure(
+                        exc.original,
                         adapter_registered=True,
                     )
-                    if exc.original is not None
-                    else DeliveryFailureKind.ADAPTER_TRANSIENT
-                )
+                else:
+                    failure_kind = DeliveryFailureKind.ADAPTER_TRANSIENT
                 outcome_status: Literal[
                     "transient_failure", "permanent_failure"
                 ] = (
@@ -646,7 +657,11 @@ class PipelineRunner:
                 parent_receipt_id=parent_receipt_id,
             )
             await self._config.storage.append_receipt(receipt)
-            return receipt
+            raise _AdapterDeliveryError(
+                adapter_id or "",
+                f"Adapter {adapter_id!r} not registered",
+                failure_kind=DeliveryFailureKind.TARGET_NOT_FOUND,
+            ) from None
 
         # Check delivery plan deadline.
         if plan.deadline is not None and now > plan.deadline:
@@ -664,7 +679,9 @@ class PipelineRunner:
             )
             await self._config.storage.append_receipt(receipt)
             raise _AdapterDeliveryError(
-                adapter_id or "", "Delivery deadline exceeded"
+                adapter_id or "",
+                "Delivery deadline exceeded",
+                failure_kind=DeliveryFailureKind.DEADLINE_EXCEEDED,
             ) from None
 
         # Render the event into a RenderingResult before adapter delivery.

@@ -1095,13 +1095,15 @@ class TestDeliveryFailureClassification:
         self,
         temp_storage: SQLiteStorage,
     ) -> None:
-        """Missing adapter returns a receipt with status=failed but no exception.
-        
-        deliver_to_target handles missing adapters gracefully: it records
-        a failed receipt and returns it without raising. The outcome is
-        'success' at the _deliver_one level because no exception was raised,
-        but the receipt itself has status='failed'.
+        """Missing adapter produces permanent_failure with TARGET_NOT_FOUND.
+
+        ``deliver_to_target`` persists a failed receipt and raises so that
+        ``_deliver_one`` classifies the outcome as ``permanent_failure``
+        with ``failure_kind == TARGET_NOT_FOUND``.  No adapter delivery
+        is attempted.
         """
+        from medre.core.planning.delivery_plan import DeliveryFailureKind
+
         route = Route(
             id="missing-route",
             source=RouteSource(
@@ -1124,12 +1126,98 @@ class TestDeliveryFailureClassification:
         try:
             outcomes = await runner.handle_ingress(event)
             assert len(outcomes) == 1
-            # No exception raised, so outcome is 'success'.
-            assert outcomes[0].status == "success"
-            # But the receipt records the failure.
-            assert outcomes[0].receipt is not None
-            assert outcomes[0].receipt.status == "failed"
-            assert "not registered" in (outcomes[0].receipt.error or "")
+            assert outcomes[0].status == "permanent_failure"
+            assert outcomes[0].failure_kind is DeliveryFailureKind.TARGET_NOT_FOUND
+            assert outcomes[0].target_adapter == "nonexistent"
+            assert "not registered" in (outcomes[0].error or "")
+
+            # Failed receipt persisted in storage.
+            rows = await temp_storage._read_all(
+                "SELECT * FROM delivery_receipts WHERE event_id = ?",
+                ("missing-001",),
+            )
+            assert len(rows) == 1
+            assert rows[0]["status"] == "failed"
+            assert "not registered" in (rows[0]["error"] or "")
+        finally:
+            await runner.stop()
+
+    async def test_deadline_exceeded_returns_permanent_failure(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Expired delivery deadline produces permanent_failure with DEADLINE_EXCEEDED.
+
+        When the delivery plan's ``deadline`` is in the past, the pipeline
+        records a failed receipt and returns a ``permanent_failure`` outcome
+        with ``failure_kind == DEADLINE_EXCEEDED``.  No adapter delivery
+        is attempted.
+        """
+        from datetime import timedelta
+
+        from medre.core.planning.delivery_plan import (
+            DeliveryFailureKind,
+            DeliveryPlan,
+        )
+
+        adapter = FakePresentationAdapter(adapter_id="target")
+
+        route = Route(
+            id="deadline-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel=None
+            ),
+            targets=[RouteTarget(adapter="target")],
+        )
+        router = Router(routes=[route])
+
+        config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={"target": adapter},
+        )
+
+        class ExpiredDeadlineResolver(FallbackResolver):
+            """Fallback resolver that always returns an expired deadline."""
+
+            def resolve_fallback(self, event, target, capabilities):
+                plan = super().resolve_fallback(event, target, capabilities)
+                return DeliveryPlan(
+                    plan_id=plan.plan_id,
+                    event_id=plan.event_id,
+                    target=plan.target,
+                    primary_strategy=plan.primary_strategy,
+                    fallback_chain=plan.fallback_chain,
+                    retry_policy=plan.retry_policy,
+                    deadline=datetime.now(timezone.utc) - timedelta(seconds=60),
+                )
+
+        config.fallback_resolver = ExpiredDeadlineResolver()
+
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = _make_event(event_id="deadline-001", source_adapter="src")
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+            assert len(outcomes) == 1
+            assert outcomes[0].status == "permanent_failure"
+            assert outcomes[0].failure_kind is DeliveryFailureKind.DEADLINE_EXCEEDED
+            assert outcomes[0].target_adapter == "target"
+            assert "deadline" in (outcomes[0].error or "").lower()
+
+            # Adapter was never called.
+            assert len(adapter.delivered_payloads) == 0
+
+            # Failed receipt persisted in storage.
+            rows = await temp_storage._read_all(
+                "SELECT * FROM delivery_receipts WHERE event_id = ?",
+                ("deadline-001",),
+            )
+            assert len(rows) == 1
+            assert rows[0]["status"] == "failed"
+            assert "deadline" in (rows[0]["error"] or "").lower()
         finally:
             await runner.stop()
 
@@ -1278,27 +1366,24 @@ class TestDeadLetter:
         )
 
         # Patch the fallback resolver to produce a plan with retry_policy max_attempts=1.
-        from medre.core.planning.delivery_plan import (
-            DeliveryPlan,
-            DeliveryStrategy,
-        )
+        from medre.core.planning.delivery_plan import DeliveryPlan
 
-        original_resolve = config.fallback_resolver.resolve_fallback
+        class OneAttemptResolver(FallbackResolver):
+            """Fallback resolver that limits delivery to one attempt."""
 
-        def _patched_resolve(event, target, capabilities):
-            plan = original_resolve(event, target, capabilities)
-            # Create a new plan with retry_policy=max_attempts=1
-            return DeliveryPlan(
-                plan_id=plan.plan_id,
-                event_id=plan.event_id,
-                target=plan.target,
-                primary_strategy=plan.primary_strategy,
-                fallback_chain=plan.fallback_chain,
-                retry_policy=RetryPolicy(max_attempts=1, jitter=False),
-                deadline=plan.deadline,
-            )
+            def resolve_fallback(self, event, target, capabilities):
+                plan = super().resolve_fallback(event, target, capabilities)
+                return DeliveryPlan(
+                    plan_id=plan.plan_id,
+                    event_id=plan.event_id,
+                    target=plan.target,
+                    primary_strategy=plan.primary_strategy,
+                    fallback_chain=plan.fallback_chain,
+                    retry_policy=RetryPolicy(max_attempts=1, jitter=False),
+                    deadline=plan.deadline,
+                )
 
-        config.fallback_resolver.resolve_fallback = _patched_resolve  # type: ignore[assignment]
+        config.fallback_resolver = OneAttemptResolver()
 
         runner = PipelineRunner(config)
         await runner.start()

@@ -15,7 +15,7 @@ should be delivered to a target:
 
 from __future__ import annotations
 
-import random
+import hashlib
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -213,8 +213,10 @@ class RetryExecutor:
             delay = min(backoff_base * 2 ** (attempt_number - 1),
                         max_delay_seconds)
 
-        When ``jitter`` is enabled a small random value in ``[0, delay)``
-        is subtracted to avoid thundering-herd effects.
+        When ``jitter`` is enabled a deterministic value derived from a
+        SHA-256 hash of the policy fields and attempt number is used,
+        keeping the result in ``[delay * 0.5, delay]``.  This avoids
+        thundering-herd effects while remaining fully reproducible.
 
         Parameters
         ----------
@@ -229,7 +231,15 @@ class RetryExecutor:
         raw = self._policy.backoff_base * (2 ** (attempt_number - 1))
         capped = min(raw, self._policy.max_delay_seconds)
         if self._policy.jitter and capped > 0:
-            capped = max(0.0, capped - random.uniform(0, capped * 0.5))
+            seed = (
+                f"{self._policy.backoff_base}:"
+                f"{self._policy.max_delay_seconds}:"
+                f"{self._policy.max_attempts}:"
+                f"{attempt_number}"
+            ).encode()
+            digest = hashlib.sha256(seed).digest()
+            fraction = int.from_bytes(digest[:8], "big") / (1 << 64)
+            capped = capped - fraction * capped * 0.5
         return timedelta(seconds=capped)
 
     def is_exhausted(self, attempt_number: int) -> bool:
