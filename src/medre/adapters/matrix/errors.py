@@ -1,0 +1,41 @@
+"""Matrix adapter exception hierarchy.
+
+All Matrix-specific errors inherit from :class:`MatrixError` so that
+callers can catch the entire family with a single ``except MatrixError``
+clause.
+
+Hierarchy::
+
+    MatrixError
+    ├── MatrixConnectionError   — connection / authentication failures
+    ├── MatrixSendError         — message send failures
+    ├── MatrixConfigError       — invalid configuration (also ValueError)
+    └── MatrixCodecError        — encode / decode failures
+"""
+from __future__ import annotations
+
+
+class MatrixError(Exception):
+    """Base exception for all Matrix adapter errors."""
+
+
+class MatrixConnectionError(MatrixError):
+    """Raised when the adapter cannot connect or authenticate with the
+    homeserver."""
+
+
+class MatrixSendError(MatrixError):
+    """Raised when a message send operation fails."""
+
+
+class MatrixConfigError(MatrixError, ValueError):
+    """Raised when the Matrix configuration is invalid.
+
+    Inherits from both :class:`MatrixError` and :class:`ValueError` so
+    that it is caught by either ``except MatrixError`` or
+    ``except ValueError``.
+    """
+
+
+class MatrixCodecError(MatrixError):
+    """Raised when encode or decode operations fail."""

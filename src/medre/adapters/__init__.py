@@ -7,7 +7,7 @@ presentation platforms.
 Quick-start imports::
 
     from medre.adapters import BaseAdapter, AdapterRole
-    from medre.adapters import FakeTransportAdapter
+    from medre.adapters import FakeTransportAdapter, FakeMatrixAdapter
 
 Re-exported symbols
 -------------------
@@ -18,6 +18,8 @@ Re-exported symbols
   ``FakeTransportAdapter``.
 * From :mod:`~medre.adapters.fake_presentation`:
   ``FakePresentationAdapter``.
+* From :mod:`~medre.adapters.fake_matrix`:
+  ``FakeMatrixAdapter``.
 """
 
 from medre.adapters.base import (
@@ -28,6 +30,7 @@ from medre.adapters.base import (
     AdapterRole,
     BaseAdapter,
 )
+from medre.adapters.fake_matrix import FakeMatrixAdapter
 from medre.adapters.fake_presentation import (
     FakePresentationAdapter,
     FaultyPresentationAdapter,
@@ -43,6 +46,7 @@ __all__ = [
     "AdapterRole",
     "BaseAdapter",
     # fake adapters
+    "FakeMatrixAdapter",
     "FakePresentationAdapter",
     "FakeTransportAdapter",
     "FaultyPresentationAdapter",
