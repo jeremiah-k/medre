@@ -157,7 +157,8 @@ class CanonicalEvent:
     schema_version: int         # Schema version this event conforms to
     timestamp: datetime         # UTC, nanosecond precision if available
     source_adapter: str         # Adapter that created this event
-    source_transport_id: str    # Opaque ID from the source transport (node num, user id)
+    source_transport_id: str    # Native actor/source that produced the event (see notes below)
+    source_channel_id: str | None  # Native channel/room/topic on source adapter, for route matching
     parent_event_id: str | None # For derived events, points to origin
     lineage: list[str]          # Chain of event_ids from origin to current
     relations: list[EventRelation]  # First-class relations to other events (replies, reactions, etc.)
@@ -165,6 +166,17 @@ class CanonicalEvent:
     metadata: EventMetadata     # Structured metadata (see Section 14)
     tags: set[str]              # Freeform tags for filtering/routing
 ```
+
+**`source_transport_id` identifies the native actor**, not the native message. It is the transport-specific identity of whoever or whatever produced the event. Native message IDs belong in `native_message_refs` (Section 12.2). Examples:
+
+| Transport | source_transport_id | Notes |
+|---|---|---|
+| Matrix | Sender MXID (e.g., `@user:server.org`) | Who sent the Matrix event |
+| LXMF | Source hash (16-byte hex) | LXMF source identity |
+| Meshtastic | Node number (string) | Sending node |
+| MeshCore | Node number (string) | Sending node |
+
+**`source_channel_id`** is the native channel, room, or topic on the source adapter where the event originated. It is a core field so that route matching can evaluate source channels without pulling from metadata. For example: Matrix room ID (`!abc123:server.org`), MeshCore channel slot index, LXMF destination hash (for inbound messages the destination is the "channel"). If the transport has no channel concept, this is `None`.
 
 ### 5.2 Event Relations
 
@@ -200,6 +212,8 @@ Relation fields:
 
 Relations are canonical. They are stored with the event and used by the relation resolution and delivery planning stages. Adapters and plugins read and write relations through the event model, not through ad-hoc metadata fields.
 
+**Persistence rule**: The `relations` list on a `CanonicalEvent` is not duplicated inside the `canonical_events` payload or metadata columns. Relations are persisted as rows in the `event_relations` table (see Section 12.3). When a `CanonicalEvent` is loaded from storage, its in-memory `relations` list is reconstructed by querying `event_relations` for that event's ID. The `StorageBackend.store_relation` and `StorageBackend.list_relations` methods manage this (see Section 12.4).
+
 ### 5.3 Event Kinds (Initial Registry)
 
 | Kind | Description | Primary Producers |
@@ -213,11 +227,11 @@ Relations are canonical. They are stored with the event and used by the relation
 | `channel.announcement` | Channel metadata change | Transport adapters |
 | `system.lifecycle` | Adapter start/stop, connection state change | System |
 | `plugin.event` | Plugin-generated signal (custom kind in payload) | Plugins |
-| `delivery.receipt` | Result of a delivery attempt | Delivery system |
+| `delivery.receipt` | Result of a delivery attempt *(system/audit event, not routeable through normal user routes unless explicitly enabled. Phase 1 stores receipts in `delivery_receipts` table rows)* | Delivery system |
 | `transform.output` | Output of a transform stage *(optional audit/system event, not routeable through the normal pipeline)* | Transform pipeline |
 | `policy.action` | Policy decision (drop, flag, rate-limit) *(optional audit/system event, not routeable through the normal pipeline)* | Policy pipeline |
 
-### 5.3 Immutability Rules
+### 5.4 Immutability Rules
 
 1. Once written to the canonical event log, no field of a `CanonicalEvent` changes.
 2. Enrichment creates a new event with `parent_event_id` set to the original's `event_id`. The `lineage` list is appended with the parent's ID.
@@ -225,7 +239,7 @@ Relations are canonical. They are stored with the event and used by the relation
 4. The original event is always recoverable by following the lineage chain backward.
 5. Event IDs are UUIDv7 for natural time ordering and uniqueness.
 
-### 5.4 Event Record Taxonomy
+### 5.5 Event Record Taxonomy
 
 Not every record in the event pipeline has the same semantic weight. The runtime distinguishes four event record classes:
 
@@ -234,9 +248,9 @@ Not every record in the event pipeline has the same semantic weight. The runtime
 | **Source Event** | The initial canonical event produced by an adapter codec from raw native data. This is the primary record of what happened on a transport. | Always stored in the canonical event log. |
 | **Derived Event** | An event produced by enrichment, transform, or policy stages. It references its parent via `parent_event_id` and carries a full `lineage`. | Stored in the canonical event log if it is semantically meaningful (e.g., a telemetry-to-message transform that downstream systems act on). Transient intermediate events may be stored or discarded based on configuration. |
 | **Delivery Artifact (Rendered Payload)** | The target-specific rendering of an event for a particular adapter (e.g., Matrix HTML with embedded metadata, MeshCore 160-byte truncated text, LXMF fields dict). | Stored as a `delivery_plan` / `rendered_payload` record attached to the delivery plan, not as a canonical event. These are adapter-specific renderings, not semantically independent events. |
-| **Receipt Event** | A `delivery.receipt` event recording the outcome of a delivery attempt. | Stored in the canonical event log as a first-class event. Receipts are semantically meaningful: they record what happened in the delivery layer. |
+| **Receipt Event** | A `delivery.receipt` event recording the outcome of a delivery attempt. | Phase 1: stored as rows in `delivery_receipts` table (not as canonical events). Future: may optionally mirror as canonical events for audit purposes. Receipts are semantically meaningful: they record what happened in the delivery layer. |
 
-**Storage guidance**: The canonical event log holds source events, semantically meaningful derived events, and receipt events. Target-specific renderings live as payload records on delivery plans. If a rendering is itself semantically meaningful (e.g., a message that was edited produces a new canonical event with edit semantics), it is a derived event, not a rendering artifact.
+**Storage guidance**: The canonical event log holds source events and semantically meaningful derived events. Delivery receipts live in the `delivery_receipts` table. Target-specific renderings live as payload records on delivery plans. If a rendering is itself semantically meaningful (e.g., a message that was edited produces a new canonical event with edit semantics), it is a derived event, not a rendering artifact.
 
 
 ## 6. Event Transforms
@@ -265,13 +279,13 @@ class EventTransform(Protocol):
 |---|---|---|---|
 | **TelemetryToMessage** | `telemetry` | `message.text` | Formats telemetry as a human-readable summary for presentation adapters. Configurable template. |
 | **TelemetryToMetrics** | `telemetry` | `metrics.update` | Extracts numeric values for internal observability storage. |
-| **TelemetryToDatabaseOnly** | `telemetry` | (no output, tagged `storage-only`) | Marks telemetry for storage but not delivery to any presentation adapter. |
+| **TelemetryProjection** | `telemetry` | (no output, tagged `storage-only`) | Projects telemetry into the canonical event log without producing deliverable output. Storage happens at ingress for all events; this transform marks telemetry as not intended for delivery to any presentation adapter. |
 | **PositionToMapUpdate** | `position` | `plugin.event` (kind: map) | Feeds position data to map visualization plugins. |
 | **MeshCoreTruncation** | `message.text` (long) | `message.text` (truncated) | Truncates or splits messages exceeding adapter byte limits (e.g., 160 bytes for MeshCore). |
 | **LXMFFieldEmbedding** | `message.text` + relation metadata | `message.text` with LXMF fields dict | Embeds canonical event ID, relation, and schema metadata into LXMF `fields` dict for framework-aware LXMF peers. |
 | **PluginEventRouter** | `plugin.event` | Varies | Routes plugin outputs to the correct event kind based on plugin type. |
 
-> **Rendering vs. Transform boundary.** The following transforms produce output that is specific to a single presentation adapter's formatting model (HTML, embeds, namespace-specific metadata). These are architecturally **rendering concerns** (handled by `core/rendering/`) and should not be configured as pipeline transforms in production. They are listed here as built-in transforms for backward compatibility during development. In a future revision, they will be removed from the transform registry and relocated to `core/rendering/` as dedicated renderers:
+> **Rendering vs. Transform boundary.** The following transforms produce output that is specific to a single presentation adapter's formatting model (HTML, embeds, namespace-specific metadata). These are architecturally **rendering concerns** (handled by `core/rendering/`) and must not be configured as pipeline transforms in production. They are listed here as built-in transforms for backward compatibility during development. In a future revision, they will be removed from the transform registry and relocated to `core/rendering/` as dedicated renderers. **Do not register these in the `transforms:` config block.** Use the adapter's rendering pipeline instead.
 >
 > | Transform | Target Adapter | Rendering Concern |
 > |---|---|---|
@@ -389,6 +403,13 @@ class Route:
 
 Routes are configured by the operator. The routing engine evaluates all matching routes for each event, producing a list of target deliveries.
 
+**`channel` vs `destination` precedence rules**:
+
+- `RouteTarget.channel` is for logical framework channel names on channel-addressed adapters (e.g., Matrix rooms by name, MeshCore channel slots by name). It maps to the adapter's own channel configuration.
+- `RouteTarget.destination` is for identity/hash/contact-based addressing where the target is a specific entity, not a named channel (e.g., LXMF destination hash, MeshCore contact).
+- When `destination.kind` is `"channel"` or `"matrix_room"`, the `channel` field on `RouteTarget` should be omitted. The destination carries the addressing, and the adapter resolves it internally.
+- Matrix room-to-canonical-channel mapping lives in the adapter's `connection.rooms` config (see Section 29.1), not in `RouteDestination`. Routes reference channels by logical name, not by Matrix room IDs.
+
 Example route matching a MeshCore radio to Matrix and Discord:
 
 ```python
@@ -429,7 +450,7 @@ The router handles one-to-many delivery through the `to` list in each route:
 
 - A single event may match multiple routes (e.g., a message bridged to both Matrix and Discord).
 - Each target in the `to` list gets its own delivery plan.
-- Fanout is configurable: broadcast (all matches), round-robin, weighted, or first-available.
+- **Phase 1**: `broadcast` is the only fanout strategy. All matching targets receive the event. Round-robin, weighted, and first-available strategies are deferred to a later phase.
 
 ### 8.3 Delivery Planning
 
@@ -619,7 +640,8 @@ class DeliveryReceipt:
 
 - Receipts are **append-only records**. Every delivery attempt produces a new `DeliveryReceipt` row in storage. Existing receipt rows are never updated or deleted. A delivery that retried three times produces four receipt rows (one per attempt), each with its own `timestamp` and `status`.
 - The "current status" of a delivery is a **projection**: the latest receipt for a given `(event_id, delivery_plan_id, target_adapter)` tuple determines the current state. This projection is provided by the `delivery_status` view (Section 12.3), not by mutating receipt rows.
-- Receipts are written to storage as `delivery.receipt` events.
+- **Phase 1 storage model**: Delivery receipts are stored as rows in the `delivery_receipts` table, not as `delivery.receipt` canonical events. The receipt row is the authoritative record of what happened in the delivery layer.
+- `delivery.receipt` canonical events are system/audit-only records, not routeable through normal user routes unless explicitly enabled by the operator. They may be added in a later phase as optional audit mirroring of receipt rows, but they are not the primary storage mechanism.
 - The correlation engine links receipts back to originating events via the delivery plan.
 - Dead-lettered events trigger alerts and are available for manual reprocessing.
 - Receipt metrics feed into observability (delivery latency, success rates, retry counts).
@@ -766,7 +788,8 @@ CREATE TABLE canonical_events (
     schema_version INTEGER NOT NULL,
     timestamp TEXT NOT NULL,         -- ISO 8601 with nanoseconds
     source_adapter TEXT NOT NULL,
-    source_transport_id TEXT,
+    source_transport_id TEXT,        -- Native actor/source identity (not native message ID)
+    source_channel_id TEXT,          -- Native channel/room/topic on source adapter
     parent_event_id TEXT,
     lineage TEXT,                    -- JSON array of event IDs
     payload TEXT NOT NULL,           -- JSON
@@ -781,7 +804,8 @@ CREATE INDEX idx_events_source ON canonical_events(source_adapter, source_transp
 CREATE INDEX idx_events_parent ON canonical_events(parent_event_id);
 
 CREATE TABLE delivery_receipts (
-    receipt_id TEXT PRIMARY KEY,
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    receipt_id TEXT UNIQUE NOT NULL,
     event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
     delivery_plan_id TEXT NOT NULL,
     target_adapter TEXT NOT NULL,
@@ -809,6 +833,7 @@ CREATE INDEX idx_relations_target ON event_relations(target_event_id);
 CREATE INDEX idx_relations_type ON event_relations(relation_type);
 
 -- Current delivery status is a projection from the latest receipt per delivery plan.
+-- Uses MAX(sequence) for deterministic ordering (avoids timestamp collisions).
 CREATE VIEW delivery_status AS
 SELECT
     dr.event_id,
@@ -822,12 +847,10 @@ SELECT
     dr.error
 FROM delivery_receipts dr
 INNER JOIN (
-    SELECT delivery_plan_id, target_adapter, MAX(timestamp) AS max_ts
+    SELECT delivery_plan_id, target_adapter, MAX(sequence) AS max_seq
     FROM delivery_receipts
     GROUP BY delivery_plan_id, target_adapter
-) latest ON dr.delivery_plan_id = latest.delivery_plan_id
-        AND dr.target_adapter = latest.target_adapter
-        AND dr.timestamp = latest.max_ts;
+) latest ON dr.sequence = latest.max_seq;
 
 CREATE TABLE plugin_state (
     plugin_id TEXT NOT NULL,
@@ -844,6 +867,44 @@ CREATE TABLE native_archive (
     raw_data BLOB NOT NULL,          -- Compressed (zstd or gzip)
     compression TEXT NOT NULL DEFAULT 'gzip',
     archived_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+-- Conceptual identity storage tables (Section 11).
+
+CREATE TABLE actors (
+    actor_id TEXT PRIMARY KEY,           -- Runtime-unique actor ID (UUIDv7)
+    display_name TEXT NOT NULL,
+    verification_status TEXT NOT NULL DEFAULT 'unverified' CHECK(verification_status IN ('verified', 'manual', 'auto', 'unverified')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    last_seen_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE TABLE native_identities (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    adapter TEXT NOT NULL,               -- Adapter instance name
+    native_id TEXT NOT NULL,             -- Transport-specific ID
+    native_name TEXT,                    -- Display name on the transport
+    native_metadata TEXT NOT NULL DEFAULT '{}',  -- JSON
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    UNIQUE(adapter, native_id)
+);
+
+CREATE TABLE actor_identity_links (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    actor_id TEXT NOT NULL REFERENCES actors(actor_id),
+    native_identity_id INTEGER NOT NULL REFERENCES native_identities(id),
+    link_method TEXT NOT NULL DEFAULT 'auto' CHECK(link_method IN ('verified', 'manual', 'auto')),
+    linked_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    UNIQUE(actor_id, native_identity_id)
+);
+
+CREATE TABLE actor_permissions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    actor_id TEXT NOT NULL REFERENCES actors(actor_id),
+    permission TEXT NOT NULL,            -- Permission name (e.g., 'admin', 'post_cross_channel')
+    granted_by TEXT,                     -- 'operator' or 'auto_rule'
+    granted_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    UNIQUE(actor_id, permission)
 );
 ```
 
@@ -868,6 +929,8 @@ class StorageBackend(Protocol):
     async def store_native_ref(self, ref: NativeMessageRef) -> None: ...
     async def resolve_native_ref(self, adapter: str, native_channel_id: str, native_message_id: str) -> str | None: ...
     async def resolve_native_relation(self, adapter: str, native_relation_id: str) -> str | None: ...
+    async def store_relation(self, event_id: str, relation: EventRelation) -> None: ...
+    async def list_relations(self, event_id: str) -> list[EventRelation]: ...
 ```
 
 
@@ -1231,8 +1294,8 @@ The following test cases must pass for LXMF integration to be considered complet
 | **Inbound LXMF to Canonical Message** | An inbound `LXMessage` with text content is decoded by the codec into a `CanonicalEvent` with `event_kind="message.text"`, correct `source_adapter`, `source_transport_id` set to the source hash, and payload containing the message text. |
 | **LXMF org.* Metadata to Relation Resolution** | An inbound `LXMessage` with `fields["org.meshnet-framework.event"].relation` set to `{"type": "reply", "parent_event_id": "..."}` produces a `CanonicalEvent` with an `EventRelation(relation_type="reply", target_event_id="...")`. The relation is first-class, not buried in metadata. |
 | **Matrix Reply to LXMF Metadata-Native Relation** | A Matrix reply (`m.relates_to` with `m.in_reply_to`) is correlated to the originating LXMF message via `native_message_refs`, producing a `CanonicalEvent` with `EventRelation(relation_type="reply", target_event_id=<canonical id of the LXMF message>)`. The LXMF adapter encodes this relation into the outbound `LXMessage.fields` dict for framework-aware peers. |
-| **LXMF Delivery Callback to Receipt** | The LXMF per-message delivery callback fires with `LXMessage.state=DELIVERED`. The adapter produces a `DeliveryReceipt` with `status=ACKNOWLEDGED` and stores a `native_message_ref` mapping the LXMF message ID to the canonical delivery receipt event. |
-| **Propagated LXMF Queued/Delayed Receipt** | An outbound LXMF message sent via propagation (no direct link) initially produces a `DeliveryReceipt` with `status=QUEUED`. When the propagation node later confirms delivery, the adapter updates the receipt to `status=SENT`. The delivery plan's deadline and retry policy govern how long to wait before marking the delivery as failed. |
+| **LXMF Delivery Callback to Receipt** | The LXMF per-message delivery callback fires with `LXMessage.state=DELIVERED`. The adapter appends a `DeliveryReceipt` row with `status=ACKNOWLEDGED` and stores a `native_message_ref` mapping the LXMF message ID to the canonical event that was delivered. |
+| **Propagated LXMF Queued/Delayed Receipt** | An outbound LXMF message sent via propagation (no direct link) initially appends a `DeliveryReceipt` row with `status=QUEUED`. When the propagation node later confirms delivery, the adapter appends a new `DeliveryReceipt` row with `status=ACKNOWLEDGED`. The delivery plan's deadline and retry policy govern how long to wait before appending a `status=FAILED` row. |
 | **LXMF Unknown Peer Identity Auto-Create** | An inbound `LXMessage` from an unknown source hash triggers identity auto-creation: a new `CanonicalActor` with `verification_status="unverified"` and a `NativeIdentity` with `adapter="lxmf-node-a"`, `native_id=<source_hash>`. Subsequent messages from the same source hash resolve to the same actor. |
 
 The adapter is organized as follows:
@@ -1404,14 +1467,17 @@ Plugins can emit events through the low-level `event_bus`, but the happy path sh
 class PluginContext:
     # ... core fields from 20.4 ...
 
+    current_event: CanonicalEvent | None  # The event currently being handled, or None
+
     async def reply(self, text: str) -> None:
         """Reply to the current event being handled. Sets relation_type='reply'
         and target_event_id to the current event's ID."""
         ...
 
-    async def send(self, text: str, target: str | None = None) -> None:
-        """Send a message text event. If target is specified, routes to that
-        adapter/channel. Otherwise follows default routing."""
+    async def send(self, text: str, target: RouteTarget | str | None = None) -> None:
+        """Send a message text event. If target is a RouteTarget, routes to that
+        structured target. If target is a str, it is interpreted as a route_id.
+        If target is None, follows default routing."""
         ...
 
     async def react(self, key: str) -> None:
@@ -1602,9 +1668,9 @@ Events carry a trace context through the pipeline. Each stage creates a span. Di
 
 ### 23.1 Minimum Viable Runtime (Phase 1)
 
-- [ ] Canonical event model defined with all core fields, including `relations` list.
+- [ ] Canonical event model defined with all core fields, including `relations` list, `source_channel_id`, and `source_transport_id` (actor identity, not message ID).
 - [ ] `EventRelation`, `NativeMessageRef`, and event record taxonomy defined.
-- [ ] SQLite storage backend writes and reads canonical events, native refs, and receipts.
+- [ ] SQLite storage backend writes and reads canonical events, native refs, receipts, event relations, and identity tables.
 - [ ] Fake/test adapters (TRANSPORT and PRESENTATION) exercise the full pipeline without real hardware or network.
 - [ ] Structured route model with `RouteSource` and `RouteTarget` evaluates matches correctly.
 - [ ] Delivery planning constructs plans with fallback chains.
@@ -1618,7 +1684,7 @@ Events carry a trace context through the pipeline. Each stage creates a span. Di
 
 ### 23.2 Core Feature Complete (Phase 2)
 
-- [ ] Transform pipeline with at least 3 built-in transforms (telemetry-to-message, telemetry-to-metrics, message-to-matrix).
+- [ ] Transform pipeline with at least 3 built-in transforms (telemetry-to-message, telemetry-to-metrics, telemetry-projection).
 - [ ] Policy pipeline with rate limiting and deduplication across all four policy stages.
 - [ ] Delivery planning with fallback chains and capability downgrade.
 - [ ] Relation resolution handles Matrix replies to mesh messages and LXMF metadata-native relations.
@@ -1663,7 +1729,7 @@ Focus: Core event model, storage, fake/test adapters, routing and delivery tests
 
 | Week | Deliverables |
 |---|---|
-| 1 | `core/events/` package: CanonicalEvent with relations, EventRelation, event kinds, schema registry, event record taxonomy. `core/storage/` SQLite backend with canonical_events, native_message_refs, delivery_receipts tables. |
+| 1 | `core/events/` package: CanonicalEvent with relations, source_channel_id, EventRelation, event kinds, schema registry, event record taxonomy. `core/storage/` SQLite backend with canonical_events, native_message_refs, delivery_receipts, event_relations, and identity tables (actors, native_identities, actor_identity_links, actor_permissions). |
 | 2 | `app/` package: CLI entry point, YAML config loading. `core/lifecycle/` manager skeleton. `core/routing/` structured route evaluation (RouteSource, RouteTarget, RouteDestination). `core/planning/` delivery plans and fallback resolution. |
 | 3 | `adapters/` base: Adapter protocol with codec pattern, AdapterContext with publish_inbound. Fake/test TRANSPORT adapter and fake/test PRESENTATION adapter. Policy pipeline split (ingress/event/route/delivery stages). |
 | 4 | `core/transforms/` pipeline with basic transforms. `core/rendering/` renderer skeleton. End-to-end integration test using fake adapters through full pipeline. Delivery receipt and native ref correlation tests. |
@@ -1676,7 +1742,7 @@ Focus: Matrix adapter, delivery, metadata embedding.
 |---|---|
 | 5-6 | `adapters/matrix/` adapter: delivery to Matrix rooms, safe metadata embedding, `m.relates_to` mapping to EventRelation. `core/rendering/matrix.py` for Matrix HTML rendering. |
 | 7 | `core/identity/` resolver and actor model. Relation resolution for cross-adapter replies using `native_message_refs`. |
-| 8 | Transform pipeline: telemetry-to-message, telemetry-to-metrics, message-to-matrix formatted. Policy stages: rate limiting, deduplication, content filtering across all four stages. |
+| 8 | Transform pipeline: telemetry-to-message, telemetry-to-metrics, telemetry-projection. Policy stages: rate limiting, deduplication, content filtering across all four stages. |
 
 ### Phase 3: Mesh Transport (Weeks 9-12)
 
@@ -1940,7 +2006,7 @@ routes:
       adapter: meshcore-radio-1
       event_kinds: ["telemetry", "position"]
     to:
-      # NOTE: Using a transform with output tagged `storage-only` (see TelemetryToDatabaseOnly
+      # NOTE: Using a transform with output tagged `storage-only` (see TelemetryProjection
       # in Section 6.3) is the preferred pattern for storing events without delivering them to
       # a presentation adapter. Routing to a fictitious "storage" adapter is an anti-pattern:
       # storage happens at the "Store Source Event" pipeline stage for every event regardless of
@@ -1972,36 +2038,41 @@ transforms:
     class: core.transforms.telemetry.TelemetryToMetrics
     config: {}
 
-  - name: message_to_matrix
-    class: core.transforms.presentation.MessageToMatrixFormatted
-    config:
-      embed_metadata: safe  # off, minimal, safe, full
+  # NOTE: MessageToMatrixFormatted is a rendering concern, not a pipeline transform.
+  # Matrix HTML formatting and metadata embedding is handled by core/rendering/matrix.py
+  # during the delivery stage. Do not register it here.
 ```
 
 ### 29.4 Policy Configuration
 
 ```yaml
 policies:
-  - name: rate_limit_per_node
-    class: core.policies.rate_limit.RateLimitPolicy
-    config:
-      window_seconds: 60
-      max_events: 10
-      scope: "source_transport_id"  # Per node
-      event_kinds: ["message.text"]
+  ingress: []                              # Ingress-stage policies (see Section 7)
 
-  - name: dedup_messages
-    class: core.policies.dedup.DeduplicationPolicy
-    config:
-      window_seconds: 30
-      scope: "content_hash"  # Hash of payload content
+  event:                                   # Event-stage policies (after transforms)
+    - name: rate_limit_per_node
+      class: core.policies.rate_limit.RateLimitPolicy
+      config:
+        window_seconds: 60
+        max_events: 10
+        scope: "source_transport_id"  # Per node
+        event_kinds: ["message.text"]
 
-  - name: meshcore_length_limit
-    class: core.policies.max_length.MaxLengthPolicy
-    config:
-      target_adapter: meshcore-radio-1
-      max_bytes: 160
-      split_strategy: "truncate"  # truncate, split, reject
+    - name: dedup_messages
+      class: core.policies.dedup.DeduplicationPolicy
+      config:
+        window_seconds: 30
+        scope: "content_hash"  # Hash of payload content
+
+  route: []                                # Route-stage policies (after routing)
+
+  delivery:                                # Delivery-stage policies (before adapter execution)
+    - name: meshcore_length_limit
+      class: core.policies.max_length.MaxLengthPolicy
+      config:
+        target_adapter: meshcore-radio-1
+        max_bytes: 160
+        split_strategy: "truncate"  # truncate, split, reject
 ```
 
 ### 29.5 LXMF Adapter Configuration
