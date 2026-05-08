@@ -722,7 +722,7 @@ class PipelineRunner:
                     adapter_id,
                 )
 
-            status: str = "sent"
+            status: Literal["sent", "failed"] = "sent"
             error: str | None = None
             self._log.info(
                 "Delivered: event_id=%s → adapter=%s plan=%s attempt=%d",
@@ -759,7 +759,7 @@ class PipelineRunner:
             event_id=event.event_id,
             delivery_plan_id=plan.plan_id,
             target_adapter=adapter_id or "",
-            status=status,  # type: ignore[arg-type]
+            status=status,
             error=error,
             created_at=now,
             attempt_number=attempt_number,
