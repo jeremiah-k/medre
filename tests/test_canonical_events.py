@@ -8,7 +8,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
-from dataclasses import FrozenInstanceError
 
 from meshnet_framework.core.events import (
     CanonicalEvent,
@@ -95,7 +94,7 @@ class TestCanonicalEvent:
             payload={},
             metadata=EventMetadata(),
         )
-        with pytest.raises(FrozenInstanceError):
+        with pytest.raises(AttributeError):
             event.event_id = "changed"  # type: ignore[misc]
 
     def test_default_optional_fields(self) -> None:
@@ -183,7 +182,7 @@ class TestEventRelation:
             key=None,
             fallback_text=None,
         )
-        with pytest.raises(FrozenInstanceError):
+        with pytest.raises(AttributeError):
             rel.relation_type = "edit"  # type: ignore[misc]
 
 
@@ -221,7 +220,7 @@ class TestNativeRef:
     def test_frozen(self) -> None:
         """NativeRef is immutable."""
         ref = NativeRef(adapter="a", native_channel_id="c", native_message_id="m")
-        with pytest.raises(FrozenInstanceError):
+        with pytest.raises(AttributeError):
             ref.adapter = "other"  # type: ignore[misc]
 
 

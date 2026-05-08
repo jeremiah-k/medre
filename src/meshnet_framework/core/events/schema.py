@@ -14,7 +14,7 @@ packages can register JSON-Schema validators, pydantic models, or any
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import msgspec
 from typing import Callable
 
 
@@ -23,8 +23,7 @@ from typing import Callable
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class SchemaVersion:
+class SchemaVersion(msgspec.Struct, frozen=True):
     """An immutable ``(event_kind, version)`` pair.
 
     Attributes

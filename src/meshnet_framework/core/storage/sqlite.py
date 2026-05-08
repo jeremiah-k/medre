@@ -8,12 +8,12 @@ The database runs in WAL mode for safe concurrent reads.
 from __future__ import annotations
 
 import asyncio
-import json
 import sqlite3
 import threading
-from dataclasses import asdict, fields
 from datetime import datetime, timezone
-from typing import Any, AsyncIterator, TypeVar
+from typing import Any, AsyncIterator
+
+import msgspec
 
 from meshnet_framework.core.events import (
     CanonicalEvent,
@@ -21,12 +21,7 @@ from meshnet_framework.core.events import (
     EventMetadata,
     EventRelation,
     NativeMessageRef,
-    NativeMetadata,
     NativeRef,
-    RadioMetadata,
-    RoutingMetadata,
-    TelemetryMetadata,
-    TransportMetadata,
 )
 from meshnet_framework.core.storage.backend import (
     EventFilter,
@@ -41,8 +36,6 @@ try:
 except ImportError:
     aiosqlite = None  # type: ignore[assignment]
     _HAS_AIOSQLITE = False
-
-_T = TypeVar("_T")
 
 
 # ---------------------------------------------------------------------------
@@ -186,66 +179,24 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _dict_to_dataclass(cls: type[_T], data: dict[str, Any]) -> _T:
-    """Construct a dataclass from a dict, silently ignoring unknown keys.
+def _encode_json(value: Any) -> str:
+    """Encode a value as a JSON string for SQLite storage."""
+    return msgspec.json.encode(value).decode()
 
-    This provides forward-compatibility when new fields are added to
-    metadata dataclasses in a newer version of the framework but the
-    stored JSON was produced by that newer version.
-    """
-    valid_keys = {f.name for f in fields(cls)}  # type: ignore[arg-type]
-    return cls(**{k: v for k, v in data.items() if k in valid_keys})
+
+def _decode_json(text: str) -> Any:
+    """Decode a JSON string from SQLite."""
+    return msgspec.json.decode(text)
 
 
 def _serialize_metadata(metadata: EventMetadata) -> str:
     """Serialise an :class:`EventMetadata` instance to a JSON string."""
-    return json.dumps(asdict(metadata))
+    return msgspec.json.encode(metadata).decode()
 
 
 def _deserialize_metadata(raw: str) -> EventMetadata:
     """Reconstruct an :class:`EventMetadata` from its JSON representation."""
-    data: dict[str, Any] = json.loads(raw)
-
-    transport = (
-        _dict_to_dataclass(TransportMetadata, data["transport"])
-        if data.get("transport")
-        else None
-    )
-
-    routing_data = data.get("routing")
-    routing = (
-        RoutingMetadata(
-            matched_routes=tuple(routing_data.get("matched_routes", ())),
-            fanout_group=routing_data.get("fanout_group"),
-        )
-        if routing_data
-        else None
-    )
-
-    radio = (
-        _dict_to_dataclass(RadioMetadata, data["radio"])
-        if data.get("radio")
-        else None
-    )
-    telemetry = (
-        _dict_to_dataclass(TelemetryMetadata, data["telemetry"])
-        if data.get("telemetry")
-        else None
-    )
-    native = (
-        _dict_to_dataclass(NativeMetadata, data["native"])
-        if data.get("native")
-        else None
-    )
-
-    return EventMetadata(
-        transport=transport,
-        routing=routing,
-        radio=radio,
-        telemetry=telemetry,
-        native=native,
-        custom=data.get("custom", {}),
-    )
+    return msgspec.json.decode(raw, type=EventMetadata)
 
 
 def _row_to_event(
@@ -262,9 +213,9 @@ def _row_to_event(
         source_transport_id=row["source_transport_id"],
         source_channel_id=row["source_channel_id"],
         parent_event_id=row["parent_event_id"],
-        lineage=json.loads(row["lineage"]),
+        lineage=_decode_json(row["lineage"]),
         relations=relations,
-        payload=json.loads(row["payload"]),
+        payload=_decode_json(row["payload"]),
         metadata=_deserialize_metadata(row["metadata"]),
         depth=row["depth"],
         trace_id=row["trace_id"],
@@ -286,7 +237,7 @@ def _row_to_relation(row: dict[str, Any]) -> EventRelation:
         target_native_ref=target_native_ref,
         key=row["key"],
         fallback_text=row["fallback_text"],
-        metadata=json.loads(row["metadata"]),
+        metadata=_decode_json(row["metadata"]),
     )
 
 
@@ -534,8 +485,8 @@ class SQLiteStorage:
                     event.source_transport_id,
                     event.source_channel_id,
                     event.parent_event_id,
-                    json.dumps(event.lineage),
-                    json.dumps(event.payload),
+                    _encode_json(event.lineage),
+                    _encode_json(event.payload),
                     _serialize_metadata(event.metadata),
                     event.depth,
                     event.trace_id,
@@ -593,7 +544,7 @@ class SQLiteStorage:
                 ref.native_thread_id,
                 ref.native_relation_id,
                 ref.direction,
-                json.dumps(ref.metadata),
+                _encode_json(ref.metadata),
                 ref.created_at.isoformat(),
             ),
         )
@@ -630,7 +581,7 @@ class SQLiteStorage:
                 nref.native_message_id if nref else None,
                 relation.key,
                 relation.fallback_text,
-                json.dumps(relation.metadata),
+                _encode_json(relation.metadata),
                 _now_iso(),
             ),
         )

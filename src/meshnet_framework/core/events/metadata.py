@@ -17,7 +17,7 @@ Two enums control how metadata is serialised and what is retained:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import msgspec
 from enum import Enum
 
 
@@ -70,8 +70,7 @@ class PrivacyMode(Enum):
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class TransportMetadata:
+class TransportMetadata(msgspec.Struct, frozen=True):
     """Metadata describing the transport layer that carried the event.
 
     Attributes
@@ -104,8 +103,7 @@ class TransportMetadata:
     propagation_state: str | None = None
 
 
-@dataclass(frozen=True)
-class RoutingMetadata:
+class RoutingMetadata(msgspec.Struct, frozen=True):
     """Metadata produced by the routing subsystem.
 
     Attributes
@@ -120,8 +118,7 @@ class RoutingMetadata:
     fanout_group: str | None = None
 
 
-@dataclass(frozen=True)
-class RadioMetadata:
+class RadioMetadata(msgspec.Struct, frozen=True):
     """RF-layer metadata for radio-transport events (e.g. Meshtastic).
 
     Attributes
@@ -142,8 +139,7 @@ class RadioMetadata:
     frequency: float | None = None
 
 
-@dataclass(frozen=True)
-class TelemetryMetadata:
+class TelemetryMetadata(msgspec.Struct, frozen=True):
     """Arbitrary metrics from telemetry-producing events.
 
     Attributes
@@ -152,11 +148,10 @@ class TelemetryMetadata:
         Flat dictionary of metric names to numeric or string values.
     """
 
-    metrics: dict[str, float | int | str | bool] = field(default_factory=dict)
+    metrics: dict[str, float | int | str | bool] = msgspec.field(default_factory=dict)
 
 
-@dataclass(frozen=True)
-class NativeMetadata:
+class NativeMetadata(msgspec.Struct, frozen=True):
     """Opaque adapter-specific data that does not map to standard fields.
 
     Attributes
@@ -165,7 +160,7 @@ class NativeMetadata:
         Arbitrary key-value data produced by the source adapter.
     """
 
-    data: dict[str, object] = field(default_factory=dict)
+    data: dict[str, object] = msgspec.field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -173,8 +168,7 @@ class NativeMetadata:
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class EventMetadata:
+class EventMetadata(msgspec.Struct, frozen=True):
     """Top-level metadata container carried by every canonical event.
 
     Each namespace is optional – an event originating from a radio
@@ -202,4 +196,4 @@ class EventMetadata:
     radio: RadioMetadata | None = None
     telemetry: TelemetryMetadata | None = None
     native: NativeMetadata | None = None
-    custom: dict[str, object] = field(default_factory=dict)
+    custom: dict[str, object] = msgspec.field(default_factory=dict)

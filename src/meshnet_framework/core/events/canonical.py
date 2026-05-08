@@ -13,7 +13,7 @@ This module defines the central data structures that every other subsystem
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import msgspec
 from datetime import datetime
 from enum import Enum
 from typing import Literal
@@ -53,8 +53,7 @@ class EventRecordKind(Enum):
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class NativeRef:
+class NativeRef(msgspec.Struct, frozen=True):
     """Reference to a message in an adapter's native ID space.
 
     Attributes
@@ -76,8 +75,7 @@ class NativeRef:
     native_thread_id: str | None = None
 
 
-@dataclass(frozen=True)
-class EventRelation:
+class EventRelation(msgspec.Struct, frozen=True):
     """A typed link from one event to another.
 
     Relations model replies, reactions, edits, deletes, and threads.
@@ -106,11 +104,10 @@ class EventRelation:
     target_native_ref: NativeRef | None
     key: str | None
     fallback_text: str | None
-    metadata: dict[str, object] = field(default_factory=dict)
+    metadata: dict[str, object] = msgspec.field(default_factory=dict)
 
 
-@dataclass(frozen=True)
-class NativeMessageRef:
+class NativeMessageRef(msgspec.Struct, frozen=True):
     """Persisted mapping between a canonical event and a native message.
 
     Instances are created by adapters when an event is materialised into
@@ -149,12 +146,11 @@ class NativeMessageRef:
     native_thread_id: str | None
     native_relation_id: str | None
     direction: Literal["inbound", "outbound"]
-    metadata: dict[str, object] = field(default_factory=dict)
-    created_at: datetime = field(default_factory=datetime.now)
+    metadata: dict[str, object] = msgspec.field(default_factory=dict)
+    created_at: datetime = msgspec.field(default_factory=datetime.now)
 
 
-@dataclass(frozen=True)
-class DeliveryReceipt:
+class DeliveryReceipt(msgspec.Struct, frozen=True):
     """Per-adapter delivery status record for an outbound event.
 
     Delivery receipts track the lifecycle of an event as it travels
@@ -200,7 +196,7 @@ class DeliveryReceipt:
     error: str | None = None
     adapter_message_id: str | None = None
     next_retry_at: datetime | None = None
-    created_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = msgspec.field(default_factory=datetime.now)
 
 
 # ---------------------------------------------------------------------------
@@ -208,8 +204,7 @@ class DeliveryReceipt:
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class CanonicalEvent:
+class CanonicalEvent(msgspec.Struct, frozen=True):
     """The universal, immutable event envelope for the meshnet framework.
 
     Every event – whether sourced from an external adapter, synthesised
