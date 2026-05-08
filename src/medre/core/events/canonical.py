@@ -16,9 +16,10 @@ from __future__ import annotations
 import msgspec
 from datetime import datetime
 from enum import Enum
+from msgspec.structs import force_setattr
 from typing import Literal
 
-from medre.core.events.metadata import EventMetadata
+from medre.core.events.metadata import EventMetadata, _FrozenDict
 
 
 # ---------------------------------------------------------------------------
@@ -106,6 +107,10 @@ class EventRelation(msgspec.Struct, frozen=True):
     fallback_text: str | None
     metadata: dict[str, object] = msgspec.field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        if not isinstance(self.metadata, _FrozenDict):
+            force_setattr(self, "metadata", _FrozenDict(self.metadata))
+
 
 class NativeMessageRef(msgspec.Struct, frozen=True):
     """Persisted mapping between a canonical event and a native message.
@@ -148,6 +153,10 @@ class NativeMessageRef(msgspec.Struct, frozen=True):
     direction: Literal["inbound", "outbound"]
     metadata: dict[str, object] = msgspec.field(default_factory=dict)
     created_at: datetime = msgspec.field(default_factory=datetime.now)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.metadata, _FrozenDict):
+            force_setattr(self, "metadata", _FrozenDict(self.metadata))
 
 
 class DeliveryReceipt(msgspec.Struct, frozen=True):
@@ -254,22 +263,37 @@ class CanonicalEvent(msgspec.Struct, frozen=True):
     source_transport_id: str
     source_channel_id: str | None
     parent_event_id: str | None
-    lineage: list[str]
-    relations: list[EventRelation]
+    lineage: tuple[str, ...]
+    relations: tuple[EventRelation, ...]
     payload: dict[str, object]
     metadata: EventMetadata
     depth: int = 0
     trace_id: str | None = None
 
     def __post_init__(self) -> None:
-        """Validate invariants after construction.
+        """Validate invariants and enforce deep immutability after construction.
+
+        Converts mutable list/dict constructor inputs to immutable storage
+        (tuples and :class:`_FrozenDict`) so that downstream code cannot
+        mutate canonical event internals in place.
 
         Raises :class:`ValueError` if any invariant is violated.
         """
+        # -- Normalise mutable containers to immutable storage ---------------
+        if isinstance(self.lineage, list):
+            force_setattr(self, "lineage", tuple(self.lineage))
+        if isinstance(self.relations, list):
+            force_setattr(self, "relations", tuple(self.relations))
+        if not isinstance(self.payload, _FrozenDict):
+            force_setattr(self, "payload", _FrozenDict(self.payload))
+
+        # -- Invariant checks -----------------------------------------------
         if not isinstance(self.event_id, str) or not self.event_id:
             raise ValueError("event_id must be a non-empty string")
         if not isinstance(self.event_kind, str) or not self.event_kind:
             raise ValueError("event_kind must be a non-empty string")
+        if self.schema_version < 1:
+            raise ValueError("schema_version must be >= 1")
         if self.timestamp.tzinfo is None:
             raise ValueError("timestamp must be timezone-aware (UTC)")
         if self.depth < 0:

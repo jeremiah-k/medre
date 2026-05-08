@@ -19,6 +19,62 @@ from __future__ import annotations
 
 import msgspec
 from enum import Enum
+from msgspec.structs import force_setattr
+
+
+# ---------------------------------------------------------------------------
+# Internal immutable dict helper
+# ---------------------------------------------------------------------------
+
+
+class _FrozenDict(dict):
+    """Dict subclass that prevents all mutation after construction.
+
+    Used internally to provide deep immutability for dict fields in
+    frozen msgspec structs while maintaining ``dict`` type compatibility
+    for msgspec serialisation (``isinstance(_FrozenDict(), dict)`` is
+    ``True``, so the encoder/decoder handles it transparently).
+    """
+
+    def __init__(self, *args, **kwargs):
+        data = dict(*args, **kwargs)
+        super().__init__(
+            (key, self._freeze_value(value)) for key, value in data.items()
+        )
+
+    @classmethod
+    def _freeze_value(cls, value):
+        if isinstance(value, _FrozenDict):
+            return value
+        if isinstance(value, dict):
+            return cls(value)
+        if isinstance(value, list | tuple):
+            return tuple(cls._freeze_value(item) for item in value)
+        return value
+
+    def __setitem__(self, key, value):
+        raise TypeError("immutable mapping does not support item assignment")
+
+    def __delitem__(self, key):
+        raise TypeError("immutable mapping does not support item deletion")
+
+    def clear(self):
+        raise TypeError("immutable mapping does not support clear()")
+
+    def pop(self, *args):
+        raise TypeError("immutable mapping does not support pop()")
+
+    def popitem(self):
+        raise TypeError("immutable mapping does not support popitem()")
+
+    def setdefault(self, key, default=None):
+        raise TypeError("immutable mapping does not support setdefault()")
+
+    def update(self, *args, **kwargs):
+        raise TypeError("immutable mapping does not support update()")
+
+    def __ior__(self, other):
+        raise TypeError("immutable mapping does not support item assignment")
 
 
 # ---------------------------------------------------------------------------
@@ -150,6 +206,10 @@ class TelemetryMetadata(msgspec.Struct, frozen=True):
 
     metrics: dict[str, float | int | str | bool] = msgspec.field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        if not isinstance(self.metrics, _FrozenDict):
+            force_setattr(self, "metrics", _FrozenDict(self.metrics))
+
 
 class NativeMetadata(msgspec.Struct, frozen=True):
     """Opaque adapter-specific data that does not map to standard fields.
@@ -161,6 +221,10 @@ class NativeMetadata(msgspec.Struct, frozen=True):
     """
 
     data: dict[str, object] = msgspec.field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.data, _FrozenDict):
+            force_setattr(self, "data", _FrozenDict(self.data))
 
 
 # ---------------------------------------------------------------------------
@@ -197,3 +261,7 @@ class EventMetadata(msgspec.Struct, frozen=True):
     telemetry: TelemetryMetadata | None = None
     native: NativeMetadata | None = None
     custom: dict[str, object] = msgspec.field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.custom, _FrozenDict):
+            force_setattr(self, "custom", _FrozenDict(self.custom))

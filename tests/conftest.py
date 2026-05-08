@@ -46,8 +46,8 @@ def sample_event() -> CanonicalEvent:
         source_transport_id="node-123",
         source_channel_id="ch-0",
         parent_event_id=None,
-        lineage=[],
-        relations=[],
+        lineage=(),
+        relations=(),
         payload={"text": "hello world"},
         metadata=EventMetadata(),
     )
@@ -77,8 +77,8 @@ def sample_event_with_relations() -> CanonicalEvent:
         source_transport_id="node-123",
         source_channel_id="ch-0",
         parent_event_id=None,
-        lineage=[],
-        relations=[relation],
+        lineage=(),
+        relations=(relation,),
         payload={"text": "a reply"},
         metadata=EventMetadata(
             transport=TransportMetadata(protocol="test", delivery_confirmed=True),

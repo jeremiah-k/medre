@@ -10,6 +10,7 @@ diagnostics.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import cast
 
 import pytest
 
@@ -21,8 +22,11 @@ from medre.core.events.bus import EventBus
 from medre.core.observability.metrics import Diagnostician, EventMetrics
 from medre.core.planning import FallbackResolver, RelationResolver
 from medre.core.planning.delivery_plan import DeliveryOutcome
+from medre.core.rendering.renderer import RenderingPipeline, RenderingResult
+from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, RouteSource, RouteTarget, Router
 from medre.core.storage import SQLiteStorage
+from medre.core.storage.backend import StorageBackend
 
 
 # ---------------------------------------------------------------------------
@@ -50,7 +54,7 @@ def _make_pipeline_config(
 ) -> PipelineConfig:
     """Build a PipelineConfig with sensible defaults for testing."""
     return PipelineConfig(
-        storage=storage,
+        storage=cast(StorageBackend, storage),
         router=router,
         fallback_resolver=FallbackResolver(),
         relation_resolver=RelationResolver(storage=object()),
@@ -76,8 +80,8 @@ def _make_event(
         source_transport_id="node-1",
         source_channel_id=source_channel_id,
         parent_event_id=None,
-        lineage=[],
-        relations=[],
+        lineage=(),
+        relations=(),
         payload=payload or {"text": "hello"},
         metadata=EventMetadata(),
     )
@@ -117,8 +121,12 @@ class TestPipeline:
             assert stored.event_id == "pipeline-001"
             assert stored.payload["text"] == "hello pipeline"
 
-            # Adapter received the event
-            assert event in fake_presentation.received_events
+            # Adapter received a rendered payload (not raw CanonicalEvent)
+            assert len(fake_presentation.delivered_payloads) == 1
+            rendered = fake_presentation.delivered_payloads[0]
+            assert isinstance(rendered, RenderingResult)
+            assert rendered.event_id == "pipeline-001"
+            assert rendered.payload["text"] == "hello pipeline"
 
             # Receipt stored in database
             rows = await temp_storage._read_all(
@@ -170,6 +178,7 @@ class TestPipeline:
             assert stored is None
 
             # Adapter should NOT have received anything
+            assert len(fake_presentation.delivered_payloads) == 0
             assert len(fake_presentation.received_events) == 0
         finally:
             await runner.stop()
@@ -215,9 +224,11 @@ class TestPipeline:
         try:
             await runner.handle_ingress(event)
 
-            # Each adapter received the event
-            assert event in pres_a.received_events
-            assert event in pres_b.received_events
+            # Each adapter received a rendered payload
+            assert len(pres_a.delivered_payloads) == 1
+            assert pres_a.delivered_payloads[0].event_id == "multi-001"
+            assert len(pres_b.delivered_payloads) == 1
+            assert pres_b.delivered_payloads[0].event_id == "multi-001"
 
             # Both receipts stored
             rows = await temp_storage._read_all(
@@ -243,9 +254,9 @@ class TestPipeline:
             adapter_id = "failing"
 
             def __init__(self) -> None:
-                self.received_events: list[CanonicalEvent] = []
+                self.received_events: list[object] = []
 
-            async def deliver(self, event: CanonicalEvent) -> None:
+            async def deliver(self, payload: object) -> None:
                 raise RuntimeError("delivery failed")
 
         good = FakePresentationAdapter(adapter_id="good")
@@ -280,8 +291,9 @@ class TestPipeline:
         try:
             await runner.handle_ingress(event)
 
-            # Good adapter received event despite the failure
-            assert event in good.received_events
+            # Good adapter received rendered payload despite the failure
+            assert len(good.delivered_payloads) == 1
+            assert good.delivered_payloads[0].event_id == "err-001"
 
             # Failing adapter raised and did not append
             assert len(failing.received_events) == 0
@@ -339,8 +351,11 @@ class TestPipeline:
             assert stored is not None
             assert stored.event_kind == "message.reacted"
 
-            # Adapter received the reaction event
-            assert event in fake_presentation.received_events
+            # Adapter received the rendered reaction payload
+            assert len(fake_presentation.delivered_payloads) == 1
+            rendered = fake_presentation.delivered_payloads[0]
+            assert isinstance(rendered, RenderingResult)
+            assert rendered.event_id == "react-001"
 
             # Receipt stored
             rows = await temp_storage._read_all(
@@ -414,9 +429,9 @@ class TestTargetScopedFailures:
             adapter_id = "broken"
 
             def __init__(self) -> None:
-                self.received_events: list[CanonicalEvent] = []
+                self.received_events: list[object] = []
 
-            async def deliver(self, event: CanonicalEvent) -> None:
+            async def deliver(self, payload: object) -> None:
                 raise RuntimeError("boom")
 
         broken = _BrokenAdapter()
@@ -455,11 +470,15 @@ class TestTargetScopedFailures:
             assert by_adapter["good-a"].status == "success"
             assert by_adapter["good-b"].status == "success"
             assert by_adapter["broken"].status == "permanent_failure"
-            assert "RuntimeError" in by_adapter["broken"].error
+            broken_error = by_adapter["broken"].error
+            assert broken_error is not None
+            assert "RuntimeError" in broken_error
 
-            # Good adapters actually received the event.
-            assert event in good_a.received_events
-            assert event in good_b.received_events
+            # Good adapters actually received rendered payloads.
+            assert len(good_a.delivered_payloads) == 1
+            assert good_a.delivered_payloads[0].event_id == "fanout-001"
+            assert len(good_b.delivered_payloads) == 1
+            assert good_b.delivered_payloads[0].event_id == "fanout-001"
             assert len(broken.received_events) == 0
 
             # Diagnostician captured the failure.
@@ -480,9 +499,9 @@ class TestTargetScopedFailures:
             adapter_id = "transient-broken"
 
             def __init__(self) -> None:
-                self.received_events: list[CanonicalEvent] = []
+                self.received_events: list[object] = []
 
-            async def deliver(self, event: CanonicalEvent) -> None:
+            async def deliver(self, payload: object) -> None:
                 raise ConnectionError("network unreachable")
 
         diag = Diagnostician()
@@ -519,17 +538,18 @@ class TestTargetScopedFailures:
 
             by_adapter = {o.target_adapter: o for o in outcomes}
 
-            # Good adapter succeeded.
+            # Good adapter succeeded and received rendered payload.
             assert by_adapter["stable"].status == "success"
-            assert event in good.received_events
+            assert len(good.delivered_payloads) == 1
+            assert good.delivered_payloads[0].event_id == "transient-001"
 
             # Flaky adapter classified as transient.
             assert (
                 by_adapter["transient-broken"].status == "transient_failure"
             )
-            assert (
-                "ConnectionError" in by_adapter["transient-broken"].error
-            )
+            transient_error = by_adapter["transient-broken"].error
+            assert transient_error is not None
+            assert "ConnectionError" in transient_error
 
             # Diagnostician recorded the adapter failure.
             snap = diag.snapshot()
@@ -548,9 +568,9 @@ class TestTargetScopedFailures:
             adapter_id = "fail-adapter"
 
             def __init__(self) -> None:
-                self.received_events: list[CanonicalEvent] = []
+                self.received_events: list[object] = []
 
-            async def deliver(self, event: CanonicalEvent) -> None:
+            async def deliver(self, payload: object) -> None:
                 raise RuntimeError("deliberate failure")
 
         adapter = _FailAdapter()
@@ -587,5 +607,108 @@ class TestTargetScopedFailures:
             assert snap["adapter_failures"]["fail-adapter"] == 1
             assert snap["planner_failures"] == {}
             assert snap["renderer_failures"] == {}
+        finally:
+            await runner.stop()
+
+    async def test_rendering_failure_produces_permanent_failure(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """When no renderer can handle the event, a deterministic permanent_failure is returned."""
+        diag = Diagnostician()
+        adapter = FakePresentationAdapter(adapter_id="target")
+
+        route = Route(
+            id="render-fail-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel=None
+            ),
+            targets=[RouteTarget(adapter="target")],
+        )
+        router = Router(routes=[route])
+
+        # Empty rendering pipeline — no renderer registered.
+        empty_pipeline = RenderingPipeline()
+
+        config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={"target": adapter},
+        )
+        config.diagnostician = diag
+        config.rendering_pipeline = empty_pipeline
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = _make_event(event_id="render-fail-001", source_adapter="src")
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+
+            assert len(outcomes) == 1
+            assert outcomes[0].status == "permanent_failure"
+            assert outcomes[0].target_adapter == "target"
+            render_error = outcomes[0].error
+            assert render_error is not None
+            assert "Rendering failed" in render_error
+            assert "No renderer registered" in render_error
+
+            # Adapter did NOT receive any payload (rendering failed first).
+            assert len(adapter.delivered_payloads) == 0
+            assert len(adapter.received_events) == 0
+
+            # Diagnostician captured the renderer failure.
+            snap = diag.snapshot()
+            assert snap["renderer_failures"]["target"] == 1
+            assert snap["adapter_failures"] == {}
+
+            # A failed receipt was persisted.
+            rows = await temp_storage._read_all(
+                "SELECT * FROM delivery_receipts WHERE event_id = ?",
+                ("render-fail-001",),
+            )
+            assert len(rows) == 1
+            assert rows[0]["status"] == "failed"
+        finally:
+            await runner.stop()
+
+    async def test_rendering_pipeline_default_includes_text_renderer(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """PipelineRunner creates a default TextRenderer when none is configured."""
+        adapter = FakePresentationAdapter(adapter_id="pres")
+
+        route = Route(
+            id="default-render-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel="ch-0"
+            ),
+            targets=[RouteTarget(adapter="pres")],
+        )
+        router = Router(routes=[route])
+
+        # No rendering_pipeline in config → default with TextRenderer.
+        config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={"pres": adapter},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = _make_event(event_id="default-render-001", source_adapter="src")
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+            assert len(outcomes) == 1
+            assert outcomes[0].status == "success"
+
+            # Adapter received a RenderingResult from the default TextRenderer.
+            assert len(adapter.delivered_payloads) == 1
+            rendered = adapter.delivered_payloads[0]
+            assert isinstance(rendered, RenderingResult)
+            assert rendered.payload["text"] == "hello"
+            assert rendered.metadata.get("renderer") == "text"
         finally:
             await runner.stop()

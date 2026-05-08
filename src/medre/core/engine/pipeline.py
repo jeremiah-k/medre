@@ -41,6 +41,8 @@ from medre.core.observability.metrics import Diagnostician
 from medre.core.planning.delivery_plan import DeliveryOutcome, DeliveryPlan
 from medre.core.planning.fallback_resolution import FallbackResolver
 from medre.core.planning.relation_resolution import RelationResolver
+from medre.core.rendering.renderer import RenderingPipeline, RenderingResult
+from medre.core.rendering.text import TextRenderer
 from medre.core.routing.models import Route, RouteTarget
 from medre.core.routing.router import Router
 from medre.core.storage.backend import StorageBackend
@@ -80,6 +82,11 @@ class PipelineConfig:
         Mapping of adapter ID to adapter instance.
     event_bus:
         The event bus used for internal event distribution.
+    rendering_pipeline:
+        The rendering pipeline that converts :class:`CanonicalEvent`
+        into :class:`RenderingResult` before adapter delivery.  If
+        ``None``, a default pipeline with a :class:`TextRenderer` is
+        created automatically by :class:`PipelineRunner`.
     diagnostician:
         Diagnostic recorder for failure and replay events.  If ``None``,
         a default :class:`Diagnostician` is created automatically.
@@ -93,6 +100,7 @@ class PipelineConfig:
     relation_resolver: RelationResolver
     adapters: dict[str, BaseAdapter]
     event_bus: EventBus
+    rendering_pipeline: RenderingPipeline | None = None
     diagnostician: Diagnostician | None = None
     logger: logging.Logger | None = None
 
@@ -128,6 +136,31 @@ class _AdapterDeliveryError(Exception):
         self.error = error
         self.original = original
         super().__init__(error)
+
+
+class _RendererDeliveryError(Exception):
+    """Raised by ``deliver_to_target`` when rendering fails before delivery.
+
+    Carries the adapter ID and error string so callers can produce a
+    deterministic :class:`DeliveryOutcome`.
+    """
+
+    def __init__(self, adapter_id: str, error: str) -> None:
+        self.adapter_id = adapter_id
+        self.error = error
+        super().__init__(error)
+
+
+def _default_rendering_pipeline() -> RenderingPipeline:
+    """Build a :class:`RenderingPipeline` with a :class:`TextRenderer`.
+
+    Used as the default when :attr:`PipelineConfig.rendering_pipeline` is
+    ``None`` so that tests and runtime both get a working renderer
+    without explicit wiring.
+    """
+    pipeline = RenderingPipeline()
+    pipeline.register(TextRenderer(), priority=100)
+    return pipeline
 
 
 # ---------------------------------------------------------------------------
@@ -170,6 +203,9 @@ class PipelineRunner:
         self._log: logging.Logger = config.logger or _logger
         self._diagnostician: Diagnostician = (
             config.diagnostician or Diagnostician()
+        )
+        self._rendering_pipeline: RenderingPipeline = (
+            config.rendering_pipeline or _default_rendering_pipeline()
         )
         self._middleware: _PipelineLoggingMiddleware | None = None
 
@@ -438,6 +474,19 @@ class PipelineRunner:
                     error=exc.error,
                     duration_ms=elapsed,
                 )
+            except _RendererDeliveryError as exc:
+                elapsed = (time.monotonic() - t0) * 1000.0
+                return DeliveryOutcome(
+                    event_id=event.event_id,
+                    target_adapter=adapter_id,
+                    target_channel=target.channel,
+                    route_id=route.id,
+                    delivery_plan_id=plan.plan_id,
+                    status="permanent_failure",
+                    receipt=None,
+                    error=exc.error,
+                    duration_ms=elapsed,
+                )
             except Exception as exc:
                 elapsed = (time.monotonic() - t0) * 1000.0
                 exc_type = type(exc)
@@ -552,12 +601,35 @@ class PipelineRunner:
             await self._config.storage.append_receipt(receipt)
             return receipt
 
-        # Deliver via adapter.
+        # Render the event into a RenderingResult before adapter delivery.
+        try:
+            rendering_result = await self._rendering_pipeline.render(
+                event, adapter_id or "", target.channel,
+            )
+        except Exception as exc:
+            rendering_error = f"Rendering failed: {type(exc).__name__}: {exc}"
+            self._diagnostician.record_renderer_failure(
+                event.event_id, adapter_id or "", rendering_error
+            )
+            receipt = DeliveryReceipt(
+                sequence=0,
+                receipt_id=receipt_id,
+                event_id=event.event_id,
+                delivery_plan_id=plan.plan_id,
+                target_adapter=adapter_id or "",
+                status="failed",
+                error=rendering_error,
+                created_at=now,
+            )
+            await self._config.storage.append_receipt(receipt)
+            raise _RendererDeliveryError(adapter_id or "", rendering_error) from None
+
+        # Deliver the rendered result via adapter.
         delivery_exc: Exception | None = None
         try:
             deliver_fn: Callable[..., Any] | None = getattr(adapter, "deliver", None)
             if deliver_fn is not None and callable(deliver_fn):
-                await deliver_fn(event)
+                await deliver_fn(rendering_result)
             else:
                 self._log.warning(
                     "Adapter %r has no deliver() method; skipping delivery",

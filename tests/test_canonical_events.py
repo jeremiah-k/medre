@@ -6,6 +6,7 @@ and EventMetadata with sub-namespaces.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import cast
 
 import msgspec
 import pytest
@@ -57,8 +58,8 @@ class TestCanonicalEvent:
             source_transport_id="node-a",
             source_channel_id="ch-1",
             parent_event_id=None,
-            lineage=["root"],
-            relations=[],
+            lineage=("root",),
+            relations=(),
             payload={"body": "hi"},
             metadata=meta,
             depth=1,
@@ -72,8 +73,8 @@ class TestCanonicalEvent:
         assert event.source_transport_id == "node-a"
         assert event.source_channel_id == "ch-1"
         assert event.parent_event_id is None
-        assert event.lineage == ["root"]
-        assert event.relations == []
+        assert event.lineage == ("root",)
+        assert event.relations == ()
         assert event.payload == {"body": "hi"}
         assert event.metadata is meta
         assert event.depth == 1
@@ -90,8 +91,8 @@ class TestCanonicalEvent:
             source_transport_id="t-1",
             source_channel_id=None,
             parent_event_id=None,
-            lineage=[],
-            relations=[],
+            lineage=(),
+            relations=(),
             payload={},
             metadata=EventMetadata(),
         )
@@ -109,8 +110,8 @@ class TestCanonicalEvent:
             source_transport_id="t",
             source_channel_id=None,
             parent_event_id=None,
-            lineage=[],
-            relations=[],
+            lineage=(),
+            relations=(),
             payload={},
             metadata=EventMetadata(),
         )
@@ -526,7 +527,9 @@ class TestMetadataEmbeddingMode:
 # ===================================================================
 
 
-def _make_event() -> CanonicalEvent:
+def _make_event(
+    payload: dict[str, object] | None = None,
+) -> CanonicalEvent:
     """Helper that builds a valid CanonicalEvent for round-trip tests."""
     return CanonicalEvent(
         event_id="evt-rt-1",
@@ -537,8 +540,8 @@ def _make_event() -> CanonicalEvent:
         source_transport_id="t-1",
         source_channel_id="ch-1",
         parent_event_id=None,
-        lineage=["root"],
-        relations=[
+        lineage=("root",),
+        relations=(
             EventRelation(
                 relation_type="reply",
                 target_event_id="t-2",
@@ -546,8 +549,8 @@ def _make_event() -> CanonicalEvent:
                 key=None,
                 fallback_text=None,
             ),
-        ],
-        payload={"body": "hello"},
+        ),
+        payload=payload if payload is not None else {"body": "hello"},
         metadata=EventMetadata(
             transport=TransportMetadata(protocol="mqtt"),
         ),
@@ -614,7 +617,7 @@ class TestMsgpackRoundTrip:
 
 
 class TestImmutability:
-    """Frozen struct must reject field mutation and list mutation."""
+    """Frozen struct must reject field mutation; containers are deeply frozen."""
 
     def test_cannot_set_field(self) -> None:
         event = _make_event()
@@ -625,26 +628,223 @@ class TestImmutability:
         """Field reassignment is blocked by frozen=True."""
         event = _make_event()
         with pytest.raises(AttributeError):
-            event.relations = []  # type: ignore[misc]
+            event.relations = ()  # type: ignore[misc]
 
-    def test_relations_list_is_not_deeply_frozen(self) -> None:
-        """msgspec frozen structs do not deeply-freeze mutable containers.
-
-        The struct field cannot be reassigned, but list contents remain
-        mutable.  This test documents that known limitation.
-        """
+    def test_lineage_is_tuple(self) -> None:
+        """lineage is stored as an immutable tuple."""
         event = _make_event()
-        # Append succeeds — the list is a regular Python list
-        event.relations.append(
+        assert isinstance(event.lineage, tuple)
+
+    def test_lineage_append_fails(self) -> None:
+        """Appending to lineage is impossible (it is a tuple)."""
+        event = _make_event()
+        with pytest.raises(AttributeError):
+            getattr(event.lineage, "append")("new")
+
+    def test_relations_is_tuple(self) -> None:
+        """relations is stored as an immutable tuple."""
+        event = _make_event()
+        assert isinstance(event.relations, tuple)
+
+    def test_relations_append_fails(self) -> None:
+        """Appending to relations is impossible (it is a tuple)."""
+        event = _make_event()
+        with pytest.raises(AttributeError):
+            getattr(event.relations, "append")(
+                EventRelation(
+                    relation_type="reaction",
+                    target_event_id="t-3",
+                    target_native_ref=None,
+                    key=None,
+                    fallback_text=None,
+                )
+            )
+
+    def test_nested_payload_mutation_fails(self) -> None:
+        """Nested mutable payload containers are recursively frozen."""
+        event = _make_event(payload={"nested": {"inner": ["a"]}})
+        nested = event.payload["nested"]
+        assert isinstance(nested, dict)
+        with pytest.raises(TypeError, match="immutable"):
+            nested["inner"] = ["b"]
+        assert nested["inner"] == ("a",)
+
+    def test_nested_metadata_custom_mutation_fails(self) -> None:
+        """Nested metadata.custom containers are recursively frozen."""
+        meta = EventMetadata(custom={"plugin": {"values": [1, 2]}})
+        nested = meta.custom["plugin"]
+        assert isinstance(nested, dict)
+        with pytest.raises(TypeError, match="immutable"):
+            nested["values"] = [3]
+        assert nested["values"] == (1, 2)
+
+    def test_payload_setitem_fails(self) -> None:
+        """Mutating payload in place raises TypeError."""
+        event = _make_event()
+        with pytest.raises(TypeError, match="immutable"):
+            event.payload["new_key"] = "new_value"
+
+    def test_payload_delitem_fails(self) -> None:
+        """Deleting from payload raises TypeError."""
+        event = _make_event()
+        with pytest.raises(TypeError, match="immutable"):
+            del event.payload["body"]
+
+    def test_payload_update_fails(self) -> None:
+        """Calling .update() on payload raises TypeError."""
+        event = _make_event()
+        with pytest.raises(TypeError, match="immutable"):
+            event.payload.update({"extra": True})
+
+    def test_metadata_custom_setitem_fails(self) -> None:
+        """Mutating metadata.custom in place raises TypeError."""
+        meta = EventMetadata(custom={"theme": "dark"})
+        event = _make_event_with_metadata(meta)
+        with pytest.raises(TypeError, match="immutable"):
+            event.metadata.custom["theme"] = "light"
+
+    def test_event_relation_metadata_setitem_fails(self) -> None:
+        """Mutating EventRelation.metadata in place raises TypeError."""
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="t-1",
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+            metadata={"source": "test"},
+        )
+        with pytest.raises(TypeError, match="immutable"):
+            rel.metadata["source"] = "other"
+
+    def test_telemetry_metrics_setitem_fails(self) -> None:
+        """Mutating TelemetryMetadata.metrics in place raises TypeError."""
+        tm = TelemetryMetadata(metrics={"battery": 95.0})
+        with pytest.raises(TypeError, match="immutable"):
+            tm.metrics["battery"] = 50.0
+
+    def test_native_metadata_data_setitem_fails(self) -> None:
+        """Mutating NativeMetadata.data in place raises TypeError."""
+        nm = NativeMetadata(data={"raw": True})
+        with pytest.raises(TypeError, match="immutable"):
+            nm.data["raw"] = False
+
+
+def _make_event_with_metadata(meta: EventMetadata) -> CanonicalEvent:
+    """Helper that builds a CanonicalEvent with specific metadata."""
+    return CanonicalEvent(
+        event_id="evt-meta-1",
+        event_kind="message.text",
+        schema_version=1,
+        timestamp=datetime(2026, 1, 15, 10, 30, 0, tzinfo=timezone.utc),
+        source_adapter="test",
+        source_transport_id="t-1",
+        source_channel_id=None,
+        parent_event_id=None,
+        lineage=(),
+        relations=(),
+        payload={"body": "hello"},
+        metadata=meta,
+    )
+
+
+class TestConstructorInputIsolation:
+    """Mutating constructor inputs must not affect the constructed event."""
+
+    def test_lineage_input_isolation(self) -> None:
+        """Mutating the list passed as lineage does not change the event."""
+        lineage = ["root"]
+        now = datetime(2026, 1, 15, 10, 30, 0, tzinfo=timezone.utc)
+        event = CanonicalEvent(
+            event_id="evt-iso-1",
+            event_kind="message.text",
+            schema_version=1,
+            timestamp=now,
+            source_adapter="test",
+            source_transport_id="t-1",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=cast(tuple[str, ...], lineage),
+            relations=(),
+            payload={"body": "hello"},
+            metadata=EventMetadata(),
+        )
+        lineage.append("extra")
+        assert event.lineage == ("root",)
+        assert len(event.lineage) == 1
+
+    def test_relations_input_isolation(self) -> None:
+        """Mutating the list passed as relations does not change the event."""
+        rels: list[EventRelation] = []
+        now = datetime(2026, 1, 15, 10, 30, 0, tzinfo=timezone.utc)
+        event = CanonicalEvent(
+            event_id="evt-iso-2",
+            event_kind="message.text",
+            schema_version=1,
+            timestamp=now,
+            source_adapter="test",
+            source_transport_id="t-1",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=cast(tuple[EventRelation, ...], rels),
+            payload={"body": "hello"},
+            metadata=EventMetadata(),
+        )
+        rels.append(
             EventRelation(
-                relation_type="reaction",
-                target_event_id="t-3",
+                relation_type="reply",
+                target_event_id="t-99",
                 target_native_ref=None,
                 key=None,
                 fallback_text=None,
             )
         )
-        assert len(event.relations) == 2
+        assert len(event.relations) == 0
+
+    def test_payload_input_isolation(self) -> None:
+        """Mutating the dict passed as payload does not change the event."""
+        payload: dict[str, object] = {"body": "hello"}
+        now = datetime(2026, 1, 15, 10, 30, 0, tzinfo=timezone.utc)
+        event = CanonicalEvent(
+            event_id="evt-iso-3",
+            event_kind="message.text",
+            schema_version=1,
+            timestamp=now,
+            source_adapter="test",
+            source_transport_id="t-1",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload=payload,
+            metadata=EventMetadata(),
+        )
+        payload["body"] = "changed"
+        payload["extra"] = True
+        assert event.payload["body"] == "hello"
+        assert "extra" not in event.payload
+
+    def test_metadata_custom_input_isolation(self) -> None:
+        """Mutating the dict passed as metadata.custom does not change the event."""
+        custom: dict[str, object] = {"theme": "dark"}
+        meta = EventMetadata(custom=custom)
+        event = _make_event_with_metadata(meta)
+        custom["theme"] = "light"
+        assert event.metadata.custom["theme"] == "dark"
+
+    def test_event_relation_metadata_input_isolation(self) -> None:
+        """Mutating the dict passed as EventRelation.metadata is isolated."""
+        md: dict[str, object] = {"source": "test"}
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="t-1",
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+            metadata=md,
+        )
+        md["source"] = "other"
+        assert rel.metadata["source"] == "test"
 
 
 # ===================================================================
@@ -666,8 +866,8 @@ class TestMalformedCanonicalEvent:
             source_transport_id="t-1",
             source_channel_id=None,
             parent_event_id=None,
-            lineage=[],
-            relations=[],
+            lineage=(),
+            relations=(),
             payload={},
             metadata=EventMetadata(),
         )
@@ -696,13 +896,19 @@ class TestMalformedCanonicalEvent:
         with pytest.raises(ValueError, match="depth"):
             CanonicalEvent(**kw)
 
-    def test_negative_schema_version_does_not_raise(self) -> None:
-        """schema_version is not validated by __post_init__ (no constraint specified)."""
+    def test_negative_schema_version_raises(self) -> None:
+        """schema_version < 1 is rejected by __post_init__."""
         kw = self._valid_kwargs()
         kw["schema_version"] = -1
-        # Should construct without error — no validation rule for schema_version
-        event = CanonicalEvent(**kw)
-        assert event.schema_version == -1
+        with pytest.raises(ValueError, match="schema_version"):
+            CanonicalEvent(**kw)
+
+    def test_zero_schema_version_raises(self) -> None:
+        """schema_version == 0 is rejected by __post_init__."""
+        kw = self._valid_kwargs()
+        kw["schema_version"] = 0
+        with pytest.raises(ValueError, match="schema_version"):
+            CanonicalEvent(**kw)
 
     def test_lineage_none_raises(self) -> None:
         kw = self._valid_kwargs()
