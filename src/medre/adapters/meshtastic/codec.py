@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from medre.adapters.meshtastic.errors import MeshtasticCodecError
+from medre.adapters.meshtastic.packet_classifier import MeshtasticPacketClassifier
 from medre.core.events.canonical import CanonicalEvent, EventRelation, NativeRef
 from medre.core.events.kinds import EventKind
 from medre.core.events.metadata import EventMetadata, NativeMetadata
@@ -34,6 +35,7 @@ class MeshtasticCodec:
     def __init__(self, adapter_id: str, config: Any) -> None:
         self._adapter_id = adapter_id
         self._config = config
+        self._classifier = MeshtasticPacketClassifier(config)
 
     def decode(
         self,
@@ -123,13 +125,17 @@ class MeshtasticCodec:
             )
 
         # Native metadata with safe packet summary
+        to_id = packet.get("toId", "") or ""
+        is_direct_message = not MeshtasticPacketClassifier._is_broadcast(to_id)
+
         native_meta = NativeMetadata(
             data={
                 "packet_id": pkt_id,
                 "from_id": sender,
                 "channel": pkt_channel,
                 "portnum": str(portnum) if portnum else None,
-                "to_id": packet.get("toId", ""),
+                "to_id": to_id,
+                "is_direct_message": is_direct_message,
             }
         )
 

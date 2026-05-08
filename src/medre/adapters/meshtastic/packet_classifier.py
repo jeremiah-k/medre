@@ -25,6 +25,28 @@ class MeshtasticPacketClassifier:
     def __init__(self, config: Any = None) -> None:
         self._config = config
 
+    @staticmethod
+    def _is_broadcast(to_id: Any) -> bool:
+        """Return True if *to_id* represents a broadcast address.
+
+        Broadcast addresses in Meshtastic:
+        * ``""`` (empty string)
+        * ``"^all"``
+        * ``0xffffffff`` (integer 4294967295)
+        * ``"4294967295"`` (string form of 0xffffffff)
+
+        Any other value is a direct message target.
+        """
+        if to_id == "" or to_id is None:
+            return True
+        if to_id == "^all":
+            return True
+        if isinstance(to_id, int) and to_id == 0xFFFFFFFF:
+            return True
+        if isinstance(to_id, str) and to_id == "4294967295":
+            return True
+        return False
+
     def classify(self, packet: dict[str, Any]) -> dict[str, Any]:
         """Classify a raw Meshtastic packet dict.
 
@@ -51,8 +73,7 @@ class MeshtasticPacketClassifier:
         portnum = decoded.get("portnum", None)
 
         to_id = packet.get("toId", "")
-        # In Meshtastic, broadcast is "" or "^all" or 0xffffffff
-        is_direct = bool(to_id) and to_id not in ("^all",)
+        is_direct = not self._is_broadcast(to_id)
 
         channel_index = packet.get("channel")
         if channel_index is None:

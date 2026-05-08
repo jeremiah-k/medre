@@ -5,6 +5,7 @@ boundary enforcement, and packet simulation.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 
 import pytest
@@ -14,8 +15,11 @@ from medre.adapters.base import AdapterContext, AdapterDeliveryResult
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.adapters.meshtastic.config import MeshtasticConfig
 from medre.core.events import CanonicalEvent, EventMetadata
+from medre.adapters.meshtastic.errors import MeshtasticSendError
 from medre.core.events.kinds import EventKind
 from medre.core.rendering.renderer import RenderingResult
+
+
 
 
 def _make_config(**overrides) -> MeshtasticConfig:
@@ -64,13 +68,73 @@ def _make_text_packet(
 class TestMeshtasticAdapterCapabilities:
     """FakeMeshtasticAdapter declares the correct role and platform."""
 
-    def test_role_is_presentation(self) -> None:
+    def test_role_is_transport(self) -> None:
         adapter = FakeMeshtasticAdapter()
-        assert adapter.role == AdapterRole.PRESENTATION
+        assert adapter.role == AdapterRole.TRANSPORT
 
     def test_platform_is_fake_meshtastic(self) -> None:
         adapter = FakeMeshtasticAdapter()
         assert adapter.platform == "fake_meshtastic"
+
+    def test_capabilities_text_true(self) -> None:
+        from medre.adapters.fake_meshtastic import _FAKE_MESHTASTIC_CAPABILITIES
+        assert _FAKE_MESHTASTIC_CAPABILITIES.text is True
+
+    def test_capabilities_replies_unsupported(self) -> None:
+        from medre.adapters.fake_meshtastic import _FAKE_MESHTASTIC_CAPABILITIES
+        assert _FAKE_MESHTASTIC_CAPABILITIES.replies == "unsupported"
+
+    def test_capabilities_reactions_unsupported(self) -> None:
+        from medre.adapters.fake_meshtastic import _FAKE_MESHTASTIC_CAPABILITIES
+        assert _FAKE_MESHTASTIC_CAPABILITIES.reactions == "unsupported"
+
+    def test_capabilities_edits_unsupported(self) -> None:
+        from medre.adapters.fake_meshtastic import _FAKE_MESHTASTIC_CAPABILITIES
+        assert _FAKE_MESHTASTIC_CAPABILITIES.edits == "unsupported"
+
+    def test_capabilities_deletes_unsupported(self) -> None:
+        from medre.adapters.fake_meshtastic import _FAKE_MESHTASTIC_CAPABILITIES
+        assert _FAKE_MESHTASTIC_CAPABILITIES.deletes == "unsupported"
+
+    def test_capabilities_attachments_false(self) -> None:
+        from medre.adapters.fake_meshtastic import _FAKE_MESHTASTIC_CAPABILITIES
+        assert _FAKE_MESHTASTIC_CAPABILITIES.attachments is False
+
+    def test_capabilities_direct_messages_false(self) -> None:
+        from medre.adapters.fake_meshtastic import _FAKE_MESHTASTIC_CAPABILITIES
+        assert _FAKE_MESHTASTIC_CAPABILITIES.direct_messages is False
+
+    def test_capabilities_max_text_bytes_512(self) -> None:
+        from medre.adapters.fake_meshtastic import _FAKE_MESHTASTIC_CAPABILITIES
+        assert _FAKE_MESHTASTIC_CAPABILITIES.max_text_bytes == 512
+
+    def test_capabilities_max_text_chars_512(self) -> None:
+        from medre.adapters.fake_meshtastic import _FAKE_MESHTASTIC_CAPABILITIES
+        assert _FAKE_MESHTASTIC_CAPABILITIES.max_text_chars == 512
+
+
+class TestRealMeshtasticCapabilities:
+    """Real MeshtasticAdapter capabilities match spec."""
+
+    def test_real_adapter_role_is_transport(self) -> None:
+        config = _make_config()
+        adapter = MeshtasticAdapter(config)
+        assert adapter.role == AdapterRole.TRANSPORT
+
+    def test_real_adapter_capabilities_match_fake(self) -> None:
+        from medre.adapters.fake_meshtastic import _FAKE_MESHTASTIC_CAPABILITIES
+        config = _make_config()
+        adapter = MeshtasticAdapter(config)
+        real_caps = adapter._capabilities
+        assert real_caps.text == _FAKE_MESHTASTIC_CAPABILITIES.text
+        assert real_caps.replies == _FAKE_MESHTASTIC_CAPABILITIES.replies
+        assert real_caps.reactions == _FAKE_MESHTASTIC_CAPABILITIES.reactions
+        assert real_caps.edits == _FAKE_MESHTASTIC_CAPABILITIES.edits
+        assert real_caps.deletes == _FAKE_MESHTASTIC_CAPABILITIES.deletes
+        assert real_caps.attachments == _FAKE_MESHTASTIC_CAPABILITIES.attachments
+        assert real_caps.direct_messages == _FAKE_MESHTASTIC_CAPABILITIES.direct_messages
+        assert real_caps.max_text_bytes == _FAKE_MESHTASTIC_CAPABILITIES.max_text_bytes
+        assert real_caps.max_text_chars == _FAKE_MESHTASTIC_CAPABILITIES.max_text_chars
 
 
 # ===================================================================
@@ -106,7 +170,7 @@ class TestFakeMeshtasticAdapterLifecycle:
         info = await adapter.health_check()
         assert info.health == "healthy"
         assert info.adapter_id == "fake_meshtastic"
-        assert info.role == AdapterRole.PRESENTATION
+        assert info.role == AdapterRole.TRANSPORT
 
 
 # ===================================================================
@@ -123,8 +187,21 @@ class TestFakeMeshtasticAdapterDeliver:
         delivery = await adapter.deliver(result)
         assert len(adapter.delivered_payloads) == 1
         assert adapter.delivered_payloads[0] is result
-        # Tranche 1: returns None (scaffolded)
-        assert delivery is None
+        # Fake adapter returns AdapterDeliveryResult with deterministic ID
+        assert delivery is not None
+        assert isinstance(delivery, AdapterDeliveryResult)
+        assert delivery.native_message_id is not None
+        assert delivery.native_channel_id == "0"
+
+    async def test_deliver_returns_deterministic_packet_id(self) -> None:
+        adapter = FakeMeshtasticAdapter()
+        result1 = _make_rendering_result()
+        result2 = _make_rendering_result()
+        delivery1 = await adapter.deliver(result1)
+        delivery2 = await adapter.deliver(result2)
+        assert delivery1.native_message_id == "1"
+        assert delivery2.native_message_id == "2"
+        assert delivery1.native_channel_id == delivery2.native_channel_id
 
     async def test_deliver_does_not_reformat(self) -> None:
         adapter = FakeMeshtasticAdapter()
@@ -152,6 +229,30 @@ class TestFakeMeshtasticAdapterDeliver:
         )
         with pytest.raises(TypeError, match="RenderingResult only"):
             await adapter.deliver(event)
+
+    async def test_deliver_failure_raises_send_error(self) -> None:
+        adapter = FakeMeshtasticAdapter()
+        adapter.set_deliver_failure(True)
+        result = _make_rendering_result()
+        with pytest.raises(MeshtasticSendError, match="simulated send failure"):
+            await adapter.deliver(result)
+        assert len(adapter.delivered_payloads) == 0
+
+    async def test_deliver_failure_no_native_ref(self) -> None:
+        adapter = FakeMeshtasticAdapter()
+        adapter.set_deliver_failure(True)
+        result = _make_rendering_result()
+        with pytest.raises(MeshtasticSendError):
+            await adapter.deliver(result)
+        assert adapter.fake_client.sent_count == 0
+
+    async def test_fake_client_tracks_sent_packets(self) -> None:
+        adapter = FakeMeshtasticAdapter()
+        result = _make_rendering_result()
+        await adapter.deliver(result)
+        assert adapter.fake_client.sent_count == 1
+        assert adapter.fake_client.sent_packets[0]["text"] == "hello mesh"
+        assert adapter.fake_client.sent_packets[0]["channel_index"] == 0
 
 
 # ===================================================================
@@ -337,3 +438,57 @@ class TestMeshtasticAdapterLifecycle:
 
         assert len(inbound_collector.events) == 1
         assert inbound_collector.events[0].payload["body"] == "via real adapter"
+
+
+# ===================================================================
+# Task scheduling (Blocker 7)
+# ===================================================================
+
+
+class TestMeshtasticAdapterTaskScheduling:
+    """Background tasks from _on_packet are tracked and cleaned up."""
+
+    async def test_on_packet_creates_tracked_task(
+        self, make_adapter_context, inbound_collector
+    ) -> None:
+        config = _make_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        ctx = make_adapter_context("mesh-1")
+        await adapter.start(ctx)
+
+        packet = _make_text_packet(text="tracked")
+        adapter._on_packet(packet)
+
+        # Allow the background task to complete
+        await asyncio.sleep(0.05)
+
+        assert len(inbound_collector.events) == 1
+        assert inbound_collector.events[0].payload["body"] == "tracked"
+        # Task should have been discarded after completion
+        assert len(adapter._background_tasks) == 0
+
+    async def test_stop_cancels_background_tasks(
+        self, make_adapter_context
+    ) -> None:
+        config = _make_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        ctx = make_adapter_context("mesh-1")
+        await adapter.start(ctx)
+
+        # Inject a long-running task
+        async def _slow():
+            await asyncio.sleep(100)
+
+        task = asyncio.create_task(_slow())
+        adapter._background_tasks.add(task)
+
+        await adapter.stop()
+        assert task.cancelled() or task.done()
+        assert len(adapter._background_tasks) == 0
+
+    async def test_no_ensure_future(self) -> None:
+        """Verify _on_packet does not use asyncio.ensure_future."""
+        import inspect
+        source = inspect.getsource(MeshtasticAdapter._on_packet)
+        assert "ensure_future" not in source
+        assert "create_task" in source

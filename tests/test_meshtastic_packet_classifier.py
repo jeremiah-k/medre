@@ -167,6 +167,51 @@ class TestPacketClassifierUnknownPortnum:
         assert result["category"] == "position"
 
 
+class TestPacketClassifierBroadcastEdgeCases:
+    """All broadcast address forms are correctly identified."""
+
+    def test_broadcast_empty_string(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet(to_id="")
+        result = cls.classify(packet)
+        assert result["is_direct_message"] is False
+
+    def test_broadcast_caret_all(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet(to_id="^all")
+        result = cls.classify(packet)
+        assert result["is_direct_message"] is False
+
+    def test_broadcast_integer_max(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        packet["toId"] = 0xFFFFFFFF
+        result = cls.classify(packet)
+        assert result["is_direct_message"] is False
+
+    def test_broadcast_string_max(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet(to_id="4294967295")
+        result = cls.classify(packet)
+        assert result["is_direct_message"] is False
+
+    def test_direct_message_specific_node(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet(to_id="!some_node")
+        result = cls.classify(packet)
+        assert result["is_direct_message"] is True
+
+    def test_is_broadcast_static_method(self) -> None:
+        """Verify _is_broadcast covers all edge cases directly."""
+        assert MeshtasticPacketClassifier._is_broadcast("") is True
+        assert MeshtasticPacketClassifier._is_broadcast(None) is True
+        assert MeshtasticPacketClassifier._is_broadcast("^all") is True
+        assert MeshtasticPacketClassifier._is_broadcast(0xFFFFFFFF) is True
+        assert MeshtasticPacketClassifier._is_broadcast("4294967295") is True
+        assert MeshtasticPacketClassifier._is_broadcast("!node123") is False
+        assert MeshtasticPacketClassifier._is_broadcast("some_id") is False
+
+
 class TestPacketClassifierAck:
     """Ack packet detection."""
 

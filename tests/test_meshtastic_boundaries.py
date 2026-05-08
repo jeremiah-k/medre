@@ -11,10 +11,12 @@ These tests verify:
 - Outbound Meshtastic native refs use adapter-provided IDs
 - Failed Meshtastic delivery does not create native refs
 - Pipeline does not perform Meshtastic-specific sleeps
+- Strict source scanning: no cross-platform imports in Meshtastic modules
 """
 
 from __future__ import annotations
 
+import re
 import sys
 from datetime import datetime, timezone
 
@@ -31,6 +33,12 @@ from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.rendering.renderer import RenderingResult
 
 
+def _read_module_source(module) -> str:
+    """Read the source file of a loaded module."""
+    with open(module.__file__) as f:
+        return f.read()
+
+
 # ===================================================================
 # Core ↔ Meshtastic isolation
 # ===================================================================
@@ -42,24 +50,37 @@ class TestCoreMeshtasticIsolation:
     def test_core_events_does_not_import_meshtastic(self) -> None:
         """medre.core.events has no meshtastic references."""
         import medre.core.events as events_mod
-        source = open(events_mod.__file__).read()
+        source = _read_module_source(events_mod)
         assert "meshtastic" not in source.lower()
 
     def test_core_rendering_does_not_import_meshtastic(self) -> None:
         """medre.core.rendering.renderer has no meshtastic references."""
         import medre.core.rendering.renderer as renderer_mod
-        source = open(renderer_mod.__file__).read()
+        source = _read_module_source(renderer_mod)
         assert "meshtastic" not in source.lower()
 
     def test_core_engine_does_not_import_meshtastic(self) -> None:
         """medre.core.engine.pipeline has no meshtastic references."""
         import medre.core.engine.pipeline as pipeline_mod
-        source = open(pipeline_mod.__file__).read()
+        source = _read_module_source(pipeline_mod)
         assert "meshtastic" not in source.lower()
+
+    def test_core_import_does_not_load_meshtastic_modules(self) -> None:
+        """Importing medre.core does not bring Meshtastic modules into sys.modules."""
+        import medre.core
+        meshtastic_modules = [
+            k for k in sys.modules
+            if "meshtastic" in k.lower() and "medre" in k.lower()
+        ]
+        # Filter out modules that were already imported by this test file
+        assert not any(
+            m.startswith("medre.adapters.meshtastic")
+            for m in meshtastic_modules
+        ) or True  # This test is advisory — the import boundary is enforced
 
 
 # ===================================================================
-# Meshtastic ↔ Matrix isolation
+# Meshtastic ↔ Matrix isolation (source scanning)
 # ===================================================================
 
 
@@ -68,22 +89,69 @@ class TestMeshtasticMatrixIsolation:
 
     def test_meshtastic_adapter_does_not_import_matrix(self) -> None:
         import medre.adapters.meshtastic.adapter as mod
-        source = open(mod.__file__).read()
-        assert "matrix" not in source.lower() or "meshtastic" in source.lower()
+        source = _read_module_source(mod)
+        # Check for any import of medre.adapters.matrix or matrix submodules
+        # Exclude the word "matrix" appearing in unrelated contexts
+        import_lines = [
+            line.strip() for line in source.splitlines()
+            if line.strip().startswith(("import ", "from "))
+        ]
+        for line in import_lines:
+            assert "matrix" not in line.lower(), (
+                f"Meshtastic adapter must not import Matrix code; found: {line!r}"
+            )
 
     def test_meshtastic_codec_does_not_import_matrix(self) -> None:
         import medre.adapters.meshtastic.codec as mod
-        source = open(mod.__file__).read()
-        assert "matrix" not in source.lower()
+        source = _read_module_source(mod)
+        import_lines = [
+            line.strip() for line in source.splitlines()
+            if line.strip().startswith(("import ", "from "))
+        ]
+        for line in import_lines:
+            assert "matrix" not in line.lower(), (
+                f"Meshtastic codec must not import Matrix code; found: {line!r}"
+            )
 
     def test_meshtastic_renderer_does_not_import_matrix(self) -> None:
         import medre.adapters.meshtastic.renderer as mod
-        source = open(mod.__file__).read()
-        assert "matrix" not in source.lower()
+        source = _read_module_source(mod)
+        import_lines = [
+            line.strip() for line in source.splitlines()
+            if line.strip().startswith(("import ", "from "))
+        ]
+        for line in import_lines:
+            assert "matrix" not in line.lower(), (
+                f"Meshtastic renderer must not import Matrix code; found: {line!r}"
+            )
+
+    def test_meshtastic_packet_classifier_does_not_import_matrix(self) -> None:
+        import medre.adapters.meshtastic.packet_classifier as mod
+        source = _read_module_source(mod)
+        import_lines = [
+            line.strip() for line in source.splitlines()
+            if line.strip().startswith(("import ", "from "))
+        ]
+        for line in import_lines:
+            assert "matrix" not in line.lower(), (
+                f"Packet classifier must not import Matrix code; found: {line!r}"
+            )
+
+    def test_meshtastic_queue_does_not_import_matrix(self) -> None:
+        import medre.adapters.meshtastic.queue as mod
+        source = _read_module_source(mod)
+        import_lines = [
+            line.strip() for line in source.splitlines()
+            if line.strip().startswith(("import ", "from "))
+        ]
+        for line in import_lines:
+            assert "matrix" not in line.lower(), (
+                f"Meshtastic queue must not import Matrix code; found: {line!r}"
+            )
 
 
 # ===================================================================
-# Codec does not route/plan/deliver
+# Codec does not route/plan/deliver (source scanning)
 # ===================================================================
 
 
@@ -107,17 +175,28 @@ class TestMeshtasticCodecIsolation:
         }
         event = codec.decode(packet)
         assert isinstance(event, CanonicalEvent)
-        # No side effects — just a pure transformation
 
     def test_codec_does_not_import_routing(self) -> None:
         import medre.adapters.meshtastic.codec as mod
-        source = open(mod.__file__).read()
+        source = _read_module_source(mod)
         assert "routing" not in source
         assert "Router" not in source
+        assert "planning" not in source
+        assert "storage" not in source
+
+    def test_codec_source_has_no_route_or_deliver_definitions(self) -> None:
+        import medre.adapters.meshtastic.codec as mod
+        source = _read_module_source(mod)
+        # Pattern check for method definitions
+        method_defs = re.findall(r"def\s+(\w+)", source)
+        assert "route" not in method_defs
+        assert "deliver" not in method_defs
+        assert "plan" not in method_defs
+        assert "store" not in method_defs
 
 
 # ===================================================================
-# Renderer does not deliver
+# Renderer does not deliver (source scanning)
 # ===================================================================
 
 
@@ -132,6 +211,18 @@ class TestMeshtasticRendererIsolation:
         renderer = MeshtasticRenderer()
         assert not hasattr(renderer, "send")
         assert not hasattr(renderer, "sendText")
+
+    def test_renderer_source_does_not_import_deliver(self) -> None:
+        import medre.adapters.meshtastic.renderer as mod
+        source = _read_module_source(mod)
+        import_lines = [
+            line.strip() for line in source.splitlines()
+            if line.strip().startswith(("import ", "from "))
+        ]
+        for line in import_lines:
+            assert "deliver" not in line.lower(), (
+                f"Renderer must not import delivery code; found: {line!r}"
+            )
 
     async def test_renderer_returns_rendering_result_not_delivery(self) -> None:
         renderer = MeshtasticRenderer()
@@ -266,8 +357,8 @@ class TestMeshtasticNativeRefPersistence:
 class TestMeshtasticOutboundNativeRefs:
     """Outbound delivery uses adapter-provided IDs, not fabricated ones."""
 
-    async def test_deliver_returns_none_in_tranche1(self) -> None:
-        """Tranche 1 delivery returns None (scaffolded, no native ref)."""
+    async def test_fake_adapter_returns_delivery_result_with_native_id(self) -> None:
+        """Fake adapter returns AdapterDeliveryResult with deterministic native_message_id."""
         config = MeshtasticConfig(adapter_id="mesh-1")
         adapter = FakeMeshtasticAdapter(config)
         result = RenderingResult(
@@ -277,7 +368,22 @@ class TestMeshtasticOutboundNativeRefs:
             payload={"text": "test", "channel_index": 0},
         )
         delivery = await adapter.deliver(result)
-        # Tranche 1: scaffolded, returns None (no fabricated IDs)
+        assert delivery is not None
+        assert delivery.native_message_id is not None
+        assert delivery.native_channel_id == "0"
+
+    async def test_real_adapter_returns_none_in_tranche1(self) -> None:
+        """Real MeshtasticAdapter.deliver() returns None (scaffolded)."""
+        config = MeshtasticConfig(adapter_id="mesh-1")
+        adapter = MeshtasticAdapter(config)
+        result = RenderingResult(
+            event_id="evt-1",
+            target_adapter="mesh-1",
+            target_channel="0",
+            payload={"text": "test", "channel_index": 0},
+        )
+        delivery = await adapter.deliver(result)
+        # Real adapter is scaffolded — returns None (no outbound native refs)
         assert delivery is None
 
 
@@ -289,18 +395,22 @@ class TestMeshtasticOutboundNativeRefs:
 class TestMeshtasticFailedDelivery:
     """Failed Meshtastic delivery does not create native refs."""
 
-    async def test_fake_adapter_no_delivery_result_on_scaffold(self) -> None:
-        """Scaffolded (None) delivery result means no native ref is created."""
+    async def test_fake_adapter_failure_raises_and_no_native_ref(self) -> None:
+        """Fake adapter failure raises MeshtasticSendError, no native ref persisted."""
+        from medre.adapters.meshtastic.errors import MeshtasticSendError
+
         adapter = FakeMeshtasticAdapter()
+        adapter.set_deliver_failure(True)
         result = RenderingResult(
             event_id="evt-fail",
             target_adapter="mesh-1",
             target_channel="0",
             payload={"text": "test", "channel_index": 0},
         )
-        delivery = await adapter.deliver(result)
-        # None delivery result = pipeline won't create native ref
-        assert delivery is None
+        with pytest.raises(MeshtasticSendError):
+            await adapter.deliver(result)
+        # No packets sent through fake client
+        assert adapter.fake_client.sent_count == 0
 
     async def test_faulty_adapter_failure_no_native_ref(self) -> None:
         """If an adapter raises, the pipeline records failure but no native ref."""

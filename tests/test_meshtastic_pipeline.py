@@ -15,8 +15,9 @@ import pytest
 
 from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
 from medre.adapters.meshtastic.config import MeshtasticConfig
+from medre.adapters.meshtastic.errors import MeshtasticSendError
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
-from medre.core.events import CanonicalEvent, EventMetadata
+from medre.core.events import CanonicalEvent, EventMetadata, NativeMessageRef
 from medre.core.events.bus import EventBus
 from medre.core.planning.delivery_plan import DeliveryPlan
 from medre.core.planning.fallback_resolution import FallbackResolver
@@ -89,6 +90,21 @@ async def _make_pipeline(
 
     runner = PipelineRunner(config)
     return runner
+
+
+def _make_adapter_context_for_pipeline(
+    adapter_id: str, runner: PipelineRunner
+) -> Any:
+    """Create an AdapterContext wired to a PipelineRunner's ingress handler."""
+    from medre.adapters.base import AdapterContext
+    return AdapterContext(
+        adapter_id=adapter_id,
+        event_bus=None,
+        publish_inbound=runner.ingress_handler,
+        logger=logging.getLogger(f"test.{adapter_id}"),
+        clock=lambda: datetime.now(timezone.utc),
+        shutdown_event=asyncio.Event(),
+    )
 
 
 class TestMeshtasticPipelineIntegration:
@@ -197,3 +213,227 @@ class TestMeshtasticPipelineIntegration:
         assert result is None
         # If there were a sleep(0.5), this would take >= 0.5s
         assert elapsed < 0.1
+
+
+# ===================================================================
+# Native ref persistence tests (Blocker 9)
+# ===================================================================
+
+
+class TestMeshtasticNativeRefPersistence:
+    """Pipeline integration tests for native ref persistence."""
+
+    async def test_inbound_native_ref_persisted(
+        self, temp_storage
+    ) -> None:
+        """Inbound Meshtastic event → pipeline store → NativeMessageRef(direction="inbound")."""
+        config = MeshtasticConfig(adapter_id="mesh-inbound")
+        adapter = FakeMeshtasticAdapter(config)
+
+        route = Route(
+            id="mesh-loopback",
+            source=RouteSource(
+                adapter="mesh-inbound",
+                event_kinds=("message.created",),
+                channel="0",
+            ),
+            targets=[],
+        )
+        router = Router(routes=[route])
+
+        rp = RenderingPipeline()
+        runner = PipelineRunner(PipelineConfig(
+            storage=temp_storage,
+            router=router,
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters={"mesh-inbound": adapter},
+            event_bus=EventBus(),
+            rendering_pipeline=rp,
+        ))
+
+        ctx = _make_adapter_context_for_pipeline("mesh-inbound", runner)
+        await adapter.start(ctx)
+
+        packet = _make_text_packet(packet_id=55555, channel=2)
+        await adapter.simulate_inbound(packet)
+
+        # Verify native ref persisted via resolve_native_ref
+        resolved = await temp_storage.resolve_native_ref(
+            adapter="mesh-inbound",
+            native_channel_id="2",
+            native_message_id="55555",
+        )
+        assert resolved is not None
+        assert resolved == adapter.inbound_events[0].event_id
+
+    async def test_outbound_native_ref_persisted(
+        self, temp_storage
+    ) -> None:
+        """Outbound FakeMeshtasticAdapter deliver → pipeline store → NativeMessageRef(direction="outbound")."""
+        in_config = MeshtasticConfig(adapter_id="mesh-in")
+        out_config = MeshtasticConfig(adapter_id="mesh-out")
+        in_adapter = FakeMeshtasticAdapter(in_config)
+        out_adapter = FakeMeshtasticAdapter(out_config)
+
+        route = Route(
+            id="mesh-route",
+            source=RouteSource(
+                adapter="mesh-in",
+                event_kinds=("message.created",),
+                channel="0",
+            ),
+            targets=[RouteTarget(adapter="mesh-out", channel="0")],
+        )
+        router = Router(routes=[route])
+
+        rp = RenderingPipeline()
+        rp.register(MeshtasticRenderer(), priority=50)
+        rp.register(TextRenderer(), priority=100)
+
+        runner = PipelineRunner(PipelineConfig(
+            storage=temp_storage,
+            router=router,
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters={"mesh-in": in_adapter, "mesh-out": out_adapter},
+            event_bus=EventBus(),
+            rendering_pipeline=rp,
+        ))
+
+        ctx = _make_adapter_context_for_pipeline("mesh-in", runner)
+        await in_adapter.start(ctx)
+
+        packet = _make_text_packet(text="outbound test", packet_id=11111)
+        await in_adapter.simulate_inbound(packet)
+
+        # Verify outbound native ref persisted via resolve_native_ref
+        # FakeMeshtasticClient first send gets packet_id=1
+        resolved = await temp_storage.resolve_native_ref(
+            adapter="mesh-out",
+            native_channel_id="0",
+            native_message_id="1",
+        )
+        assert resolved is not None
+        assert resolved == in_adapter.inbound_events[0].event_id
+
+    async def test_failed_delivery_no_outbound_native_ref(
+        self, temp_storage
+    ) -> None:
+        """Failed deliver → no outbound native ref in storage."""
+        in_config = MeshtasticConfig(adapter_id="mesh-fail-in")
+        out_config = MeshtasticConfig(adapter_id="mesh-fail-out")
+        in_adapter = FakeMeshtasticAdapter(in_config)
+        out_adapter = FakeMeshtasticAdapter(out_config)
+        out_adapter.set_deliver_failure(True)
+
+        route = Route(
+            id="mesh-fail-route",
+            source=RouteSource(
+                adapter="mesh-fail-in",
+                event_kinds=("message.created",),
+                channel="0",
+            ),
+            targets=[RouteTarget(adapter="mesh-fail-out", channel="0")],
+        )
+        router = Router(routes=[route])
+
+        rp = RenderingPipeline()
+        rp.register(MeshtasticRenderer(), priority=50)
+        rp.register(TextRenderer(), priority=100)
+
+        runner = PipelineRunner(PipelineConfig(
+            storage=temp_storage,
+            router=router,
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters={"mesh-fail-in": in_adapter, "mesh-fail-out": out_adapter},
+            event_bus=EventBus(),
+            rendering_pipeline=rp,
+        ))
+
+        ctx = _make_adapter_context_for_pipeline("mesh-fail-in", runner)
+        await in_adapter.start(ctx)
+
+        packet = _make_text_packet(text="fail test", packet_id=22222)
+        await in_adapter.simulate_inbound(packet)
+
+        # Verify no outbound native ref from failed delivery
+        resolved = await temp_storage.resolve_native_ref(
+            adapter="mesh-fail-out",
+            native_channel_id="0",
+            native_message_id="1",
+        )
+        assert resolved is None
+
+        # Inbound ref should still exist
+        inbound_resolved = await temp_storage.resolve_native_ref(
+            adapter="mesh-fail-in",
+            native_channel_id="0",
+            native_message_id="22222",
+        )
+        assert inbound_resolved is not None
+
+    async def test_duplicate_inbound_native_ref_idempotent(
+        self, temp_storage
+    ) -> None:
+        """Duplicate inbound native refs are idempotent (INSERT OR IGNORE)."""
+        config = MeshtasticConfig(adapter_id="mesh-dup")
+        adapter = FakeMeshtasticAdapter(config)
+
+        route = Route(
+            id="mesh-dup-route",
+            source=RouteSource(
+                adapter="mesh-dup",
+                event_kinds=("message.created",),
+                channel="0",
+            ),
+            targets=[],
+        )
+        router = Router(routes=[route])
+
+        rp = RenderingPipeline()
+        runner = PipelineRunner(PipelineConfig(
+            storage=temp_storage,
+            router=router,
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters={"mesh-dup": adapter},
+            event_bus=EventBus(),
+            rendering_pipeline=rp,
+        ))
+
+        ctx = _make_adapter_context_for_pipeline("mesh-dup", runner)
+        await adapter.start(ctx)
+
+        packet = _make_text_packet(packet_id=33333)
+        await adapter.simulate_inbound(packet)
+
+        # Manually store a duplicate native ref — should be idempotent
+        from medre.core.events.canonical import NativeMessageRef
+        import uuid as _uuid
+        from datetime import timezone as _tz
+
+        event = adapter.inbound_events[0]
+        dup_ref = NativeMessageRef(
+            id=f"nref-dup-{_uuid.uuid4()}",
+            event_id=event.event_id,
+            adapter="mesh-dup",
+            native_channel_id="0",
+            native_message_id="33333",
+            native_thread_id=None,
+            native_relation_id=None,
+            direction="inbound",
+            created_at=datetime.now(tz=_tz.utc),
+        )
+        # This should NOT raise despite the same (adapter, channel, msg_id) triple
+        await temp_storage.store_native_ref(dup_ref)
+
+        # Should still resolve to the same event
+        resolved = await temp_storage.resolve_native_ref(
+            adapter="mesh-dup",
+            native_channel_id="0",
+            native_message_id="33333",
+        )
+        assert resolved is not None
+        assert resolved == event.event_id

@@ -11,7 +11,11 @@ on :meth:`start` when using non-fake connection types.
 """
 from __future__ import annotations
 
-from typing import Any
+import asyncio
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from medre.core.events.canonical import CanonicalEvent
 
 from medre.adapters.base import (
     AdapterCapabilities,
@@ -45,6 +49,8 @@ _MESHTASTIC_CAPABILITIES = AdapterCapabilities(
     delivery_receipts=False,
     store_and_forward=False,
     direct_messages=False,
+    max_text_bytes=512,
+    max_text_chars=512,
 )
 
 
@@ -63,7 +69,7 @@ class MeshtasticAdapter(BaseAdapter):
 
     adapter_id: str
     platform: str = "meshtastic"
-    role: AdapterRole = AdapterRole.PRESENTATION
+    role: AdapterRole = AdapterRole.TRANSPORT
 
     def __init__(self, config: MeshtasticConfig) -> None:
         config.validate()
@@ -78,6 +84,7 @@ class MeshtasticAdapter(BaseAdapter):
         )
         self.ctx: AdapterContext | None = None
         self._started: bool = False
+        self._background_tasks: set[asyncio.Task] = set()
 
     # -- Lifecycle ----------------------------------------------------------
 
@@ -115,11 +122,22 @@ class MeshtasticAdapter(BaseAdapter):
     async def stop(self, timeout: float = 5.0) -> None:
         """Disconnect from the Meshtastic node.
 
+        Cancels all tracked background tasks before shutting down.
+
         Parameters
         ----------
         timeout:
             Maximum seconds to wait for a clean shutdown.
         """
+        # Cancel all tracked background tasks
+        for task in list(self._background_tasks):
+            task.cancel()
+        if self._background_tasks:
+            await asyncio.gather(
+                *self._background_tasks, return_exceptions=True
+            )
+        self._background_tasks.clear()
+
         self._client = None
         self._started = False
         if self.ctx is not None:
@@ -216,14 +234,35 @@ class MeshtasticAdapter(BaseAdapter):
 
             canonical = self._codec.decode(packet)
             # Schedule the async publish — _on_packet is synchronous
-            # so we use the event loop directly.
-            import asyncio
-
-            asyncio.ensure_future(self.ctx.publish_inbound(canonical))
+            # so we create a tracked task that is cleaned up on stop().
+            task = asyncio.create_task(self._on_packet_async(canonical))
+            task.add_done_callback(self._background_tasks.discard)
+            self._background_tasks.add(task)
         except Exception:
             if self.ctx is not None:
                 self.ctx.logger.exception(
                     "MeshtasticAdapter %s: error processing inbound packet",
+                    self.adapter_id,
+                )
+
+    async def _on_packet_async(self, canonical: CanonicalEvent) -> None:
+        """Async handler for packets received via :meth:`_on_packet`.
+
+        Publishes the canonical event and logs exceptions from the
+        background task.
+
+        Parameters
+        ----------
+        canonical:
+            The decoded canonical event to publish.
+        """
+        try:
+            if self.ctx is not None:
+                await self.ctx.publish_inbound(canonical)
+        except Exception:
+            if self.ctx is not None:
+                self.ctx.logger.exception(
+                    "MeshtasticAdapter %s: error in background publish",
                     self.adapter_id,
                 )
 

@@ -107,6 +107,31 @@ class TestMeshtasticCodecDecode:
         assert data["from_id"] == "!node1"
         assert data["channel"] == 0
 
+    def test_decode_broadcast_metadata(self) -> None:
+        codec = MeshtasticCodec("mesh-1", _make_config())
+        packet = _make_text_packet(to_id="")
+        event = codec.decode(packet)
+        assert event.metadata.native is not None
+        assert event.metadata.native.data["is_direct_message"] is False
+        assert event.metadata.native.data["to_id"] == ""
+
+    def test_decode_direct_message_metadata(self) -> None:
+        codec = MeshtasticCodec("mesh-1", _make_config())
+        packet = _make_text_packet(to_id="!target_node")
+        event = codec.decode(packet)
+        assert event.metadata.native is not None
+        assert event.metadata.native.data["is_direct_message"] is True
+        assert event.metadata.native.data["to_id"] == "!target_node"
+
+    def test_decode_dm_vs_channel_distinguishable(self) -> None:
+        codec = MeshtasticCodec("mesh-1", _make_config())
+        dm_packet = _make_text_packet(to_id="!specific")
+        ch_packet = _make_text_packet(to_id="")
+        dm_event = codec.decode(dm_packet)
+        ch_event = codec.decode(ch_packet)
+        assert dm_event.metadata.native.data["is_direct_message"] is True
+        assert ch_event.metadata.native.data["is_direct_message"] is False
+
 
 class TestMeshtasticCodecSourceNativeRef:
     """source_native_ref population from packet ID."""

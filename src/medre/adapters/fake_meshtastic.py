@@ -20,8 +20,8 @@ Usage
 >>> event = adapter.make_text_event("Hello from mesh!")
 >>> await adapter.simulate_inbound(packet_dict)
 >>> # Deliver an outbound rendered payload
->>> await adapter.deliver(result)
->>> assert result in adapter.delivered_payloads
+>>> result = await adapter.deliver(result)
+>>> assert adapter.delivered_payloads
 """
 from __future__ import annotations
 
@@ -39,10 +39,69 @@ from medre.adapters.base import (
 )
 from medre.adapters.meshtastic.codec import MeshtasticCodec
 from medre.adapters.meshtastic.config import MeshtasticConfig
+from medre.adapters.meshtastic.errors import MeshtasticSendError
 from medre.adapters.meshtastic.packet_classifier import MeshtasticPacketClassifier
 from medre.core.events.canonical import CanonicalEvent, EventMetadata
 from medre.core.events.kinds import EventKind
 from medre.core.rendering.renderer import RenderingResult
+
+
+class FakeMeshtasticClient:
+    """Deterministic fake Meshtastic client for testing outbound delivery.
+
+    Tracks every ``send_text`` call and returns sequential packet IDs
+    so that tests can assert on deterministic native IDs.
+
+    Attributes
+    ----------
+    sent_packets:
+        List of dicts for each sent packet.
+    sent_count:
+        Number of packets sent.
+    """
+
+    def __init__(self) -> None:
+        self._next_id: int = 1
+        self.sent_packets: list[dict[str, Any]] = []
+        self.sent_count: int = 0
+
+    async def send_text(
+        self,
+        text: str,
+        channel_index: int,
+        meshnet_name: str = "",
+        dest_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Send a text message and return a deterministic packet ID.
+
+        Parameters
+        ----------
+        text:
+            The text payload.
+        channel_index:
+            Target radio channel index.
+        meshnet_name:
+            Optional meshnet name (unused by fake).
+        dest_id:
+            Optional destination node ID for DMs.
+
+        Returns
+        -------
+        dict
+            ``{"packet_id": <int>}`` with a sequential ID.
+        """
+        packet_id = self._next_id
+        self._next_id += 1
+        self.sent_packets.append({
+            "text": text,
+            "channel_index": channel_index,
+            "meshnet_name": meshnet_name,
+            "dest_id": dest_id,
+            "packet_id": packet_id,
+        })
+        self.sent_count += 1
+        return {"packet_id": packet_id}
+
 
 # Default capabilities for the fake Meshtastic adapter.
 _FAKE_MESHTASTIC_CAPABILITIES = AdapterCapabilities(
@@ -57,6 +116,8 @@ _FAKE_MESHTASTIC_CAPABILITIES = AdapterCapabilities(
     delivery_receipts=False,
     store_and_forward=False,
     direct_messages=False,
+    max_text_bytes=512,
+    max_text_chars=512,
 )
 
 
@@ -90,7 +151,7 @@ class FakeMeshtasticAdapter(BaseAdapter):
 
     adapter_id: str
     platform: str = "fake_meshtastic"
-    role: AdapterRole = AdapterRole.PRESENTATION
+    role: AdapterRole = AdapterRole.TRANSPORT
 
     def __init__(
         self,
@@ -106,6 +167,20 @@ class FakeMeshtasticAdapter(BaseAdapter):
         self._started: bool = False
         self._codec = MeshtasticCodec(config.adapter_id, config)
         self._classifier = MeshtasticPacketClassifier(config)
+        self._fake_client = FakeMeshtasticClient()
+        self._deliver_failure: bool = False
+
+    @property
+    def fake_client(self) -> FakeMeshtasticClient:
+        """The underlying fake client for test inspection."""
+        return self._fake_client
+
+    def set_deliver_failure(self, fail: bool = True) -> None:
+        """Configure the adapter to raise on the next ``deliver()`` call.
+
+        Useful for testing pipeline error handling.
+        """
+        self._deliver_failure = fail
 
     # -- Lifecycle ----------------------------------------------------------
 
@@ -143,6 +218,9 @@ class FakeMeshtasticAdapter(BaseAdapter):
         raw :class:`CanonicalEvent` raises :class:`TypeError`, enforcing
         the rendering boundary at the adapter level.
 
+        Uses the internal :class:`FakeMeshtasticClient` to generate
+        deterministic packet IDs.
+
         Parameters
         ----------
         result:
@@ -150,13 +228,16 @@ class FakeMeshtasticAdapter(BaseAdapter):
 
         Returns
         -------
-        AdapterDeliveryResult | None
-            ``None`` in tranche 1 (scaffolded delivery).
+        AdapterDeliveryResult
+            Contains the deterministic native_message_id and
+            native_channel_id from the fake client.
 
         Raises
         ------
         TypeError
             If *result* is not a :class:`RenderingResult`.
+        MeshtasticSendError
+            If ``set_deliver_failure(True)`` was called.
         """
         if not isinstance(result, RenderingResult):
             raise TypeError(
@@ -164,9 +245,29 @@ class FakeMeshtasticAdapter(BaseAdapter):
                 f"got {type(result).__name__}. Use simulate_inbound() for "
                 f"the inbound path."
             )
+
+        if self._deliver_failure:
+            raise MeshtasticSendError("FakeMeshtasticAdapter: simulated send failure")
+
         self.delivered_payloads.append(result)
-        # Tranche 1: scaffolded — no real delivery, returns None.
-        return None
+
+        text = str(result.payload.get("text", ""))
+        channel_index = result.payload.get("channel_index", 0)
+        if not isinstance(channel_index, int):
+            channel_index = 0
+        meshnet_name = str(result.payload.get("meshnet_name", ""))
+
+        send_result = await self._fake_client.send_text(
+            text=text,
+            channel_index=channel_index,
+            meshnet_name=meshnet_name,
+        )
+        packet_id = send_result["packet_id"]
+
+        return AdapterDeliveryResult(
+            native_message_id=str(packet_id),
+            native_channel_id=str(channel_index),
+        )
 
     # -- Inbound simulation -------------------------------------------------
 
