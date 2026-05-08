@@ -32,8 +32,8 @@ def _make_event(event_id: str = "evt-1") -> CanonicalEvent:
         source_transport_id="node-1",
         source_channel_id="ch-0",
         parent_event_id=None,
-        lineage=[],
-        relations=[],
+        lineage=(),
+        relations=(),
         payload={"text": "hello"},
         metadata=EventMetadata(),
     )
@@ -260,8 +260,8 @@ class TestRenderingBoundary:
             source_transport_id="node-1",
             source_channel_id="ch-0",
             parent_event_id=None,
-            lineage=[],
-            relations=[relation],
+            lineage=(),
+            relations=(relation,),
             payload={"text": "a reply"},
             metadata=EventMetadata(),
         )
@@ -293,8 +293,8 @@ class TestRenderingBoundary:
             source_transport_id="node-1",
             source_channel_id="ch-0",
             parent_event_id=None,
-            lineage=[],
-            relations=[relation],
+            lineage=(),
+            relations=(relation,),
             payload={"text": "👍"},
             metadata=EventMetadata(),
         )
@@ -345,8 +345,8 @@ class TestRenderingBoundary:
                 source_transport_id="node-1",
                 source_channel_id="any-channel",
                 parent_event_id=None,
-                lineage=[],
-                relations=[],
+                lineage=(),
+                relations=(),
                 payload={"text": "test"},
                 metadata=EventMetadata(),
             )
@@ -361,3 +361,206 @@ class TestRenderingBoundary:
             EventKind.PRESENCE_CHANGED,
             EventKind.PLUGIN_CUSTOM,
         }
+
+
+# ===================================================================
+# Delivery contract tests
+# ===================================================================
+
+
+class TestDeliveryContract:
+    """Verify the explicit adapter delivery contract."""
+
+    async def test_base_adapter_requires_deliver(self) -> None:
+        """BaseAdapter declares deliver as an abstract method."""
+        from medre.adapters.base import BaseAdapter
+
+        # Verify deliver is abstract in the ABC sense.
+        assert hasattr(BaseAdapter, "deliver")
+        assert getattr(BaseAdapter.deliver, "__isabstractmethod__", False) is True
+
+    async def test_fake_transport_deliver_stores_rendering_result(self) -> None:
+        """FakeTransportAdapter.deliver() stores RenderingResult in delivered_payloads."""
+        adapter = FakeTransportAdapter("test_t")
+        result = RenderingResult(
+            event_id="evt-1",
+            target_adapter="test_t",
+            target_channel="ch-0",
+            payload={"text": "transported message"},
+            metadata={"renderer": "text"},
+        )
+        await adapter.deliver(result)
+        assert len(adapter.delivered_payloads) == 1
+        stored = adapter.delivered_payloads[0]
+        assert isinstance(stored, RenderingResult)
+        assert stored.payload["text"] == "transported message"
+
+    async def test_fake_presentation_deliver_stores_rendering_result(self) -> None:
+        """FakePresentationAdapter.deliver(RenderingResult) stores in delivered_payloads."""
+        adapter = FakePresentationAdapter("test_p")
+        result = RenderingResult(
+            event_id="evt-1",
+            target_adapter="test_p",
+            target_channel="ch-0",
+            payload={"text": "presented message"},
+            metadata={"renderer": "text"},
+        )
+        await adapter.deliver(result)
+        assert len(adapter.delivered_payloads) == 1
+        assert adapter.delivered_payloads[0] is result
+
+    async def test_adapter_deliver_does_not_reformat(self) -> None:
+        """Adapter stores the RenderingResult payload verbatim.
+
+        The adapter must not modify, re-render, or reformat the payload
+        inside a RenderingResult.  Whatever the renderer produced is
+        exactly what the adapter stores.
+        """
+        adapter = FakePresentationAdapter("test_p")
+        result = RenderingResult(
+            event_id="evt-1",
+            target_adapter="test_p",
+            target_channel="ch-0",
+            payload={"text": "original content", "extra": [1, 2, 3]},
+            metadata={"renderer": "text", "custom": True},
+            truncated=True,
+            fallback_applied="relation_reply",
+        )
+        await adapter.deliver(result)
+        stored = adapter.delivered_payloads[0]
+        # Exact referential equality — the adapter stored the object as-is.
+        assert stored is result
+        assert stored.truncated is True
+        assert stored.fallback_applied == "relation_reply"
+        assert stored.payload["extra"] == [1, 2, 3]
+
+    async def test_both_fake_adapters_share_delivery_contract(self) -> None:
+        """Both fake adapters implement deliver() accepting RenderingResult."""
+        from medre.adapters.base import BaseAdapter
+
+        transport = FakeTransportAdapter("t")
+        presentation = FakePresentationAdapter("p")
+        # Both are BaseAdapter instances with a deliver method
+        assert isinstance(transport, BaseAdapter)
+        assert isinstance(presentation, BaseAdapter)
+        assert hasattr(transport, "deliver")
+        assert hasattr(presentation, "deliver")
+        assert callable(transport.deliver)
+        assert callable(presentation.deliver)
+
+
+# ===================================================================
+# Plugin boundary tests
+# ===================================================================
+
+
+class TestPluginBoundary:
+    """Prove that plugins cannot directly emit transport-native payloads.
+    Plugins must operate on canonical events and runtime APIs only.
+    """
+
+    def test_plugin_capability_enum_values(self) -> None:
+        """PluginCapability has the expected capabilities."""
+        from medre.plugins import PluginCapability
+
+        assert PluginCapability.READ_EVENTS.value == "read_events"
+        assert PluginCapability.EMIT_EVENTS.value == "emit_events"
+        assert PluginCapability.READ_ROUTES.value == "read_routes"
+        assert PluginCapability.MODIFY_ROUTES.value == "modify_routes"
+
+    def test_plugin_protocol_is_runtime_checkable(self) -> None:
+        """Plugin protocol supports isinstance() checks."""
+
+        class _MinimalPlugin:
+            name = "test"
+            version = "0.1.0"
+            capabilities = set()
+
+            async def initialize(self, ctx): ...
+            async def handle_event(self, event): return []
+            async def shutdown(self): ...
+
+        from medre.plugins import Plugin
+
+        assert isinstance(_MinimalPlugin(), Plugin)
+
+    async def test_validate_plugin_payload_accepts_canonical_events(self) -> None:
+        """validate_plugin_payload passes for valid CanonicalEvent list."""
+        from medre.plugins import validate_plugin_payload
+
+        events = [_make_event(f"plugin-evt-{i}") for i in range(3)]
+        result = validate_plugin_payload(events, "test_plugin")
+        assert result == events
+
+    def test_validate_plugin_payload_rejects_raw_dict(self) -> None:
+        """validate_plugin_payload rejects raw dicts (e.g. Matrix JSON)."""
+        from medre.plugins import PluginBoundaryError, validate_plugin_payload
+
+        matrix_payload = {
+            "msgtype": "m.text",
+            "body": "hello matrix",
+            "room_id": "!abc:example.com",
+        }
+        with pytest.raises(PluginBoundaryError, match="non-canonical payload"):
+            validate_plugin_payload([matrix_payload], "evil_plugin")
+
+    def test_validate_plugin_payload_rejects_bytes(self) -> None:
+        """validate_plugin_payload rejects raw bytes (e.g. Meshtastic packet)."""
+        from medre.plugins import PluginBoundaryError, validate_plugin_payload
+
+        mesh_packet = b"\x94\x12\x00\x1a\xdd\x0a"
+        with pytest.raises(PluginBoundaryError, match="non-canonical payload"):
+            validate_plugin_payload([mesh_packet], "evil_plugin")
+
+    def test_validate_plugin_payload_rejects_string(self) -> None:
+        """validate_plugin_payload rejects raw strings."""
+        from medre.plugins import PluginBoundaryError, validate_plugin_payload
+
+        with pytest.raises(PluginBoundaryError, match="non-canonical payload"):
+            validate_plugin_payload(["raw text payload"], "evil_plugin")
+
+    def test_validate_plugin_payload_rejects_mixed_list(self) -> None:
+        """validate_plugin_payload rejects a list mixing events and native payloads."""
+        from medre.plugins import PluginBoundaryError, validate_plugin_payload
+
+        mixed = [_make_event("ok-evt"), {"matrix": "json"}]
+        with pytest.raises(PluginBoundaryError, match="non-canonical payload"):
+            validate_plugin_payload(mixed, "mixed_plugin")
+
+    def test_validate_plugin_payload_empty_list(self) -> None:
+        """validate_plugin_payload accepts an empty list."""
+        from medre.plugins import validate_plugin_payload
+
+        result = validate_plugin_payload([], "empty_plugin")
+        assert result == []
+
+    def test_plugin_boundary_error_is_type_error(self) -> None:
+        """PluginBoundaryError is a TypeError subclass."""
+        from medre.plugins import PluginBoundaryError
+
+        assert issubclass(PluginBoundaryError, TypeError)
+
+    def test_plugin_cannot_emit_matrix_event(self) -> None:
+        """Simulated plugin trying to emit a Matrix event is caught."""
+        from medre.plugins import PluginBoundaryError, validate_plugin_payload
+
+        # This is what a naive plugin might try to emit
+        matrix_native_event = {
+            "type": "m.room.message",
+            "content": {"msgtype": "m.text", "body": "hello"},
+            "room_id": "!room:server",
+        }
+        with pytest.raises(PluginBoundaryError):
+            validate_plugin_payload([matrix_native_event], "naive_plugin")
+
+    def test_plugin_cannot_emit_meshtastic_packet(self) -> None:
+        """Simulated plugin trying to emit a Meshtastic protobuf is caught."""
+        from medre.plugins import PluginBoundaryError, validate_plugin_payload
+
+        meshtastic_data = {
+            "portnum": 1,
+            "payload": b"\x01\x02\x03",
+            "to": "!abcdef",
+        }
+        with pytest.raises(PluginBoundaryError):
+            validate_plugin_payload([meshtastic_data], "naive_plugin")

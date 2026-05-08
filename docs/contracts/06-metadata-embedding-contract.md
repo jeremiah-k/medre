@@ -2,7 +2,7 @@
 
 > Source: [Modular Event Engine Spec](../spec/modular-event-engine-spec.md) Sections 14, 15, 16, 17
 > Contract version: 1
-> Last updated: 2026-05-07
+> Last updated: 2026-05-08
 
 This contract defines how adapters embed runtime metadata into external platforms (Matrix, LXMF) and how normalized metadata namespaces are structured. An implementer building a Matrix adapter or LXMF adapter should be able to determine exactly what metadata to emit, where to put it, and what to leave out.
 
@@ -13,26 +13,30 @@ This contract defines how adapters embed runtime metadata into external platform
 All event metadata lives in a structured `EventMetadata` object with six namespaces. Adapters normalize their native fields into these namespaces. Fields that don't map cleanly go into `native` until the enrichment stage categorizes them.
 
 ```python
-@dataclass
-class EventMetadata:
-    transport: TransportMetadata | None     # How the event arrived
-    routing: RoutingMetadata | None         # Routing decisions applied
-    radio: RadioMetadata | None             # Radio-specific data
-    telemetry: TelemetryMetadata | None     # Device telemetry at event time
-    native: NativeMetadata | None           # Unnormalized native fields
-    custom: dict                            # Plugin/extension metadata
+import msgspec
+
+
+class EventMetadata(msgspec.Struct, frozen=True):
+    transport: TransportMetadata | None = None     # How the event arrived
+    routing: RoutingMetadata | None = None         # Routing decisions applied
+    radio: RadioMetadata | None = None             # Radio-specific data
+    telemetry: TelemetryMetadata | None = None     # Device telemetry at time of event
+    native: NativeMetadata | None = None           # Transport-native fields not yet normalized
+    custom: dict[str, object] = {}                 # Plugin/extension metadata (frozen)
 ```
+
+> **Note**: All `dict` fields (`custom`, `TelemetryMetadata.metrics`, `NativeMetadata.data`, `EventRelation.metadata`) are wrapped in `_FrozenDict` at construction, providing deep immutability while remaining `dict`-compatible for msgspec serialization.
 
 ### 1.1 Namespace Definitions
 
 | Namespace | Purpose | Example Fields |
 |---|---|---|
-| `metadata.transport` | Transport layer details | `protocol` (`"meshcore-tcp"`, `"lxmf"`, `"mqtt"`), `gateway_id`, `received_at`, `encoding`, `delivery_method`, `transport_encrypted`, `signature_valid`, `stamp_valid`, `delivery_confirmed` |
-| `metadata.routing` | Routing context | `matched_routes`, `fanout_group`, `bridge_id` |
-| `metadata.radio` | Radio-specific data | `frequency`, `modulation`, `snr`, `rssi`, `hop_limit`, `channel_index` |
-| `metadata.telemetry` | Device state at event time | `battery_percent`, `voltage_mv`, `uptime_seconds`, `air_util_tx` |
-| `metadata.native` | Unnormalized native fields | Adapter-specific raw fields not yet mapped to canonical fields (e.g. `native.lxmf.source_hash`) |
-| `metadata.custom` | Plugin/extension data | Key-value pairs from plugins, using reverse-DNS namespacing |
+| `metadata.transport` | Transport layer details | `protocol` (`"meshcore-tcp"`, `"lxmf"`, `"mqtt"`), `gateway_id`, `delivery_method`, `delivery_confirmed`, `transport_encrypted`, `signature_valid`, `propagation_state` |
+| `metadata.routing` | Routing context | `matched_routes` (tuple of strings), `fanout_group` |
+| `metadata.radio` | Radio-specific data | `frequency`, `snr`, `rssi`, `channel_index` |
+| `metadata.telemetry` | Device state at event time | `metrics` dict: `battery`, `voltage`, etc. (frozen) |
+| `metadata.native` | Unnormalized native fields | `data` dict: adapter-specific raw fields (frozen) |
+| `metadata.custom` | Plugin/extension data | Key-value pairs from plugins, using reverse-DNS namespacing (frozen) |
 
 ### 1.2 Migration from Flat Metadata
 
@@ -43,7 +47,7 @@ Legacy flat namespaces are mapped as follows:
 | `metadata.meshtastic.snr` | `metadata.radio.snr` |
 | `metadata.meshtastic.channel` | `metadata.radio.channel_index` |
 | `metadata.meshtastic.from` | `metadata.transport.source_id` |
-| `metadata.meshtastic.telemetry.*` | `metadata.telemetry.*` |
+| `metadata.meshtastic.telemetry.*` | `metadata.telemetry.metrics.*` |
 
 The enrichment stage normalizes `metadata.native` fields into their proper namespaces when possible.
 

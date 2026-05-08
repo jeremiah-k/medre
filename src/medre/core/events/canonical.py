@@ -21,6 +21,10 @@ from typing import Literal
 
 from medre.core.events.metadata import EventMetadata, _FrozenDict
 
+# Re-export canonical constants from schema to avoid circular imports.
+# These are imported here for validation use only.
+from medre.core.events.schema import VALID_RELATION_TYPES
+
 
 # ---------------------------------------------------------------------------
 # Enum
@@ -110,6 +114,11 @@ class EventRelation(msgspec.Struct, frozen=True):
     def __post_init__(self) -> None:
         if not isinstance(self.metadata, _FrozenDict):
             force_setattr(self, "metadata", _FrozenDict(self.metadata))
+        if self.relation_type not in VALID_RELATION_TYPES:
+            raise ValueError(
+                f"relation_type must be one of {sorted(VALID_RELATION_TYPES)}, "
+                f"got {self.relation_type!r}"
+            )
 
 
 class NativeMessageRef(msgspec.Struct, frozen=True):
@@ -302,3 +311,8 @@ class CanonicalEvent(msgspec.Struct, frozen=True):
             raise ValueError("lineage must not be None")
         if self.relations is None:
             raise ValueError("relations must not be None")
+        for _i, eid in enumerate(self.lineage):
+            if not isinstance(eid, str) or not eid:
+                raise ValueError(
+                    f"lineage[{_i}] must be a non-empty string, got {eid!r}"
+                )

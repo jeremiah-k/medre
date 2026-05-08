@@ -27,6 +27,7 @@ from typing import Any
 
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.events.kinds import EventKind
+from medre.core.rendering.renderer import RenderingResult
 
 from medre.adapters.base import (
     AdapterCapabilities,
@@ -62,9 +63,14 @@ class FakeTransportAdapter(BaseAdapter):
     The adapter stores a snapshot of every event at creation time in
     :attr:`event_snapshots` so tests can verify no mutation occurred.
 
+    **Rendering Boundary**: this adapter receives :class:`RenderingResult`
+    via :meth:`deliver` and must **not** contain event-kind-specific
+    formatting logic.  All rendering is performed upstream by renderers;
+    the adapter merely stores the pre-rendered payload.
+
     Stores every event delivered via :meth:`simulate_inbound` and
-    every event received via outbound delivery in public lists that
-    test code can inspect.
+    every rendered payload received via :meth:`deliver` in public lists
+    that test code can inspect.
 
     Parameters
     ----------
@@ -78,9 +84,13 @@ class FakeTransportAdapter(BaseAdapter):
     ----------
     delivered_events:
         Events that were published inbound via :meth:`simulate_inbound`.
+    delivered_payloads:
+        :class:`RenderingResult` payloads received via :meth:`deliver`.
+        Tests can inspect this to verify the adapter received a rendered
+        result (not a raw canonical event).
     received_events:
-        Events delivered outbound to this adapter (for future outbound
-        delivery support).
+        Events delivered outbound to this adapter (legacy path,
+        backward-compatible).
     event_snapshots:
         Frozen snapshots of events at creation time, keyed by
         ``event_id``, used to verify that canonical events are never
@@ -103,6 +113,7 @@ class FakeTransportAdapter(BaseAdapter):
         self._channel: str = channel
         self.ctx: AdapterContext | None = None
         self.delivered_events: list[CanonicalEvent] = []
+        self.delivered_payloads: list[RenderingResult] = []
         self.received_events: list[CanonicalEvent] = []
         self.event_snapshots: dict[str, CanonicalEvent] = {}
         self._started: bool = False
@@ -131,6 +142,22 @@ class FakeTransportAdapter(BaseAdapter):
             capabilities=_FAKE_TRANSPORT_CAPABILITIES,
             health="healthy" if self._started else "unknown",
         )
+
+    # -- Outbound delivery --------------------------------------------------
+
+    async def deliver(self, result: RenderingResult) -> None:
+        """Accept a pre-rendered payload for delivery.
+
+        This adapter does **not** perform event-kind-specific formatting.
+        The :class:`RenderingResult` is stored in :attr:`delivered_payloads`
+        for test inspection, proving the rendering boundary is respected.
+
+        Parameters
+        ----------
+        result:
+            The rendered payload to deliver.
+        """
+        self.delivered_payloads.append(result)
 
     # -- Test helpers -------------------------------------------------------
 
@@ -201,8 +228,8 @@ class FakeTransportAdapter(BaseAdapter):
             source_transport_id=self.adapter_id,
             source_channel_id=ch,
             parent_event_id=None,
-            lineage=[],
-            relations=[],
+            lineage=(),
+            relations=(),
             payload={"body": text, **extra_payload},
             metadata=EventMetadata(),
         )

@@ -29,6 +29,7 @@ from enum import Enum
 from typing import Any, Awaitable, Callable
 
 from medre.core.events.canonical import CanonicalEvent
+from medre.core.rendering.renderer import RenderingResult
 
 
 # ---------------------------------------------------------------------------
@@ -237,7 +238,15 @@ class BaseAdapter(ABC):
 
     Subclasses declare their identity (``adapter_id``, ``platform``,
     ``role``) as class attributes and implement the lifecycle methods
-    (:meth:`start`, :meth:`stop`, :meth:`health_check`).
+    (:meth:`start`, :meth:`stop`, :meth:`health_check`) and the
+    delivery method (:meth:`deliver`).
+
+    **Delivery contract**: every adapter must implement :meth:`deliver`
+    which accepts a :class:`~medre.core.rendering.renderer.RenderingResult`.
+    The pipeline renders canonical events into adapter-ready payloads
+    *before* calling ``deliver``.  Adapters must **not** perform
+    event-kind-specific formatting inside ``deliver``; they merely
+    transport the pre-rendered payload to the external platform.
 
     Optionally, adapters can expose an :class:`AdapterCodec` via
     :meth:`get_codec` to support the codec pattern.
@@ -255,6 +264,21 @@ class BaseAdapter(ABC):
     adapter_id: str
     platform: str
     role: AdapterRole
+
+    @abstractmethod
+    async def deliver(self, result: RenderingResult) -> None:
+        """Deliver a pre-rendered payload to the external platform.
+
+        The pipeline guarantees that *result* has already been rendered
+        by a :class:`~medre.core.rendering.renderer.Renderer`.  The
+        adapter must **not** re-render, reformat, or inspect the event
+        kind to decide formatting.  It merely transports the payload.
+
+        Parameters
+        ----------
+        result:
+            The rendered payload ready for delivery.
+        """
 
     @abstractmethod
     async def start(self, ctx: AdapterContext) -> None:

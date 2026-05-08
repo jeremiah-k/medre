@@ -712,3 +712,232 @@ class TestTargetScopedFailures:
             assert rendered.metadata.get("renderer") == "text"
         finally:
             await runner.stop()
+
+
+# ===================================================================
+# Render-before-deliver boundary tests
+# ===================================================================
+
+
+class TestRenderBeforeDeliverBoundary:
+    """Prove that adapters cannot bypass planning/rendering in the
+    supported path.  PipelineRunner always renders before delivery;
+    adapters receive RenderingResult, not raw CanonicalEvent.
+    """
+
+    async def test_adapter_receives_rendering_result_not_raw_event(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Pipeline delivers RenderingResult, never a raw CanonicalEvent."""
+        adapter = FakePresentationAdapter(adapter_id="target")
+
+        route = Route(
+            id="boundary-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel=None
+            ),
+            targets=[RouteTarget(adapter="target")],
+        )
+        router = Router(routes=[route])
+        config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={"target": adapter},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = _make_event(
+            event_id="boundary-001",
+            source_adapter="src",
+            payload={"text": "boundary test"},
+        )
+
+        try:
+            await runner.handle_ingress(event)
+
+            # Adapter received a RenderingResult, not a CanonicalEvent.
+            assert len(adapter.delivered_payloads) == 1
+            assert len(adapter.received_events) == 0
+            rendered = adapter.delivered_payloads[0]
+            assert isinstance(rendered, RenderingResult)
+            assert rendered.event_id == "boundary-001"
+        finally:
+            await runner.stop()
+
+    async def test_adapter_cannot_bypass_rendering(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """When rendering pipeline is empty, adapter receives nothing.
+
+        An empty rendering pipeline means no renderer can process the
+        event, resulting in a permanent_failure.  The adapter must not
+        receive the raw event as a fallback.
+        """
+        adapter = FakePresentationAdapter(adapter_id="target")
+
+        route = Route(
+            id="no-render-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel=None
+            ),
+            targets=[RouteTarget(adapter="target")],
+        )
+        router = Router(routes=[route])
+
+        # Empty rendering pipeline — no renderer available.
+        empty_pipeline = RenderingPipeline()
+        config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={"target": adapter},
+        )
+        config.rendering_pipeline = empty_pipeline
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = _make_event(
+            event_id="no-render-001", source_adapter="src"
+        )
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+
+            # Rendering failed — permanent failure outcome.
+            assert len(outcomes) == 1
+            assert outcomes[0].status == "permanent_failure"
+
+            # Adapter received NOTHING — no raw event fallback.
+            assert len(adapter.delivered_payloads) == 0
+            assert len(adapter.received_events) == 0
+        finally:
+            await runner.stop()
+
+    async def test_renderer_owns_target_formatting(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """The renderer decides the final payload text, not the adapter.
+
+        PipelineRunner uses TextRenderer to convert the canonical event
+        into a target-specific format.  The adapter merely stores the
+        result without reformatting.
+        """
+        adapter = FakePresentationAdapter(adapter_id="target")
+
+        route = Route(
+            id="format-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel=None
+            ),
+            targets=[RouteTarget(adapter="target")],
+        )
+        router = Router(routes=[route])
+        config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={"target": adapter},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = _make_event(
+            event_id="format-001",
+            source_adapter="src",
+            payload={"text": "renderer owns this"},
+        )
+
+        try:
+            await runner.handle_ingress(event)
+
+            # The adapter stores the RenderingResult exactly as rendered.
+            assert len(adapter.delivered_payloads) == 1
+            result = adapter.delivered_payloads[0]
+            assert result.payload["text"] == "renderer owns this"
+            assert result.metadata.get("renderer") == "text"
+        finally:
+            await runner.stop()
+
+
+# ===================================================================
+# Canonical immutability downstream tests
+# ===================================================================
+
+
+class TestCanonicalImmutabilityDownstream:
+    """Verify that canonical events cannot be mutated after pipeline
+    processing — they are frozen after creation and remain immutable
+    through storage, routing, rendering, and delivery.
+    """
+
+    async def test_event_not_mutated_after_storage_and_routing(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Event stored in DB is identical to the original ingress event."""
+        adapter = FakePresentationAdapter(adapter_id="target")
+
+        route = Route(
+            id="immut-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel=None
+            ),
+            targets=[RouteTarget(adapter="target")],
+        )
+        router = Router(routes=[route])
+        config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={"target": adapter},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = _make_event(
+            event_id="immut-001",
+            source_adapter="src",
+            payload={"text": "immutable"},
+        )
+        # Capture original field values before pipeline processes.
+        original_kind = event.event_kind
+        original_payload_body = event.payload["text"]
+        original_source = event.source_adapter
+
+        try:
+            await runner.handle_ingress(event)
+
+            # Retrieve from storage — fields must match original.
+            stored = await temp_storage.get("immut-001")
+            assert stored is not None
+            assert stored.event_kind == original_kind
+            assert stored.payload["text"] == original_payload_body
+            assert stored.source_adapter == original_source
+        finally:
+            await runner.stop()
+
+    async def test_frozen_event_raises_on_field_assignment(self) -> None:
+        """CanonicalEvent is frozen — assigning to any field raises."""
+        event = _make_event(event_id="freeze-001")
+        with pytest.raises(AttributeError):
+            setattr(event, "event_kind", "tampered")
+        with pytest.raises(AttributeError):
+            setattr(event, "payload", {"evil": True})
+        with pytest.raises(AttributeError):
+            setattr(event, "source_adapter", "impostor")
+
+    async def test_frozen_event_payload_dict_is_immutable(self) -> None:
+        """The frozen event's payload dict cannot be reassigned.
+
+        Note: the dict itself is not deeply frozen (that would require
+        a custom mapping), but the struct field is frozen — you cannot
+        replace the payload reference.
+        """
+        event = _make_event(event_id="freeze-002")
+        original_text = event.payload["text"]
+        # Struct is frozen — reassignment raises.
+        with pytest.raises(AttributeError):
+            setattr(event, "payload", {"hacked": True})
+        # Original value unchanged.
+        assert event.payload["text"] == original_text

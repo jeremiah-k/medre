@@ -18,7 +18,9 @@ Re-exported symbols
   ``RadioMetadata``, ``TelemetryMetadata``, ``NativeMetadata``,
   ``MetadataEmbeddingMode``, ``PrivacyMode``.
 * From :mod:`~medre.core.events.schema`:
-  ``SchemaRegistry``, ``SchemaVersion``, ``schema_version_from_event``.
+  ``SchemaRegistry``, ``SchemaVersion``, ``schema_version_from_event``,
+  ``CURRENT_SCHEMA_VERSION``, ``VALID_RELATION_TYPES``,
+  ``MIGRATION_REGISTRY``.
 """
 
 from medre.core.events.canonical import (
@@ -45,6 +47,9 @@ from medre.core.events.metadata import (
     TransportMetadata,
 )
 from medre.core.events.schema import (
+    CURRENT_SCHEMA_VERSION,
+    MIGRATION_REGISTRY,
+    VALID_RELATION_TYPES,
     SchemaRegistry,
     SchemaVersion,
     schema_version_from_event,
@@ -72,6 +77,9 @@ __all__ = [
     "TelemetryMetadata",
     "TransportMetadata",
     # schema
+    "CURRENT_SCHEMA_VERSION",
+    "MIGRATION_REGISTRY",
+    "VALID_RELATION_TYPES",
     "SchemaRegistry",
     "SchemaVersion",
     "schema_version_from_event",

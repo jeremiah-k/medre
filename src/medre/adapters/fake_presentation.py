@@ -141,8 +141,8 @@ class FakePresentationAdapter(BaseAdapter):
 
     # -- Outbound delivery --------------------------------------------------
 
-    async def deliver(self, event: CanonicalEvent | RenderingResult) -> None:
-        """Accept an outbound event or rendered payload for delivery.
+    async def deliver(self, result: RenderingResult | CanonicalEvent) -> None:
+        """Accept an outbound rendered payload or canonical event for delivery.
 
         This adapter does **not** perform event-kind-specific formatting.
         When a :class:`RenderingResult` is supplied it is stored in
@@ -154,13 +154,13 @@ class FakePresentationAdapter(BaseAdapter):
 
         Parameters
         ----------
-        event:
-            The canonical event or rendering result to deliver.
+        result:
+            The rendering result or canonical event to deliver.
         """
-        if isinstance(event, RenderingResult):
-            self.delivered_payloads.append(event)
+        if isinstance(result, RenderingResult):
+            self.delivered_payloads.append(result)
         else:
-            self.received_events.append(event)
+            self.received_events.append(result)
 
     # -- Test helpers -------------------------------------------------------
 
@@ -228,8 +228,8 @@ class FakePresentationAdapter(BaseAdapter):
             source_transport_id=self.adapter_id,
             source_channel_id=ch,
             parent_event_id=None,
-            lineage=[],
-            relations=[],
+            lineage=(),
+            relations=(),
             payload={"body": text, **extra_payload},
             metadata=EventMetadata(),
         )
@@ -284,7 +284,7 @@ class FakePresentationAdapter(BaseAdapter):
             source_channel_id=reply.source_channel_id,
             parent_event_id=reply.parent_event_id,
             lineage=reply.lineage,
-            relations=[relation],
+            relations=(relation,),
             payload=reply.payload,
             metadata=reply.metadata,
         )
@@ -334,7 +334,7 @@ class FakePresentationAdapter(BaseAdapter):
             source_channel_id=reaction.source_channel_id,
             parent_event_id=reaction.parent_event_id,
             lineage=reaction.lineage,
-            relations=[relation],
+            relations=(relation,),
             payload=reaction.payload,
             metadata=reaction.metadata,
         )
