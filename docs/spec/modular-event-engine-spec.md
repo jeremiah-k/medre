@@ -20,7 +20,7 @@
 12. [Storage and Canonical Event Log](#12-storage-and-canonical-event-log)
 13. [Schema Versioning](#13-schema-versioning)
 14. [Metadata Boundaries](#14-metadata-boundaries)
-15. [MeshCore State Machine](#15-meshcore-state-machine)
+15. [MeshCore Adapter State Machine](#15-meshcore-adapter-state-machine)
 16. [Matrix Metadata and Embedding](#16-matrix-metadata-and-embedding)
 17. [LXMF and Reticulum Adapter Notes](#17-lxmf-and-reticulum-adapter-notes)
 18. [Raw Native Archive Mode](#18-raw-native-archive-mode)
@@ -33,7 +33,8 @@
 25. [Future Document Split](#25-future-document-split)
 26. [Behavioral Lessons from MMRelay](#26-behavioral-lessons-from-mmrelay)
 27. [Out of Scope](#27-out-of-scope)
-28. [Appendix: Illustrative Snippets](#28-appendix-illustrative-snippets)
+28. [Conceptual Configuration Schema](#28-conceptual-configuration-schema)
+29. [Appendix: Illustrative Snippets](#29-appendix-illustrative-snippets)
 
 
 ## 1. Overview
@@ -100,35 +101,39 @@ The canonical event log in storage is the single source of truth. Metadata embed
 ### 4.1 Pipeline Overview
 
 ```
-[Adapters] --> ingress --> canonical event log
-                              |
-                         enrichment
-                              |
-                       transform pipeline
-                              |
-                        policy pipeline
-                              |
-                     routing / fanout
-                              |
-                      delivery planning
-                              |
-                   adapter queues / execution
-                              |
-                    receipts / correlation
+[Adapters] --> ingress policy --> store source event --> enrichment
+                                    |
+                              semantic transforms
+                                    |
+                              event policy
+                                    |
+                                 routing
+                                    |
+                              route policy
+                                    |
+                            delivery planning
+                                    |
+                     delivery policy / rendering
+                                    |
+                          adapter execution
+                                    |
+                     receipts / correlation
 ```
 
 ### 4.2 Stage Descriptions
 
 | Stage | Responsibility |
 |---|---|
-| **Ingress** | Adapters receive raw data from their native transport/protocol and emit a preliminary canonical event. No transformation happens here. The adapter wraps what it received. |
-| **Canonical Event Log** | The event is persisted to storage with a unique ID, timestamp, and initial schema version. This is the immutable record. |
+| **Ingress Policy** | Validates and filters raw inbound data before it enters the pipeline. Rejects malformed, unauthorized, or rate-limited ingress at the boundary. Prevents bad data from reaching storage. |
+| **Store Source Event** | The source event is persisted to storage with a unique ID, timestamp, and initial schema version. This is the immutable record. |
 | **Enrichment** | Supplementary data is attached: identity resolution, geo lookups, radio metadata normalization, source adapter state. Produces a derived event. |
-| **Transform Pipeline** | Derived events are converted into target event kinds. A telemetry event becomes a presentation-ready message event, a metrics update event, a database-only event, etc. Each transform declares input/output event kinds. |
-| **Policy Pipeline** | Transformed events pass through rate limiting, content filtering, permission checks, and user-configurable rules. Events may be dropped, modified (producing new derived events), or flagged. |
-| **Routing / Fanout** | The routing engine determines which adapters should receive this event. Fanout logic handles one-to-many delivery, channel mapping, and bridge group resolution. |
-| **Delivery Planning** | For each target adapter, a delivery plan is constructed: primary delivery method, fallback chain, retry strategy, ordering constraints, deduplication scope. |
-| **Adapter Queues / Execution** | Each adapter has an inbound/outbound queue. Delivery plans are dequeued and executed respecting adapter rate limits, connection state, and priority. |
+| **Semantic Transforms** | Derived events are converted into target event kinds. A telemetry event becomes a presentation-ready message event, a metrics update event, a database-only event, etc. Each transform declares input/output event kinds. |
+| **Event Policy** | Transformed events pass through rate limiting, content filtering, permission checks, and user-configurable rules. Events may be dropped, modified (producing new derived events), or flagged. This stage governs what content is allowed to proceed. |
+| **Routing** | The routing engine determines which adapters should receive this event. Route matching evaluates structured source/target criteria, channel mapping, and bridge group resolution. |
+| **Route Policy** | Per-route rules evaluated after routing but before delivery planning. Controls which matched routes actually proceed, applies per-route rate limits, quiet hours, and permission checks on the route+adapter pair. |
+| **Delivery Planning** | For each surviving target, a delivery plan is constructed: primary delivery method, fallback chain, retry strategy, ordering constraints, deduplication scope. Relation resolution maps cross-adapter threading. |
+| **Delivery Policy / Rendering** | Final delivery-level rules: adapter-specific content filtering, size limits, and capability downgrade. The rendering stage produces the final rendered payload for each adapter from the planned event, applying formatting, truncation, and metadata embedding. |
+| **Adapter Execution** | Each adapter has an inbound/outbound queue. Delivery plans are dequeued and executed respecting adapter rate limits, connection state, and priority. |
 | **Receipts / Correlation** | Delivery results are recorded and correlated back to the originating event. Failed deliveries trigger fallback plans or dead-letter processing. |
 
 ### 4.3 Data Flow Constraints
@@ -155,12 +160,39 @@ class CanonicalEvent:
     source_transport_id: str    # Opaque ID from the source transport (node num, user id)
     parent_event_id: str | None # For derived events, points to origin
     lineage: list[str]          # Chain of event_ids from origin to current
+    relations: list[EventRelation]  # First-class relations to other events (replies, reactions, etc.)
     payload: dict               # Kind-specific payload (validated per event_kind)
     metadata: EventMetadata     # Structured metadata (see Section 14)
     tags: set[str]              # Freeform tags for filtering/routing
 ```
 
-### 5.2 Event Kinds (Initial Registry)
+### 5.2 Event Relations
+
+Relations between events are first-class, not hidden in metadata. Every reply, reaction, edit, delete, or thread association is represented as an `EventRelation` record attached to the event.
+
+```python
+@dataclass(frozen=True)
+class EventRelation:
+    relation_type: Literal["reply", "reaction", "edit", "delete", "thread"]
+    target_event_id: str | None        # Canonical event ID of the target event
+    target_native_ref: str | None      # Native reference when canonical ID is not yet known
+    key: str | None                    # Relation-specific key (e.g., emoji for reactions)
+    fallback_text: str | None          # Inline text representation when target adapter lacks native support
+```
+
+Relation fields:
+
+| Field | Purpose |
+|---|---|
+| `relation_type` | The semantic type of the relation. |
+| `target_event_id` | The canonical event ID this relation points to. Set when the target event has been correlated. |
+| `target_native_ref` | The native reference (e.g., Matrix event ID, Meshtastic packet ID) when the canonical event ID has not been resolved yet. The relation resolution stage resolves `target_native_ref` to `target_event_id` via the `native_message_refs` table. |
+| `key` | Type-specific data. For `reaction`, this is the emoji or reaction identifier. For other types, it may carry a reason or label. |
+| `fallback_text` | Inline text representation used when the target adapter does not support this relation type natively (e.g., `[Alice] re: original msg > reply text`). |
+
+Relations are canonical. They are stored with the event and used by the relation resolution and delivery planning stages. Adapters and plugins read and write relations through the event model, not through ad-hoc metadata fields.
+
+### 5.3 Event Kinds (Initial Registry)
 
 | Kind | Description | Primary Producers |
 |---|---|---|
@@ -184,6 +216,19 @@ class CanonicalEvent:
 3. Transforms create new events referencing their input event as parent.
 4. The original event is always recoverable by following the lineage chain backward.
 5. Event IDs are UUIDv7 for natural time ordering and uniqueness.
+
+### 5.4 Event Record Taxonomy
+
+Not every record in the event pipeline has the same semantic weight. The runtime distinguishes four event record classes:
+
+| Record Class | Purpose | Storage |
+|---|---|---|
+| **Source Event** | The initial canonical event produced by an adapter codec from raw native data. This is the primary record of what happened on a transport. | Always stored in the canonical event log. |
+| **Derived Event** | An event produced by enrichment, transform, or policy stages. It references its parent via `parent_event_id` and carries a full `lineage`. | Stored in the canonical event log if it is semantically meaningful (e.g., a telemetry-to-message transform that downstream systems act on). Transient intermediate events may be stored or discarded based on configuration. |
+| **Delivery Artifact (Rendered Payload)** | The target-specific rendering of an event for a particular adapter (e.g., Matrix HTML with embedded metadata, MeshCore 160-byte truncated text, LXMF fields dict). | Stored as a `delivery_plan` / `rendered_payload` record attached to the delivery plan, not as a canonical event. These are adapter-specific renderings, not semantically independent events. |
+| **Receipt Event** | A `delivery.receipt` event recording the outcome of a delivery attempt. | Stored in the canonical event log as a first-class event. Receipts are semantically meaningful: they record what happened in the delivery layer. |
+
+**Storage guidance**: The canonical event log holds source events, semantically meaningful derived events, and receipt events. Target-specific renderings live as payload records on delivery plans. If a rendering is itself semantically meaningful (e.g., a message that was edited produces a new canonical event with edit semantics), it is a derived event, not a rendering artifact.
 
 
 ## 6. Event Transforms
@@ -240,13 +285,21 @@ All outputs share the same `parent_event_id` and include the input in their `lin
 
 ### 7.1 Purpose
 
-Policies are rules that govern whether, how, and where events are delivered. They run after transforms, operating on the final derived events.
+Policies are rules that govern whether, how, and where events are delivered. They are split into four stages that run at different points in the pipeline, each with a distinct scope:
+
+| Policy Stage | Pipeline Position | Scope |
+|---|---|---|
+| **Ingress Policy** | Before storage | Raw inbound events. Rejects malformed, unauthorized, or rate-limited ingress at the adapter boundary. Prevents bad data from reaching storage. |
+| **Event Policy** | After transforms | Derived events. Rate limiting, content filtering, permission checks, deduplication. Controls what content is allowed to proceed to routing. |
+| **Route Policy** | After routing | Matched routes. Per-route rate limits, quiet hours, permission checks on the route+adapter pair. Controls which matched routes actually proceed. |
+| **Delivery Policy** | Before adapter execution | Delivery plans. Adapter-specific size limits, capability downgrade, final content filtering. Controls how content is rendered and delivered. |
 
 ### 7.2 Policy Interface
 
 ```python
 class Policy(Protocol):
-    priority: int               # Execution order (lower runs first)
+    stage: Literal["ingress", "event", "route", "delivery"]
+    priority: int               # Execution order within stage (lower runs first)
 
     async def evaluate(self, event: CanonicalEvent, context: PolicyContext) -> PolicyResult:
         """Return a policy decision for this event."""
@@ -267,40 +320,101 @@ class PolicyResult:
 
 ### 7.4 Built-in Policies
 
-- **RateLimitPolicy**: Per-source, per-channel, per-event-kind rate limiting with configurable windows.
-- **ContentFilterPolicy**: Regex or keyword-based content filtering with allow/deny lists.
-- **PermissionPolicy**: Checks if the source identity has permission to send to the target route.
-- **DeduplicationPolicy**: Suppresses duplicate events within a configurable time window based on content hashing.
-- **QuietHoursPolicy**: Suppresses non-urgent deliveries during configured quiet hours per route.
-- **MaxLengthPolicy**: Truncates or splits messages that exceed adapter limits (e.g., MeshCore 160 bytes).
+| Policy | Stage | Description |
+|---|---|---|
+| **IngressValidationPolicy** | ingress | Rejects malformed events, unknown adapters, or events exceeding size limits at the ingress boundary. |
+| **IngressRateLimitPolicy** | ingress | Per-adapter ingress rate limiting to prevent flooding the pipeline. |
+| **RateLimitPolicy** | event | Per-source, per-channel, per-event-kind rate limiting with configurable windows. |
+| **ContentFilterPolicy** | event | Regex or keyword-based content filtering with allow/deny lists. |
+| **PermissionPolicy** | event | Checks if the source identity has permission to send to the target route. |
+| **DeduplicationPolicy** | event | Suppresses duplicate events within a configurable time window based on content hashing. |
+| **QuietHoursPolicy** | route | Suppresses non-urgent deliveries during configured quiet hours per route. |
+| **RouteRateLimitPolicy** | route | Per-route rate limiting controlling how often a specific route fires. |
+| **RoutePermissionPolicy** | route | Checks if the source identity has permission to use this specific route. |
+| **MaxLengthPolicy** | delivery | Truncates or splits messages that exceed adapter limits (e.g., MeshCore 160 bytes). |
+| **CapabilityFallbackPolicy** | delivery | Degrades event features based on target adapter capabilities (drops reactions when adapter reports `reactions: false`, renders edits as new messages when `edits: metadata_native_or_fallback`). |
 
 
 ## 8. Routing and Delivery Planning
 
 ### 8.1 Routing
 
-The routing engine maps events to target adapters and channels/routes.
+The routing engine maps events to target adapters and channels/routes using structured source and target references, not string patterns.
 
 ```python
 @dataclass
+class RouteSource:
+    """Structured description of where a route matches events from."""
+    adapter: str | None          # Adapter instance name, or None for any
+    event_kinds: list[str]       # Event kinds to match (e.g., ["message.text", "telemetry"])
+    channel: str | None          # Source channel/filter, or None for any
+
+@dataclass
+class RouteTarget:
+    """Structured description of where a route delivers events to."""
+    adapter: str                 # Target adapter instance name
+    channel: str | None          # Target channel/room/topic, or None for adapter default
+    destination: RouteDestination | None  # Structured destination for identity-based addressing
+
+@dataclass
+class RouteDestination:
+    """Structured destination for adapters that use identity-based addressing (e.g., LXMF)."""
+    kind: Literal["channel", "lxmf_destination", "meshcore_contact", "matrix_room"]
+    destination_hash: str | None     # Hash or opaque ID (e.g., LXMF destination hash)
+    destination_name: str | None     # Human-readable name for config readability
+
+@dataclass
 class Route:
     route_id: str
-    source_pattern: str        # Glob pattern matching source adapter or event kind
-    target_adapter: str        # Adapter instance name
-    target_channel: str        # Adapter-specific channel/room/topic
-    priority: int              # Delivery priority (lower = higher priority)
+    from_: RouteSource          # Structured source matching criteria
+    to: list[RouteTarget]       # One or more structured targets
+    priority: int               # Delivery priority (lower = higher priority)
     enabled: bool
-    filters: dict              # Additional filter criteria (tags, metadata values)
+    filters: dict               # Additional filter criteria (tags, metadata values)
 ```
 
 Routes are configured by the operator. The routing engine evaluates all matching routes for each event, producing a list of target deliveries.
 
+Example route matching a MeshCore radio to Matrix and Discord:
+
+```python
+Route(
+    route_id="mesh-to-matrix-general",
+    from_=RouteSource(adapter="meshcore-radio-1", event_kinds=["message.text"], channel="general"),
+    to=[RouteTarget(adapter="matrix-home", channel="general")],
+    priority=10,
+    enabled=True,
+    filters={},
+)
+```
+
+Example route targeting an LXMF identity destination:
+
+```python
+Route(
+    route_id="matrix-to-lxmf-peer",
+    from_=RouteSource(adapter="matrix-home", event_kinds=["message.text"], channel="general"),
+    to=[RouteTarget(
+        adapter="lxmf-node-a",
+        channel=None,
+        destination=RouteDestination(
+            kind="lxmf_destination",
+            destination_hash="e5f6a7b8c9d0e1f2",
+            destination_name="mobile-peer-1",
+        ),
+    )],
+    priority=15,
+    enabled=True,
+    filters={},
+)
+```
+
 ### 8.2 Fanout
 
-The `fanout.py` module handles one-to-many delivery:
+The router handles one-to-many delivery through the `to` list in each route:
 
 - A single event may match multiple routes (e.g., a message bridged to both Matrix and Discord).
-- Each target gets its own delivery plan.
+- Each target in the `to` list gets its own delivery plan.
 - Fanout is configurable: broadcast (all matches), round-robin, weighted, or first-available.
 
 ### 8.3 Delivery Planning
@@ -312,19 +426,15 @@ Core planning modules:
 | Module | Responsibility |
 |---|---|
 | `delivery_plan.py` | Constructs `DeliveryPlan` instances with primary strategy, fallback chain, retry policy, ordering, and dedup scope |
-| `relation_resolution.py` | Maps reply threading, reactions, and edit correlation across adapters. Falls back to inline text when the target lacks native support |
+| `relation_resolution.py` | Maps reply threading, reactions, and edit correlation across adapters using `native_message_refs`. Falls back to inline text when the target lacks native support |
 | `capability_fallback.py` | Degrades event features based on target adapter capabilities (e.g., drops reactions when adapter reports `reactions: false`, renders edits as new messages when `edits: metadata_native_or_fallback`) |
-| `rendering.py` | Produces the final rendered payload for each adapter from the planned event, applying formatting, truncation, and metadata embedding |
-| `fanout.py` | Handles one-to-many delivery (see Section 8.2), ensuring each destination gets its own delivery plan |
-| `transforms.py` | Delivery transforms that adapt event representations for specific protocol requirements (e.g., LXMF field embedding, Matrix HTML stripping, MeshCore truncation) |
 
 ```python
 @dataclass
 class DeliveryPlan:
     plan_id: str
     event_id: str              # Event being delivered
-    target_adapter: str
-    target_channel: str
+    target: RouteTarget        # Structured target (adapter, channel, destination) — see Section 8.1
     primary_strategy: DeliveryStrategy
     fallback_chain: list[DeliveryStrategy]  # Ordered fallback attempts
     retry_policy: RetryPolicy
@@ -365,6 +475,10 @@ Adapters are categorized by their primary function:
 
 ### 9.2 Adapter Interface
 
+The adapter interface is split into two concerns: the adapter lifecycle and the codec for format conversion.
+
+**Live adapter interface** (lifecycle and delivery):
+
 ```python
 class Adapter(Protocol):
     name: str                   # Unique adapter instance name
@@ -373,25 +487,58 @@ class Adapter(Protocol):
     rate_limits: RateLimitConfig     # Adapter-specific rate limit configuration
 
     async def start(self, context: AdapterContext) -> None:
-        """Initialize the adapter. Given context provides event bus access, storage, config."""
+        """Initialize the adapter. Inbound events are published via context.publish_inbound()."""
         ...
 
     async def stop(self, timeout: float) -> None:
         """Gracefully shut down. Drain queues within timeout."""
         ...
 
-    async def receive(self, raw_data: bytes | dict, metadata: dict) -> CanonicalEvent:
-        """Convert raw transport data into a preliminary canonical event. Called by ingress."""
-        ...
-
-    async def deliver(self, event: CanonicalEvent, plan: DeliveryPlan) -> DeliveryReceipt:
-        """Deliver a transformed event to this adapter's target. Return a receipt."""
+    async def deliver(self, plan: DeliveryPlan) -> DeliveryReceipt:
+        """Deliver a rendered event to this adapter's target. Return a receipt."""
         ...
 
     async def health_check(self) -> AdapterHealth:
         """Return current health status."""
         ...
 ```
+
+Adapters do not implement `receive(raw_data, metadata)` as a primary contract. Instead, inbound events flow through the adapter's internal listener loop: the adapter receives native data, converts it via its codec, and publishes the canonical event by calling `ctx.publish_inbound(event)`. This keeps the adapter in control of its own receive loop and event loop integration.
+
+**Adapter codec interface** (format conversion):
+
+```python
+class AdapterCodec(Protocol):
+    """Handles conversion between native protocol data and canonical events."""
+
+    async def decode(self, native_event: NativeEvent) -> CanonicalEvent:
+        """Convert a native protocol event into a preliminary canonical event.
+        Called by the adapter's inbound listener after receiving raw data."""
+        ...
+
+    async def encode(self, event: CanonicalEvent, plan: DeliveryPlan) -> NativeOutbound:
+        """Convert a canonical event into a native protocol payload for delivery.
+        Called by the adapter's deliver() implementation."""
+        ...
+```
+
+```python
+@dataclass
+class NativeEvent:
+    """Wrapper for raw data received from a native transport."""
+    raw_data: bytes | dict       # Raw protocol data
+    metadata: dict               # Transport-specific metadata (headers, connection info)
+    received_at: datetime        # Timestamp when the adapter received this data
+
+@dataclass
+class NativeOutbound:
+    """Rendered payload ready for delivery to a native transport."""
+    payload: bytes | dict        # Protocol-specific payload
+    metadata: dict               # Delivery metadata (destination, headers)
+    native_message_id: str | None  # Native message ID after successful send
+```
+
+Each adapter provides its own codec implementation. The codec is an adapter-private concern, not part of the public adapter protocol. Adapters may use the codec internally in their `start()` listener loop and `deliver()` implementation.
 
 ### 9.3 Adapter Lifecycle
 
@@ -411,8 +558,8 @@ Each adapter receives an `AdapterContext` providing controlled access to runtime
 @dataclass
 class AdapterContext:
     config: dict                      # Adapter-specific configuration
-    event_bus: EventBus                # For emitting events into the pipeline
-    storage: StorageBackend            # For querying historical events
+    publish_inbound: Callable[[CanonicalEvent], Awaitable[None]]  # Publish inbound event into pipeline
+    storage: StorageBackend            # For querying historical events and storing native refs
     identity_resolver: IdentityResolver # For resolving native IDs to canonical actors
     logger: BoundLogger                # Structured logger with adapter context
     schema_registry: SchemaRegistry    # For looking up event schemas
@@ -539,7 +686,62 @@ SQLite is chosen for:
 - Sufficient performance for typical mesh network event volumes.
 - Built-in WAL mode for concurrent reads.
 
-### 12.2 Storage Schema (Conceptual)
+### 12.2 Native Message References
+
+Adapters operate in native protocol terms (Matrix event IDs, Meshtastic packet IDs, LXMF message IDs, MeshCore message references). The runtime must correlate these native references back to canonical event IDs. This is the foundation for cross-adapter relation resolution: a reply on Matrix referencing a Matrix event ID must resolve to the canonical event that originated from a mesh radio.
+
+The `NativeMessageRef` concept provides this mapping:
+
+```python
+@dataclass(frozen=True)
+class NativeMessageRef:
+    id: int                         # Auto-increment primary key
+    event_id: str                   # Canonical event ID
+    adapter: str                    # Adapter instance name
+    native_channel_id: str          # Native channel/room/topic on the adapter
+    native_message_id: str          # Native message ID on the adapter
+    native_thread_id: str | None    # Native thread/conversation ID if applicable
+    native_relation_id: str | None  # Native relation reference (e.g., Matrix relates_to event ID)
+    direction: Literal["inbound", "outbound"]  # Whether this ref was created on ingress or delivery
+    metadata: dict                  # Adapter-specific correlation metadata
+    created_at: datetime
+    # UNIQUE constraint on (adapter, native_channel_id, native_message_id)
+```
+
+Storage table:
+
+```sql
+CREATE TABLE native_message_refs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
+    adapter TEXT NOT NULL,
+    native_channel_id TEXT NOT NULL,
+    native_message_id TEXT NOT NULL,
+    native_thread_id TEXT,
+    native_relation_id TEXT,
+    direction TEXT NOT NULL CHECK(direction IN ('inbound', 'outbound')),
+    metadata TEXT NOT NULL DEFAULT '{}',  -- JSON
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    UNIQUE(adapter, native_channel_id, native_message_id)
+);
+
+CREATE INDEX idx_native_refs_event ON native_message_refs(event_id);
+CREATE INDEX idx_native_refs_adapter_native ON native_message_refs(adapter, native_message_id);
+CREATE INDEX idx_native_refs_relation ON native_message_refs(adapter, native_relation_id);
+```
+
+This table is required for:
+
+| Transport | Native Reference | Example |
+|---|---|---|
+| Matrix | `native_message_id` = Matrix event ID (e.g., `$abc123`) | Reply correlation across bridges |
+| Meshtastic | `native_message_id` = packet ID, `native_channel_id` = channel index | Mesh message to Matrix reply |
+| MeshCore | `native_message_id` = MeshCore message reference | MeshCore to Matrix correlation |
+| LXMF | `native_message_id` = LXMF message ID, source hash as `native_channel_id` | LXMF to Matrix correlation |
+
+Relation resolution queries this table: given a `target_native_ref` from an `EventRelation`, the resolver looks up `(adapter, target_native_ref)` to find the canonical `event_id`.
+
+### 12.3 Storage Schema (Conceptual)
 
 ```sql
 CREATE TABLE canonical_events (
@@ -585,7 +787,7 @@ CREATE TABLE native_archive (
 );
 ```
 
-### 12.3 Future Backends
+### 12.4 Future Backends
 
 The storage interface is abstracted to allow future backends:
 
@@ -603,6 +805,9 @@ class StorageBackend(Protocol):
     async def get(self, event_id: str) -> CanonicalEvent | None: ...
     async def append_receipt(self, receipt: DeliveryReceipt) -> None: ...
     async def archive_raw(self, event_id: str, adapter: str, data: bytes) -> None: ...
+    async def store_native_ref(self, ref: NativeMessageRef) -> None: ...
+    async def resolve_native_ref(self, adapter: str, native_message_id: str) -> str | None: ...
+    async def resolve_native_relation(self, adapter: str, native_relation_id: str) -> str | None: ...
 ```
 
 
@@ -670,9 +875,9 @@ Older implementations used `metadata.meshtastic.*` as a catch-all. In this runti
 The `metadata.native` namespace serves as a temporary holding area for fields that haven't been categorized yet. The enrichment stage normalizes `metadata.native` fields into their proper namespaces when possible.
 
 
-## 15. MeshCore State Machine
+## 15. MeshCore Adapter State Machine
 
-MeshCore (the Meshtastic ecosystem adapter) has a complex connection lifecycle that must be modeled explicitly. The adapter tracks its state through these stages:
+MeshCore is a separate mesh transport adapter with a complex connection lifecycle that must be modeled explicitly. The adapter tracks its state through these stages:
 
 ```
 DISCONNECTED --> CONNECTING --> AUTHENTICATING --> SYNCING --> READY
@@ -732,7 +937,7 @@ Each state change emits a `system.lifecycle` event:
 These constraints inform adapter behavior and delivery planning:
 
 - **160-byte text limit** on messages. Messages exceeding this must be split or truncated. The MaxLengthPolicy handles this.
-- **Channel slot/index** model. Each message is associated with a channel index (0-7). Routing maps canonical channels to MeshCore channel indices.
+- **Channel slot/index model.** Each message is associated with a channel slot. The available channel slots and their ranges are adapter-discovered runtime capabilities, not fixed assumptions. Routing maps canonical channels to MeshCore channel slots discovered during the SYNCING state.
 - **Contacts** are addressable entities. Not all nodes are contacts. Identity resolution handles the distinction.
 - **Telemetry** is broadcast periodically or on-demand. Telemetry events are transport-sourced, not user-sourced.
 - **No native replies or reactions.** MeshCore has no reply threading or reaction mechanism. Relation resolution must handle this gracefully when bridging from platforms that do (Matrix, Discord).
@@ -805,10 +1010,18 @@ Any feature that needs reliable metadata (replay, correlation, identity resoluti
 
 - **Redaction behavior**: Synapse redacts the `content` body of an event when redacted. The `org.meshnet-framework.event` field is part of `content` and will be destroyed. The canonical event in storage is unaffected.
 - **Configurable privacy modes**:
-  - `full`: Embed all metadata in Matrix events. Maximum context for users, but all metadata is lost on redaction.
+  - `off`: Do not embed any runtime metadata in Matrix events. Matrix is purely a display surface. All correlation goes through storage.
   - `minimal`: Embed only `event_id` and `source_transport_id`. Users see limited context. Less data exposed on redaction.
-  - `none`: Do not embed any runtime metadata in Matrix events. Matrix is purely a display surface. All correlation goes through storage.
-- **Default**: `minimal`. Operators can choose based on their threat model.
+  - `safe`: Embed normalized metadata (event kind, source adapter, transport protocol, radio metrics, telemetry) but never secrets or raw payloads. This is the recommended mode for operators who want visible context without security exposure.
+  - `full`: Embed all metadata in Matrix events. Maximum context for users, but all metadata is lost on redaction.
+- **Default**: `safe`. Operators can choose based on their threat model.
+
+**Explicit never-embed list**: Regardless of mode, the following are never embedded in Matrix events:
+- Channel keys, private keys, or access tokens
+- Raw encrypted blobs or raw packets
+- Raw native protocol data (Meshtastic protobuf, Reticulum packets)
+- Identity private keys or signing keys
+- Full raw native archive data
 
 ### 16.4 Matrix-Specific Adapter Notes
 
@@ -882,11 +1095,11 @@ metadata.transport = {
     "protocol": "lxmf",
     "substrate": "reticulum",
     "delivery_method": "propagated",    # direct | propagated | opportunistic | paper
-    "delivery_confirmed": True,
-    "transport_encrypted": True,
-    "signature_valid": True,
-    "stamp_valid": True,
-    "propagation_state": "delivered",   # Adapter tracks propagation node sync state
+    "delivery_confirmed": None,         # True | False | None (None: propagated, not yet confirmed)
+    "transport_encrypted": True,        # True | False | None (None: status cannot be determined)
+    "signature_valid": None,            # True | False | None (None: unsigned or unverified message)
+    "stamp_valid": None,                # True | False | None (None: no stamp present or not checked)
+    "propagation_state": "queued",      # queued | sent | delivered | failed (adapter tracks propagation sync)
     "link_quality": {                   # When available from underlying transport
         "rssi": -90,
         "snr": 3.1,
@@ -907,6 +1120,8 @@ metadata.native = {
 ```
 
 Link quality values (rssi, snr, q) are carried when the underlying Reticulum transport provides them. They are not guaranteed on every message.
+
+**Nullable security and delivery fields**: `transport_encrypted`, `signature_valid`, `stamp_valid`, and `delivery_confirmed` are tri-state: `True`, `False`, or `None`. `None` means the adapter could not determine the status (unsigned message, stamp not present, propagation not yet confirmed). Consumers must handle `None` as "unknown", not as "false" or "true". Examples: an opportunistic LXMF message with no signature has `signature_valid=None`; a propagated message awaiting delivery confirmation has `delivery_confirmed=None`.
 
 ### 17.7 LXMF Identity Mapping
 
@@ -930,6 +1145,35 @@ Delivery planning for LXMF targets must account for:
 - **Receipt correlation**: LXMF per-message delivery and failed callbacks map directly to the core receipt system. Propagated messages may receive delivery confirmation much later than the send time.
 
 ### 17.9 LXMF Adapter Package
+
+The adapter is organized as follows:
+
+```
+adapters/lxmf/
+├── __init__.py          # Adapter registration
+├── adapter.py           # Adapter protocol implementation, lifecycle
+├── codec.py             # LXMessage <-> canonical event encoding/decoding
+├── router.py            # LXMRouter setup, delivery callback registration
+├── identity.py          # Reticulum identity management, hash mapping
+├── delivery.py          # Outbound delivery, method selection, receipt handling
+├── propagation.py       # Propagation node configuration and sync
+├── formatting.py        # Content formatting for LXMF (title, content, fields)
+├── fields.py            # Fields dict construction and parsing for framework metadata
+└── connection.py        # Reticulum transport initialization, announce handling
+```
+
+### 17.10 LXMF Test Cases
+
+The following test cases must pass for LXMF integration to be considered complete:
+
+| Test Case | Description |
+|---|---|
+| **Inbound LXMF to Canonical Message** | An inbound `LXMessage` with text content is decoded by the codec into a `CanonicalEvent` with `event_kind="message.text"`, correct `source_adapter`, `source_transport_id` set to the source hash, and payload containing the message text. |
+| **LXMF org.* Metadata to Relation Resolution** | An inbound `LXMessage` with `fields["org.meshnet-framework.event"].relation` set to `{"type": "reply", "parent_event_id": "..."}` produces a `CanonicalEvent` with an `EventRelation(relation_type="reply", target_event_id="...")`. The relation is first-class, not buried in metadata. |
+| **Matrix Reply to LXMF Metadata-Native Relation** | A Matrix reply (`m.relates_to` with `m.in_reply_to`) is correlated to the originating LXMF message via `native_message_refs`, producing a `CanonicalEvent` with `EventRelation(relation_type="reply", target_event_id=<canonical id of the LXMF message>)`. The LXMF adapter encodes this relation into the outbound `LXMessage.fields` dict for framework-aware peers. |
+| **LXMF Delivery Callback to Receipt** | The LXMF per-message delivery callback fires with `LXMessage.state=DELIVERED`. The adapter produces a `DeliveryReceipt` with `status=ACKNOWLEDGED` and stores a `native_message_ref` mapping the LXMF message ID to the canonical delivery receipt event. |
+| **Propagated LXMF Queued/Delayed Receipt** | An outbound LXMF message sent via propagation (no direct link) initially produces a `DeliveryReceipt` with `status=QUEUED`. When the propagation node later confirms delivery, the adapter updates the receipt to `status=SENT`. The delivery plan's deadline and retry policy govern how long to wait before marking the delivery as failed. |
+| **LXMF Unknown Peer Identity Auto-Create** | An inbound `LXMessage` from an unknown source hash triggers identity auto-creation: a new `CanonicalActor` with `verification_status="unverified"` and a `NativeIdentity` with `adapter="lxmf-node-a"`, `native_id=<source_hash>`. Subsequent messages from the same source hash resolve to the same actor. |
 
 The adapter is organized as follows:
 
@@ -1076,6 +1320,37 @@ class PluginContext:
     rate_limiter: RateLimiter           # Per-plugin rate limiter
 ```
 
+### 20.5 Plugin Convenience APIs
+
+Plugins can emit events through the low-level `event_bus`, but the happy path should be simple. The `PluginContext` provides convenience methods for common operations:
+
+```python
+class PluginContext:
+    # ... core fields from 20.4 ...
+
+    async def reply(self, text: str) -> None:
+        """Reply to the current event being handled. Sets relation_type='reply'
+        and target_event_id to the current event's ID."""
+        ...
+
+    async def send(self, text: str, target: str | None = None) -> None:
+        """Send a message text event. If target is specified, routes to that
+        adapter/channel. Otherwise follows default routing."""
+        ...
+
+    async def react(self, key: str) -> None:
+        """React to the current event with the given key (e.g., emoji).
+        Sets relation_type='reaction' and the key field."""
+        ...
+
+    async def emit(self, kind: str, payload: dict) -> None:
+        """Emit a custom event of the given kind with the given payload.
+        For plugin events that don't fit reply/send/react patterns."""
+        ...
+```
+
+These convenience methods internally create `CanonicalEvent` instances with appropriate `EventRelation` entries and emit them through the event bus. The low-level `event_bus` remains available for plugins that need full control over event construction.
+
 
 ## 21. Observability
 
@@ -1123,19 +1398,21 @@ Events carry a trace context through the pipeline. Each stage creates a span. Di
 │   │   ├── canonical.py          # CanonicalEvent dataclass
 │   │   ├── kinds.py              # Event kind registry
 │   │   └── schema.py             # Schema registry and validation
-│   ├── routing/                  # Route matching, fanout
+│   ├── routing/                  # Route matching only (no fanout, no transforms)
 │   │   ├── __init__.py
-│   │   ├── router.py             # Route evaluation engine
-│   │   └── fanout.py             # One-to-many delivery fanout
-│   ├── planning/                 # Delivery plan construction, fallback, relation resolution
+│   │   └── router.py             # Route evaluation engine
+│   ├── planning/                 # Delivery planning, fallback, relation resolution
 │   │   ├── __init__.py
 │   │   ├── delivery_plan.py      # DeliveryPlan construction
 │   │   ├── fallback_resolution.py
 │   │   ├── relation_resolution.py
-│   │   ├── capability_fallback.py  # Capability downgrade per target adapter
-│   │   ├── rendering.py            # Final payload rendering per adapter
-│   │   ├── fanout.py               # Multi-destination fanout delivery
-│   │   └── transforms.py           # Delivery transforms (protocol-specific adaptations)
+│   │   └── capability_fallback.py  # Capability downgrade per target adapter
+│   ├── rendering/                # Target-specific payload rendering
+│   │   ├── __init__.py
+│   │   ├── renderer.py           # Rendering engine
+│   │   ├── matrix.py             # Matrix-specific rendering (HTML, metadata embedding)
+│   │   ├── meshcore.py           # MeshCore-specific rendering (truncation, plain text)
+│   │   └── lxmf.py               # LXMF-specific rendering (fields dict, title/content)
 │   ├── delivery/                 # Adapter queues, execution, receipt processing
 │   │   ├── __init__.py
 │   │   ├── executor.py           # Delivery execution engine
@@ -1180,10 +1457,12 @@ Events carry a trace context through the pipeline. Each stage creates a span. Di
 │   ├── meshcore/                 # MeshCore TRANSPORT adapter
 │   │   ├── __init__.py
 │   │   ├── adapter.py
+│   │   ├── codec.py              # MeshCore native <-> canonical event encoding
 │   │   └── state_machine.py
 │   ├── meshtastic/               # Meshtastic TRANSPORT adapter
 │   │   ├── __init__.py
 │   │   ├── adapter.py
+│   │   ├── codec.py              # Meshtastic protobuf <-> canonical event encoding
 │   │   └── node_cache.py         # Node database cache and refresh
 │   ├── lxmf/                     # LXMF TRANSPORT adapter (over Reticulum)
 │   │   ├── __init__.py
@@ -1199,6 +1478,7 @@ Events carry a trace context through the pipeline. Each stage creates a span. Di
 │   ├── matrix/                   # Matrix PRESENTATION adapter
 │   │   ├── __init__.py
 │   │   ├── adapter.py
+│   │   ├── codec.py              # Matrix event <-> canonical event encoding
 │   │   └── embedding.py
 │   ├── discord/                  # Discord PRESENTATION adapter
 │   │   ├── __init__.py
@@ -1233,6 +1513,10 @@ Events carry a trace context through the pipeline. Each stage creates a span. Di
     ├── test_storage.py
     ├── test_meshcore_adapter.py
     ├── test_matrix_adapter.py
+    ├── test_lxmf_adapter.py
+    ├── test_lxmf_relations.py
+    ├── test_lxmf_delivery.py
+    ├── test_lxmf_identity.py
     └── test_replay.py
 ```
 
@@ -1241,35 +1525,48 @@ Events carry a trace context through the pipeline. Each stage creates a span. Di
 
 ### 23.1 Minimum Viable Runtime (Phase 1)
 
-- [ ] Canonical event model defined with all core fields.
-- [ ] SQLite storage backend writes and reads canonical events.
-- [ ] Single TRANSPORT adapter (MeshCore) ingresses raw radio data as canonical events.
-- [ ] Single PRESENTATION adapter (Matrix) delivers text events to a configured room.
-- [ ] Event pipeline stages execute in order: ingress, store, enrich, transform, route, deliver.
+- [ ] Canonical event model defined with all core fields, including `relations` list.
+- [ ] `EventRelation`, `NativeMessageRef`, and event record taxonomy defined.
+- [ ] SQLite storage backend writes and reads canonical events, native refs, and receipts.
+- [ ] Fake/test adapters (TRANSPORT and PRESENTATION) exercise the full pipeline without real hardware or network.
+- [ ] Structured route model with `RouteSource` and `RouteTarget` evaluates matches correctly.
+- [ ] Delivery planning constructs plans with fallback chains.
+- [ ] Event pipeline stages execute in order: ingress policy, store, enrich, transform, event policy, route, route policy, delivery plan, delivery policy/render, deliver.
 - [ ] Immutability invariant holds: no event is mutated after creation.
 - [ ] Delivery receipts are recorded for every delivery attempt.
-- [ ] Basic identity resolution creates canonical actors for new native identities.
+- [ ] Relation resolution resolves `target_native_ref` to `target_event_id` via `native_message_refs`.
 - [ ] Structured logging covers all pipeline stages.
 - [ ] Configuration is loaded from a single YAML file.
 
 ### 23.2 Core Feature Complete (Phase 2)
 
 - [ ] Transform pipeline with at least 3 built-in transforms (telemetry-to-message, telemetry-to-metrics, message-to-matrix).
-- [ ] Policy pipeline with rate limiting and deduplication.
+- [ ] Policy pipeline with rate limiting and deduplication across all four policy stages.
 - [ ] Delivery planning with fallback chains and capability downgrade.
 - [ ] Relation resolution handles Matrix replies to mesh messages and LXMF metadata-native relations.
-- [ ] Additional adapters: Discord or Telegram.
+- [ ] Matrix PRESENTATION adapter: delivery to configured rooms, safe metadata embedding, `m.relates_to` mapping.
 - [ ] MeshCore state machine handles all states and transitions.
 - [ ] Metadata is properly namespaced (transport, routing, radio, telemetry).
 - [ ] Raw native archive mode available (opt-in).
-- [ ] Replay engine can reprocess historical events.
-- [ ] Plugin host loads and executes plugins within capability boundaries.
+
+### 23.3 Mesh Transport Integration (Phase 3)
+
+- [ ] MeshCore or Meshtastic TRANSPORT adapter ingresses raw radio data as canonical events.
+- [ ] Channel slot mapping is runtime-discovered during adapter SYNCING state.
+- [ ] Additional presentation adapters: Discord or Telegram.
+- [ ] Identity resolution creates canonical actors for new native identities.
+
+### 23.4 LXMF Integration (Phase 4)
+
 - [ ] LXMF adapter ingresses and delivers events via LXMRouter with identity mapping (source hash, destination hash).
-- [ ] LXMF metadata fields (delivery method, delivery confirmation, propagation state) are normalized into canonical event metadata.
+- [ ] LXMF metadata fields (delivery method, delivery confirmation, propagation state) are normalized into canonical event metadata with nullable security fields.
 - [ ] LXMF delivery receipts are correlated to core receipt system from per-message callbacks.
+- [ ] LXMF tests pass: inbound canonical, org.* metadata relation, Matrix reply to LXMF, delivery callback receipt, propagated queued receipt, unknown peer identity auto-create.
 
-### 23.3 Production Ready (Phase 3)
+### 23.5 Production Ready (Phase 5)
 
+- [ ] Plugin host loads and executes plugins within capability boundaries, including convenience APIs.
+- [ ] Replay engine can reprocess historical events.
 - [ ] All metrics exposed via Prometheus-compatible endpoint.
 - [ ] OpenTelemetry tracing through all pipeline stages.
 - [ ] Management API for routes, adapters, events, plugins.
@@ -1284,47 +1581,55 @@ Events carry a trace context through the pipeline. Each stage creates a span. Di
 
 ### Phase 1: Foundation (Weeks 1-4)
 
-Focus: Core event model, storage, single adapter pair.
+Focus: Core event model, storage, fake/test adapters, routing and delivery tests.
 
 | Week | Deliverables |
 |---|---|
-| 1 | `core/events/` package: CanonicalEvent, event kinds, schema registry. `core/storage/` SQLite backend. |
-| 2 | `app/` package: CLI entry point, YAML config loading. `core/lifecycle/` manager skeleton. |
-| 3 | `adapters/meshcore/` adapter: ingress from MeshCore, state machine (DISCONNECTED through READY). |
-| 4 | `adapters/matrix/` adapter: delivery to Matrix room, basic metadata embedding. End-to-end integration test. |
+| 1 | `core/events/` package: CanonicalEvent with relations, EventRelation, event kinds, schema registry, event record taxonomy. `core/storage/` SQLite backend with canonical_events, native_message_refs, delivery_receipts tables. |
+| 2 | `app/` package: CLI entry point, YAML config loading. `core/lifecycle/` manager skeleton. `core/routing/` structured route evaluation (RouteSource, RouteTarget, RouteDestination). `core/planning/` delivery plans and fallback resolution. |
+| 3 | `adapters/` base: Adapter protocol with codec pattern, AdapterContext with publish_inbound. Fake/test TRANSPORT adapter and fake/test PRESENTATION adapter. Policy pipeline split (ingress/event/route/delivery stages). |
+| 4 | `core/transforms/` pipeline with basic transforms. `core/rendering/` renderer skeleton. End-to-end integration test using fake adapters through full pipeline. Delivery receipt and native ref correlation tests. |
 
-### Phase 2: Pipeline (Weeks 5-10)
+### Phase 2: Matrix Presentation Adapter (Weeks 5-8)
 
-Focus: Transform, policy, routing, delivery planning.
-| Week | Deliverables |
-|---|---|
-| 5-6 | `core/transforms/` pipeline with telemetry-to-message, telemetry-to-metrics transforms. |
-| 7 | `core/policies/` pipeline with rate limiting and deduplication policies. |
-| 8 | `core/routing/` route evaluation and fanout. `core/planning/` delivery plans and fallback resolution. |
-| 9 | `core/delivery/` adapter queues and execution engine. Receipt processing and correlation. |
-| 10 | `core/identity/` resolver and actor model. Relation resolution for cross-adapter replies. |
-
-### Phase 3: Expansion (Weeks 11-16)
-
-Focus: Additional adapters, plugins, observability, API.
+Focus: Matrix adapter, delivery, metadata embedding.
 
 | Week | Deliverables |
 |---|---|
-| 11-12 | Additional adapters: Discord or Telegram. MeshCore state machine completed (all states). |
-| 13 | `plugins/` host with capability scoping. Example plugins. Raw native archive mode. |
-| 14 | `core/observability/` metrics and tracing. Replay engine. |
-| 15 | `api/` management endpoints. Schema versioning upgrade path. |
-| 16 | Documentation, configuration examples, integration test coverage, CLI polish. |
+| 5-6 | `adapters/matrix/` adapter: delivery to Matrix rooms, safe metadata embedding, `m.relates_to` mapping to EventRelation. `core/rendering/matrix.py` for Matrix HTML rendering. |
+| 7 | `core/identity/` resolver and actor model. Relation resolution for cross-adapter replies using `native_message_refs`. |
+| 8 | Transform pipeline: telemetry-to-message, telemetry-to-metrics, message-to-matrix formatted. Policy stages: rate limiting, deduplication, content filtering across all four stages. |
 
-### Phase 4: Hardening (Weeks 17-20)
+### Phase 3: Mesh Transport (Weeks 9-12)
 
-Focus: Production readiness, edge cases, performance.
+Focus: MeshCore or Meshtastic transport adapter, channel discovery.
 
 | Week | Deliverables |
 |---|---|
-| 17-18 | Graceful shutdown guarantees. Error recovery paths. Dead letter processing. |
-| 19 | Performance testing under load. Storage query optimization. Queue backpressure handling. |
-| 20 | Security review of plugin boundaries. API authentication. Final documentation pass. |
+| 9-10 | `adapters/meshcore/` or `adapters/meshtastic/` transport adapter: ingress from radio, state machine, codec for native-to-canonical conversion. Runtime channel slot discovery. |
+| 11 | MeshCore state machine completed (all states). `core/rendering/meshcore.py` for truncation and plain text rendering. Additional presentation adapter (Discord or Telegram). |
+| 12 | Cross-adapter integration tests: mesh to Matrix, Matrix to mesh, relation resolution, identity mapping. |
+
+### Phase 4: LXMF (Weeks 13-16)
+
+Focus: LXMF transport adapter over Reticulum.
+
+| Week | Deliverables |
+|---|---|
+| 13-14 | `adapters/lxmf/` adapter: LXMRouter setup, codec (LXMessage to CanonicalEvent), identity mapping (source hash, destination hash), delivery method selection, propagation node handling. |
+| 15 | `core/rendering/lxmf.py` for LXMF fields dict rendering. LXMF relation handling (metadata-native relations via fields). Nullable security metadata normalization. |
+| 16 | LXMF test suite: inbound canonical event, org.* metadata relation resolution, Matrix reply to LXMF relation, delivery callback receipt, propagated queued receipt behavior, unknown peer identity auto-create. |
+
+### Phase 5: Plugins, Replay, API Hardening (Weeks 17-20)
+
+Focus: Plugin system, replay engine, management API, production readiness.
+
+| Week | Deliverables |
+|---|---|
+| 17 | `plugins/` host with capability scoping, convenience APIs (reply, send, react, emit). Example plugins. Raw native archive mode. |
+| 18 | Replay engine. `core/observability/` metrics and tracing. Schema versioning upgrade path. |
+| 19 | `api/` management endpoints. CLI polish. Graceful shutdown guarantees. Error recovery paths. Dead letter processing. |
+| 20 | Security review of plugin boundaries. API authentication. Performance testing. Final documentation pass. Integration test coverage. |
 
 
 ## 25. Future Document Split
@@ -1342,7 +1647,7 @@ This single document serves as the initial specification. As the project matures
 | **Identity Model** | Section 11: Native identities, canonical actors, verification, permissions |
 | **Observability Guide** | Section 21: Metrics reference, tracing setup, logging conventions |
 | **Behavioral Lessons** | Section 26: Operational findings from MMRelay that inform this design |
-| **Configuration Reference** | YAML schema for routes, adapters, policies, plugins, storage |
+| **Configuration Reference** | Section 28: Conceptual config schema for routes, adapters, policies, plugins, storage, runtime, observability, API |
 
 
 ## 26. Behavioral Lessons from MMRelay
@@ -1411,11 +1716,108 @@ The following are explicitly out of scope for this project:
 - **LXST (LXMF Streaming Transport).** LXST is a separate Reticulum-based streaming and media protocol, not a feature of LXMF. No media session runtime, no audio abstractions, no LXST adapter sections, and no real-time media pipeline. LXST may be evaluated later as its own adapter only if the project expands into real-time media/session events.
 
 
-## 28. Appendix: Illustrative Snippets
+## 28. Conceptual Configuration Schema
+
+This section provides a first-pass conceptual schema for the runtime's YAML configuration file. The schema is organized by concern. Individual sections reference specific spec sections for detailed contracts.
+
+```yaml
+# runtime.yaml — Conceptual configuration schema
+
+runtime:
+  name: "meshnet-relay"                    # Instance name for logging/identification
+  log_level: "info"                        # debug | info | warn | error
+  event_loop: "uvloop"                     # asyncio | uvloop
+  graceful_shutdown_timeout: 30            # Seconds to drain on shutdown
+
+storage:
+  backend: "sqlite"                        # sqlite | postgres | future
+  sqlite:
+    path: "~/.meshnet-framework/events.db"
+    wal_mode: true
+    busy_timeout: 5000
+  native_archive:
+    enabled: false
+    compression: gzip                      # gzip | zstd
+    retention:
+      max_age_days: 30
+      max_count: 100000
+    adapters: {}                           # Per-adapter opt-in
+
+adapters:
+  <adapter-name>:
+    type: <adapter-type>                   # meshcore | meshtastic | matrix | lxmf | discord | telegram | mqtt
+    role: transport | presentation | hybrid
+    enabled: true
+    connection: {}                         # Adapter-specific connection config (see adapter sections)
+    channels: {}                           # Adapter-specific channel/slot mapping
+    rate_limits: {}                        # Per-adapter rate limit overrides
+
+routes:
+  - id: <route-id>
+    from:
+      adapter: <adapter-name> | null       # null matches any adapter
+      event_kinds: [<kind>, ...]           # Event kinds to match
+      channel: <channel> | null            # null matches any channel
+    to:
+      - adapter: <adapter-name>
+        channel: <channel> | null
+        destination:                       # Optional structured destination
+          kind: channel | lxmf_destination | meshcore_contact | matrix_room
+          destination_hash: <hash> | null
+          destination_name: <name> | null
+    priority: <int>
+    enabled: true
+    filters: {}                            # Additional filter criteria
+
+transforms:
+  - name: <transform-name>
+    class: <python-class-path>
+    config: {}                             # Transform-specific configuration
+
+policies:
+  ingress: []                              # Ingress-stage policies (Section 7)
+  event: []                                # Event-stage policies
+  route: []                                # Route-stage policies
+  delivery: []                             # Delivery-stage policies
+
+  # Each policy entry:
+  # - name: <policy-name>
+  #   class: <python-class-path>
+  #   config: {}
+
+plugins:
+  - name: <plugin-name>
+    class: <python-class-path>
+    enabled: true
+    capabilities: []                       # Required capabilities
+    config: {}                             # Plugin-specific configuration
+    rate_limits: {}                        # Per-plugin rate limits
+
+observability:
+  metrics:
+    enabled: true
+    port: 9090                             # Prometheus metrics endpoint
+  tracing:
+    enabled: false
+    exporter: "otlp"                       # otlp | jaeger | none
+    endpoint: "http://localhost:4317"
+  logging:
+    structured: true
+    format: "json"                         # json | text
+
+api:
+  enabled: true
+  host: "127.0.0.1"
+  port: 8080
+  auth: {}                                 # API authentication config
+  cors: {}                                 # CORS config
+```
+
+## 29. Appendix: Illustrative Snippets
 
 These snippets illustrate interfaces and data structures. They are not implementation code.
 
-### 28.1 Minimal Adapter Registration
+### 29.1 Minimal Adapter Registration
 
 ```yaml
 # config.yaml
@@ -1443,35 +1845,40 @@ adapters:
       emergency: "!def456:example.com"
 ```
 
-### 28.2 Route Configuration
+### 29.2 Route Configuration
 
 ```yaml
 routes:
   - id: mesh-to-matrix-general
-    source_pattern: "meshcore-radio-1:channel.general"
-    target_adapter: matrix-home
-    target_channel: general
-    filters:
+    from:
+      adapter: meshcore-radio-1
       event_kinds: ["message.text"]
+      channel: general
+    to:
+      - adapter: matrix-home
+        channel: general
     priority: 10
 
   - id: telemetry-to-storage
-    source_pattern: "meshcore-radio-1:*"
-    target_adapter: storage   # Special internal "adapter"
-    filters:
+    from:
+      adapter: meshcore-radio-1
       event_kinds: ["telemetry", "position"]
+    to:
+      - adapter: storage   # Special internal "adapter"
     priority: 5
 
   - id: all-to-discord
-    source_pattern: "*:channel.general"
-    target_adapter: discord-bot
-    target_channel: "#mesh-general"
-    filters:
+    from:
+      adapter: null          # Match any adapter
       event_kinds: ["message.text"]
+      channel: general
+    to:
+      - adapter: discord-bot
+        channel: "#mesh-general"
     priority: 20
 ```
 
-### 28.3 Transform Registration
+### 29.3 Transform Registration
 
 ```yaml
 transforms:
@@ -1488,10 +1895,10 @@ transforms:
   - name: message_to_matrix
     class: core.transforms.presentation.MessageToMatrixFormatted
     config:
-      embed_metadata: minimal  # full, minimal, none
+      embed_metadata: safe  # off, minimal, safe, full
 ```
 
-### 28.4 Policy Configuration
+### 29.4 Policy Configuration
 
 ```yaml
 policies:
@@ -1517,7 +1924,7 @@ policies:
       split_strategy: "truncate"  # truncate, split, reject
 ```
 
-### 28.5 LXMF Adapter Configuration
+### 29.5 LXMF Adapter Configuration
 
 ```yaml
 adapters:
@@ -1543,19 +1950,25 @@ adapters:
 
 routes:
   - id: lxmf-to-matrix-general
-    source_pattern: "lxmf-node-a:*"
-    target_adapter: matrix-home
-    target_channel: general
-    filters:
+    from:
+      adapter: lxmf-node-a
       event_kinds: ["message.text"]
+    to:
+      - adapter: matrix-home
+        channel: general
     priority: 10
 
   - id: matrix-to-lxmf
-    source_pattern: "matrix-home:channel.general"
-    target_adapter: lxmf-node-a
-    target_channel: "default"       # LXMF uses identity-based addressing, not channels
-    filters:
+    from:
+      adapter: matrix-home
       event_kinds: ["message.text"]
+      channel: general
+    to:
+      - adapter: lxmf-node-a
+        destination:
+          kind: lxmf_destination
+          destination_hash: "e5f6a7b8c9d0e1f2"
+          destination_name: "mobile-peer-1"
     priority: 15
 ```
 
