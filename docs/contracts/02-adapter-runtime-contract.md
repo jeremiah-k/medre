@@ -662,15 +662,15 @@ For TRANSPORT adapters that support metadata fields (like LXMF's `fields` dict),
 
 ```python
 # Outbound metadata in transport-native fields dict
-"org.meshnet-framework.event": {
+"org.medre.event": {
     "schema": 1,
     "canonical_event_id": "...",
     "relation": {"type": "reply", "parent_event_id": "..."},
-    "source": "meshnet-framework-runtime"
+    "source": "medre-runtime"
 }
 ```
 
-The `org.meshnet-framework` namespace is a placeholder and will be updated when the project is named.
+The `org.medre` namespace is a placeholder and will be updated when the project is named.
 
 
 ## 12. Complete Protocol Summary

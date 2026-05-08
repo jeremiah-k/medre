@@ -1071,7 +1071,7 @@ These constraints inform adapter behavior and delivery planning:
 
 ### 16.1 Namespace Convention
 
-Metadata embedded in Matrix events uses a reverse-DNS namespace under `org.<project>.*`. Until the project is named, the placeholder `org.meshnet-framework` is used. This will be updated once the final name is chosen.
+Metadata embedded in Matrix events uses a reverse-DNS namespace under `org.<project>.*`. Until the project is named, the placeholder `org.medre` is used. This will be updated once the final name is chosen.
 
 Example Matrix event content:
 
@@ -1079,7 +1079,7 @@ Example Matrix event content:
 {
     "msgtype": "m.text",
     "body": "Hello from node 1234",
-    "org.meshnet-framework.event": {
+    "org.medre.event": {
         "event_id": "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b",
         "event_kind": "message.text",
         "source_adapter": "meshcore-radio-1",
@@ -1101,7 +1101,7 @@ When the source adapter is LXMF, the same structure carries LXMF-specific values
 {
     "msgtype": "m.text",
     "body": "Hello from LXMF peer",
-    "org.meshnet-framework.event": {
+    "org.medre.event": {
         "event_id": "0190b2c3-d4e5-7f6a-8b9c-0d1e2f3a4b5c",
         "event_kind": "message.text",
         "source_adapter": "lxmf-node-a",
@@ -1131,7 +1131,7 @@ Any feature that needs reliable metadata (replay, correlation, identity resoluti
 
 ### 16.3 Redaction and Privacy
 
-- **Redaction behavior**: Synapse redacts the `content` body of an event when redacted. The `org.meshnet-framework.event` field is part of `content` and will be destroyed. The canonical event in storage is unaffected.
+- **Redaction behavior**: Synapse redacts the `content` body of an event when redacted. The `org.medre.event` field is part of `content` and will be destroyed. The canonical event in storage is unaffected.
 - **Configurable privacy modes**:
   - `off`: Do not embed any runtime metadata in Matrix events. Matrix is purely a display surface. All correlation goes through storage.
   - `minimal`: Embed only `event_id` and `source_transport_id`. Users see limited context. Less data exposed on redaction.
@@ -1198,11 +1198,11 @@ Canonical event metadata is embedded into LXMF messages using a namespaced field
 
 ```python
 # LXMessage.fields entry for framework-aware peers
-"org.meshnet-framework.event": {
+"org.medre.event": {
     "schema": 1,
     "canonical_event_id": "0190b2c3-d4e5-...",
     "relation": {"type": "reply", "parent_event_id": "0190a1b2-c3d4-..."},
-    "source": "meshnet-framework-runtime"
+    "source": "medre-runtime"
 }
 ```
 
@@ -1237,7 +1237,7 @@ metadata.native = {
         "title": "...",                  # LXMessage.title (bytes decoded)
         "source_hash": "a1b2c3d4...",   # 16-byte hex
         "destination_hash": "e5f6a7b8...",
-        "field_keys": ["org.meshnet-framework.event"]  # Top-level keys found in LXMessage.fields
+        "field_keys": ["org.medre.event"]  # Top-level keys found in LXMessage.fields
     }
 }
 ```
@@ -1292,7 +1292,7 @@ The following test cases must pass for LXMF integration to be considered complet
 | Test Case | Description |
 |---|---|
 | **Inbound LXMF to Canonical Message** | An inbound `LXMessage` with text content is decoded by the codec into a `CanonicalEvent` with `event_kind="message.text"`, correct `source_adapter`, `source_transport_id` set to the source hash, and payload containing the message text. |
-| **LXMF org.* Metadata to Relation Resolution** | An inbound `LXMessage` with `fields["org.meshnet-framework.event"].relation` set to `{"type": "reply", "parent_event_id": "..."}` produces a `CanonicalEvent` with an `EventRelation(relation_type="reply", target_event_id="...")`. The relation is first-class, not buried in metadata. |
+| **LXMF org.* Metadata to Relation Resolution** | An inbound `LXMessage` with `fields["org.medre.event"].relation` set to `{"type": "reply", "parent_event_id": "..."}` produces a `CanonicalEvent` with an `EventRelation(relation_type="reply", target_event_id="...")`. The relation is first-class, not buried in metadata. |
 | **Matrix Reply to LXMF Metadata-Native Relation** | A Matrix reply (`m.relates_to` with `m.in_reply_to`) is correlated to the originating LXMF message via `native_message_refs`, producing a `CanonicalEvent` with `EventRelation(relation_type="reply", target_event_id=<canonical id of the LXMF message>)`. The LXMF adapter encodes this relation into the outbound `LXMessage.fields` dict for framework-aware peers. |
 | **LXMF Delivery Callback to Receipt** | The LXMF per-message delivery callback fires with `LXMessage.state=DELIVERED`. The adapter appends a `DeliveryReceipt` row with `status=ACKNOWLEDGED` and stores a `native_message_ref` mapping the LXMF message ID to the canonical event that was delivered. |
 | **Propagated LXMF Queued/Delayed Receipt** | An outbound LXMF message sent via propagation (no direct link) initially appends a `DeliveryReceipt` row with `status=QUEUED`. When the propagation node later confirms delivery, the adapter appends a new `DeliveryReceipt` row with `status=ACKNOWLEDGED`. The delivery plan's deadline and retry policy govern how long to wait before appending a `status=FAILED` row. |
@@ -1868,7 +1868,7 @@ This section provides a first-pass conceptual schema for the runtime's YAML conf
 # runtime.yaml — Conceptual configuration schema
 
 runtime:
-  name: "meshnet-relay"                    # Instance name for logging/identification
+  name: "medre-relay"                    # Instance name for logging/identification
   log_level: "info"                        # debug | info | warn | error
   event_loop: "uvloop"                     # asyncio | uvloop
   graceful_shutdown_timeout: 30            # Seconds to drain on shutdown
@@ -1876,7 +1876,7 @@ runtime:
 storage:
   backend: "sqlite"                        # sqlite | postgres | future
   sqlite:
-    path: "~/.meshnet-framework/events.db"
+    path: "~/.medre/events.db"
     wal_mode: true
     busy_timeout: 5000
   native_archive:
@@ -2083,10 +2083,10 @@ adapters:
     type: lxmf
     reticulum:
       storage_path: ~/.reticulum/storage
-      identity_path: ~/.meshnet-framework/reticulum_identity  # Auto-generated if absent
+      identity_path: ~/.medre/reticulum_identity  # Auto-generated if absent
       transport_config: ~/.reticulum/config  # Reticulum transport config (interfaces, etc.)
     lxmf:
-      storage_path: ~/.meshnet-framework/lxmf/storage
+      storage_path: ~/.medre/lxmf/storage
       propagation:
         enabled: true
         outbound_node: ""           # Auto-discover if empty, or explicit destination hash

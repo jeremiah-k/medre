@@ -8,20 +8,20 @@ from datetime import datetime, timezone
 
 import pytest
 
-from meshnet_framework.core.events import (
+from medre.core.events import (
     CanonicalEvent,
     EventMetadata,
     EventRelation,
     NativeRef,
 )
-from meshnet_framework.core.planning import (
+from medre.core.planning import (
     DeliveryPlan,
     DeliveryStrategy,
     FallbackResolver,
     RelationResolver,
     RetryPolicy,
 )
-from meshnet_framework.core.routing import RouteTarget
+from medre.core.routing import RouteTarget
 
 
 def _make_event(

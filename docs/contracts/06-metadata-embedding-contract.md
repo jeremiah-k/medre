@@ -53,7 +53,7 @@ The enrichment stage normalizes `metadata.native` fields into their proper names
 
 ### 2.1 Namespace Convention
 
-Metadata embedded in Matrix events uses a reverse-DNS namespace under `org.<project>.*`. Until the project is named, the placeholder `org.meshnet-framework` is used. The top-level key is `org.meshnet-framework.event`.
+Metadata embedded in Matrix events uses a reverse-DNS namespace under `org.<project>.*`. Until the project is named, the placeholder `org.medre` is used. The top-level key is `org.medre.event`.
 
 The embedded object contains these fields:
 
@@ -71,7 +71,7 @@ The embedded object contains these fields:
 {
     "msgtype": "m.text",
     "body": "Hello from node 1234",
-    "org.meshnet-framework.event": {
+    "org.medre.event": {
         "event_id": "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b",
         "event_kind": "message.text",
         "source_adapter": "meshcore-radio-1",
@@ -93,7 +93,7 @@ The embedded object contains these fields:
 {
     "msgtype": "m.text",
     "body": "Hello from LXMF peer",
-    "org.meshnet-framework.event": {
+    "org.medre.event": {
         "event_id": "0190b2c3-d4e5-7f6a-8b9c-0d1e2f3a4b5c",
         "event_kind": "message.text",
         "source_adapter": "lxmf-node-a",
@@ -174,7 +174,7 @@ Regardless of the configured privacy mode, the following are **never** embedded 
 
 ### 3.3 Redaction Behavior
 
-Synapse redacts the `content` body of an event when redacted. The `org.meshnet-framework.event` field is part of `content` and will be destroyed. The canonical event in storage is unaffected.
+Synapse redacts the `content` body of an event when redacted. The `org.medre.event` field is part of `content` and will be destroyed. The canonical event in storage is unaffected.
 
 ---
 
@@ -290,7 +290,7 @@ metadata.native = {
         "title": "...",                  # LXMessage.title (bytes decoded)
         "source_hash": "a1b2c3d4...",   # 16-byte hex
         "destination_hash": "e5f6a7b8...",
-        "field_keys": ["org.meshnet-framework.event"]  # Top-level keys in LXMessage.fields
+        "field_keys": ["org.medre.event"]  # Top-level keys in LXMessage.fields
     }
 }
 ```
@@ -301,11 +301,11 @@ Framework metadata is embedded in LXMF messages using a namespaced field in the 
 
 ```python
 # LXMessage.fields entry for framework-aware peers
-"org.meshnet-framework.event": {
+"org.medre.event": {
     "schema": 1,
     "canonical_event_id": "0190b2c3-d4e5-...",
     "relation": {"type": "reply", "parent_event_id": "0190a1b2-c3d4-..."},
-    "source": "meshnet-framework-runtime"
+    "source": "medre-runtime"
 }
 ```
 

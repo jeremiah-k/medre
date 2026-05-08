@@ -9,8 +9,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from meshnet_framework.core.events import CanonicalEvent, EventMetadata
-from meshnet_framework.core.routing import (
+from medre.core.events import CanonicalEvent, EventMetadata
+from medre.core.routing import (
     Route,
     RouteConflictError,
     RouteDestination,

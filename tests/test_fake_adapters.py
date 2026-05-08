@@ -6,15 +6,15 @@ from __future__ import annotations
 
 import pytest
 
-from meshnet_framework.adapters import (
+from medre.adapters import (
     AdapterCapabilities,
     AdapterInfo,
     AdapterRole,
     FakePresentationAdapter,
     FakeTransportAdapter,
 )
-from meshnet_framework.adapters.base import AdapterContext
-from meshnet_framework.core.events import CanonicalEvent, EventMetadata
+from medre.adapters.base import AdapterContext
+from medre.core.events import CanonicalEvent, EventMetadata
 from datetime import datetime, timezone
 
 

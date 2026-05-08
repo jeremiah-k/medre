@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from meshnet_framework.core.events import (
+from medre.core.events import (
     CanonicalEvent,
     DeliveryReceipt,
     EventMetadata,
@@ -18,7 +18,7 @@ from meshnet_framework.core.events import (
     NativeMessageRef,
     NativeRef,
 )
-from meshnet_framework.core.storage import EventFilter, SQLiteStorage
+from medre.core.storage import EventFilter, SQLiteStorage
 
 
 # Helper to build a minimal event quickly.

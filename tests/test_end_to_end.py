@@ -11,12 +11,12 @@ from datetime import datetime, timezone
 
 import pytest
 
-from meshnet_framework.adapters import (
+from medre.adapters import (
     AdapterRole,
     FakePresentationAdapter,
     FakeTransportAdapter,
 )
-from meshnet_framework.core.events import (
+from medre.core.events import (
     CanonicalEvent,
     DeliveryReceipt,
     EventMetadata,
@@ -24,14 +24,14 @@ from meshnet_framework.core.events import (
     NativeMessageRef,
     NativeRef,
 )
-from meshnet_framework.core.planning import (
+from medre.core.planning import (
     DeliveryPlan,
     DeliveryStrategy,
     FallbackResolver,
     RelationResolver,
 )
-from meshnet_framework.core.routing import Route, RouteSource, RouteTarget, Router
-from meshnet_framework.core.storage import EventFilter, SQLiteStorage
+from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.storage import EventFilter, SQLiteStorage
 
 
 # ---------------------------------------------------------------------------
@@ -100,7 +100,7 @@ class TestFullPipeline:
             import logging
 
             transport_ctx = type(transport).start.__code__  # just for reference
-            from meshnet_framework.adapters.base import AdapterContext
+            from medre.adapters.base import AdapterContext
             import asyncio
 
             t_ctx = AdapterContext(

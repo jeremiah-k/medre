@@ -12,12 +12,12 @@ from typing import Any
 
 import pytest
 
-from meshnet_framework.core.events import CanonicalEvent, EventMetadata
-from meshnet_framework.core.planning import FallbackResolver
-from meshnet_framework.core.rendering import RenderingPipeline, TextRenderer
-from meshnet_framework.core.routing import Route, RouteSource, RouteTarget, Router
-from meshnet_framework.core.storage import EventFilter, SQLiteStorage
-from meshnet_framework.core.storage.replay import (
+from medre.core.events import CanonicalEvent, EventMetadata
+from medre.core.planning import FallbackResolver
+from medre.core.rendering import RenderingPipeline, TextRenderer
+from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.storage import EventFilter, SQLiteStorage
+from medre.core.storage.replay import (
     ReplayEngine,
     ReplayMode,
     ReplayRequest,

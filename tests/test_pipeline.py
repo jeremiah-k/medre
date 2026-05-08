@@ -12,15 +12,15 @@ from datetime import datetime, timezone
 
 import pytest
 
-from meshnet_framework.adapters.fake_presentation import FakePresentationAdapter
-from meshnet_framework.adapters.fake_transport import FakeTransportAdapter
-from meshnet_framework.core.engine.pipeline import PipelineConfig, PipelineRunner
-from meshnet_framework.core.events import CanonicalEvent, EventMetadata
-from meshnet_framework.core.events.bus import EventBus
-from meshnet_framework.core.observability.metrics import EventMetrics
-from meshnet_framework.core.planning import FallbackResolver, RelationResolver
-from meshnet_framework.core.routing import Route, RouteSource, RouteTarget, Router
-from meshnet_framework.core.storage import SQLiteStorage
+from medre.adapters.fake_presentation import FakePresentationAdapter
+from medre.adapters.fake_transport import FakeTransportAdapter
+from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
+from medre.core.events import CanonicalEvent, EventMetadata
+from medre.core.events.bus import EventBus
+from medre.core.observability.metrics import EventMetrics
+from medre.core.planning import FallbackResolver, RelationResolver
+from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.storage import SQLiteStorage
 
 
 # ---------------------------------------------------------------------------

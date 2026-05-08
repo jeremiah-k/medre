@@ -1,4 +1,4 @@
-"""Shared pytest fixtures for the meshnet-framework test suite.
+"""Shared pytest fixtures for the medre test suite.
 
 Provides temporary SQLite storage, sample canonical events, routing
 fixtures, and adapter context helpers used across all test modules.
@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 
-from meshnet_framework.core.events import (
+from medre.core.events import (
     CanonicalEvent,
     EventMetadata,
     EventRelation,
@@ -25,8 +25,8 @@ from meshnet_framework.core.events import (
     RoutingMetadata,
     TransportMetadata,
 )
-from meshnet_framework.core.routing import Route, RouteSource, RouteTarget, Router
-from meshnet_framework.core.storage.sqlite import SQLiteStorage
+from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.storage.sqlite import SQLiteStorage
 
 
 # ---------------------------------------------------------------------------
@@ -183,7 +183,7 @@ def make_adapter_context(inbound_collector: _InboundCollector):
     """Factory that creates an AdapterContext wired to the inbound collector."""
 
     def _make(adapter_id: str = "test_adapter") -> Any:
-        from meshnet_framework.adapters.base import AdapterContext
+        from medre.adapters.base import AdapterContext
 
         return AdapterContext(
             adapter_id=adapter_id,

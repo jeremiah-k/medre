@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from meshnet_framework.core.events import (
+from medre.core.events import (
     CanonicalEvent,
     DeliveryReceipt,
     EventKind,
