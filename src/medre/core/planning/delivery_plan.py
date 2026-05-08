@@ -7,16 +7,24 @@ should be delivered to a target:
 * :class:`RetryPolicy` – retry/backoff configuration for failed deliveries.
 * :class:`DeliveryPlan` – a complete delivery specification for one
   event-target pair, including the primary strategy and a fallback chain.
+* :class:`DeliveryFailureKind` – taxonomy of delivery failure categories.
+* :class:`RetryExecutor` – receipt-level retry state transitions.
+* :class:`DeliveryOutcome` – per-target delivery result with failure
+  classification.
 """
 
 from __future__ import annotations
 
+import random
+import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+from enum import Enum
 from typing import TYPE_CHECKING, Literal
 
+from medre.core.events.canonical import DeliveryReceipt
+
 if TYPE_CHECKING:
-    from medre.core.events.canonical import DeliveryReceipt
     from medre.core.routing.models import RouteTarget
 
 
@@ -120,6 +128,286 @@ class DeliveryPlan:
 
 
 # ---------------------------------------------------------------------------
+# Delivery failure taxonomy
+# ---------------------------------------------------------------------------
+
+
+class DeliveryFailureKind(Enum):
+    """Taxonomy of delivery failure categories.
+
+    Each member captures *where* in the pipeline the failure occurred
+    and *whether* it is retryable.  The classification drives retry
+    decisions, dead-letter transitions, and diagnostic grouping.
+
+    Members
+    -------
+    PLANNER_FAILURE:
+        Error during routing or planning (e.g. router misconfiguration).
+        Always permanent — no retry.
+    RENDERER_FAILURE:
+        Error during rendering (e.g. no renderer registered for event
+        kind).  Always permanent — the rendering layer is deterministic.
+    ADAPTER_TRANSIENT:
+        Transient adapter error (timeout, connection reset, network
+        unreachable).  Retryable subject to :class:`RetryPolicy`.
+    ADAPTER_PERMANENT:
+        Permanent adapter error (malformed payload, business-logic
+        rejection).  Not retryable.
+    TARGET_NOT_FOUND:
+        The target adapter is not registered in the pipeline config.
+        Always permanent.
+    DEADLINE_EXCEEDED:
+        The delivery plan's ``deadline`` has passed.  Not retryable.
+    """
+
+    PLANNER_FAILURE = "planner_failure"
+    RENDERER_FAILURE = "renderer_failure"
+    ADAPTER_TRANSIENT = "adapter_transient"
+    ADAPTER_PERMANENT = "adapter_permanent"
+    TARGET_NOT_FOUND = "target_not_found"
+    DEADLINE_EXCEEDED = "deadline_exceeded"
+
+    @property
+    def is_retryable(self) -> bool:
+        """Return ``True`` if this failure kind is retryable."""
+        return self is DeliveryFailureKind.ADAPTER_TRANSIENT
+
+
+# ---------------------------------------------------------------------------
+# Retry executor
+# ---------------------------------------------------------------------------
+
+
+class RetryExecutor:
+    """Stateless helper for retry/backoff decisions and receipt construction.
+
+    :class:`RetryExecutor` encapsulates the logic for computing backoff
+    delays, detecting retry exhaustion, and building the appropriate
+    receipt for a retry attempt or dead-letter transition.
+
+    Phase 1 does **not** implement a background retry scheduler.  Retry
+    is synchronous / receipt-level only: the pipeline records the
+    failure receipt with ``next_retry_at`` populated, and a future
+    scheduler (or manual replay) re-invokes ``deliver_to_target`` using
+    the plan and the latest receipt's ``attempt_number``.
+
+    Parameters
+    ----------
+    policy:
+        The retry policy governing backoff and max attempts.
+    """
+
+    def __init__(self, policy: RetryPolicy) -> None:
+        self._policy = policy
+
+    @property
+    def policy(self) -> RetryPolicy:
+        """The retry policy used by this executor."""
+        return self._policy
+
+    def compute_backoff(self, attempt_number: int) -> timedelta:
+        """Compute the backoff delay after *attempt_number* (1-indexed).
+
+        The formula is::
+
+            delay = min(backoff_base * 2 ** (attempt_number - 1),
+                        max_delay_seconds)
+
+        When ``jitter`` is enabled a small random value in ``[0, delay)``
+        is subtracted to avoid thundering-herd effects.
+
+        Parameters
+        ----------
+        attempt_number:
+            The attempt that just failed (1 = first attempt).
+
+        Returns
+        -------
+        timedelta
+            Delay until the next retry attempt.
+        """
+        raw = self._policy.backoff_base * (2 ** (attempt_number - 1))
+        capped = min(raw, self._policy.max_delay_seconds)
+        if self._policy.jitter and capped > 0:
+            capped = max(0.0, capped - random.uniform(0, capped * 0.5))
+        return timedelta(seconds=capped)
+
+    def is_exhausted(self, attempt_number: int) -> bool:
+        """Return ``True`` if *attempt_number* has reached or exceeded
+        the maximum allowed attempts.
+
+        Parameters
+        ----------
+        attempt_number:
+            The attempt that just failed (1-indexed).
+        """
+        return attempt_number >= self._policy.max_attempts
+
+    def next_attempt_number(self, previous_attempt: int) -> int:
+        """Return the attempt number for the next retry.
+
+        Parameters
+        ----------
+        previous_attempt:
+            The attempt number of the just-failed attempt.
+        """
+        return previous_attempt + 1
+
+    def build_retry_receipt(
+        self,
+        *,
+        event_id: str,
+        delivery_plan_id: str,
+        target_adapter: str,
+        previous_receipt_id: str | None,
+        attempt_number: int,
+        error: str,
+    ) -> DeliveryReceipt:
+        """Build a ``failed`` receipt for a retryable transient failure.
+
+        The receipt carries ``next_retry_at`` so a future scheduler can
+        decide when to re-attempt delivery.
+
+        Parameters
+        ----------
+        event_id:
+            The canonical event being delivered.
+        delivery_plan_id:
+            ID of the delivery plan.
+        target_adapter:
+            Name of the target adapter.
+        previous_receipt_id:
+            Receipt ID of the preceding attempt (receipt lineage).
+        attempt_number:
+            The 1-indexed attempt number for this receipt.
+        error:
+            Human-readable error description.
+
+        Returns
+        -------
+        DeliveryReceipt
+            A receipt with ``status="failed"`` and ``next_retry_at``
+            populated.
+        """
+        now = datetime.now(tz=timezone.utc)
+        backoff = self.compute_backoff(attempt_number)
+        return DeliveryReceipt(
+            sequence=0,
+            receipt_id=f"rcpt-{uuid.uuid4()}",
+            event_id=event_id,
+            delivery_plan_id=delivery_plan_id,
+            target_adapter=target_adapter,
+            status="failed",
+            error=error,
+            next_retry_at=now + backoff,
+            created_at=now,
+            attempt_number=attempt_number,
+            parent_receipt_id=previous_receipt_id,
+        )
+
+    def build_dead_letter_receipt(
+        self,
+        *,
+        event_id: str,
+        delivery_plan_id: str,
+        target_adapter: str,
+        previous_receipt_id: str | None,
+        attempt_number: int,
+        error: str,
+    ) -> DeliveryReceipt:
+        """Build a ``dead_lettered`` receipt after all retries are
+        exhausted.
+
+        Parameters
+        ----------
+        event_id:
+            The canonical event being delivered.
+        delivery_plan_id:
+            ID of the delivery plan.
+        target_adapter:
+            Name of the target adapter.
+        previous_receipt_id:
+            Receipt ID of the preceding attempt (receipt lineage).
+        attempt_number:
+            The 1-indexed attempt number for this terminal receipt.
+        error:
+            Human-readable error description.
+
+        Returns
+        -------
+        DeliveryReceipt
+            A receipt with ``status="dead_lettered"`` and no
+            ``next_retry_at``.
+        """
+        now = datetime.now(tz=timezone.utc)
+        return DeliveryReceipt(
+            sequence=0,
+            receipt_id=f"rcpt-{uuid.uuid4()}",
+            event_id=event_id,
+            delivery_plan_id=delivery_plan_id,
+            target_adapter=target_adapter,
+            status="dead_lettered",
+            error=error,
+            next_retry_at=None,
+            created_at=now,
+            attempt_number=attempt_number,
+            parent_receipt_id=previous_receipt_id,
+        )
+
+    @staticmethod
+    def classify_failure(
+        error: Exception,
+        *,
+        adapter_registered: bool = True,
+        renderer_failed: bool = False,
+        planner_failed: bool = False,
+        deadline: datetime | None = None,
+    ) -> DeliveryFailureKind:
+        """Classify an exception into a :class:`DeliveryFailureKind`.
+
+        This is a static convenience method that inspects the exception
+        type and contextual flags to produce the correct failure kind.
+
+        Parameters
+        ----------
+        error:
+            The exception that caused the failure.
+        adapter_registered:
+            Whether the target adapter was found in the pipeline config.
+        renderer_failed:
+            Whether the failure occurred during rendering.
+        planner_failed:
+            Whether the failure occurred during planning.
+        deadline:
+            The delivery plan deadline, if any.
+
+        Returns
+        -------
+        DeliveryFailureKind
+        """
+        if planner_failed:
+            return DeliveryFailureKind.PLANNER_FAILURE
+        if renderer_failed:
+            return DeliveryFailureKind.RENDERER_FAILURE
+        if not adapter_registered:
+            return DeliveryFailureKind.TARGET_NOT_FOUND
+        if deadline is not None and datetime.now(tz=timezone.utc) > deadline:
+            return DeliveryFailureKind.DEADLINE_EXCEEDED
+        transient_types = (
+            TimeoutError,
+            ConnectionError,
+            ConnectionRefusedError,
+            ConnectionResetError,
+            ConnectionAbortedError,
+            BrokenPipeError,
+            OSError,
+        )
+        if isinstance(error, transient_types):
+            return DeliveryFailureKind.ADAPTER_TRANSIENT
+        return DeliveryFailureKind.ADAPTER_PERMANENT
+
+
+# ---------------------------------------------------------------------------
 # Delivery outcome
 # ---------------------------------------------------------------------------
 
@@ -152,6 +440,9 @@ class DeliveryOutcome:
         ``"permanent_failure"`` – an unrecoverable error occurred.
         ``"skipped"`` – delivery was intentionally skipped (e.g. no
         renderer).
+    failure_kind:
+        Fine-grained failure classification from the
+        :class:`DeliveryFailureKind` taxonomy.  ``None`` on success.
     receipt:
         The recorded :class:`DeliveryReceipt`, if one was produced.
     error:
@@ -172,6 +463,7 @@ class DeliveryOutcome:
         "permanent_failure",
         "skipped",
     ]
-    receipt: DeliveryReceipt | None
-    error: str | None
-    duration_ms: float
+    failure_kind: DeliveryFailureKind | None = None
+    receipt: DeliveryReceipt | None = None
+    error: str | None = None
+    duration_ms: float = 0.0

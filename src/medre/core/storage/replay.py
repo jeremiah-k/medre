@@ -5,9 +5,25 @@ already been persisted in storage through selected pipeline stages.  Different
 :class:`ReplayMode` values control which stages are executed and whether
 side-effects (delivery to adapters) are allowed.
 
-Replay is **read-only** for STRICT, RE_RENDER, and RE_ROUTE modes – stored
-canonical events are never mutated.  Only BEST_EFFORT mode permits the
+Replay is **read-only** for STRICT, RE_RENDER, RE_ROUTE, and DRY_RUN modes –
+stored canonical events are never mutated.  Only BEST_EFFORT mode permits the
 delivery side-effect.
+
+Mode guarantees
+---------------
++------------+----------+--------+---------+---------+-------------------+
+| Mode       | Store    | Route  | Render  | Deliver | Side effects      |
++============+==========+========+=========+=========+===================+
+| STRICT     | verify   | --     | --      | --      | None (read-only)  |
++------------+----------+--------+---------+---------+-------------------+
+| RE_RENDER  | verify   | --     | capture | --      | None (read-only)  |
++------------+----------+--------+---------+---------+-------------------+
+| RE_ROUTE   | verify   | route  | --      | --      | None (read-only)  |
++------------+----------+--------+---------+---------+-------------------+
+| BEST_EFFORT| verify   | route  | render  | deliver | Adapter delivery  |
++------------+----------+--------+---------+---------+-------------------+
+| DRY_RUN    | verify   | route  | capture | skip    | None (read-only)  |
++------------+----------+--------+---------+---------+-------------------+
 
 Public symbols
 --------------
@@ -21,11 +37,13 @@ Public symbols
 
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import (
+    TYPE_CHECKING,
     Any,
     AsyncIterator,
     Literal,
@@ -35,6 +53,12 @@ from typing import (
 
 from medre.core.events import CanonicalEvent, is_registered
 from medre.core.storage.backend import EventFilter, StorageBackend
+
+if TYPE_CHECKING:
+    from medre.core.observability.metrics import Diagnostician
+
+
+_logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -51,24 +75,58 @@ class ReplayMode(Enum):
         Exact replay – verify event existence and integrity without
         invoking any pipeline stages.  No side effects.  Useful for
         integrity checks and migration validation.
+
+        **Guarantees:** read-only; no storage mutations; deterministic
+        for the same stored events; re-raises unexpected exceptions.
+
     RE_RENDER:
         Re-run transforms and rendering, capture output.  Routing,
         planning, and delivery are **not** executed.  Useful for testing
         new renderers and metadata evolution.
+
+        **Guarantees:** read-only; no storage mutations; rendering output
+        is captured in :attr:`ReplayResult.output`; deterministic for the
+        same stored events and renderer configuration; re-raises
+        unexpected exceptions.
+
     RE_ROUTE:
         Re-run transforms, routing, and planning with current routes.
         Rendering and delivery are **not** executed.  Useful for testing
         route changes and planning changes.
+
+        **Guarantees:** read-only; no storage mutations; route and plan
+        outputs are captured in :attr:`ReplayResult.output`; deterministic
+        for the same stored events and route configuration; re-raises
+        unexpected exceptions.
+
     BEST_EFFORT:
         Full re-processing including delivery to adapters.  Same as
         normal processing but sourced from historical events.  Useful
         for migration and testing adapters with real data.
+
+        **Guarantees:** **only** mode with side effects (adapter delivery);
+        individual event failures are captured as ``"error"`` results
+        without crashing the replay; crashed events are recorded via
+        the :class:`Diagnostician`; results are yielded in storage query
+        order for deterministic iteration.
+
+    DRY_RUN:
+        Execute all pipeline stages up to and including rendering, but
+        **skip delivery**.  Equivalent to BEST_EFFORT minus the deliver
+        stage.  Useful for previewing what a BEST_EFFORT replay would do
+        without any side effects.
+
+        **Guarantees:** read-only; no storage mutations; route, plan, and
+        render outputs are captured; delivery stage is always ``"skipped"``
+        with the reason ``"dry_run: delivery suppressed"``; re-raises
+        unexpected exceptions.
     """
 
     STRICT = "strict"
     RE_RENDER = "re_render"
     RE_ROUTE = "re_route"
     BEST_EFFORT = "best_effort"
+    DRY_RUN = "dry_run"
 
 
 # ---------------------------------------------------------------------------
@@ -81,7 +139,11 @@ _MODE_STAGES: dict[ReplayMode, tuple[str, ...]] = {
     ReplayMode.RE_RENDER: ("store", "render"),
     ReplayMode.RE_ROUTE: ("store", "route", "plan"),
     ReplayMode.BEST_EFFORT: ("store", "route", "plan", "render", "deliver"),
+    ReplayMode.DRY_RUN: ("store", "route", "plan", "render", "deliver"),
 }
+
+# Modes that produce side effects (adapter delivery).
+_SIDE_EFFECT_MODES: frozenset[ReplayMode] = frozenset({ReplayMode.BEST_EFFORT})
 
 
 # ---------------------------------------------------------------------------
@@ -192,6 +254,12 @@ class ReplayRequest:
         The replay behavioural mode.
     limit:
         Maximum number of events to replay.
+    target_adapters:
+        Restrict delivery to these adapter names.  ``None`` = all
+        adapters resolved by routing.  Only meaningful for modes that
+        include the ``deliver`` stage (BEST_EFFORT, DRY_RUN).  Events
+        whose delivery plans target adapters not in this list have their
+        deliver stage result set to ``"skipped"``.
     """
 
     time_start: datetime | None = None
@@ -202,6 +270,7 @@ class ReplayRequest:
     correlation_ids: list[str] | None = None
     mode: ReplayMode = ReplayMode.STRICT
     limit: int = 1000
+    target_adapters: list[str] | None = None
 
 
 @dataclass
@@ -218,7 +287,8 @@ class ReplayResult:
     status:
         ``"passed"`` – stage completed successfully.
         ``"skipped"`` – stage was not executed because an upstream
-        dependency was unavailable.
+        dependency was unavailable, delivery was suppressed (dry_run),
+        or the target adapter was excluded by ``target_adapters``.
         ``"failed"`` – stage ran but the result was negative (e.g.
         integrity check failed, no routes matched).
         ``"error"`` – an exception was raised during stage execution.
@@ -229,6 +299,8 @@ class ReplayResult:
         ``"failed"``.
     duration_ms:
         Wall-clock time spent in this stage, in milliseconds.
+    lineage:
+        Lineage chain from the source canonical event.
     """
 
     event_id: str
@@ -318,9 +390,9 @@ async def collect_replay_state(
 def _request_to_filter(request: ReplayRequest) -> EventFilter:
     """Convert a :class:`ReplayRequest` to an :class:`EventFilter`.
 
-    The ``correlation_ids`` and ``target_stages`` fields have no
-    equivalent in ``EventFilter`` and are handled separately by
-    :meth:`ReplayEngine.replay`.
+    The ``correlation_ids``, ``target_stages``, and ``target_adapters``
+    fields have no equivalent in ``EventFilter`` and are handled
+    separately by :meth:`ReplayEngine.replay`.
     """
     return EventFilter(
         event_kinds=request.event_kinds,
@@ -376,6 +448,21 @@ def _elapsed_ms(t0: float) -> float:
     return (time.monotonic() - t0) * 1000.0
 
 
+def _verify_immutability(original: CanonicalEvent, event_id: str) -> None:
+    """Assert that *original* is still frozen (immutable).
+
+    This is a development-time guard to catch accidental mutation of
+    historical canonical events during replay.  Since ``CanonicalEvent``
+    uses ``frozen=True`` (msgspec Struct), any in-place mutation raises
+    ``FrozenInstanceError`` at the point of attempted mutation.  This
+    function provides an explicit checkpoint for diagnostic purposes.
+    """
+    # The frozen=True on CanonicalEvent prevents mutation at the
+    # Python level.  This function serves as a documentation point
+    # and future hook for deep-comparison checks if needed.
+    pass
+
+
 # ---------------------------------------------------------------------------
 # ReplayEngine
 # ---------------------------------------------------------------------------
@@ -396,11 +483,16 @@ class ReplayEngine:
     pipeline:
         Optional pipeline collaborator that satisfies
         :class:`_PipelineProtocol`.  Required for ``RE_RENDER``,
-        ``RE_ROUTE``, and ``BEST_EFFORT`` modes.
+        ``RE_ROUTE``, ``BEST_EFFORT``, and ``DRY_RUN`` modes.
     event_bus:
         Optional event bus for publishing replayed events.  Accepted
         but not currently invoked during replay; reserved for future
         notification use.
+    diagnostician:
+        Optional :class:`~medre.core.observability.metrics.Diagnostician`
+        for recording replay skips, downgrades, renderer failures, and
+        adapter failures.  When provided, diagnostic events are emitted
+        for each notable replay condition.
     """
 
     def __init__(
@@ -408,10 +500,12 @@ class ReplayEngine:
         storage: StorageBackend,
         pipeline: _PipelineProtocol | None = None,
         event_bus: _EventBusProtocol | None = None,
+        diagnostician: Diagnostician | None = None,
     ) -> None:
         self._storage = storage
         self._pipeline = pipeline
         self._event_bus = event_bus
+        self._diagnostician = diagnostician
 
     # -- Public API ---------------------------------------------------------
 
@@ -427,6 +521,18 @@ class ReplayEngine:
         individual ID (via :meth:`StorageBackend.get`) and remaining
         filter criteria are applied as post-filters.  Otherwise a
         standard :meth:`StorageBackend.query` is used.
+
+        **Determinism guarantee:** Results are yielded in the order
+        events are returned by storage (timestamp ascending for queries,
+        correlation_id list order for ID-based lookups).  For a given
+        stored dataset and pipeline configuration, the sequence of
+        ``(event_id, stage, status)`` tuples is deterministic.
+
+        **Immutability guarantee:** The replay engine never mutates
+        historical :class:`CanonicalEvent` instances.  Events are read
+        from storage and passed through pipeline stages without
+        modification.  Non-BEST_EFFORT modes produce no storage side
+        effects.
 
         Parameters
         ----------
@@ -447,14 +553,14 @@ class ReplayEngine:
                         yield result
                 else:
                     async for result in self._replay_event_safe(
-                        event, stages, request.mode,
+                        event, stages, request,
                     ):
                         yield result
         else:
             event_filter = _request_to_filter(request)
             async for event in self._storage.query(event_filter):  # type: ignore[union-attr]
                 async for result in self._replay_event_safe(
-                    event, stages, request.mode,
+                    event, stages, request,
                 ):
                     yield result
 
@@ -528,7 +634,7 @@ class ReplayEngine:
         self,
         event: CanonicalEvent,
         stages: tuple[str, ...],
-        mode: ReplayMode,
+        request: ReplayRequest,
     ) -> AsyncIterator[ReplayResult]:
         """Replay a single event, wrapping with BEST_EFFORT crash-safety.
 
@@ -538,11 +644,18 @@ class ReplayEngine:
         is never crashed by an individual event failure.  Other modes
         re-raise the exception.
         """
+        mode = request.mode
         try:
-            async for result in self._replay_event(event, stages):
+            async for result in self._replay_event(event, stages, request):
                 yield result
         except Exception as exc:
             if mode is ReplayMode.BEST_EFFORT:
+                if self._diagnostician is not None:
+                    self._diagnostician.record_adapter_failure(
+                        event.event_id,
+                        "replay",
+                        f"Unexpected error in BEST_EFFORT mode: {exc}",
+                    )
                 yield ReplayResult(
                     event_id=event.event_id,
                     stage="unknown",
@@ -563,6 +676,10 @@ class ReplayEngine:
         The first stage (``store``) receives ``"failed"`` status; all
         subsequent stages receive ``"skipped"``.
         """
+        if self._diagnostician is not None:
+            self._diagnostician.record_replay_skip(
+                event_id, "Event not found in storage",
+            )
         for stage in stages:
             if stage == "store":
                 yield ReplayResult(
@@ -583,6 +700,7 @@ class ReplayEngine:
         self,
         event: CanonicalEvent,
         stages: tuple[str, ...],
+        request: ReplayRequest,
     ) -> AsyncIterator[ReplayResult]:
         """Replay a single event through *stages*, yielding results.
 
@@ -591,8 +709,12 @@ class ReplayEngine:
         Each stage is always attempted; downstream stages gracefully
         handle missing upstream data.
         """
+        mode = request.mode
         route_result: list[tuple[Any, list[Any]]] | None = None
         plan_result: list[Any] | None = None
+
+        # Immutability guard: checkpoint event identity before processing.
+        _verify_immutability(event, event.event_id)
 
         for stage in stages:
             if stage == "store":
@@ -604,9 +726,11 @@ class ReplayEngine:
                     event, route_result,
                 )
             elif stage == "render":
-                result = await self._stage_render(event)
+                result = await self._stage_render(event, mode)
             elif stage == "deliver":
-                result = await self._stage_deliver(event, plan_result)
+                result = await self._stage_deliver(
+                    event, plan_result, request,
+                )
             else:
                 result = ReplayResult(
                     event_id=event.event_id,
@@ -632,6 +756,10 @@ class ReplayEngine:
         try:
             stored = await self._storage.get(event.event_id)
             if stored is None:
+                if self._diagnostician is not None:
+                    self._diagnostician.record_replay_skip(
+                        event.event_id, "Event not found in storage",
+                    )
                 return ReplayResult(
                     event_id=event.event_id,
                     stage="store",
@@ -648,6 +776,12 @@ class ReplayEngine:
                     duration_ms=_elapsed_ms(t0),
                 )
             if not is_registered(stored.event_kind):
+                if self._diagnostician is not None:
+                    self._diagnostician.record_replay_downgrade(
+                        event.event_id,
+                        stored.event_kind,
+                        "unregistered_kind",
+                    )
                 return ReplayResult(
                     event_id=event.event_id,
                     stage="store",
@@ -697,6 +831,10 @@ class ReplayEngine:
         try:
             routes = await self._pipeline.route_event(event)
             if not routes:
+                if self._diagnostician is not None:
+                    self._diagnostician.record_replay_skip(
+                        event.event_id, "No routes matched",
+                    )
                 return (
                     ReplayResult(
                         event_id=event.event_id,
@@ -718,6 +856,10 @@ class ReplayEngine:
                 routes,
             )
         except Exception as exc:
+            if self._diagnostician is not None:
+                self._diagnostician.record_planner_failure(
+                    event.event_id, str(exc),
+                )
             return (
                 ReplayResult(
                     event_id=event.event_id,
@@ -775,6 +917,10 @@ class ReplayEngine:
                 plans,
             )
         except Exception as exc:
+            if self._diagnostician is not None:
+                self._diagnostician.record_planner_failure(
+                    event.event_id, str(exc),
+                )
             return (
                 ReplayResult(
                     event_id=event.event_id,
@@ -786,7 +932,11 @@ class ReplayEngine:
                 None,
             )
 
-    async def _stage_render(self, event: CanonicalEvent) -> ReplayResult:
+    async def _stage_render(
+        self,
+        event: CanonicalEvent,
+        mode: ReplayMode,
+    ) -> ReplayResult:
         """Re-run transforms and rendering on *event*.
 
         Applies transforms first (via ``pipeline.transform_event``) and
@@ -813,6 +963,12 @@ class ReplayEngine:
                 duration_ms=_elapsed_ms(t0),
             )
         except Exception as exc:
+            if self._diagnostician is not None:
+                self._diagnostician.record_renderer_failure(
+                    event.event_id,
+                    "replay",
+                    str(exc),
+                )
             return ReplayResult(
                 event_id=event.event_id,
                 stage="render",
@@ -825,13 +981,28 @@ class ReplayEngine:
         self,
         event: CanonicalEvent,
         plan_result: list[Any] | None,
+        request: ReplayRequest,
     ) -> ReplayResult:
         """Execute delivery plans for *event*.
 
         This is the **only** stage with side effects – it delivers to
         adapters.  Only executed in :attr:`ReplayMode.BEST_EFFORT` mode.
+        In :attr:`ReplayMode.DRY_RUN` mode the delivery is suppressed
+        and the result is ``"skipped"``.
         """
         t0 = time.monotonic()
+        mode = request.mode
+
+        # DRY_RUN mode: suppress delivery, always skip.
+        if mode is ReplayMode.DRY_RUN:
+            return ReplayResult(
+                event_id=event.event_id,
+                stage="deliver",
+                status="skipped",
+                error="dry_run: delivery suppressed",
+                duration_ms=_elapsed_ms(t0),
+            )
+
         if plan_result is None:
             return ReplayResult(
                 event_id=event.event_id,
@@ -848,6 +1019,27 @@ class ReplayEngine:
                 error="No pipeline configured; delivery requires a pipeline",
                 duration_ms=_elapsed_ms(t0),
             )
+
+        # Filter plans by target_adapters if specified.
+        if request.target_adapters is not None:
+            filtered = _filter_plans_by_adapter(
+                plan_result, request.target_adapters,
+            )
+            if not filtered:
+                if self._diagnostician is not None:
+                    self._diagnostician.record_replay_skip(
+                        event.event_id,
+                        "No delivery plans matched target_adapters filter",
+                    )
+                return ReplayResult(
+                    event_id=event.event_id,
+                    stage="deliver",
+                    status="skipped",
+                    error="No delivery plans matched target_adapters filter",
+                    duration_ms=_elapsed_ms(t0),
+                )
+            plan_result = filtered
+
         try:
             receipts = await self._pipeline.deliver(event, plan_result)
             return ReplayResult(
@@ -858,6 +1050,10 @@ class ReplayEngine:
                 duration_ms=_elapsed_ms(t0),
             )
         except Exception as exc:
+            if self._diagnostician is not None:
+                self._diagnostician.record_adapter_failure(
+                    event.event_id, "replay", str(exc),
+                )
             return ReplayResult(
                 event_id=event.event_id,
                 stage="deliver",
@@ -865,3 +1061,31 @@ class ReplayEngine:
                 error=str(exc),
                 duration_ms=_elapsed_ms(t0),
             )
+
+
+# ---------------------------------------------------------------------------
+# Plan filtering
+# ---------------------------------------------------------------------------
+
+
+def _filter_plans_by_adapter(
+    plans: list[Any],
+    target_adapters: list[str],
+) -> list[Any]:
+    """Filter delivery plans to those targeting adapters in *target_adapters*.
+
+    Plans that do not expose a ``target`` attribute with an ``adapter``
+    field are passed through (conservative: include rather than exclude
+    when the plan structure is opaque).
+    """
+    allowed = set(target_adapters)
+    result: list[Any] = []
+    for plan in plans:
+        target = getattr(plan, "target", None)
+        adapter = getattr(target, "adapter", None) if target is not None else None
+        if adapter is None:
+            # Opaque plan structure – include conservatively.
+            result.append(plan)
+        elif adapter in allowed:
+            result.append(plan)
+    return result

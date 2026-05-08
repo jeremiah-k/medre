@@ -283,8 +283,8 @@ class TestFullPipeline:
                 source_transport_id="node-1",
                 source_channel_id="ch-0",
                 parent_event_id=None,
-                lineage=[],
-                relations=[],
+                lineage=(),
+                relations=(),
                 payload={"body": "track me"},
                 metadata=EventMetadata(),
             )
@@ -338,8 +338,8 @@ class TestFullPipeline:
                 source_transport_id="node-1",
                 source_channel_id="ch-0",
                 parent_event_id=None,
-                lineage=[],
-                relations=[],
+                lineage=(),
+                relations=(),
                 payload={"emoji": "👍"},
                 metadata=EventMetadata(),
             )

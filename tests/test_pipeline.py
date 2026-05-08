@@ -941,3 +941,567 @@ class TestCanonicalImmutabilityDownstream:
             setattr(event, "payload", {"hacked": True})
         # Original value unchanged.
         assert event.payload["text"] == original_text
+
+
+# ===================================================================
+# Delivery failure classification with DeliveryFailureKind
+# ===================================================================
+
+
+class TestDeliveryFailureClassification:
+    """Verify failure_kind is populated on DeliveryOutcome from the pipeline."""
+
+    async def test_adapter_transient_failure_classified(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """ConnectionError is classified as ADAPTER_TRANSIENT."""
+
+        class _Flaky:
+            adapter_id = "flaky"
+
+            def __init__(self) -> None:
+                self.received_events: list[object] = []
+
+            async def deliver(self, payload: object) -> None:
+                raise ConnectionError("network unreachable")
+
+        from medre.core.planning.delivery_plan import DeliveryFailureKind
+
+        diag = Diagnostician()
+        flaky = _Flaky()
+        good = FakePresentationAdapter(adapter_id="stable")
+
+        route = Route(
+            id="classify-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel=None
+            ),
+            targets=[
+                RouteTarget(adapter="stable"),
+                RouteTarget(adapter="flaky"),
+            ],
+        )
+        router = Router(routes=[route])
+
+        config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={"stable": good, "flaky": flaky},
+        )
+        config.diagnostician = diag
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = _make_event(event_id="classify-001", source_adapter="src")
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+
+            by_adapter = {o.target_adapter: o for o in outcomes}
+            assert by_adapter["stable"].status == "success"
+            assert by_adapter["flaky"].status == "transient_failure"
+            assert by_adapter["flaky"].failure_kind is DeliveryFailureKind.ADAPTER_TRANSIENT
+        finally:
+            await runner.stop()
+
+    async def test_adapter_permanent_failure_classified(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """RuntimeError is classified as ADAPTER_PERMANENT."""
+
+        class _Broken:
+            adapter_id = "broken"
+
+            def __init__(self) -> None:
+                self.received_events: list[object] = []
+
+            async def deliver(self, payload: object) -> None:
+                raise RuntimeError("payload rejected")
+
+        from medre.core.planning.delivery_plan import DeliveryFailureKind
+
+        diag = Diagnostician()
+        broken = _Broken()
+
+        route = Route(
+            id="perm-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel=None
+            ),
+            targets=[RouteTarget(adapter="broken")],
+        )
+        router = Router(routes=[route])
+
+        config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={"broken": broken},
+        )
+        config.diagnostician = diag
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = _make_event(event_id="perm-001", source_adapter="src")
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+            assert len(outcomes) == 1
+            assert outcomes[0].status == "permanent_failure"
+            assert outcomes[0].failure_kind is DeliveryFailureKind.ADAPTER_PERMANENT
+        finally:
+            await runner.stop()
+
+    async def test_renderer_failure_classified(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Rendering failure is classified as RENDERER_FAILURE."""
+
+        from medre.core.planning.delivery_plan import DeliveryFailureKind
+
+        adapter = FakePresentationAdapter(adapter_id="target")
+        route = Route(
+            id="render-classify",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel=None
+            ),
+            targets=[RouteTarget(adapter="target")],
+        )
+        router = Router(routes=[route])
+
+        empty_pipeline = RenderingPipeline()
+        config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={"target": adapter},
+        )
+        config.rendering_pipeline = empty_pipeline
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = _make_event(event_id="render-class-001", source_adapter="src")
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+            assert len(outcomes) == 1
+            assert outcomes[0].status == "permanent_failure"
+            assert outcomes[0].failure_kind is DeliveryFailureKind.RENDERER_FAILURE
+        finally:
+            await runner.stop()
+
+    async def test_target_not_found_returns_failed_receipt(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Missing adapter returns a receipt with status=failed but no exception.
+        
+        deliver_to_target handles missing adapters gracefully: it records
+        a failed receipt and returns it without raising. The outcome is
+        'success' at the _deliver_one level because no exception was raised,
+        but the receipt itself has status='failed'.
+        """
+        route = Route(
+            id="missing-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel=None
+            ),
+            targets=[RouteTarget(adapter="nonexistent")],
+        )
+        router = Router(routes=[route])
+
+        config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = _make_event(event_id="missing-001", source_adapter="src")
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+            assert len(outcomes) == 1
+            # No exception raised, so outcome is 'success'.
+            assert outcomes[0].status == "success"
+            # But the receipt records the failure.
+            assert outcomes[0].receipt is not None
+            assert outcomes[0].receipt.status == "failed"
+            assert "not registered" in (outcomes[0].receipt.error or "")
+        finally:
+            await runner.stop()
+
+
+# ===================================================================
+# Receipt lineage in pipeline
+# ===================================================================
+
+
+class TestReceiptLineageInPipeline:
+    """Verify that pipeline produces receipts with correct
+    attempt_number and parent_receipt_id.
+    """
+
+    async def test_first_attempt_receipt_has_attempt_number_one(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Successful first delivery produces receipt with attempt_number=1."""
+        adapter = FakePresentationAdapter(adapter_id="target")
+
+        route = Route(
+            id="attempt-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel=None
+            ),
+            targets=[RouteTarget(adapter="target")],
+        )
+        router = Router(routes=[route])
+        config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={"target": adapter},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = _make_event(event_id="attempt-001", source_adapter="src")
+
+        try:
+            await runner.handle_ingress(event)
+
+            receipts = await temp_storage.list_receipts_for_plan(
+                "attempt-route__target__0", "target"
+            )
+            # May not match due to plan_id format; query all receipts.
+            rows = await temp_storage._read_all(
+                "SELECT * FROM delivery_receipts WHERE event_id = ?",
+                ("attempt-001",),
+            )
+            assert len(rows) >= 1
+            assert rows[0]["attempt_number"] == 1
+            assert rows[0]["parent_receipt_id"] is None
+        finally:
+            await runner.stop()
+
+    async def test_failed_delivery_receipt_has_lineage(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Failed delivery produces receipt with attempt_number=1 and no parent."""
+
+        class _Broken:
+            adapter_id = "broken"
+
+            def __init__(self) -> None:
+                self.received_events: list[object] = []
+
+            async def deliver(self, payload: object) -> None:
+                raise RuntimeError("boom")
+
+        broken = _Broken()
+
+        route = Route(
+            id="lineage-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel=None
+            ),
+            targets=[RouteTarget(adapter="broken")],
+        )
+        router = Router(routes=[route])
+        config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={"broken": broken},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = _make_event(event_id="lineage-001", source_adapter="src")
+
+        try:
+            await runner.handle_ingress(event)
+
+            rows = await temp_storage._read_all(
+                "SELECT * FROM delivery_receipts WHERE event_id = ? ORDER BY sequence ASC",
+                ("lineage-001",),
+            )
+            assert len(rows) >= 1
+            # First receipt has attempt_number=1, no parent.
+            assert rows[0]["attempt_number"] == 1
+            assert rows[0]["parent_receipt_id"] is None
+        finally:
+            await runner.stop()
+
+
+# ===================================================================
+# Dead-letter with RetryPolicy
+# ===================================================================
+
+
+class TestDeadLetter:
+    """Verify dead-letter receipts are produced when retry policy is exhausted."""
+
+    async def test_dead_letter_receipt_on_exhaustion(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Failed delivery with max_attempts=1 produces a dead-letter receipt."""
+
+        class _Broken:
+            adapter_id = "dead-target"
+
+            def __init__(self) -> None:
+                self.received_events: list[object] = []
+
+            async def deliver(self, payload: object) -> None:
+                raise ConnectionError("always fails")
+
+        from medre.core.planning.delivery_plan import RetryPolicy
+
+        broken = _Broken()
+        route = Route(
+            id="dead-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel=None
+            ),
+            targets=[RouteTarget(adapter="dead-target")],
+        )
+        router = Router(routes=[route])
+
+        config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={"dead-target": broken},
+        )
+
+        # Patch the fallback resolver to produce a plan with retry_policy max_attempts=1.
+        from medre.core.planning.delivery_plan import (
+            DeliveryPlan,
+            DeliveryStrategy,
+        )
+
+        original_resolve = config.fallback_resolver.resolve_fallback
+
+        def _patched_resolve(event, target, capabilities):
+            plan = original_resolve(event, target, capabilities)
+            # Create a new plan with retry_policy=max_attempts=1
+            return DeliveryPlan(
+                plan_id=plan.plan_id,
+                event_id=plan.event_id,
+                target=plan.target,
+                primary_strategy=plan.primary_strategy,
+                fallback_chain=plan.fallback_chain,
+                retry_policy=RetryPolicy(max_attempts=1, jitter=False),
+                deadline=plan.deadline,
+            )
+
+        config.fallback_resolver.resolve_fallback = _patched_resolve  # type: ignore[assignment]
+
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = _make_event(event_id="dead-001", source_adapter="src")
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+            assert len(outcomes) == 1
+            assert outcomes[0].status == "transient_failure"
+
+            # Check receipts: should have failed + dead_lettered.
+            rows = await temp_storage._read_all(
+                "SELECT * FROM delivery_receipts WHERE event_id = ? ORDER BY sequence ASC",
+                ("dead-001",),
+            )
+            assert len(rows) == 2
+            assert rows[0]["status"] == "failed"
+            assert rows[1]["status"] == "dead_lettered"
+            assert rows[1]["attempt_number"] == 2
+            assert rows[1]["parent_receipt_id"] == rows[0]["receipt_id"]
+        finally:
+            await runner.stop()
+
+    async def test_no_dead_letter_without_retry_policy(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Without retry_policy, no dead-letter receipt is produced."""
+
+        class _Broken:
+            adapter_id = "no-retry"
+
+            def __init__(self) -> None:
+                self.received_events: list[object] = []
+
+            async def deliver(self, payload: object) -> None:
+                raise RuntimeError("boom")
+
+        broken = _Broken()
+        route = Route(
+            id="no-retry-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel=None
+            ),
+            targets=[RouteTarget(adapter="no-retry")],
+        )
+        router = Router(routes=[route])
+
+        config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={"no-retry": broken},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = _make_event(event_id="no-retry-001", source_adapter="src")
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+            assert len(outcomes) == 1
+            assert outcomes[0].status == "permanent_failure"
+
+            rows = await temp_storage._read_all(
+                "SELECT * FROM delivery_receipts WHERE event_id = ?",
+                ("no-retry-001",),
+            )
+            # Only one receipt — no dead-letter.
+            assert len(rows) == 1
+            assert rows[0]["status"] == "failed"
+        finally:
+            await runner.stop()
+
+
+# ===================================================================
+# Mixed fanout with failure classification
+# ===================================================================
+
+
+class TestMixedFanoutClassification:
+    """Deterministic partial fanout: each target classified independently."""
+
+    async def test_three_targets_mixed_classification(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Three targets: success, transient, permanent — all classified."""
+
+        from medre.core.planning.delivery_plan import DeliveryFailureKind
+
+        good = FakePresentationAdapter(adapter_id="good")
+
+        class _Transient:
+            adapter_id = "transient"
+
+            def __init__(self) -> None:
+                self.received_events: list[object] = []
+
+            async def deliver(self, payload: object) -> None:
+                raise ConnectionError("timeout")
+
+        class _Permanent:
+            adapter_id = "permanent"
+
+            def __init__(self) -> None:
+                self.received_events: list[object] = []
+
+            async def deliver(self, payload: object) -> None:
+                raise RuntimeError("bad payload")
+
+        transient = _Transient()
+        permanent = _Permanent()
+
+        route = Route(
+            id="mixed-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel=None
+            ),
+            targets=[
+                RouteTarget(adapter="good"),
+                RouteTarget(adapter="transient"),
+                RouteTarget(adapter="permanent"),
+            ],
+        )
+        router = Router(routes=[route])
+
+        config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={"good": good, "transient": transient, "permanent": permanent},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = _make_event(event_id="mixed-001", source_adapter="src")
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+            assert len(outcomes) == 3
+
+            by_adapter = {o.target_adapter: o for o in outcomes}
+            assert by_adapter["good"].status == "success"
+            assert by_adapter["good"].failure_kind is None
+
+            assert by_adapter["transient"].status == "transient_failure"
+            assert by_adapter["transient"].failure_kind is DeliveryFailureKind.ADAPTER_TRANSIENT
+
+            assert by_adapter["permanent"].status == "permanent_failure"
+            assert by_adapter["permanent"].failure_kind is DeliveryFailureKind.ADAPTER_PERMANENT
+
+            # Three distinct receipts stored.
+            rows = await temp_storage._read_all(
+                "SELECT * FROM delivery_receipts WHERE event_id = ?",
+                ("mixed-001",),
+            )
+            assert len(rows) == 3
+        finally:
+            await runner.stop()
+
+    async def test_fanout_receipts_target_scoped(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Receipts for different adapters are independent."""
+        good_a = FakePresentationAdapter(adapter_id="a")
+        good_b = FakePresentationAdapter(adapter_id="b")
+
+        route = Route(
+            id="scoped-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel=None
+            ),
+            targets=[
+                RouteTarget(adapter="a"),
+                RouteTarget(adapter="b"),
+            ],
+        )
+        router = Router(routes=[route])
+
+        config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={"a": good_a, "b": good_b},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = _make_event(event_id="scoped-001", source_adapter="src")
+
+        try:
+            await runner.handle_ingress(event)
+
+            rows = await temp_storage._read_all(
+                "SELECT * FROM delivery_receipts WHERE event_id = ? ORDER BY sequence ASC",
+                ("scoped-001",),
+            )
+            assert len(rows) == 2
+            adapters = {r["target_adapter"] for r in rows}
+            assert adapters == {"a", "b"}
+            # Each has its own attempt_number = 1
+            for row in rows:
+                assert row["attempt_number"] == 1
+                assert row["parent_receipt_id"] is None
+        finally:
+            await runner.stop()

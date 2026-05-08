@@ -622,3 +622,122 @@ CREATE INDEX idx_native_refs_event ON native_message_refs(event_id);
 CREATE INDEX idx_native_refs_adapter_native ON native_message_refs(adapter, native_message_id);
 CREATE INDEX idx_native_refs_relation ON native_message_refs(adapter, native_relation_id);
 ```
+
+
+## 16. Delivery Failure Taxonomy
+
+### 16.1 DeliveryFailureKind
+
+Every delivery failure is classified into one of six categories:
+
+```python
+class DeliveryFailureKind(Enum):
+    PLANNER_FAILURE = "planner_failure"       # Routing/planning stage error (permanent)
+    RENDERER_FAILURE = "renderer_failure"     # Rendering stage error (permanent)
+    ADAPTER_TRANSIENT = "adapter_transient"   # Timeout, connection error (retryable)
+    ADAPTER_PERMANENT = "adapter_permanent"   # Business logic rejection (permanent)
+    TARGET_NOT_FOUND = "target_not_found"     # Adapter not registered (permanent)
+    DEADLINE_EXCEEDED = "deadline_exceeded"   # Delivery plan deadline passed (permanent)
+```
+
+Classification rules:
+
+| Failure kind | Pipeline stage | Retryable | Auto-classified from exception |
+|---|---|---|---|
+| `PLANNER_FAILURE` | Routing / planning | No | Exception during `route_event()` |
+| `RENDERER_FAILURE` | Rendering | No | Exception during `render()` |
+| `ADAPTER_TRANSIENT` | Adapter delivery | **Yes** | `TimeoutError`, `ConnectionError`, `OSError` hierarchy |
+| `ADAPTER_PERMANENT` | Adapter delivery | No | All other exceptions |
+| `TARGET_NOT_FOUND` | Adapter lookup | No | Adapter not in `config.adapters` |
+| `DEADLINE_EXCEEDED` | Deadline check | No | `plan.deadline < now` |
+
+The classification drives retry decisions and `DeliveryOutcome.failure_kind`.
+
+### 16.2 RetryExecutor
+
+`RetryExecutor` encapsulates retry/backoff logic for a `RetryPolicy`:
+
+```python
+class RetryExecutor:
+    def __init__(self, policy: RetryPolicy) -> None: ...
+    def compute_backoff(self, attempt_number: int) -> timedelta: ...
+    def is_exhausted(self, attempt_number: int) -> bool: ...
+    def build_retry_receipt(...) -> DeliveryReceipt: ...
+    def build_dead_letter_receipt(...) -> DeliveryReceipt: ...
+    @staticmethod
+    def classify_failure(error, *, adapter_registered, renderer_failed, ...) -> DeliveryFailureKind: ...
+```
+
+Backoff formula: `delay = min(backoff_base * 2 ** (attempt - 1), max_delay_seconds)`, with optional jitter.
+
+Exhaustion check: `attempt_number >= policy.max_attempts`.
+
+### 16.3 Phase 1 Retry Semantics
+
+**Phase 1 does not implement a background retry scheduler.**
+
+Retry is synchronous/receipt-level only:
+
+1. `deliver_to_target` records a `failed` receipt with `next_retry_at` populated.
+2. If `retry_policy` is set and `is_exhausted(attempt_number)` is true, a `dead_lettered` receipt is appended after the primary receipt.
+3. A future scheduler (or manual replay via `BEST_EFFORT` mode) re-invokes `deliver_to_target` with `previous_receipt` to perform the next attempt.
+
+This means: retry *decisions* and *receipt recording* are complete, but automatic timed retry execution is deferred.
+
+
+## 17. Receipt Lineage
+
+### 17.1 Lineage Fields
+
+`DeliveryReceipt` carries two fields for receipt chain ordering:
+
+| Field | Type | Description |
+|---|---|---|
+| `attempt_number` | `int` (default `1`) | 1-indexed attempt number. First attempt = 1. |
+| `parent_receipt_id` | `str \| None` (default `None`) | Receipt ID of the preceding attempt. `None` for first attempt. |
+
+Together these provide explicit receipt lineage without relying on timestamps.
+
+### 17.2 Lineage Storage
+
+The `delivery_receipts` table includes:
+
+```sql
+attempt_number INTEGER NOT NULL DEFAULT 1,
+parent_receipt_id TEXT,
+```
+
+### 17.3 Lineage Query
+
+`list_receipts_for_plan(delivery_plan_id, target_adapter)` returns all receipts ordered by `attempt_number` ascending, enabling callers to walk the full receipt chain.
+
+### 17.4 Dead-Letter Chain
+
+When retries are exhausted, the receipt chain ends with a `dead_lettered` receipt:
+
+```
+rcpt-1 (attempt=1, parent=None, status=failed)
+  └→ rcpt-2 (attempt=2, parent=rcpt-1, status=dead_lettered)
+```
+
+
+## 18. DeliveryOutcome with Failure Classification
+
+`DeliveryOutcome` includes a `failure_kind` field from the `DeliveryFailureKind` taxonomy:
+
+```python
+@dataclass(frozen=True)
+class DeliveryOutcome:
+    event_id: str
+    target_adapter: str
+    target_channel: str | None
+    route_id: str
+    delivery_plan_id: str
+    status: Literal["success", "queued", "transient_failure", "permanent_failure", "skipped"]
+    failure_kind: DeliveryFailureKind | None = None
+    receipt: DeliveryReceipt | None = None
+    error: str | None = None
+    duration_ms: float = 0.0
+```
+
+`failure_kind` is `None` on success. On failure, it carries the specific taxonomy member that caused the failure.

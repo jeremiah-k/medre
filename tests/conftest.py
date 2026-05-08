@@ -11,7 +11,7 @@ import logging
 import os
 import tempfile
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, AsyncGenerator
 
 import pytest
 
@@ -121,7 +121,7 @@ def sample_native_message_ref() -> NativeMessageRef:
 
 
 @pytest.fixture
-async def temp_storage() -> SQLiteStorage:
+async def temp_storage() -> AsyncGenerator[SQLiteStorage, None]:
     """SQLiteStorage backed by a temporary file, cleaned up after test."""
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
         db_path = f.name

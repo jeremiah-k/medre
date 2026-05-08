@@ -1,14 +1,16 @@
 """Replay engine tests: ReplayEngine with SQLiteStorage and pipeline components.
 
-Tests the four replay modes (STRICT, RE_RENDER, RE_ROUTE, BEST_EFFORT),
-count_matching, empty-result handling, and the guarantee that non-BEST_EFFORT
-modes do not mutate storage.
+Tests the five replay modes (STRICT, RE_RENDER, RE_ROUTE, BEST_EFFORT,
+DRY_RUN), count_matching, empty-result handling, deterministic ordering,
+diagnostician wiring, target_adapters filtering, schema-version
+compatibility, dead-letter retry semantics, and the guarantee that
+non-BEST_EFFORT modes do not mutate storage.
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock
 
 import pytest
@@ -18,6 +20,7 @@ from medre.core.planning import FallbackResolver
 from medre.core.rendering import RenderingPipeline, TextRenderer
 from medre.core.routing import Route, RouteSource, RouteTarget, Router
 from medre.core.storage import EventFilter, SQLiteStorage
+from medre.core.storage.backend import StorageBackend
 from medre.core.storage.replay import (
     ReplayEngine,
     ReplayMode,
@@ -109,6 +112,22 @@ class _StubPipeline:
 # ---------------------------------------------------------------------------
 
 
+def _make_engine(
+    storage: SQLiteStorage,
+    pipeline: Any | None = None,
+) -> ReplayEngine:
+    """Create a ReplayEngine with the storage cast to StorageBackend protocol.
+
+    SQLiteStorage implements the async-generator style ``query`` method which
+    Pyright considers incompatible with the Protocol's ``async def query``.
+    The runtime behaviour is correct; the cast bridges the static check gap.
+    """
+    return ReplayEngine(
+        storage=cast(StorageBackend, storage),
+        pipeline=pipeline,
+    )
+
+
 def _second_event(sample_event: CanonicalEvent) -> CanonicalEvent:
     """Create a second event distinct from *sample_event*."""
     return CanonicalEvent(
@@ -120,8 +139,8 @@ def _second_event(sample_event: CanonicalEvent) -> CanonicalEvent:
         source_transport_id="node-123",
         source_channel_id="ch-0",
         parent_event_id=None,
-        lineage=[],
-        relations=[],
+        lineage=(),
+        relations=(),
         payload={"text": "second event"},
         metadata=EventMetadata(),
     )
@@ -143,7 +162,7 @@ class TestReplayEngine:
         """STRICT mode reads events and validates they exist."""
         await temp_storage.append(sample_event)
 
-        engine = ReplayEngine(storage=temp_storage)
+        engine = _make_engine(temp_storage)
         request = ReplayRequest(
             event_kinds=["message.created"],
             mode=ReplayMode.STRICT,
@@ -167,7 +186,7 @@ class TestReplayEngine:
         await temp_storage.append(sample_event)
 
         pipeline = _StubPipeline(rendering_pipeline=rendering_pipeline)
-        engine = ReplayEngine(storage=temp_storage, pipeline=pipeline)
+        engine = _make_engine(temp_storage, pipeline=pipeline)
         request = ReplayRequest(
             event_kinds=["message.created"],
             mode=ReplayMode.RE_RENDER,
@@ -203,7 +222,7 @@ class TestReplayEngine:
         await temp_storage.append(sample_event)
 
         pipeline = _StubPipeline(router=router_with_routes)
-        engine = ReplayEngine(storage=temp_storage, pipeline=pipeline)
+        engine = _make_engine(temp_storage, pipeline=pipeline)
         request = ReplayRequest(
             event_kinds=["message.created"],
             mode=ReplayMode.RE_ROUTE,
@@ -238,7 +257,7 @@ class TestReplayEngine:
         temp_storage: SQLiteStorage,
     ) -> None:
         """No matching events returns empty iterator."""
-        engine = ReplayEngine(storage=temp_storage)
+        engine = _make_engine(temp_storage)
         request = ReplayRequest(
             event_kinds=["message.created"],
             mode=ReplayMode.STRICT,
@@ -258,7 +277,7 @@ class TestReplayEngine:
         second = _second_event(sample_event)
         await temp_storage.append(second)
 
-        engine = ReplayEngine(storage=temp_storage)
+        engine = _make_engine(temp_storage)
         request = ReplayRequest(
             event_kinds=["message.created"],
             mode=ReplayMode.STRICT,
@@ -290,14 +309,14 @@ class TestReplayEngine:
             source_transport_id="node-1",
             source_channel_id="ch-0",
             parent_event_id=None,
-            lineage=[],
-            relations=[],
+            lineage=(),
+            relations=(),
             payload={"text": "test"},
             metadata=EventMetadata(),
         )
         await temp_storage.append(event)
 
-        engine = ReplayEngine(storage=temp_storage)
+        engine = _make_engine(temp_storage)
         request = ReplayRequest(
             event_kinds=["unknown.event_type"],
             mode=ReplayMode.STRICT,
@@ -316,7 +335,7 @@ class TestReplayEngine:
         """count_matching with correlation_ids fetches by individual ID."""
         await temp_storage.append(sample_event)
 
-        engine = ReplayEngine(storage=temp_storage)
+        engine = _make_engine(temp_storage)
         request = ReplayRequest(
             correlation_ids=[sample_event.event_id, "nonexistent-id"],
             mode=ReplayMode.STRICT,
@@ -344,14 +363,14 @@ class TestReplayEngine:
             source_transport_id="node-123",
             source_channel_id="ch-0",
             parent_event_id="parent-evt",
-            lineage=["ancestor-1", "ancestor-2"],
-            relations=[],
+            lineage=("ancestor-1", "ancestor-2"),
+            relations=(),
             payload={"text": "derived"},
             metadata=EventMetadata(),
         )
         await temp_storage.append(event)
 
-        engine = ReplayEngine(storage=temp_storage)
+        engine = _make_engine(temp_storage)
         request = ReplayRequest(
             event_kinds=["message.created"],
             mode=ReplayMode.STRICT,
@@ -388,7 +407,7 @@ class TestReplayEngine:
 
         pipeline.render_event = tracking_render
 
-        engine = ReplayEngine(storage=temp_storage, pipeline=pipeline)
+        engine = _make_engine(temp_storage, pipeline=pipeline)
         request = ReplayRequest(
             event_kinds=["message.created"],
             mode=ReplayMode.RE_RENDER,
@@ -426,7 +445,7 @@ class TestReplayEngine:
 
         pipeline.route_event = tracking_route
 
-        engine = ReplayEngine(storage=temp_storage, pipeline=pipeline)
+        engine = _make_engine(temp_storage, pipeline=pipeline)
         request = ReplayRequest(
             event_kinds=["message.created"],
             mode=ReplayMode.RE_ROUTE,
@@ -459,7 +478,7 @@ class TestReplayEngine:
             side_effect=RuntimeError("Adapter 'missing' not found"),
         )
 
-        engine = ReplayEngine(storage=temp_storage, pipeline=pipeline)
+        engine = _make_engine(temp_storage, pipeline=pipeline)
         request = ReplayRequest(
             event_kinds=["message.created"],
             mode=ReplayMode.BEST_EFFORT,
@@ -490,7 +509,7 @@ class TestReplayEngine:
         orig_payload = dict(sample_event.payload)
         orig_lineage = list(sample_event.lineage)
 
-        engine = ReplayEngine(storage=temp_storage)
+        engine = _make_engine(temp_storage)
         request = ReplayRequest(mode=ReplayMode.STRICT)
 
         _ = [r async for r in engine.replay(request)]
@@ -521,7 +540,7 @@ class TestReplayEngine:
         pipeline.transform_event = AsyncMock(return_value=sample_event)
         pipeline.render_event = AsyncMock(return_value="rendered")
 
-        engine = ReplayEngine(storage=temp_storage, pipeline=pipeline)
+        engine = _make_engine(temp_storage, pipeline=pipeline)
         request = ReplayRequest(
             event_kinds=["message.created"],
             mode=ReplayMode.RE_RENDER,
@@ -560,7 +579,7 @@ class TestReplayEngine:
 
         pipeline.deliver = tracking_deliver
 
-        engine = ReplayEngine(storage=temp_storage, pipeline=pipeline)
+        engine = _make_engine(temp_storage, pipeline=pipeline)
         request = ReplayRequest(
             event_kinds=["message.created"],
             mode=ReplayMode.RE_ROUTE,
@@ -587,15 +606,15 @@ class TestReplayEngine:
             source_transport_id="node-123",
             source_channel_id="ch-0",
             parent_event_id=sample_event.event_id,
-            lineage=[sample_event.event_id],
-            relations=[],
+            lineage=(sample_event.event_id,),
+            relations=(),
             payload={"text": "derived from parent"},
             metadata=EventMetadata(),
         )
         await temp_storage.append(sample_event)
         await temp_storage.append(derived)
 
-        engine = ReplayEngine(storage=temp_storage)
+        engine = _make_engine(temp_storage)
         request = ReplayRequest(
             correlation_ids=["derived-001"],
             mode=ReplayMode.STRICT,
@@ -615,7 +634,7 @@ class TestReplayEngine:
         """Events carrying relations replay without errors."""
         await temp_storage.append(sample_event_with_relations)
 
-        engine = ReplayEngine(storage=temp_storage)
+        engine = _make_engine(temp_storage)
         request = ReplayRequest(
             event_kinds=["message.created"],
             mode=ReplayMode.STRICT,
@@ -647,8 +666,8 @@ class TestReplayEngine:
             source_transport_id="node-123",
             source_channel_id="ch-0",
             parent_event_id=None,
-            lineage=[],
-            relations=[],
+            lineage=(),
+            relations=(),
             payload={"text": "old event"},
             metadata=EventMetadata(),
         )
@@ -661,8 +680,8 @@ class TestReplayEngine:
             source_transport_id="node-456",
             source_channel_id="ch-1",
             parent_event_id=None,
-            lineage=[],
-            relations=[],
+            lineage=(),
+            relations=(),
             payload={"status": "online"},
             metadata=EventMetadata(),
         )
@@ -670,7 +689,7 @@ class TestReplayEngine:
         await temp_storage.append(evt_presence)
         await temp_storage.append(sample_event)
 
-        engine = ReplayEngine(storage=temp_storage)
+        engine = _make_engine(temp_storage)
 
         # All events
         count_all = await engine.count_matching(
@@ -705,3 +724,690 @@ class TestReplayEngine:
             ),
         )
         assert count_time == 1  # Only sample_event in the window
+
+    # ------------------------------------------------------------------
+    # DRY_RUN mode
+    # ------------------------------------------------------------------
+
+    async def test_dry_run_executes_all_stages_except_delivery(
+        self,
+        temp_storage: SQLiteStorage,
+        router_with_routes: Router,
+        sample_event: CanonicalEvent,
+        rendering_pipeline: RenderingPipeline,
+    ) -> None:
+        """DRY_RUN runs store, route, plan, render but skips delivery."""
+        await temp_storage.append(sample_event)
+
+        pipeline = _StubPipeline(
+            router=router_with_routes,
+            rendering_pipeline=rendering_pipeline,
+        )
+        engine = _make_engine(temp_storage, pipeline=pipeline)
+        request = ReplayRequest(
+            event_kinds=["message.created"],
+            mode=ReplayMode.DRY_RUN,
+        )
+
+        results = [r async for r in engine.replay(request)]
+
+        # store + route + plan + render + deliver (skipped)
+        assert len(results) == 5
+        stages = [r.stage for r in results]
+        assert stages == ["store", "route", "plan", "render", "deliver"]
+
+        # All stages pass except deliver which is skipped
+        assert results[0].status == "passed"
+        assert results[1].status == "passed"
+        assert results[2].status == "passed"
+        assert results[3].status == "passed"
+        assert results[4].status == "skipped"
+        assert "dry_run" in (results[4].error or "")
+
+    async def test_dry_run_produces_no_storage_side_effects(
+        self,
+        temp_storage: SQLiteStorage,
+        router_with_routes: Router,
+        sample_event: CanonicalEvent,
+        rendering_pipeline: RenderingPipeline,
+    ) -> None:
+        """DRY_RUN mode does not change stored event count."""
+        await temp_storage.append(sample_event)
+
+        pipeline = _StubPipeline(
+            router=router_with_routes,
+            rendering_pipeline=rendering_pipeline,
+        )
+        engine = _make_engine(temp_storage, pipeline=pipeline)
+        request = ReplayRequest(mode=ReplayMode.DRY_RUN)
+
+        _ = [r async for r in engine.replay(request)]
+
+        all_events = [e async for e in temp_storage.query(EventFilter())]
+        assert len(all_events) == 1
+
+    # ------------------------------------------------------------------
+    # Deterministic ordering
+    # ------------------------------------------------------------------
+
+    async def test_results_are_ordered_deterministically(
+        self,
+        temp_storage: SQLiteStorage,
+        sample_event: CanonicalEvent,
+    ) -> None:
+        """Multiple events produce results in consistent order."""
+        second = _second_event(sample_event)
+        await temp_storage.append(sample_event)
+        await temp_storage.append(second)
+
+        engine = _make_engine(temp_storage)
+        request = ReplayRequest(mode=ReplayMode.STRICT)
+
+        results = [r async for r in engine.replay(request)]
+        assert len(results) == 2
+
+        # Run again – order must be identical
+        results2 = [r async for r in engine.replay(request)]
+        assert [r.event_id for r in results] == [r.event_id for r in results2]
+
+    # ------------------------------------------------------------------
+    # Relations across modes
+    # ------------------------------------------------------------------
+
+    async def test_relations_preserved_across_re_render(
+        self,
+        temp_storage: SQLiteStorage,
+        sample_event_with_relations: CanonicalEvent,
+        rendering_pipeline: RenderingPipeline,
+    ) -> None:
+        """RE_RENDER mode preserves relations on the stored event."""
+        await temp_storage.append(sample_event_with_relations)
+
+        pipeline = _StubPipeline(rendering_pipeline=rendering_pipeline)
+        engine = _make_engine(temp_storage, pipeline=pipeline)
+        request = ReplayRequest(
+            event_kinds=["message.created"],
+            mode=ReplayMode.RE_RENDER,
+        )
+
+        results = [r async for r in engine.replay(request)]
+        assert len(results) == 2
+
+        # The stored event in store stage output should have relations
+        stored = results[0].output
+        assert stored is not None
+        assert len(stored.relations) == 1
+        assert stored.relations[0].relation_type == "reply"
+
+        # Verify stored event is unchanged after replay
+        stored_after = await temp_storage.get(sample_event_with_relations.event_id)
+        assert stored_after is not None
+        assert len(stored_after.relations) == 1
+        assert stored_after.relations[0].relation_type == "reply"
+
+    async def test_relations_preserved_across_re_route(
+        self,
+        temp_storage: SQLiteStorage,
+        sample_event_with_relations: CanonicalEvent,
+        router_with_routes: Router,
+    ) -> None:
+        """RE_ROUTE mode preserves relations on the stored event."""
+        await temp_storage.append(sample_event_with_relations)
+
+        pipeline = _StubPipeline(router=router_with_routes)
+        engine = _make_engine(temp_storage, pipeline=pipeline)
+        request = ReplayRequest(
+            event_kinds=["message.created"],
+            mode=ReplayMode.RE_ROUTE,
+        )
+
+        results = [r async for r in engine.replay(request)]
+        assert len(results) == 3
+
+        # Verify stored event unchanged
+        stored = await temp_storage.get(sample_event_with_relations.event_id)
+        assert stored is not None
+        assert len(stored.relations) == 1
+
+    # ------------------------------------------------------------------
+    # Renderer missing / downgrade diagnostics
+    # ------------------------------------------------------------------
+
+    async def test_render_failure_records_diagnostics(
+        self,
+        temp_storage: SQLiteStorage,
+        sample_event: CanonicalEvent,
+    ) -> None:
+        """Render failure emits diagnostic via Diagnostician."""
+        from medre.core.observability.metrics import Diagnostician
+
+        await temp_storage.append(sample_event)
+
+        pipeline = AsyncMock()
+        pipeline.transform_event = AsyncMock(return_value=sample_event)
+        pipeline.render_event = AsyncMock(
+            side_effect=RuntimeError("No renderer for adapter"),
+        )
+
+        diag = Diagnostician()
+        engine = _make_engine(temp_storage, pipeline=pipeline)
+        engine._diagnostician = diag
+
+        request = ReplayRequest(
+            event_kinds=["message.created"],
+            mode=ReplayMode.RE_RENDER,
+        )
+
+        results = [r async for r in engine.replay(request)]
+        assert len(results) == 2
+        assert results[1].stage == "render"
+        assert results[1].status == "error"
+        assert "No renderer" in (results[1].error or "")
+
+        # Diagnostician captured the renderer failure
+        snap = diag.snapshot()
+        assert len(snap["renderer_failures"]) > 0
+
+    # ------------------------------------------------------------------
+    # Failed historical adapter (route to adapter that no longer exists)
+    # ------------------------------------------------------------------
+
+    async def test_best_effort_adapter_failure_diagnostics(
+        self,
+        temp_storage: SQLiteStorage,
+        sample_event: CanonicalEvent,
+    ) -> None:
+        """BEST_EFFORT adapter failure records diagnostic events."""
+        from medre.core.observability.metrics import Diagnostician
+
+        await temp_storage.append(sample_event)
+
+        pipeline = AsyncMock()
+        pipeline.transform_event = AsyncMock(return_value=sample_event)
+        pipeline.render_event = AsyncMock(return_value="rendered")
+        pipeline.route_event = AsyncMock(return_value=[("route", ["target"])])
+        pipeline.plan_delivery = AsyncMock(return_value=["plan"])
+        pipeline.deliver = AsyncMock(
+            side_effect=RuntimeError("Adapter 'gone' not registered"),
+        )
+
+        diag = Diagnostician()
+        engine = _make_engine(temp_storage, pipeline=pipeline)
+        engine._diagnostician = diag
+
+        request = ReplayRequest(
+            event_kinds=["message.created"],
+            mode=ReplayMode.BEST_EFFORT,
+        )
+
+        results = [r async for r in engine.replay(request)]
+        assert len(results) == 5
+        assert results[4].status == "error"
+
+        snap = diag.snapshot()
+        assert len(snap["adapter_failures"]) > 0
+
+    # ------------------------------------------------------------------
+    # Non-BEST_EFFORT modes: no storage side effects
+    # ------------------------------------------------------------------
+
+    async def test_re_route_no_storage_mutation(
+        self,
+        temp_storage: SQLiteStorage,
+        router_with_routes: Router,
+        sample_event: CanonicalEvent,
+    ) -> None:
+        """RE_ROUTE never writes to storage."""
+        await temp_storage.append(sample_event)
+
+        pipeline = _StubPipeline(router=router_with_routes)
+        engine = _make_engine(temp_storage, pipeline=pipeline)
+        request = ReplayRequest(mode=ReplayMode.RE_ROUTE)
+
+        count_before = len([e async for e in temp_storage.query(EventFilter())])
+        _ = [r async for r in engine.replay(request)]
+        count_after = len([e async for e in temp_storage.query(EventFilter())])
+
+        assert count_before == count_after == 1
+
+    async def test_dry_run_no_storage_mutation(
+        self,
+        temp_storage: SQLiteStorage,
+        router_with_routes: Router,
+        sample_event: CanonicalEvent,
+        rendering_pipeline: RenderingPipeline,
+    ) -> None:
+        """DRY_RUN never writes to storage."""
+        await temp_storage.append(sample_event)
+
+        pipeline = _StubPipeline(
+            router=router_with_routes,
+            rendering_pipeline=rendering_pipeline,
+        )
+        engine = _make_engine(temp_storage, pipeline=pipeline)
+        request = ReplayRequest(mode=ReplayMode.DRY_RUN)
+
+        count_before = len([e async for e in temp_storage.query(EventFilter())])
+        _ = [r async for r in engine.replay(request)]
+        count_after = len([e async for e in temp_storage.query(EventFilter())])
+
+        assert count_before == count_after == 1
+
+    # ------------------------------------------------------------------
+    # Schema-version compatibility
+    # ------------------------------------------------------------------
+
+    async def test_schema_version_compatibility(
+        self,
+        temp_storage: SQLiteStorage,
+        sample_event: CanonicalEvent,
+    ) -> None:
+        """Events with current schema_version pass STRICT replay."""
+        from medre.core.events.schema import CURRENT_SCHEMA_VERSION
+
+        event = CanonicalEvent(
+            event_id="schema-v1",
+            event_kind="message.created",
+            schema_version=CURRENT_SCHEMA_VERSION,
+            timestamp=sample_event.timestamp,
+            source_adapter="fake_transport",
+            source_transport_id="node-123",
+            source_channel_id="ch-0",
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"text": "schema test"},
+            metadata=EventMetadata(),
+        )
+        await temp_storage.append(event)
+
+        engine = _make_engine(temp_storage)
+        request = ReplayRequest(
+            event_kinds=["message.created"],
+            mode=ReplayMode.STRICT,
+        )
+
+        results = [r async for r in engine.replay(request)]
+        assert len(results) == 1
+        assert results[0].status == "passed"
+
+    async def test_future_schema_version_accepted(
+        self,
+        temp_storage: SQLiteStorage,
+        sample_event: CanonicalEvent,
+    ) -> None:
+        """Events with schema_version > CURRENT pass STRICT replay.
+
+        The schema system accepts future versions at storage time.
+        Replay should not reject them either.
+        """
+        from medre.core.events.schema import CURRENT_SCHEMA_VERSION
+
+        event = CanonicalEvent(
+            event_id="schema-future",
+            event_kind="message.created",
+            schema_version=CURRENT_SCHEMA_VERSION + 1,
+            timestamp=sample_event.timestamp,
+            source_adapter="fake_transport",
+            source_transport_id="node-123",
+            source_channel_id="ch-0",
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"text": "future schema"},
+            metadata=EventMetadata(),
+        )
+        await temp_storage.append(event)
+
+        engine = _make_engine(temp_storage)
+        request = ReplayRequest(
+            event_kinds=["message.created"],
+            mode=ReplayMode.STRICT,
+        )
+
+        results = [r async for r in engine.replay(request)]
+        assert len(results) == 1
+        assert results[0].status == "passed"
+
+    # ------------------------------------------------------------------
+    # Diagnostician wiring
+    # ------------------------------------------------------------------
+
+    async def test_diagnostician_records_missing_event(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Replaying a missing event records a replay_skip diagnostic."""
+        from medre.core.observability.metrics import Diagnostician
+
+        diag = Diagnostician()
+        engine = _make_engine(temp_storage)
+        engine._diagnostician = diag
+
+        request = ReplayRequest(
+            correlation_ids=["nonexistent-001"],
+            mode=ReplayMode.STRICT,
+        )
+
+        results = [r async for r in engine.replay(request)]
+        assert len(results) == 1
+        assert results[0].status == "failed"
+
+        snap = diag.snapshot()
+        assert "Event not found in storage" in snap["replay_skips"]
+
+    async def test_diagnostician_records_unregistered_kind(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Unregistered event_kind records a replay_downgrade diagnostic."""
+        from medre.core.observability.metrics import Diagnostician
+
+        event = CanonicalEvent(
+            event_id="bad-kind-002",
+            event_kind="unknown.event_type",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="test",
+            source_transport_id="node-1",
+            source_channel_id="ch-0",
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"text": "test"},
+            metadata=EventMetadata(),
+        )
+        await temp_storage.append(event)
+
+        diag = Diagnostician()
+        engine = _make_engine(temp_storage)
+        engine._diagnostician = diag
+
+        request = ReplayRequest(
+            event_kinds=["unknown.event_type"],
+            mode=ReplayMode.STRICT,
+        )
+
+        results = [r async for r in engine.replay(request)]
+        assert len(results) == 1
+        assert results[0].status == "failed"
+
+        snap = diag.snapshot()
+        assert len(snap["replay_downgrades"]) > 0
+
+    async def test_diagnostician_records_no_routes_matched(
+        self,
+        temp_storage: SQLiteStorage,
+        sample_event: CanonicalEvent,
+    ) -> None:
+        """No matching routes records a replay_skip diagnostic."""
+        from medre.core.observability.metrics import Diagnostician
+
+        await temp_storage.append(sample_event)
+
+        # Empty router – no routes will match
+        empty_router = Router(routes=[])
+        pipeline = _StubPipeline(router=empty_router)
+
+        diag = Diagnostician()
+        engine = _make_engine(temp_storage, pipeline=pipeline)
+        engine._diagnostician = diag
+
+        request = ReplayRequest(mode=ReplayMode.RE_ROUTE)
+
+        results = [r async for r in engine.replay(request)]
+        # store + route (failed)
+        assert len(results) == 3
+        assert results[1].status == "failed"
+
+        snap = diag.snapshot()
+        assert "No routes matched" in snap["replay_skips"]
+
+    # ------------------------------------------------------------------
+    # target_adapters filtering
+    # ------------------------------------------------------------------
+
+    async def test_target_adapters_filters_delivery(
+        self,
+        temp_storage: SQLiteStorage,
+        sample_event: CanonicalEvent,
+    ) -> None:
+        """target_adapters excludes delivery to non-listed adapters."""
+        await temp_storage.append(sample_event)
+
+        # Create a plan-like object with a target.adapter attribute
+        class _FakeTarget:
+            def __init__(self, adapter: str) -> None:
+                self.adapter = adapter
+
+        class _FakePlan:
+            def __init__(self, adapter: str) -> None:
+                self.target = _FakeTarget(adapter)
+
+        pipeline = AsyncMock()
+        pipeline.transform_event = AsyncMock(return_value=sample_event)
+        pipeline.render_event = AsyncMock(return_value="rendered")
+        pipeline.route_event = AsyncMock(return_value=[("route", ["target"])])
+        pipeline.plan_delivery = AsyncMock(return_value=[_FakePlan("adapter_a")])
+        pipeline.deliver = AsyncMock(return_value=["receipt"])
+
+        engine = _make_engine(temp_storage, pipeline=pipeline)
+        request = ReplayRequest(
+            event_kinds=["message.created"],
+            mode=ReplayMode.BEST_EFFORT,
+            target_adapters=["other_adapter"],
+        )
+
+        results = [r async for r in engine.replay(request)]
+        # The deliver stage should be skipped because no plans match
+        deliver_result = results[4]
+        assert deliver_result.stage == "deliver"
+        assert deliver_result.status == "skipped"
+        assert "target_adapters" in (deliver_result.error or "")
+
+    # ------------------------------------------------------------------
+    # Replay never mutates CanonicalEvent
+    # ------------------------------------------------------------------
+
+    async def test_replay_never_mutates_historical_event(
+        self,
+        temp_storage: SQLiteStorage,
+        router_with_routes: Router,
+        sample_event: CanonicalEvent,
+        rendering_pipeline: RenderingPipeline,
+    ) -> None:
+        """All modes preserve the original event bytes and fields."""
+        await temp_storage.append(sample_event)
+
+        # Snapshot original
+        orig_id = sample_event.event_id
+        orig_kind = sample_event.event_kind
+        orig_payload = dict(sample_event.payload)
+
+        pipeline = _StubPipeline(
+            router=router_with_routes,
+            rendering_pipeline=rendering_pipeline,
+        )
+        engine = _make_engine(temp_storage, pipeline=pipeline)
+
+        for mode in (
+            ReplayMode.STRICT,
+            ReplayMode.RE_RENDER,
+            ReplayMode.RE_ROUTE,
+            ReplayMode.DRY_RUN,
+        ):
+            request = ReplayRequest(mode=mode)
+            _ = [r async for r in engine.replay(request)]
+
+            # Original object unchanged
+            assert sample_event.event_id == orig_id
+            assert sample_event.event_kind == orig_kind
+            assert dict(sample_event.payload) == orig_payload
+
+            # Stored version unchanged
+            stored = await temp_storage.get(sample_event.event_id)
+            assert stored is not None
+            assert stored.event_id == orig_id
+            assert stored.event_kind == orig_kind
+            assert dict(stored.payload) == orig_payload
+
+    # ------------------------------------------------------------------
+    # Dead-letter / retry replay semantics
+    # ------------------------------------------------------------------
+
+    async def test_dead_letter_retry_replay_via_best_effort(
+        self,
+        temp_storage: SQLiteStorage,
+        sample_event: CanonicalEvent,
+    ) -> None:
+        """BEST_EFFORT replay of a previously-failed event captures error.
+
+        This tests the 'retry' semantics: replaying an event whose prior
+        delivery failed.  In Phase 1, retry is BEST_EFFORT replay scoped
+        to events with failed delivery receipts, not a separate mode.
+        """
+        from medre.core.events import DeliveryReceipt
+
+        # Store event and a failed receipt for it
+        await temp_storage.append(sample_event)
+
+        failed_receipt = DeliveryReceipt(
+            sequence=0,
+            receipt_id="rcpt-retry-001",
+            event_id=sample_event.event_id,
+            delivery_plan_id="plan-001",
+            target_adapter="broken_adapter",
+            status="failed",
+            error="Connection refused",
+        )
+        await temp_storage.append_receipt(failed_receipt)
+
+        pipeline = AsyncMock()
+        pipeline.transform_event = AsyncMock(return_value=sample_event)
+        pipeline.render_event = AsyncMock(return_value="rendered")
+        pipeline.route_event = AsyncMock(return_value=[("route", ["target"])])
+        pipeline.plan_delivery = AsyncMock(return_value=["plan"])
+        pipeline.deliver = AsyncMock(
+            side_effect=RuntimeError("Still broken"),
+        )
+
+        engine = _make_engine(temp_storage, pipeline=pipeline)
+        request = ReplayRequest(
+            correlation_ids=[sample_event.event_id],
+            mode=ReplayMode.BEST_EFFORT,
+        )
+
+        results = [r async for r in engine.replay(request)]
+        assert len(results) == 5
+        deliver_result = results[4]
+        assert deliver_result.status == "error"
+        assert "Still broken" in (deliver_result.error or "")
+
+    # ------------------------------------------------------------------
+    # collect_replay_state aggregation
+    # ------------------------------------------------------------------
+
+    async def test_collect_replay_state_aggregates(
+        self,
+        temp_storage: SQLiteStorage,
+        sample_event: CanonicalEvent,
+    ) -> None:
+        """collect_replay_state correctly aggregates multi-event results."""
+        second = _second_event(sample_event)
+        await temp_storage.append(sample_event)
+        await temp_storage.append(second)
+
+        engine = _make_engine(temp_storage)
+        request = ReplayRequest(mode=ReplayMode.STRICT)
+
+        state = await collect_replay_state(engine.replay(request))
+
+        assert state.events_processed == 2
+        assert state.events_passed == 2
+        assert state.events_failed == 0
+        assert state.events_skipped == 0
+
+    # ------------------------------------------------------------------
+    # ReplayState recording
+    # ------------------------------------------------------------------
+
+    def test_replay_state_records_all_statuses(self) -> None:
+        """ReplayState correctly counts passed, skipped, failed, error."""
+        state = ReplayState()
+
+        state.record(ReplayResult(event_id="a", stage="store", status="passed"))
+        state.record(ReplayResult(event_id="b", stage="store", status="skipped"))
+        state.record(
+            ReplayResult(event_id="c", stage="store", status="failed", error="bad")
+        )
+        state.record(
+            ReplayResult(event_id="d", stage="store", status="error", error="boom")
+        )
+
+        assert state.events_processed == 4
+        assert state.events_passed == 1
+        assert state.events_skipped == 1
+        assert state.events_failed == 2
+        assert state.errors == ["bad", "boom"]
+
+    def test_replay_state_lineage_tracking(self) -> None:
+        """ReplayState updates current_lineage from results."""
+        state = ReplayState()
+
+        state.record(ReplayResult(
+            event_id="a", stage="store", status="passed",
+            lineage=["parent-1"],
+        ))
+        assert state.current_lineage == ["parent-1"]
+
+        state.record(ReplayResult(
+            event_id="b", stage="store", status="passed",
+            lineage=["parent-2", "parent-3"],
+        ))
+        assert state.current_lineage == ["parent-2", "parent-3"]
+
+    # ------------------------------------------------------------------
+    # Stage resolution
+    # ------------------------------------------------------------------
+
+    def test_resolve_stages_all_modes(self) -> None:
+        """_resolve_stages returns correct stages for each mode."""
+        from medre.core.storage.replay import _resolve_stages
+
+        strict = _resolve_stages(ReplayRequest(mode=ReplayMode.STRICT))
+        assert strict == ("store",)
+
+        re_render = _resolve_stages(ReplayRequest(mode=ReplayMode.RE_RENDER))
+        assert re_render == ("store", "render")
+
+        re_route = _resolve_stages(ReplayRequest(mode=ReplayMode.RE_ROUTE))
+        assert re_route == ("store", "route", "plan")
+
+        best = _resolve_stages(ReplayRequest(mode=ReplayMode.BEST_EFFORT))
+        assert best == ("store", "route", "plan", "render", "deliver")
+
+        dry = _resolve_stages(ReplayRequest(mode=ReplayMode.DRY_RUN))
+        assert dry == ("store", "route", "plan", "render", "deliver")
+
+    def test_resolve_stages_with_target_stages(self) -> None:
+        """target_stages intersects with mode-allowed stages."""
+        from medre.core.storage.replay import _resolve_stages
+
+        request = ReplayRequest(
+            mode=ReplayMode.BEST_EFFORT,
+            target_stages=["store", "render"],
+        )
+        stages = _resolve_stages(request)
+        assert stages == ("store", "render")  # ordered by mode definition
+
+    def test_resolve_stages_target_stages_subset(self) -> None:
+        """target_stages only returns stages allowed by the mode."""
+        from medre.core.storage.replay import _resolve_stages
+
+        # STRICT only allows "store"; requesting "render" is a no-op
+        request = ReplayRequest(
+            mode=ReplayMode.STRICT,
+            target_stages=["render"],
+        )
+        stages = _resolve_stages(request)
+        assert stages == ()

@@ -34,8 +34,8 @@ def _make_event(
         source_transport_id="node-1",
         source_channel_id=channel,
         parent_event_id=None,
-        lineage=[],
-        relations=[],
+        lineage=(),
+        relations=(),
         payload={"text": "hi"},
         metadata=EventMetadata(),
     )

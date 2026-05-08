@@ -192,6 +192,18 @@ class StorageBackend(Protocol):
         """
         ...
 
+    async def list_receipts_for_plan(
+        self,
+        delivery_plan_id: str,
+        target_adapter: str,
+    ) -> list[DeliveryReceipt]:
+        """Return all receipts for a delivery plan / adapter in attempt order.
+
+        Receipts are ordered by ``attempt_number`` ascending so callers
+        can walk the full receipt lineage.
+        """
+        ...
+
     # -- Lifecycle ----------------------------------------------------------
 
     async def initialize(self) -> None:

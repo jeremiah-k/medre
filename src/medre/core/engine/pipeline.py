@@ -38,7 +38,12 @@ from medre.core.events.canonical import (
 )
 from medre.core.events.bus import EventBus, EventMiddleware
 from medre.core.observability.metrics import Diagnostician
-from medre.core.planning.delivery_plan import DeliveryOutcome, DeliveryPlan
+from medre.core.planning.delivery_plan import (
+    DeliveryFailureKind,
+    DeliveryOutcome,
+    DeliveryPlan,
+    RetryExecutor,
+)
 from medre.core.planning.fallback_resolution import FallbackResolver
 from medre.core.planning.relation_resolution import RelationResolver
 from medre.core.rendering.renderer import RenderingPipeline, RenderingResult
@@ -291,6 +296,7 @@ class PipelineRunner:
                     route_id="",
                     delivery_plan_id="",
                     status="permanent_failure",
+                    failure_kind=DeliveryFailureKind.PLANNER_FAILURE,
                     receipt=None,
                     error=f"Planner error: {type(exc).__name__}: {exc}",
                     duration_ms=0.0,
@@ -449,6 +455,7 @@ class PipelineRunner:
                     route_id=route.id,
                     delivery_plan_id=plan.plan_id,
                     status="success",
+                    failure_kind=None,
                     receipt=receipt,
                     error=None,
                     duration_ms=elapsed,
@@ -459,10 +466,21 @@ class PipelineRunner:
                     event.event_id, adapter_id, exc.error
                 )
                 # Classify based on the original adapter exception.
-                if exc.original is not None:
-                    outcome_status = self._classify_adapter_error(exc.original)
-                else:
-                    outcome_status = "transient_failure"
+                failure_kind = (
+                    RetryExecutor.classify_failure(
+                        exc.original or exc,
+                        adapter_registered=True,
+                    )
+                    if exc.original is not None
+                    else DeliveryFailureKind.ADAPTER_TRANSIENT
+                )
+                outcome_status: Literal[
+                    "transient_failure", "permanent_failure"
+                ] = (
+                    "transient_failure"
+                    if failure_kind.is_retryable
+                    else "permanent_failure"
+                )
                 return DeliveryOutcome(
                     event_id=event.event_id,
                     target_adapter=adapter_id,
@@ -470,6 +488,7 @@ class PipelineRunner:
                     route_id=route.id,
                     delivery_plan_id=plan.plan_id,
                     status=outcome_status,
+                    failure_kind=failure_kind,
                     receipt=None,
                     error=exc.error,
                     duration_ms=elapsed,
@@ -483,6 +502,7 @@ class PipelineRunner:
                     route_id=route.id,
                     delivery_plan_id=plan.plan_id,
                     status="permanent_failure",
+                    failure_kind=DeliveryFailureKind.RENDERER_FAILURE,
                     receipt=None,
                     error=exc.error,
                     duration_ms=elapsed,
@@ -490,7 +510,15 @@ class PipelineRunner:
             except Exception as exc:
                 elapsed = (time.monotonic() - t0) * 1000.0
                 exc_type = type(exc)
-                status = self._classify_adapter_error(exc)
+                failure_kind = RetryExecutor.classify_failure(
+                    exc,
+                    adapter_registered=(adapter_id in self._config.adapters),
+                )
+                status = (
+                    "transient_failure"
+                    if failure_kind.is_retryable
+                    else "permanent_failure"
+                )
                 error_msg = f"{exc_type.__name__}: {exc}"
                 self._diagnostician.record_adapter_failure(
                     event.event_id, adapter_id, error_msg
@@ -502,6 +530,7 @@ class PipelineRunner:
                     route_id=route.id,
                     delivery_plan_id=plan.plan_id,
                     status=status,
+                    failure_kind=failure_kind,
                     receipt=None,
                     error=error_msg,
                     duration_ms=elapsed,
@@ -519,9 +548,10 @@ class PipelineRunner:
     ) -> Literal["transient_failure", "permanent_failure"]:
         """Classify an adapter exception as transient or permanent.
 
-        Transient failures are retryable (timeouts, connection errors,
-        temporary OS-level issues).  All other exceptions are treated as
-        permanent failures.
+        Uses the :class:`RetryExecutor.classify_failure` taxonomy to
+        determine retryability.  Transient failures are retryable
+        (timeouts, connection errors, temporary OS-level issues).
+        All other exceptions are treated as permanent failures.
 
         Parameters
         ----------
@@ -533,33 +563,38 @@ class PipelineRunner:
         str
             ``"transient_failure"`` or ``"permanent_failure"``.
         """
-        transient_types = (
-            TimeoutError,
-            ConnectionError,
-            ConnectionRefusedError,
-            ConnectionResetError,
-            ConnectionAbortedError,
-            BrokenPipeError,
-            OSError,
+        kind = RetryExecutor.classify_failure(exc)
+        return (
+            "transient_failure" if kind.is_retryable else "permanent_failure"
         )
-        if isinstance(exc, transient_types):
-            return "transient_failure"
-        return "permanent_failure"
 
     async def deliver_to_target(
         self,
         event: CanonicalEvent,
         route: Route,
         plan: DeliveryPlan,
+        *,
+        previous_receipt: DeliveryReceipt | None = None,
     ) -> DeliveryReceipt:
         """Deliver *event* to a single target adapter and record the receipt.
 
         Steps:
 
         1. Look up the target adapter from the config.
-        2. Call the adapter's ``deliver`` method.
-        3. Record a :class:`DeliveryReceipt` in storage.
-        4. Store a :class:`NativeMessageRef` mapping.
+        2. Render the event via the rendering pipeline.
+        3. Call the adapter's ``deliver`` method.
+        4. Record a :class:`DeliveryReceipt` in storage with receipt
+           lineage (``attempt_number``, ``parent_receipt_id``).
+        5. Store a :class:`NativeMessageRef` mapping.
+        6. If the delivery fails and a :class:`RetryPolicy` is configured,
+           compute the next retry state.  If retries are exhausted, record
+           a ``dead_lettered`` receipt.
+
+        **Phase 1 does not implement a background retry scheduler.**
+        Retry is synchronous/receipt-level only: this method records the
+        failure receipt with ``next_retry_at`` populated.  A future
+        scheduler or manual replay re-invokes this method with the
+        ``previous_receipt`` parameter.
 
         Parameters
         ----------
@@ -569,6 +604,9 @@ class PipelineRunner:
             The route that matched the event.
         plan:
             The delivery plan for this target.
+        previous_receipt:
+            The receipt from the previous delivery attempt, if this is a
+            retry.  ``None`` for the first attempt.
 
         Returns
         -------
@@ -579,6 +617,13 @@ class PipelineRunner:
         adapter_id = target.adapter
         now = datetime.now(tz=timezone.utc)
         receipt_id = f"rcpt-{uuid.uuid4()}"
+
+        # Compute attempt number and parent receipt for lineage.
+        attempt_number = 1
+        parent_receipt_id: str | None = None
+        if previous_receipt is not None:
+            attempt_number = previous_receipt.attempt_number + 1
+            parent_receipt_id = previous_receipt.receipt_id
 
         adapter = self._config.adapters.get(adapter_id) if adapter_id else None
 
@@ -597,9 +642,30 @@ class PipelineRunner:
                 status="failed",
                 error=f"Adapter {adapter_id!r} not registered",
                 created_at=now,
+                attempt_number=attempt_number,
+                parent_receipt_id=parent_receipt_id,
             )
             await self._config.storage.append_receipt(receipt)
             return receipt
+
+        # Check delivery plan deadline.
+        if plan.deadline is not None and now > plan.deadline:
+            receipt = DeliveryReceipt(
+                sequence=0,
+                receipt_id=receipt_id,
+                event_id=event.event_id,
+                delivery_plan_id=plan.plan_id,
+                target_adapter=adapter_id or "",
+                status="failed",
+                error="Delivery deadline exceeded",
+                created_at=now,
+                attempt_number=attempt_number,
+                parent_receipt_id=parent_receipt_id,
+            )
+            await self._config.storage.append_receipt(receipt)
+            raise _AdapterDeliveryError(
+                adapter_id or "", "Delivery deadline exceeded"
+            ) from None
 
         # Render the event into a RenderingResult before adapter delivery.
         try:
@@ -620,6 +686,8 @@ class PipelineRunner:
                 status="failed",
                 error=rendering_error,
                 created_at=now,
+                attempt_number=attempt_number,
+                parent_receipt_id=parent_receipt_id,
             )
             await self._config.storage.append_receipt(receipt)
             raise _RendererDeliveryError(adapter_id or "", rendering_error) from None
@@ -639,20 +707,32 @@ class PipelineRunner:
             status: str = "sent"
             error: str | None = None
             self._log.info(
-                "Delivered: event_id=%s → adapter=%s plan=%s",
+                "Delivered: event_id=%s → adapter=%s plan=%s attempt=%d",
                 event.event_id,
                 adapter_id,
                 plan.plan_id,
+                attempt_number,
             )
         except Exception as exc:
             status = "failed"
             error = f"{type(exc).__name__}: {exc}"
             delivery_exc = exc
             self._log.exception(
-                "Delivery failed: event_id=%s → adapter=%s",
+                "Delivery failed: event_id=%s → adapter=%s attempt=%d",
                 event.event_id,
                 adapter_id,
+                attempt_number,
             )
+
+        # Determine if we need to record a retry or dead-letter receipt.
+        # This happens AFTER the main receipt is persisted (below) to
+        # maintain correct append ordering. We capture the decision here
+        # and execute after the primary receipt.
+        _needs_dead_letter = (
+            status == "failed"
+            and plan.retry_policy is not None
+            and RetryExecutor(plan.retry_policy).is_exhausted(attempt_number)
+        )
 
         # Record receipt.
         receipt = DeliveryReceipt(
@@ -664,8 +744,24 @@ class PipelineRunner:
             status=status,  # type: ignore[arg-type]
             error=error,
             created_at=now,
+            attempt_number=attempt_number,
+            parent_receipt_id=parent_receipt_id,
         )
         await self._config.storage.append_receipt(receipt)
+
+        # If all retries exhausted, append dead-letter receipt after
+        # the primary receipt to maintain append-only ordering.
+        if _needs_dead_letter and plan.retry_policy is not None:
+            executor = RetryExecutor(plan.retry_policy)
+            dead_receipt = executor.build_dead_letter_receipt(
+                event_id=event.event_id,
+                delivery_plan_id=plan.plan_id,
+                target_adapter=adapter_id or "",
+                previous_receipt_id=receipt_id,
+                attempt_number=attempt_number + 1,
+                error=error or "Retry exhausted",
+            )
+            await self._config.storage.append_receipt(dead_receipt)
 
         # Store native ref mapping (outbound direction).
         native_ref = NativeMessageRef(

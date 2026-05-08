@@ -29,7 +29,7 @@ def _make_event(
     payload: dict | None = None,
     source_adapter: str = "fake_transport",
     source_channel_id: str | None = "ch-0",
-    relations: list[EventRelation] | None = None,
+    relations: tuple[EventRelation, ...] | None = None,
 ) -> CanonicalEvent:
     return CanonicalEvent(
         event_id=event_id,
@@ -40,8 +40,8 @@ def _make_event(
         source_transport_id="node-1",
         source_channel_id=source_channel_id,
         parent_event_id=None,
-        lineage=[],
-        relations=relations or [],
+        lineage=(),
+        relations=relations or (),
         payload=payload or {"text": "hello"},
         metadata=EventMetadata(),
     )
@@ -170,7 +170,7 @@ class TestRelations:
             key="👍",
             fallback_text=None,
         )
-        event = _make_event(event_id="evt-inline", relations=[relation])
+        event = _make_event(event_id="evt-inline", relations=(relation,))
         await temp_storage.append(event)
 
         stored = await temp_storage.list_relations("evt-inline")
@@ -532,8 +532,8 @@ class TestOrderingGuarantees:
                 source_transport_id="node-1",
                 source_channel_id="ch-0",
                 parent_event_id=None,
-                lineage=[],
-                relations=[],
+                lineage=(),
+                relations=(),
                 payload={"text": "hour3"},
                 metadata=EventMetadata(),
             ),
@@ -546,8 +546,8 @@ class TestOrderingGuarantees:
                 source_transport_id="node-1",
                 source_channel_id="ch-0",
                 parent_event_id=None,
-                lineage=[],
-                relations=[],
+                lineage=(),
+                relations=(),
                 payload={"text": "hour1"},
                 metadata=EventMetadata(),
             ),
@@ -560,8 +560,8 @@ class TestOrderingGuarantees:
                 source_transport_id="node-1",
                 source_channel_id="ch-0",
                 parent_event_id=None,
-                lineage=[],
-                relations=[],
+                lineage=(),
+                relations=(),
                 payload={"text": "hour2"},
                 metadata=EventMetadata(),
             ),
@@ -573,3 +573,155 @@ class TestOrderingGuarantees:
         filt = EventFilter(limit=10)
         results = [e async for e in temp_storage.query(filt)]
         assert [e.event_id for e in results] == ["ts-1", "ts-2", "ts-3"]
+
+
+# ===================================================================
+# Receipt lineage
+# ===================================================================
+
+
+class TestReceiptLineage:
+    """Receipt lineage: attempt_number, parent_receipt_id persistence
+    and ordering via list_receipts_for_plan.
+    """
+
+    async def test_receipt_attempt_number_persisted(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """attempt_number is persisted and readable."""
+        event = _make_event(event_id="evt-lineage-1")
+        await temp_storage.append(event)
+
+        receipt = DeliveryReceipt(
+            receipt_id="rcpt-lin-1",
+            event_id="evt-lineage-1",
+            delivery_plan_id="plan-lin",
+            target_adapter="adapter_a",
+            status="failed",
+            attempt_number=3,
+            parent_receipt_id="rcpt-lin-0",
+        )
+        await temp_storage.append_receipt(receipt)
+
+        status = await temp_storage.delivery_status("plan-lin", "adapter_a")
+        assert status is not None
+        assert status.attempt_number == 3
+        assert status.parent_receipt_id == "rcpt-lin-0"
+
+    async def test_receipt_lineage_chain(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """A chain of receipts linked by parent_receipt_id."""
+        event = _make_event(event_id="evt-chain")
+        await temp_storage.append(event)
+
+        r1 = DeliveryReceipt(
+            receipt_id="rcpt-chain-1",
+            event_id="evt-chain",
+            delivery_plan_id="plan-chain",
+            target_adapter="adapter_b",
+            status="failed",
+            attempt_number=1,
+            parent_receipt_id=None,
+        )
+        await temp_storage.append_receipt(r1)
+
+        r2 = DeliveryReceipt(
+            receipt_id="rcpt-chain-2",
+            event_id="evt-chain",
+            delivery_plan_id="plan-chain",
+            target_adapter="adapter_b",
+            status="failed",
+            attempt_number=2,
+            parent_receipt_id="rcpt-chain-1",
+        )
+        await temp_storage.append_receipt(r2)
+
+        r3 = DeliveryReceipt(
+            receipt_id="rcpt-chain-3",
+            event_id="evt-chain",
+            delivery_plan_id="plan-chain",
+            target_adapter="adapter_b",
+            status="dead_lettered",
+            attempt_number=3,
+            parent_receipt_id="rcpt-chain-2",
+        )
+        await temp_storage.append_receipt(r3)
+
+        # list_receipts_for_plan returns all in attempt order.
+        receipts = await temp_storage.list_receipts_for_plan(
+            "plan-chain", "adapter_b"
+        )
+        assert len(receipts) == 3
+        assert [r.attempt_number for r in receipts] == [1, 2, 3]
+        assert receipts[0].parent_receipt_id is None
+        assert receipts[1].parent_receipt_id == "rcpt-chain-1"
+        assert receipts[2].parent_receipt_id == "rcpt-chain-2"
+        assert receipts[2].status == "dead_lettered"
+
+    async def test_list_receipts_for_plan_empty(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """list_receipts_for_plan returns empty list for unknown plan."""
+        receipts = await temp_storage.list_receipts_for_plan(
+            "nonexistent-plan", "nonexistent-adapter"
+        )
+        assert receipts == []
+
+    async def test_receipt_default_attempt_number_is_one(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Receipts without explicit attempt_number default to 1."""
+        event = _make_event(event_id="evt-default-attempt")
+        await temp_storage.append(event)
+
+        receipt = DeliveryReceipt(
+            receipt_id="rcpt-default",
+            event_id="evt-default-attempt",
+            delivery_plan_id="plan-default",
+            target_adapter="adapter_c",
+            status="sent",
+        )
+        await temp_storage.append_receipt(receipt)
+
+        status = await temp_storage.delivery_status("plan-default", "adapter_c")
+        assert status is not None
+        assert status.attempt_number == 1
+        assert status.parent_receipt_id is None
+
+    async def test_receipt_lineage_different_adapters_independent(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Receipts for different adapters under the same plan are independent."""
+        event = _make_event(event_id="evt-indep")
+        await temp_storage.append(event)
+
+        r_a = DeliveryReceipt(
+            receipt_id="rcpt-indep-a",
+            event_id="evt-indep",
+            delivery_plan_id="plan-indep",
+            target_adapter="adapter_a",
+            status="failed",
+            attempt_number=2,
+        )
+        r_b = DeliveryReceipt(
+            receipt_id="rcpt-indep-b",
+            event_id="evt-indep",
+            delivery_plan_id="plan-indep",
+            target_adapter="adapter_b",
+            status="sent",
+            attempt_number=1,
+        )
+        await temp_storage.append_receipt(r_a)
+        await temp_storage.append_receipt(r_b)
+
+        receipts_a = await temp_storage.list_receipts_for_plan(
+            "plan-indep", "adapter_a"
+        )
+        receipts_b = await temp_storage.list_receipts_for_plan(
+            "plan-indep", "adapter_b"
+        )
+        assert len(receipts_a) == 1
+        assert len(receipts_b) == 1
+        assert receipts_a[0].attempt_number == 2
+        assert receipts_b[0].attempt_number == 1

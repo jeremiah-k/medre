@@ -194,6 +194,14 @@ class DeliveryReceipt(msgspec.Struct, frozen=True):
         Native message ID assigned by the target adapter, once accepted.
     next_retry_at:
         Scheduled time for the next retry attempt, if applicable.
+    attempt_number:
+        1-indexed attempt number for this receipt.  The first delivery
+        attempt is ``1``, a retry is ``2``, and so on.  Enables receipt
+        lineage ordering without relying on timestamps.
+    parent_receipt_id:
+        Receipt ID of the preceding attempt in this delivery chain.
+        ``None`` for the first attempt.  Together with
+        ``attempt_number`` this provides an explicit receipt lineage.
     created_at:
         Timestamp when this receipt was created.
     """
@@ -214,6 +222,8 @@ class DeliveryReceipt(msgspec.Struct, frozen=True):
     error: str | None = None
     adapter_message_id: str | None = None
     next_retry_at: datetime | None = None
+    attempt_number: int = 1
+    parent_receipt_id: str | None = None
     created_at: datetime = msgspec.field(default_factory=datetime.now)
 
 

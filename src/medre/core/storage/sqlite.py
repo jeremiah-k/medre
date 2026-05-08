@@ -98,6 +98,8 @@ CREATE TABLE IF NOT EXISTS delivery_receipts (
     error TEXT,
     adapter_message_id TEXT,
     next_retry_at TEXT,
+    attempt_number INTEGER NOT NULL DEFAULT 1,
+    parent_receipt_id TEXT,
     created_at TEXT NOT NULL
 );
 
@@ -150,8 +152,9 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 _INSERT_RECEIPT = """
 INSERT INTO delivery_receipts
     (receipt_id, event_id, delivery_plan_id, target_adapter,
-     status, error, adapter_message_id, next_retry_at, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     status, error, adapter_message_id, next_retry_at,
+     attempt_number, parent_receipt_id, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 _SELECT_EVENT = "SELECT * FROM canonical_events WHERE event_id = ?"
@@ -166,6 +169,12 @@ WHERE adapter = ? AND native_channel_id IS ? AND native_message_id = ?
 _DELIVERY_STATUS_VIEW = """
 SELECT * FROM delivery_status
 WHERE delivery_plan_id = ? AND target_adapter = ?
+"""
+
+_SELECT_RECEIPTS_FOR_PLAN = """
+SELECT * FROM delivery_receipts
+WHERE delivery_plan_id = ? AND target_adapter = ?
+ORDER BY attempt_number ASC, sequence ASC
 """
 
 
@@ -213,8 +222,8 @@ def _row_to_event(
         source_transport_id=row["source_transport_id"],
         source_channel_id=row["source_channel_id"],
         parent_event_id=row["parent_event_id"],
-        lineage=_decode_json(row["lineage"]),
-        relations=relations,
+        lineage=tuple(_decode_json(row["lineage"])),
+        relations=tuple(relations),
         payload=_decode_json(row["payload"]),
         metadata=_deserialize_metadata(row["metadata"]),
         depth=row["depth"],
@@ -257,6 +266,8 @@ def _row_to_receipt(row: dict[str, Any]) -> DeliveryReceipt:
             if row["next_retry_at"]
             else None
         ),
+        attempt_number=row.get("attempt_number", 1),
+        parent_receipt_id=row.get("parent_receipt_id"),
         created_at=datetime.fromisoformat(row["created_at"]),
     )
 
@@ -625,6 +636,8 @@ class SQLiteStorage:
                 receipt.next_retry_at.isoformat()
                 if receipt.next_retry_at
                 else None,
+                receipt.attempt_number,
+                receipt.parent_receipt_id,
                 receipt.created_at.isoformat(),
             ),
         )
@@ -638,3 +651,21 @@ class SQLiteStorage:
             (delivery_plan_id, target_adapter),
         )
         return _row_to_receipt(row) if row else None
+
+    async def list_receipts_for_plan(
+        self,
+        delivery_plan_id: str,
+        target_adapter: str,
+    ) -> list[DeliveryReceipt]:
+        """Return all receipts for a delivery plan / adapter pair in
+        attempt order.
+
+        Receipts are ordered by ``attempt_number`` ascending (then
+        ``sequence`` as tiebreaker) so callers can walk the full
+        receipt lineage from first attempt to last.
+        """
+        rows = await self._read_all(
+            _SELECT_RECEIPTS_FOR_PLAN,
+            (delivery_plan_id, target_adapter),
+        )
+        return [_row_to_receipt(r) for r in rows]

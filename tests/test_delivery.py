@@ -1,15 +1,17 @@
 """Tests for delivery planning: DeliveryPlan, DeliveryStrategy, RetryPolicy,
-FallbackResolver, RelationResolver, DeliveryOutcome, and Diagnostician.
+FallbackResolver, RelationResolver, DeliveryOutcome, Diagnostician,
+DeliveryFailureKind, RetryExecutor, and receipt lineage semantics.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 import pytest
 
 from medre.core.events import (
     CanonicalEvent,
+    DeliveryReceipt,
     EventMetadata,
     EventRelation,
     NativeRef,
@@ -22,7 +24,11 @@ from medre.core.planning import (
     RelationResolver,
     RetryPolicy,
 )
-from medre.core.planning.delivery_plan import DeliveryOutcome
+from medre.core.planning.delivery_plan import (
+    DeliveryFailureKind,
+    DeliveryOutcome,
+    RetryExecutor,
+)
 from medre.core.routing import RouteTarget
 
 
@@ -39,8 +45,8 @@ def _make_event(
         source_transport_id="node-1",
         source_channel_id="ch-0",
         parent_event_id=None,
-        lineage=[],
-        relations=[],
+        lineage=(),
+        relations=(),
         payload={"text": "hello"},
         metadata=EventMetadata(),
     )
@@ -314,6 +320,7 @@ class TestDeliveryOutcome:
             duration_ms=5002.0,
         )
         assert outcome.status == "transient_failure"
+        assert outcome.error is not None
         assert "ConnectionRefusedError" in outcome.error
 
     def test_permanent_failure_outcome(self) -> None:
@@ -489,3 +496,352 @@ class TestDiagnostician:
         snap = diag.snapshot()
         snap["planner_failures"]["evt-10"] = 999
         assert diag.snapshot()["planner_failures"] == {"evt-10": 1}
+
+
+# ===================================================================
+# DeliveryFailureKind
+# ===================================================================
+
+
+class TestDeliveryFailureKind:
+    """DeliveryFailureKind taxonomy and retryability semantics."""
+
+    def test_all_members_exist(self) -> None:
+        """All expected failure kinds are defined."""
+        expected = {
+            "PLANNER_FAILURE",
+            "RENDERER_FAILURE",
+            "ADAPTER_TRANSIENT",
+            "ADAPTER_PERMANENT",
+            "TARGET_NOT_FOUND",
+            "DEADLINE_EXCEEDED",
+        }
+        actual = {m.name for m in DeliveryFailureKind}
+        assert actual == expected
+
+    def test_only_adapter_transient_is_retryable(self) -> None:
+        """Only ADAPTER_TRANSIENT is retryable."""
+        assert DeliveryFailureKind.ADAPTER_TRANSIENT.is_retryable is True
+
+        non_retryable = [
+            DeliveryFailureKind.PLANNER_FAILURE,
+            DeliveryFailureKind.RENDERER_FAILURE,
+            DeliveryFailureKind.ADAPTER_PERMANENT,
+            DeliveryFailureKind.TARGET_NOT_FOUND,
+            DeliveryFailureKind.DEADLINE_EXCEEDED,
+        ]
+        for kind in non_retryable:
+            assert kind.is_retryable is False, f"{kind.name} should not be retryable"
+
+    def test_enum_values_are_strings(self) -> None:
+        """Enum values are lowercase snake_case strings."""
+        assert DeliveryFailureKind.PLANNER_FAILURE.value == "planner_failure"
+        assert DeliveryFailureKind.RENDERER_FAILURE.value == "renderer_failure"
+        assert DeliveryFailureKind.ADAPTER_TRANSIENT.value == "adapter_transient"
+        assert DeliveryFailureKind.ADAPTER_PERMANENT.value == "adapter_permanent"
+        assert DeliveryFailureKind.TARGET_NOT_FOUND.value == "target_not_found"
+        assert DeliveryFailureKind.DEADLINE_EXCEEDED.value == "deadline_exceeded"
+
+    def test_classify_transient_errors(self) -> None:
+        """Transient exception types classify as ADAPTER_TRANSIENT."""
+        transient_exc = [
+            TimeoutError("timed out"),
+            ConnectionError("refused"),
+            ConnectionRefusedError("refused"),
+            ConnectionResetError("reset"),
+            ConnectionAbortedError("aborted"),
+            BrokenPipeError("broken"),
+            OSError("os error"),
+        ]
+        for exc in transient_exc:
+            kind = RetryExecutor.classify_failure(exc)
+            assert kind is DeliveryFailureKind.ADAPTER_TRANSIENT, (
+                f"{type(exc).__name__} should classify as ADAPTER_TRANSIENT"
+            )
+
+    def test_classify_permanent_errors(self) -> None:
+        """Non-transient exceptions classify as ADAPTER_PERMANENT."""
+        exc = RuntimeError("business logic error")
+        kind = RetryExecutor.classify_failure(exc)
+        assert kind is DeliveryFailureKind.ADAPTER_PERMANENT
+
+    def test_classify_planner_failure(self) -> None:
+        kind = RetryExecutor.classify_failure(
+            RuntimeError("x"), planner_failed=True
+        )
+        assert kind is DeliveryFailureKind.PLANNER_FAILURE
+
+    def test_classify_renderer_failure(self) -> None:
+        kind = RetryExecutor.classify_failure(
+            RuntimeError("x"), renderer_failed=True
+        )
+        assert kind is DeliveryFailureKind.RENDERER_FAILURE
+
+    def test_classify_target_not_found(self) -> None:
+        kind = RetryExecutor.classify_failure(
+            RuntimeError("x"), adapter_registered=False
+        )
+        assert kind is DeliveryFailureKind.TARGET_NOT_FOUND
+
+    def test_classify_deadline_exceeded(self) -> None:
+        past = datetime.now(timezone.utc) - timedelta(hours=1)
+        kind = RetryExecutor.classify_failure(
+            RuntimeError("x"), deadline=past
+        )
+        assert kind is DeliveryFailureKind.DEADLINE_EXCEEDED
+
+    def test_classify_no_deadline_not_exceeded(self) -> None:
+        """When deadline is None, deadline_exceeded is never returned."""
+        kind = RetryExecutor.classify_failure(
+            TimeoutError("timeout"), deadline=None
+        )
+        assert kind is DeliveryFailureKind.ADAPTER_TRANSIENT
+
+
+# ===================================================================
+# RetryExecutor
+# ===================================================================
+
+
+class TestRetryExecutor:
+    """RetryExecutor backoff, exhaustion, and receipt construction."""
+
+    def test_compute_backoff_doubles_each_attempt(self) -> None:
+        """Backoff doubles: base=2 → 2, 4, 8, 16, ..."""
+        policy = RetryPolicy(backoff_base=2.0, jitter=False, max_delay_seconds=1000.0)
+        executor = RetryExecutor(policy)
+        assert executor.compute_backoff(1) == timedelta(seconds=2.0)
+        assert executor.compute_backoff(2) == timedelta(seconds=4.0)
+        assert executor.compute_backoff(3) == timedelta(seconds=8.0)
+        assert executor.compute_backoff(4) == timedelta(seconds=16.0)
+
+    def test_compute_backoff_capped_at_max_delay(self) -> None:
+        """Backoff is capped at max_delay_seconds."""
+        policy = RetryPolicy(
+            backoff_base=2.0, jitter=False, max_delay_seconds=10.0
+        )
+        executor = RetryExecutor(policy)
+        # attempt 1: 2, 2: 4, 3: 8, 4: 10 (capped), 5: 10 (capped)
+        assert executor.compute_backoff(4) == timedelta(seconds=10.0)
+        assert executor.compute_backoff(5) == timedelta(seconds=10.0)
+
+    def test_compute_backoff_with_jitter(self) -> None:
+        """Jitter produces backoff values within expected bounds."""
+        policy = RetryPolicy(
+            backoff_base=4.0, jitter=True, max_delay_seconds=1000.0
+        )
+        executor = RetryExecutor(policy)
+        for attempt in range(1, 6):
+            backoff = executor.compute_backoff(attempt)
+            # With jitter: delay in [base*0.5, base) for each step
+            base_delay = 4.0 * (2 ** (attempt - 1))
+            assert timedelta(seconds=base_delay * 0.5) <= backoff
+            assert backoff <= timedelta(seconds=base_delay)
+
+    def test_is_exhausted_within_max_attempts(self) -> None:
+        """Not exhausted when attempts remaining."""
+        policy = RetryPolicy(max_attempts=3)
+        executor = RetryExecutor(policy)
+        assert executor.is_exhausted(1) is False
+        assert executor.is_exhausted(2) is False
+
+    def test_is_exhausted_at_max_attempts(self) -> None:
+        """Exhausted exactly at max_attempts."""
+        policy = RetryPolicy(max_attempts=3)
+        executor = RetryExecutor(policy)
+        assert executor.is_exhausted(3) is True
+        assert executor.is_exhausted(4) is True
+
+    def test_next_attempt_number(self) -> None:
+        policy = RetryPolicy()
+        executor = RetryExecutor(policy)
+        assert executor.next_attempt_number(1) == 2
+        assert executor.next_attempt_number(5) == 6
+
+    def test_build_retry_receipt(self) -> None:
+        """Retry receipt has status=failed and next_retry_at populated."""
+        policy = RetryPolicy(
+            backoff_base=2.0, jitter=False, max_delay_seconds=60.0
+        )
+        executor = RetryExecutor(policy)
+        receipt = executor.build_retry_receipt(
+            event_id="evt-1",
+            delivery_plan_id="plan-1",
+            target_adapter="adapter-a",
+            previous_receipt_id="rcpt-prev",
+            attempt_number=2,
+            error="ConnectionError: timeout",
+        )
+        assert receipt.status == "failed"
+        assert receipt.event_id == "evt-1"
+        assert receipt.delivery_plan_id == "plan-1"
+        assert receipt.target_adapter == "adapter-a"
+        assert receipt.attempt_number == 2
+        assert receipt.parent_receipt_id == "rcpt-prev"
+        assert receipt.next_retry_at is not None
+        assert receipt.error == "ConnectionError: timeout"
+        # backoff for attempt 2: base * 2^1 = 4.0 seconds
+        assert receipt.next_retry_at > receipt.created_at
+
+    def test_build_dead_letter_receipt(self) -> None:
+        """Dead-letter receipt has status=dead_lettered and no next_retry_at."""
+        policy = RetryPolicy(max_attempts=3)
+        executor = RetryExecutor(policy)
+        receipt = executor.build_dead_letter_receipt(
+            event_id="evt-2",
+            delivery_plan_id="plan-2",
+            target_adapter="adapter-b",
+            previous_receipt_id="rcpt-last",
+            attempt_number=4,
+            error="Retry exhausted after 3 attempts",
+        )
+        assert receipt.status == "dead_lettered"
+        assert receipt.event_id == "evt-2"
+        assert receipt.delivery_plan_id == "plan-2"
+        assert receipt.target_adapter == "adapter-b"
+        assert receipt.attempt_number == 4
+        assert receipt.parent_receipt_id == "rcpt-last"
+        assert receipt.next_retry_at is None
+        assert receipt.error is not None
+        assert "exhausted" in receipt.error
+
+    def test_retry_exhaustion_flow(self) -> None:
+        """Simulate a full retry exhaustion flow: 3 attempts then dead letter."""
+        policy = RetryPolicy(max_attempts=3, jitter=False)
+        executor = RetryExecutor(policy)
+
+        # Attempt 1 fails
+        assert executor.is_exhausted(1) is False
+        r1 = executor.build_retry_receipt(
+            event_id="evt-flow",
+            delivery_plan_id="plan-flow",
+            target_adapter="t",
+            previous_receipt_id=None,
+            attempt_number=1,
+            error="ConnectionError",
+        )
+        assert r1.attempt_number == 1
+        assert r1.parent_receipt_id is None
+
+        # Attempt 2 fails
+        assert executor.is_exhausted(2) is False
+        r2 = executor.build_retry_receipt(
+            event_id="evt-flow",
+            delivery_plan_id="plan-flow",
+            target_adapter="t",
+            previous_receipt_id=r1.receipt_id,
+            attempt_number=2,
+            error="ConnectionError",
+        )
+        assert r2.attempt_number == 2
+        assert r2.parent_receipt_id == r1.receipt_id
+
+        # Attempt 3 fails — still one more attempt
+        assert executor.is_exhausted(3) is True
+
+        # Dead letter
+        dl = executor.build_dead_letter_receipt(
+            event_id="evt-flow",
+            delivery_plan_id="plan-flow",
+            target_adapter="t",
+            previous_receipt_id=r2.receipt_id,
+            attempt_number=4,
+            error="Retry exhausted",
+        )
+        assert dl.status == "dead_lettered"
+        assert dl.attempt_number == 4
+        assert dl.parent_receipt_id == r2.receipt_id
+
+    def test_policy_property(self) -> None:
+        """RetryExecutor exposes its policy."""
+        policy = RetryPolicy(max_attempts=7)
+        executor = RetryExecutor(policy)
+        assert executor.policy is policy
+        assert executor.policy.max_attempts == 7
+
+
+# ===================================================================
+# DeliveryOutcome with failure_kind
+# ===================================================================
+
+
+class TestDeliveryOutcomeWithFailureKind:
+    """DeliveryOutcome includes failure_kind from the taxonomy."""
+
+    def test_success_outcome_no_failure_kind(self) -> None:
+        outcome = DeliveryOutcome(
+            event_id="e1",
+            target_adapter="a",
+            target_channel=None,
+            route_id="r1",
+            delivery_plan_id="p1",
+            status="success",
+            failure_kind=None,
+        )
+        assert outcome.failure_kind is None
+        assert outcome.status == "success"
+
+    def test_transient_failure_with_failure_kind(self) -> None:
+        outcome = DeliveryOutcome(
+            event_id="e2",
+            target_adapter="a",
+            target_channel=None,
+            route_id="r2",
+            delivery_plan_id="p2",
+            status="transient_failure",
+            failure_kind=DeliveryFailureKind.ADAPTER_TRANSIENT,
+            error="TimeoutError: timed out",
+        )
+        assert outcome.failure_kind is DeliveryFailureKind.ADAPTER_TRANSIENT
+        assert outcome.failure_kind.is_retryable is True
+
+    def test_permanent_failure_with_failure_kind(self) -> None:
+        outcome = DeliveryOutcome(
+            event_id="e3",
+            target_adapter="a",
+            target_channel=None,
+            route_id="r3",
+            delivery_plan_id="p3",
+            status="permanent_failure",
+            failure_kind=DeliveryFailureKind.ADAPTER_PERMANENT,
+            error="ValueError: malformed",
+        )
+        assert outcome.failure_kind is DeliveryFailureKind.ADAPTER_PERMANENT
+        assert outcome.failure_kind.is_retryable is False
+
+    def test_planner_failure_kind(self) -> None:
+        outcome = DeliveryOutcome(
+            event_id="e4",
+            target_adapter="",
+            target_channel=None,
+            route_id="",
+            delivery_plan_id="",
+            status="permanent_failure",
+            failure_kind=DeliveryFailureKind.PLANNER_FAILURE,
+            error="Planner error: RuntimeError",
+        )
+        assert outcome.failure_kind is DeliveryFailureKind.PLANNER_FAILURE
+
+    def test_renderer_failure_kind(self) -> None:
+        outcome = DeliveryOutcome(
+            event_id="e5",
+            target_adapter="a",
+            target_channel=None,
+            route_id="r5",
+            delivery_plan_id="p5",
+            status="permanent_failure",
+            failure_kind=DeliveryFailureKind.RENDERER_FAILURE,
+            error="Rendering failed: no renderer",
+        )
+        assert outcome.failure_kind is DeliveryFailureKind.RENDERER_FAILURE
+
+    def test_backward_compatible_positional_args(self) -> None:
+        """DeliveryOutcome works with positional args (no failure_kind)."""
+        outcome = DeliveryOutcome(
+            "e6", "a", None, "r6", "p6", "skipped"
+        )
+        assert outcome.status == "skipped"
+        assert outcome.failure_kind is None
+        assert outcome.receipt is None
+        assert outcome.error is None
+        assert outcome.duration_ms == 0.0

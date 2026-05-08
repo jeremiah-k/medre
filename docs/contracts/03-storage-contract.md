@@ -176,7 +176,9 @@ CREATE TABLE delivery_receipts (
     adapter_message_id TEXT,
     error TEXT,
     retry_count INTEGER DEFAULT 0,
-    next_retry_at TEXT
+    next_retry_at TEXT,
+    attempt_number INTEGER NOT NULL DEFAULT 1,
+    parent_receipt_id TEXT
 );
 ```
 
@@ -185,6 +187,10 @@ CREATE TABLE delivery_receipts (
 Every delivery attempt produces a new row. Existing rows are never updated or deleted. A delivery that retried three times produces four rows.
 
 Status values correspond to `DeliveryStatus`: `accepted`, `queued`, `sent`, `acknowledged`, `failed`, `dead_lettered`.
+
+`attempt_number` is the 1-indexed attempt number for this receipt. The first delivery attempt is `1`; retries increment from there. Enables receipt lineage ordering without relying on timestamps.
+
+`parent_receipt_id` is the receipt ID of the preceding attempt in this delivery chain. `NULL` for the first attempt. Together with `attempt_number` this provides explicit receipt lineage.
 
 ### 3.5 delivery_status View
 
