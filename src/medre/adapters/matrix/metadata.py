@@ -4,6 +4,10 @@ The :class:`MatrixMetadataEnvelope` carries MEDRE provenance information
 inside the ``content["medre"]["envelope"]`` subtree of a Matrix event.
 This allows events to carry their routing lineage across the Matrix
 protocol without leaking secrets.
+
+This is a frozen dataclass (not msgspec) because it is an adapter-internal
+serialization helper that does not need msgspec roundtrip encoding.  It is
+not stored in the canonical event model.
 """
 from __future__ import annotations
 
@@ -46,6 +50,11 @@ class MatrixMetadataEnvelope:
     lineage_pointer: str = ""
     metadata_mode: str = "safe"
     native_source_summary: str = ""
+
+    def __post_init__(self) -> None:
+        # Minimal validation: schema_version must be a positive int.
+        if not isinstance(self.schema_version, int) or self.schema_version < 1:
+            raise ValueError("schema_version must be a positive integer")
 
     @classmethod
     def from_content(cls, content: dict) -> Optional[MatrixMetadataEnvelope]:

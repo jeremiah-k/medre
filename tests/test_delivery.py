@@ -217,9 +217,11 @@ class TestRelationResolver:
         """resolve_relation looks up native ref via storage.resolve_native_ref."""
 
         class _DummyStorage:
-            async def resolve_native_ref(self, ref: NativeRef) -> CanonicalEvent | None:
-                if ref.native_message_id == "msg-1":
-                    return _make_event(event_id="resolved-evt")
+            async def resolve_native_ref(
+                self, adapter: str, channel: str, message_id: str
+            ) -> str | None:
+                if message_id == "msg-1":
+                    return "resolved-evt"
                 return None
 
         resolver = RelationResolver(storage=_DummyStorage())
@@ -242,7 +244,9 @@ class TestRelationResolver:
         """If the native ref has no mapping, original relation is returned."""
 
         class _EmptyStorage:
-            async def resolve_native_ref(self, ref: NativeRef) -> None:
+            async def resolve_native_ref(
+                self, adapter: str, channel: str, message_id: str
+            ) -> str | None:
                 return None
 
         resolver = RelationResolver(storage=_EmptyStorage())

@@ -72,3 +72,41 @@ class TestMatrixMetadataEnvelope:
     def test_schema_version_default(self) -> None:
         envelope = MatrixMetadataEnvelope()
         assert envelope.schema_version == 1
+
+    def test_envelope_with_all_empty_fields_is_valid(self) -> None:
+        """Envelope with default empty fields is still decoded correctly."""
+        envelope = MatrixMetadataEnvelope()
+        content = envelope.to_content()
+        parsed = MatrixMetadataEnvelope.from_content(content)
+        assert parsed is not None
+        assert parsed.canonical_event_id == ""
+        assert parsed.source_adapter == ""
+        assert parsed.schema_version == 1
+
+    def test_schema_version_must_be_positive(self) -> None:
+        """__post_init__ rejects non-positive schema_version."""
+        import pytest
+
+        with pytest.raises(ValueError, match="positive integer"):
+            MatrixMetadataEnvelope(schema_version=0)
+
+    def test_frozen_dataclass_prevents_mutation(self) -> None:
+        """Envelope is frozen and cannot be mutated after creation."""
+        import dataclasses
+        import pytest
+
+        envelope = MatrixMetadataEnvelope()
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            envelope.source_adapter = "tampered"  # type: ignore[misc]
+
+    def test_dataclass_choice_is_intentional(self) -> None:
+        """Confirm MatrixMetadataEnvelope is a dataclass, not msgspec.
+
+        This is an adapter-internal serialization helper that does not
+        need msgspec roundtrip encoding and is not stored in the
+        canonical event model.
+        """
+        import dataclasses
+
+        assert dataclasses.is_dataclass(MatrixMetadataEnvelope)
+        assert hasattr(MatrixMetadataEnvelope, "__dataclass_fields__")

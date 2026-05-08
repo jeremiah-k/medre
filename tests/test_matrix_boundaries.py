@@ -5,15 +5,20 @@ reply resolution; and delivery contract.
 
 from __future__ import annotations
 
+import logging
 import sys
 from datetime import datetime, timezone
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from medre.adapters import FakeMatrixAdapter, FakePresentationAdapter
 from medre.adapters.base import AdapterDeliveryResult
+from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.codec import MatrixCodec
 from medre.adapters.matrix.config import MatrixConfig
+from medre.adapters.matrix.errors import MatrixSendError
 from medre.adapters.matrix.renderer import MatrixRenderer
 from medre.core.events import CanonicalEvent, EventMetadata, NativeRef
 from medre.core.rendering.renderer import RenderingResult
@@ -220,3 +225,127 @@ class TestMatrixBoundaries:
             assert len(rows) == 0
         finally:
             await runner.stop()
+
+
+# ===================================================================
+# Matrix delivery hygiene tests
+# ===================================================================
+
+
+def _make_matrix_config(**overrides: Any) -> MatrixConfig:
+    """Build a valid MatrixConfig for testing."""
+    defaults = dict(
+        adapter_id="matrix-1",
+        homeserver="https://matrix.example.com",
+        user_id="@bot:example.com",
+        access_token="tok",
+    )
+    defaults.update(overrides)
+    return MatrixConfig(**defaults)
+
+
+class TestMatrixDeliveryHygiene:
+    """MatrixAdapter.deliver strips room_id from sent content."""
+
+    async def test_deliver_strips_room_id_from_content(self) -> None:
+        """room_id must not leak into the Matrix event content."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+
+        # Mock the client to capture what room_send receives.
+        sent_content: dict = {}
+
+        class _FakeResponse:
+            event_id = "$sent-evt-001"
+
+        mock_client = MagicMock()
+        mock_client.room_send = AsyncMock(return_value=_FakeResponse())
+        adapter._client = mock_client
+
+        result = RenderingResult(
+            event_id="evt-1",
+            target_adapter="matrix-1",
+            target_channel="!room:server",
+            payload={
+                "msgtype": "m.text",
+                "body": "hello",
+                "room_id": "!room:server",
+            },
+        )
+        await adapter.deliver(result)
+
+        # room_send was called
+        assert mock_client.room_send.called
+        call_kwargs = mock_client.room_send.call_args
+        sent_content = call_kwargs.kwargs.get("content") or call_kwargs[1].get("content", {})
+        assert "room_id" not in sent_content
+        assert sent_content["body"] == "hello"
+
+    async def test_deliver_uses_target_channel_for_room(self) -> None:
+        """target_channel is used for room selection."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+
+        class _FakeResponse:
+            event_id = "$sent-evt-002"
+
+        mock_client = MagicMock()
+        mock_client.room_send = AsyncMock(return_value=_FakeResponse())
+        adapter._client = mock_client
+
+        result = RenderingResult(
+            event_id="evt-2",
+            target_adapter="matrix-1",
+            target_channel="!target:server",
+            payload={"msgtype": "m.text", "body": "hello"},
+        )
+        await adapter.deliver(result)
+
+        call_kwargs = mock_client.room_send.call_args
+        room_id = call_kwargs.kwargs.get("room_id") or call_kwargs[1].get("room_id", "")
+        assert room_id == "!target:server"
+
+    async def test_deliver_missing_room_id_raises(self) -> None:
+        """Missing room_id in both target_channel and payload raises error."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+
+        mock_client = MagicMock()
+        adapter._client = mock_client
+
+        result = RenderingResult(
+            event_id="evt-3",
+            target_adapter="matrix-1",
+            target_channel=None,
+            payload={"msgtype": "m.text", "body": "hello"},
+        )
+        with pytest.raises(MatrixSendError, match="no room_id"):
+            await adapter.deliver(result)
+
+    async def test_deliver_does_not_mutate_original_payload(self) -> None:
+        """Stripping room_id creates a copy; original payload is untouched."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+
+        class _FakeResponse:
+            event_id = "$sent-evt-003"
+
+        mock_client = MagicMock()
+        mock_client.room_send = AsyncMock(return_value=_FakeResponse())
+        adapter._client = mock_client
+
+        payload = {
+            "msgtype": "m.text",
+            "body": "hello",
+            "room_id": "!room:server",
+        }
+        result = RenderingResult(
+            event_id="evt-4",
+            target_adapter="matrix-1",
+            target_channel="!room:server",
+            payload=payload,
+        )
+        await adapter.deliver(result)
+
+        # Original payload still has room_id
+        assert "room_id" in payload

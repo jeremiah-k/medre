@@ -43,6 +43,43 @@ These boundaries are enforced by design, not by convention. Tests verify them.
 - `FakeMatrixAdapter.deliver()` accepts `RenderingResult`, not raw `CanonicalEvent`. Inbound simulation goes through `simulate_inbound(CanonicalEvent)`.
 
 
+## Operational Safety
+
+These mechanisms prevent message loops and ensure clean delivery in a bridge environment where the adapter's own user account appears as a room participant.
+
+
+### Self-Message Suppression
+
+In a bridge scenario, the adapter's Matrix user is present in rooms it bridges. When the adapter sends an outbound message, the Matrix homeserver echoes that event back via the sync stream. Without suppression, the adapter would decode its own outbound message as a new inbound event, creating an echo loop.
+
+**Primary defense: adapter-level sender check, before decode.** In `_on_room_message`, before any codec work begins, the incoming event's `sender` field is compared against `config.user_id`. If they match, the event is discarded. No decoding, no storage, no pipeline processing.
+
+**Missing sender allowed through.** Events without a `sender` field are not suppressed. These are synthetic or malformed events that should reach the codec for logging and diagnostic handling, even if they are ultimately discarded downstream.
+
+**Secondary defense: MEDRE-origin envelope check.** After decode, if an inbound event carries a `medre` envelope whose `source_adapter` matches this adapter's ID, the event is recognized as a loop hint. This is a secondary check, not the primary suppression path. It exists as defense in depth for cases where the sender field is absent or spoofed in a bridged environment.
+
+
+### MEDRE-Origin Loop Hint Suppression
+
+The `envelope.source_adapter` check is non-authoritative. A missing or corrupt envelope does not suppress a legitimate inbound event. Storage remains the authoritative source for deduplication and correlation. The envelope check is a performance optimization: it lets the adapter cheaply discard events it clearly produced, without requiring a storage round trip.
+
+Corrupt or partial envelopes are tolerated. If the envelope is present but malformed, the adapter does not crash. The event passes through to normal pipeline processing, and storage-level deduplication handles any actual duplicates.
+
+
+### RelationResolver API Alignment
+
+`RelationResolver` methods consume and produce relation data using a split-field storage contract: `(adapter, channel, message_id) -> event_id`. The `resolve_relation()` method aligns with this contract, accepting a triple of adapter ID, channel, and native message ID to look up the corresponding canonical event ID. All resolver methods use the same field decomposition for consistency. No monolithic "native ref string" parsing is performed inside the resolver; the caller provides the already-split fields.
+
+
+### Delivery Hygiene
+
+Outbound message delivery follows strict hygiene rules to prevent protocol violations and aid debugging:
+
+- **`target_channel` is the preferred routing field.** The delivery target is read from `target_channel` on the delivery instruction. This is the canonical routing field.
+- **`room_id` is stripped from content before `room_send`.** If `room_id` appears in the rendered content dict, it is removed before the content is passed to `nio.AsyncClient.room_send`. The room ID belongs in the API call's routing parameter, not in the event content body. Including it there is a protocol violation that some homeservers reject or silently ignore.
+- **Fail-fast on missing room.** If no valid room ID can be determined for an outbound delivery, the adapter raises an error immediately rather than attempting delivery with a null or empty room identifier.
+
+
 ## Configuration (MatrixConfig)
 
 | Field | Type | Required | Description |
@@ -60,7 +97,9 @@ These boundaries are enforced by design, not by convention. Tests verify them.
 
 ## Metadata Envelope
 
-`MatrixMetadataEnvelope` is embedded under `content["medre"]["envelope"]`. Fields:
+`MatrixMetadataEnvelope` is a frozen Python `dataclass`, not a `msgspec` struct. This is intentional. The envelope is an adapter-internal data structure. It is never part of the canonical event model, never passed through `msgspec` serialization directly, and never round-trips through the canonical pipeline as a typed object. The codec handles its own JSON serialization/deserialization when embedding and extracting it from Matrix event content. Using a frozen dataclass gives immutability guarantees without imposing a `msgspec` dependency on an adapter-internal type. This design is documented and tested.
+
+Fields:
 
 - `schema_version`
 - `canonical_event_id`
@@ -135,4 +174,5 @@ These are explicitly out of scope for tranche 1:
 - Meshtastic, MeshCore, LXMF, Discord, Telegram adapters
 - MMRelay compatibility mode
 - Broad plugin ecosystem expansion
-- Live Synapse integration tests
+- Live Synapse integration tests. All testing uses `FakeMatrixAdapter` and in-memory storage. No test requires a running Synapse homeserver.
+- Self-message suppression bypass or selective echo. The sender check is unconditional for matched senders. There is no configuration to disable or selectively allow self-echoes.

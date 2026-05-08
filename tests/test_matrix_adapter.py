@@ -5,14 +5,21 @@ factories, and relation helpers.
 
 from __future__ import annotations
 
+import logging
+from datetime import datetime, timezone
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 
 from medre.adapters import AdapterRole, FakeMatrixAdapter
 from medre.adapters.base import AdapterContext, AdapterDeliveryResult
+from medre.adapters.matrix.adapter import MatrixAdapter
+from medre.adapters.matrix.config import MatrixConfig
+from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
 from medre.core.events import CanonicalEvent, EventMetadata, EventRelation, NativeRef
 from medre.core.events.kinds import EventKind
 from medre.core.rendering.renderer import RenderingResult
-from datetime import datetime, timezone
 
 
 def _make_event(event_id: str = "evt-1") -> CanonicalEvent:
@@ -295,3 +302,228 @@ class TestFakeMatrixAdapterMakeReactionEvent:
         target = adapter.make_event(text="original")
         reaction = adapter.make_reaction_event(target, emoji="🔥")
         assert reaction.relations[0].key == "🔥"
+
+
+# ===================================================================
+# Helpers for real MatrixAdapter suppression / hygiene tests
+# ===================================================================
+
+
+def _make_matrix_config(**overrides: Any) -> MatrixConfig:
+    """Build a valid MatrixConfig for testing."""
+    defaults = dict(
+        adapter_id="matrix-1",
+        homeserver="https://matrix.example.com",
+        user_id="@bot:example.com",
+        access_token="tok",
+    )
+    defaults.update(overrides)
+    return MatrixConfig(**defaults)
+
+
+def _make_fake_nio_event(
+    sender: str = "@alice:example.com",
+    event_id: str = "$evt-001",
+    body: str = "hello",
+    content: dict | None = None,
+) -> Any:
+    """Build a minimal fake nio RoomMessageText event."""
+
+    class _FakeEvent:
+        pass
+
+    evt = _FakeEvent()
+    evt.sender = sender
+    evt.event_id = event_id
+    evt.body = body
+    evt.source = {
+        "content": content or {"msgtype": "m.text", "body": body},
+        "event_id": event_id,
+        "sender": sender,
+        "type": "m.room.message",
+    }
+    return evt
+
+
+def _make_fake_room(room_id: str = "!room:server") -> Any:
+    """Build a minimal fake nio Room object."""
+
+    class _FakeRoom:
+        pass
+
+    room = _FakeRoom()
+    room.room_id = room_id
+    return room
+
+
+def _make_adapter_context(
+    adapter_id: str = "matrix-1",
+) -> tuple[list[CanonicalEvent], AdapterContext]:
+    """Create an AdapterContext that collects published events."""
+    import asyncio
+
+    published: list[CanonicalEvent] = []
+
+    async def _publish(event: CanonicalEvent) -> None:
+        published.append(event)
+
+    ctx = AdapterContext(
+        adapter_id=adapter_id,
+        event_bus=None,
+        publish_inbound=_publish,
+        logger=logging.getLogger(f"test.{adapter_id}"),
+        clock=lambda: datetime.now(timezone.utc),
+        shutdown_event=asyncio.Event(),
+    )
+    return published, ctx
+
+
+# ===================================================================
+# Self-message suppression
+# ===================================================================
+
+
+class TestSelfMessageSuppression:
+    """_on_room_message suppresses events from the bot's own user_id."""
+
+    async def test_self_message_suppressed(self) -> None:
+        """Events from our own user_id are silently dropped."""
+        config = _make_matrix_config(user_id="@bot:example.com")
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+        adapter.ctx = ctx
+
+        event = _make_fake_nio_event(sender="@bot:example.com")
+        room = _make_fake_room()
+
+        await adapter._on_room_message(room, event)
+        assert len(published) == 0
+
+    async def test_other_user_message_accepted(self) -> None:
+        """Events from another user are decoded and published."""
+        config = _make_matrix_config(user_id="@bot:example.com")
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+        adapter.ctx = ctx
+
+        event = _make_fake_nio_event(sender="@alice:example.com")
+        room = _make_fake_room()
+
+        await adapter._on_room_message(room, event)
+        assert len(published) == 1
+
+    async def test_missing_sender_accepted(self) -> None:
+        """Events with no sender attribute are accepted (no crash)."""
+        config = _make_matrix_config(user_id="@bot:example.com")
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+        adapter.ctx = ctx
+
+        class _NoSender:
+            pass
+
+        evt = _NoSender()
+        evt.body = "hello"
+        evt.event_id = "$evt-no-sender"
+        evt.source = {
+            "content": {"msgtype": "m.text", "body": "hello"},
+            "event_id": "$evt-no-sender",
+            "type": "m.room.message",
+        }
+        room = _make_fake_room()
+
+        await adapter._on_room_message(room, evt)
+        assert len(published) == 1
+
+
+# ===================================================================
+# MEDRE-origin loop hint suppression
+# ===================================================================
+
+
+class TestMEDREOriginLoopSuppression:
+    """_on_room_message suppresses MEDRE-origin events from same adapter."""
+
+    async def test_medre_envelope_same_adapter_suppressed(self) -> None:
+        """Events with MEDRE envelope from the same adapter_id are dropped."""
+        config = _make_matrix_config(adapter_id="matrix-1")
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+        adapter.ctx = ctx
+
+        envelope = MatrixMetadataEnvelope(
+            source_adapter="matrix-1",
+            canonical_event_id="evt-orig",
+        )
+        content = {
+            "msgtype": "m.text",
+            "body": "loop back",
+            **envelope.to_content(),
+        }
+        event = _make_fake_nio_event(
+            sender="@alice:example.com", content=content,
+        )
+        room = _make_fake_room()
+
+        await adapter._on_room_message(room, event)
+        assert len(published) == 0
+
+    async def test_medre_envelope_different_adapter_accepted(self) -> None:
+        """Events with MEDRE envelope from a different adapter are accepted."""
+        config = _make_matrix_config(adapter_id="matrix-1")
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+        adapter.ctx = ctx
+
+        envelope = MatrixMetadataEnvelope(
+            source_adapter="matrix-2",
+            canonical_event_id="evt-orig",
+        )
+        content = {
+            "msgtype": "m.text",
+            "body": "from another adapter",
+            **envelope.to_content(),
+        }
+        event = _make_fake_nio_event(
+            sender="@alice:example.com", content=content,
+        )
+        room = _make_fake_room()
+
+        await adapter._on_room_message(room, event)
+        assert len(published) == 1
+
+    async def test_missing_envelope_accepted(self) -> None:
+        """Events without a MEDRE envelope are accepted normally."""
+        config = _make_matrix_config(adapter_id="matrix-1")
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+        adapter.ctx = ctx
+
+        event = _make_fake_nio_event(
+            sender="@alice:example.com",
+            content={"msgtype": "m.text", "body": "plain"},
+        )
+        room = _make_fake_room()
+
+        await adapter._on_room_message(room, event)
+        assert len(published) == 1
+
+    async def test_corrupt_envelope_accepted(self) -> None:
+        """Events with a corrupt MEDRE envelope are accepted (tolerant)."""
+        config = _make_matrix_config(adapter_id="matrix-1")
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+        adapter.ctx = ctx
+
+        content = {
+            "msgtype": "m.text",
+            "body": "corrupt envelope",
+            "medre": {"envelope": "not a dict"},
+        }
+        event = _make_fake_nio_event(
+            sender="@alice:example.com", content=content,
+        )
+        room = _make_fake_room()
+
+        await adapter._on_room_message(room, event)
+        assert len(published) == 1

@@ -37,8 +37,9 @@ class RelationResolver:
     ----------
     storage:
         An object providing a ``resolve_native_ref`` async method that
-        maps a :class:`NativeRef` to a :class:`CanonicalEvent`.  The
-        storage layer is not imported directly to keep this module
+        accepts ``(adapter, native_channel_id, native_message_id)`` as
+        separate arguments and returns an ``event_id: str | None``.
+        The storage layer is not imported directly to keep this module
         decoupled from the storage implementation.
 
     Example
@@ -126,8 +127,10 @@ class RelationResolver:
 
         If the relation already has a ``target_event_id``, it is returned
         unchanged.  Otherwise, ``resolve_native_ref`` is called on the
-        storage backend to look up the canonical event, and a new
-        :class:`EventRelation` with the resolved ID is returned.
+        storage backend with the split fields
+        ``(adapter, native_channel_id, native_message_id)`` to look up
+        the canonical event ID.  A new :class:`EventRelation` with the
+        resolved ID is returned if found.
 
         Parameters
         ----------
@@ -138,7 +141,8 @@ class RelationResolver:
         -------
         EventRelation
             A new relation with ``target_event_id`` populated, or the
-            original relation if it was already resolved.
+            original relation if it was already resolved or the native
+            ref could not be mapped.
 
         Raises
         ------
@@ -161,16 +165,19 @@ class RelationResolver:
                 "Storage object must provide a 'resolve_native_ref' method"
             )
 
-        resolved_event: CanonicalEvent | None = await resolve_fn(
-            relation.target_native_ref,
+        ref = relation.target_native_ref
+        event_id: str | None = await resolve_fn(
+            ref.adapter,
+            ref.native_channel_id,
+            ref.native_message_id,
         )
 
-        if resolved_event is None:
+        if event_id is None:
             return relation
 
         return EventRelation(
             relation_type=relation.relation_type,
-            target_event_id=resolved_event.event_id,
+            target_event_id=event_id,
             target_native_ref=relation.target_native_ref,
             key=relation.key,
             fallback_text=relation.fallback_text,

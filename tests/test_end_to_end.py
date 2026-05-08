@@ -40,20 +40,18 @@ from medre.core.storage import EventFilter, SQLiteStorage
 
 
 class _StorageAdapterForResolver:
-    """Wraps SQLiteStorage so that resolve_native_ref accepts a NativeRef
-    object (as RelationResolver expects) and returns a CanonicalEvent (or None).
+    """Wraps SQLiteStorage so that resolve_native_ref accepts split fields
+    (adapter, channel, message_id) and returns an event_id string (or None),
+    matching the RelationResolver storage contract.
     """
 
     def __init__(self, storage: SQLiteStorage) -> None:
         self._storage = storage
 
-    async def resolve_native_ref(self, ref: NativeRef) -> CanonicalEvent | None:
-        event_id = await self._storage.resolve_native_ref(
-            ref.adapter, ref.native_channel_id, ref.native_message_id
-        )
-        if event_id is None:
-            return None
-        return await self._storage.get(event_id)
+    async def resolve_native_ref(
+        self, adapter: str, channel: str, message_id: str
+    ) -> str | None:
+        return await self._storage.resolve_native_ref(adapter, channel, message_id)
 
 
 # ===================================================================

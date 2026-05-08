@@ -208,7 +208,11 @@ class MatrixAdapter(BaseAdapter):
         if not room_id:
             raise MatrixSendError("no room_id in result")
 
-        content = result.payload
+        # Create a clean copy and strip routing metadata so room_id
+        # does not leak into the Matrix event content.
+        content = dict(result.payload)
+        content.pop("room_id", None)
+
         response = await self._client.room_send(
             room_id=room_id,
             message_type="m.room.message",
@@ -232,7 +236,11 @@ class MatrixAdapter(BaseAdapter):
         """nio callback for inbound room messages.
 
         Decodes the native event into a canonical event and publishes
-        it into the framework's inbound stream.
+        it into the framework's inbound stream.  Self-messages (where
+        the sender matches ``config.user_id``) are suppressed to prevent
+        echo loops.  Events carrying a MEDRE metadata envelope whose
+        ``source_adapter`` equals this adapter's ID are also suppressed
+        as loop-origin hints.
 
         Parameters
         ----------
@@ -249,8 +257,33 @@ class MatrixAdapter(BaseAdapter):
             if room.room_id not in self._config.room_allowlist:
                 return
 
+        # Self-message suppression: skip events sent by our own user.
+        sender = getattr(event, "sender", "")
+        if sender == self._config.user_id:
+            self.ctx.logger.debug(
+                "MatrixAdapter %s: suppressing self-message from %s",
+                self.adapter_id,
+                sender,
+            )
+            return
+
         try:
             canonical = self._codec.decode(event, room_id=room.room_id)
+
+            # MEDRE-origin loop hint suppression: if the event carries a
+            # MEDRE envelope whose source_adapter matches this adapter,
+            # skip publishing to prevent echo loops.  Missing or corrupt
+            # envelopes are tolerated (accepted normally).
+            content = getattr(event, "source", {}).get("content", {})
+            envelope = self._envelope_handler.from_content(content)
+            if envelope is not None and envelope.source_adapter == self.adapter_id:
+                self.ctx.logger.debug(
+                    "MatrixAdapter %s: suppressing MEDRE-origin event "
+                    "from same adapter",
+                    self.adapter_id,
+                )
+                return
+
             await self.ctx.publish_inbound(canonical)
         except Exception:
             if self.ctx is not None:
