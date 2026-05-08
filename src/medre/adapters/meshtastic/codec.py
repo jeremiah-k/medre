@@ -24,6 +24,10 @@ from medre.core.events.metadata import EventMetadata, NativeMetadata
 class MeshtasticCodec:
     """Decode helper for the Meshtastic adapter.
 
+    Sender identity is resolved by first checking ``fromId``; if that
+    field is absent or empty, the numeric ``from`` field is used as a
+    fallback (consistent with the packet classifier).
+
     Parameters
     ----------
     adapter_id:
@@ -76,8 +80,12 @@ class MeshtasticCodec:
         if text is None:
             text = ""
 
-        # Sender and channel
+        # Sender and channel — prefer fromId; fall back to numeric from
         sender = packet.get("fromId", "") or ""
+        if not sender:
+            from_numeric = packet.get("from")
+            if from_numeric is not None:
+                sender = str(from_numeric)
         pkt_channel = channel_index if channel_index is not None else packet.get("channel")
         pkt_id = packet.get("id")
 

@@ -17,7 +17,7 @@ Meshtastic capabilities in tranche 1 are limited to text message ingress and egr
 
 - **Inbound text packet decoding.** Meshtastic `TEXT_MESSAGE_APP` packets are decoded into canonical events by `MeshtasticCodec`. The packet's text payload becomes `payload["body"]`. Packet metadata (packet_id, from_id, to_id, channel, portnum, is_direct_message) is stored in `metadata.native.data` as a flat dict. There is no separate `metadata.radio` or `metadata.transport` namespace in tranche 1.
 - **Outbound text rendering.** `MeshtasticRenderer` turns canonical events into Meshtastic content payloads: a dict with keys `text` (the body string), `channel_index` (integer parsed from target_channel, default 0), and `meshnet_name` (empty string placeholder). The renderer lives at `medre.adapters.meshtastic.renderer`, owned by the adapter layer. Length-limit enforcement is noted but not applied in tranche 1.
-- **Packet classification.** `MeshtasticPacketClassifier` is a standalone class that examines raw packet dicts and returns a classification dict with keys: `category` ("text", "telemetry", "nodeinfo", "position", "admin", "unknown", or "plugin_only"), `is_direct_message` (bool), `channel_index` (int or None), `packet_id` (int or None), `sender_id` (str or None), `portnum` (str or None), and `is_ack` (bool). Only "text" category packets that are not ACKs are processed in tranche 1. Other categories are dropped. The classifier also provides static `_is_broadcast()` for detecting broadcast destination addresses: empty string, `"^all"`, integer `0xffffffff`, and string `"4294967295"`.
+- **Packet classification.** `MeshtasticPacketClassifier` is a standalone class that examines raw packet dicts and returns a classification dict with keys: `category` ("text", "telemetry", "nodeinfo", "position", "admin", "unknown", or "plugin_only"), `is_direct_message` (bool), `channel_index` (int or None), `packet_id` (int or None), `sender_id` (str or None), `portnum` (str or None), and `is_ack` (bool). Only "text" category packets that are not ACKs are processed in tranche 1. Other categories are dropped. The classifier also provides static `_is_broadcast()` for detecting broadcast destination addresses: empty string, `"^all"`, integer `0xffffffff`, and string `"4294967295"`. Sender identity resolves from `fromId` (string) with fallback to `from` (numeric NodeNum) — both fields are present in real meshtastic-python callbacks. Broadcast detection checks both `toId` (string) and `to` (numeric) fields. The numeric portnum mapping table is a tranche-1 scaffold covering documented portnums (0–11, 68, 71, 72) but is not verified against the real protobuf PortNum enum.
 - **Native refs via packet IDs.** Inbound: `MeshtasticCodec.decode()` sets `source_native_ref` with the packet's numeric ID as a string. The pipeline's `_persist_inbound_native_ref` persists this as a `NativeMessageRef(direction="inbound")`. Outbound: `FakeMeshtasticAdapter.deliver()` returns an `AdapterDeliveryResult` with `native_message_id` and `native_channel_id`. The real `MeshtasticAdapter.deliver()` is scaffolded and returns `None` in tranche 1, so no outbound native ref is persisted for the real adapter.
 - **Reply relations.** When an inbound packet contains `decoded.replyId`, the codec creates an `EventRelation(relation_type="reply")` with `target_event_id=None` and a `target_native_ref` pointing at the reply's native packet ID. This is an unresolved relation: the pipeline must resolve it later. The adapter does not resolve relations itself.
 - **Direct messages.** The codec computes `is_direct_message` from the packet's `toId` field (any non-broadcast address). This flag is stored in `metadata.native.data["is_direct_message"]`. The adapter declares `direct_messages=False` in its capabilities, meaning outbound DM delivery is unsupported. Inbound DM metadata is preserved for pipeline inspection only.
@@ -84,6 +84,18 @@ This is an honest declaration. The adapter does what it says and nothing more. `
 | `startup_backlog_suppress_seconds` | `float` | No | Seconds after start to suppress stale backlog packets. Defaults to `5.0`. |
 | `sync_timeout_ms` | `int` | No | Timeout in milliseconds for sync operations. Defaults to `30000`. |
 
+
+## Reply Relation Flow
+
+When an inbound packet carries `decoded.replyId`, the codec creates an `EventRelation(relation_type="reply")` with `target_event_id=None` and a `target_native_ref` pointing at the referenced native packet ID. This unresolved relation is resolved by the pipeline's `RelationResolver` during event processing (Stage 2).
+
+Three cases are tested:
+
+1. **Unresolved** — target native ref not yet in storage. The relation is preserved with `target_event_id=None`.
+2. **Resolved** — target native ref already exists (from a prior inbound packet). The relation is updated with the correct `target_event_id`.
+3. **Missing** — reply references a packet ID that never arrived. The relation remains unresolved (no crash, no data loss).
+
+Relation resolution is pipeline-owned. The adapter and codec do not query storage or resolve references.
 
 ## Native Ref Flow
 
@@ -165,6 +177,21 @@ except ImportError:
 - **Boundary verification.** Tests assert that core imports don't leak into the adapter package, and that the adapter doesn't import routing, planning, or storage modules.
 - **Optional dependency.** `mtjk` is guarded by `HAS_MESHTASTIC`. Core tests pass without it installed. Adapter tests use the fake adapter and do not require it.
 - **No real hardware or network required.** No test in the default suite requires a physical Meshtastic radio, BLE connection, serial port, or TCP connection to a radio.
+
+### Tranche 1.5: Fixture Hardening (This Bundle)
+
+Tranche 1.5 is a fixture hardening and realism audit pass, not a feature expansion. It makes the existing MEDRE contract tests more faithful to real Meshtastic packet behaviour without adding production connection support.
+
+Changes in this pass:
+- Centralised fixture corpus at `tests/fixtures/meshtastic_packets.py` with named factories for all packet shapes
+- Classifier now handles both `from` (numeric NodeNum) and `fromId` (string) sender fields
+- Classifier now handles both `to` (numeric) and `toId` (string) broadcast/DM fields
+- Codec sender fallback consistent with classifier (`from` numeric → `fromId` string)
+- Extended numeric portnum map (scaffold, covers documented portnums 0–11, 68, 71, 72)
+- Native ref reply relation tests confirm pipeline-owned resolution
+- `known_adapters` mechanism documented with a TODO for future registry improvement
+- Optional dependency (`mtjk`) has a verification TODO before real connection work
+- All 7 test files updated to use fixture module where appropriate
 
 
 ## Non-Goals (This Tranche)

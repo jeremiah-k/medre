@@ -88,7 +88,7 @@ class MeshtasticOutboundQueue:
         item = await self.dequeue()
         if item is None:
             return None
-        # Tranche 1: scaffolded — no real send, no pacing sleep.
+        # TODO(tranche-N): scaffolded — no real send, no pacing sleep.
         # Future tranches will:
         #   1. Apply pacing delay (asyncio.sleep(self._delay))
         #   2. Call client.sendText(...)

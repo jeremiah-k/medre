@@ -241,3 +241,78 @@ class TestPacketClassifierAck:
         }
         result = cls.classify(packet)
         assert result["category"] == "plugin_only"
+
+    def test_admin_portnum(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = {
+            "fromId": "!node1",
+            "id": 1,
+            "decoded": {"portnum": "admin"},
+        }
+        result = cls.classify(packet)
+        assert result["category"] == "admin"
+        assert result["is_ack"] is False
+
+
+class TestPacketClassifierNumericFields:
+    """Numeric ``from`` / ``to`` field handling (real meshtastic-python packets)."""
+
+    def test_numeric_from_fallback(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = {
+            "from": 1234567890,
+            "id": 1,
+            "decoded": {"portnum": "text_message"},
+        }
+        result = cls.classify(packet)
+        assert result["sender_id"] == "1234567890"
+        assert result["category"] == "text"
+
+    def test_fromid_takes_priority_over_numeric_from(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = {
+            "fromId": "!abc123",
+            "from": 999,
+            "id": 1,
+            "decoded": {"portnum": "text_message"},
+        }
+        result = cls.classify(packet)
+        assert result["sender_id"] == "!abc123"
+
+    def test_numeric_to_broadcast(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = {
+            "fromId": "!node1",
+            "to": 0xFFFFFFFF,
+            "id": 1,
+            "decoded": {"portnum": "text_message"},
+        }
+        result = cls.classify(packet)
+        assert result["is_direct_message"] is False
+
+    def test_numeric_to_direct(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = {
+            "fromId": "!node1",
+            "to": 12345,
+            "id": 1,
+            "decoded": {"portnum": "text_message"},
+        }
+        result = cls.classify(packet)
+        assert result["is_direct_message"] is True
+
+    def test_toid_broadcast_overrides_numeric_to_direct(self) -> None:
+        """toId broadcast should win — numeric `to` is only consulted when
+        toId is inconclusive (i.e. broadcast)."""
+        cls = MeshtasticPacketClassifier()
+        packet = {
+            "fromId": "!node1",
+            "toId": "",
+            "to": 12345,
+            "id": 1,
+            "decoded": {"portnum": "text_message"},
+        }
+        result = cls.classify(packet)
+        # toId="" is broadcast, and numeric to=12345 is non-broadcast,
+        # so the secondary check should flip it to direct.
+        assert result["is_direct_message"] is True

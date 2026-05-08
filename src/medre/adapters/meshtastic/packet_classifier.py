@@ -53,7 +53,12 @@ class MeshtasticPacketClassifier:
         Parameters
         ----------
         packet:
-            Raw packet dict with Meshtastic-native fields.
+            Raw packet dict with Meshtastic-native fields.  In addition to
+            the canonical ``fromId`` / ``toId`` string fields, real packets
+            from *meshtastic-python* may also carry ``from`` (int) and
+            ``to`` (int).  The classifier uses ``from`` as a fallback when
+            ``fromId`` is absent, and checks ``to`` for the broadcast value
+            ``0xFFFFFFFF`` when ``toId`` alone is inconclusive.
 
         Returns
         -------
@@ -74,6 +79,13 @@ class MeshtasticPacketClassifier:
 
         to_id = packet.get("toId", "")
         is_direct = not self._is_broadcast(to_id)
+        # Also check numeric `to` field (real meshtastic-python includes both)
+        if not is_direct:
+            to_numeric = packet.get("to")
+            if to_numeric is not None:
+                is_direct = not (
+                    isinstance(to_numeric, int) and to_numeric == 0xFFFFFFFF
+                )
 
         channel_index = packet.get("channel")
         if channel_index is None:
@@ -82,6 +94,10 @@ class MeshtasticPacketClassifier:
         packet_id = packet.get("id")
 
         sender_id = packet.get("fromId")
+        if sender_id is None:
+            from_numeric = packet.get("from")
+            if from_numeric is not None:
+                sender_id = str(from_numeric)
 
         is_ack = False
         category = "unknown"
@@ -90,12 +106,22 @@ class MeshtasticPacketClassifier:
             portnum_lower = portnum.lower()
         elif isinstance(portnum, int):
             # Numeric portnum mapping
+            # Tranche-1 scaffold — unverified against real protobuf PortNum enum.
             _NUMERIC_PORTNUM_MAP: dict[int, str] = {
-                1: "text_message",
-                2: "text_message_ack",
-                3: "position",
-                4: "nodeinfo",
-                5: "telemetry",
+                0: "routing",           # ROUTING_APP
+                1: "text_message",      # TEXT_MESSAGE_APP
+                2: "text_message_ack",  # TEXT_MESSAGE_ACK_APP
+                3: "position",          # POSITION_APP
+                4: "nodeinfo",          # NODEINFO_APP
+                5: "telemetry",         # TELEMETRY_APP
+                6: "store_forward",     # STORE_FORWARD_APP
+                7: "waypoint",          # WAYPOINT_APP
+                9: "audio",             # AUDIO_APP
+                10: "remote_hardware",  # REMOTE_HARDWARE_APP
+                11: "private",          # PRIVATE_APP
+                68: "paxcounter",       # PAXCOUNTER_APP
+                71: "neighbor_info",    # NEIGHBORINFO_APP
+                72: "traceroute",       # TRACEROUTE_APP
             }
             portnum_lower = _NUMERIC_PORTNUM_MAP.get(portnum, str(portnum))
             portnum = portnum_lower

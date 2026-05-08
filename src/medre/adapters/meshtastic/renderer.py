@@ -5,8 +5,10 @@ Meshtastic-ready content payloads (dicts with ``text``, ``channel_index``,
 and optional ``meshnet_name``).
 
 This renderer is owned by the Meshtastic adapter package and is registered
-with the rendering pipeline.  It dispatches events whose
-``target_adapter`` starts with ``"meshtastic"``.
+with the rendering pipeline.  Renderer selection dispatches when the
+``target_adapter`` starts with ``"meshtastic"`` (convention) **or** is in
+the set of *known_adapters* passed at construction (preferred for
+realistic adapter IDs like ``"local-radio"`` or ``"garage-mesh"``).
 
 **Tranche 1 scope**: text messages only.  Length-limit enforcement is
 noted but not applied; full enforcement is deferred to a later tranche.
@@ -29,6 +31,14 @@ class MeshtasticRenderer:
     adapter starts with ``"meshtastic"`` **or** is in the explicit set.
     This avoids forcing realistic adapter IDs like ``"local-radio"`` or
     ``"garage-mesh"`` to use an artificial prefix.
+
+    .. todo::
+        Long-term renderer selection should be driven by adapter registry
+        or platform identity, not ad-hoc ``known_adapters`` sets passed
+        to renderer constructors.  Adapter IDs should not need naming
+        conventions.  The current explicit known-adapter registration is
+        a tranche-1 mechanism that should be replaced before adding
+        MeshCore/LXMF support.
 
     Parameters
     ----------
@@ -120,8 +130,9 @@ class MeshtasticRenderer:
             "renderer": self.name,
         }
 
-        # NOTE: Meshtastic has a ~228 byte payload limit.  Future tranches
-        # should enforce truncation here.  For now we pass through.
+        # TODO(tranche-N): Meshtastic has a ~228 byte payload limit.
+        # Future tranches should enforce truncation here.
+        # For now we pass through.
         truncated = False
 
         return RenderingResult(

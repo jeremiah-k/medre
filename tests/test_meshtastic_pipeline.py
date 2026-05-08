@@ -498,3 +498,179 @@ class TestMeshtasticNativeRefPersistence:
         )
         assert resolved is not None
         assert resolved == event.event_id
+
+
+# ===================================================================
+# Reply relation pipeline tests
+# ===================================================================
+
+
+class TestMeshtasticReplyRelation:
+    """Reply relation resolution through the pipeline."""
+
+    async def test_inbound_reply_creates_unresolved_relation(
+        self, make_adapter_context, inbound_collector
+    ) -> None:
+        """Inbound reply packet goes through adapter → codec → event with unresolved relation.
+        The codec creates an EventRelation with target_event_id=None and a
+        target_native_ref. The pipeline stores the event with the unresolved relation.
+        Relation resolution happens in pipeline Stage 2 but if the target ref doesn't
+        exist in storage, the relation stays unresolved (target_event_id=None)."""
+        config = MeshtasticConfig(adapter_id="mesh-reply")
+        adapter = FakeMeshtasticAdapter(config)
+        ctx = make_adapter_context("mesh-reply")
+        await adapter.start(ctx)
+
+        # A reply packet: packet_id=200, replyId=100
+        packet = {
+            "fromId": "!node1",
+            "toId": "",
+            "channel": 0,
+            "id": 200,
+            "decoded": {"portnum": "text_message", "text": "reply", "replyId": 100},
+        }
+        await adapter.simulate_inbound(packet)
+
+        assert len(inbound_collector.events) == 1
+        event = inbound_collector.events[0]
+        # Codec should have created a reply EventRelation
+        assert len(event.relations) == 1
+        rel = event.relations[0]
+        assert rel.relation_type == "reply"
+        # Target not yet in storage → unresolved
+        assert rel.target_event_id is None
+        assert rel.target_native_ref is not None
+        assert rel.target_native_ref.native_message_id == "100"
+        assert rel.target_native_ref.adapter == "mesh-reply"
+
+    async def test_inbound_reply_resolved_through_pipeline(
+        self, temp_storage
+    ) -> None:
+        """When the target native ref already exists in storage, the pipeline resolves
+        the relation before the event is published (pipeline Stage 2: resolve_relations).
+
+        This test uses a PipelineRunner with a RelationResolver so that the pipeline
+        resolves relations during event processing. The relation resolution happens
+        in pipeline.handle_event() Stage 2 BEFORE the event is published to inbound."""
+        in_adapter = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="mesh-source"))
+
+        route = Route(
+            id="mesh-reply-route",
+            source=RouteSource(
+                adapter="mesh-source",
+                event_kinds=("message.created",),
+                channel="0",
+            ),
+            targets=[],
+        )
+        router = Router(routes=[route])
+
+        runner = PipelineRunner(PipelineConfig(
+            storage=temp_storage,
+            router=router,
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters={"mesh-source": in_adapter},
+            event_bus=EventBus(),
+            rendering_pipeline=RenderingPipeline(),
+        ))
+
+        ctx = _make_adapter_context_for_pipeline("mesh-source", runner)
+        await in_adapter.start(ctx)
+
+        # Send a message with packet_id=999 — this will persist a native ref
+        first_packet = {
+            "fromId": "!node1",
+            "toId": "",
+            "channel": 0,
+            "id": 999,
+            "decoded": {"portnum": "text_message", "text": "original"},
+        }
+        await in_adapter.simulate_inbound(first_packet)
+
+        # Verify the pipeline persisted the inbound native ref
+        resolved = await temp_storage.resolve_native_ref(
+            adapter="mesh-source",
+            native_channel_id="0",
+            native_message_id="999",
+        )
+        assert resolved is not None, "Pipeline should have persisted inbound native ref"
+
+        # Now send a reply packet referencing the first message
+        reply_packet = {
+            "fromId": "!node2",
+            "toId": "",
+            "channel": 0,
+            "id": 1001,
+            "decoded": {"portnum": "text_message", "text": "reply to 999", "replyId": 999},
+        }
+        await in_adapter.simulate_inbound(reply_packet)
+
+        # The stored event has resolved relations (pipeline resolves before storing).
+        # inbound_events captures pre-pipeline events, so we must check storage.
+        reply_event_id = in_adapter.inbound_events[1].event_id
+        stored_event = await temp_storage.get(reply_event_id)
+        assert stored_event is not None, "Reply event should be stored"
+
+        assert len(stored_event.relations) == 1
+        rel = stored_event.relations[0]
+        assert rel.relation_type == "reply"
+        # The pipeline should have resolved target_event_id
+        assert rel.target_event_id == resolved, (
+            f"Pipeline should resolve reply's target_native_ref ({rel.target_native_ref}) "
+            f"to event_id={resolved}, got target_event_id={rel.target_event_id}"
+        )
+        assert rel.target_native_ref is not None
+        assert rel.target_native_ref.native_message_id == "999"
+
+    async def test_reply_relation_without_target_is_unresolved(
+        self, temp_storage
+    ) -> None:
+        """A reply referencing a non-existent native ref stays unresolved.
+        The pipeline does not crash, and the relation is preserved."""
+        in_adapter = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="mesh-orphan"))
+
+        route = Route(
+            id="mesh-orphan-route",
+            source=RouteSource(
+                adapter="mesh-orphan",
+                event_kinds=("message.created",),
+                channel="0",
+            ),
+            targets=[],
+        )
+        router = Router(routes=[route])
+
+        runner = PipelineRunner(PipelineConfig(
+            storage=temp_storage,
+            router=router,
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters={"mesh-orphan": in_adapter},
+            event_bus=EventBus(),
+            rendering_pipeline=RenderingPipeline(),
+        ))
+
+        ctx = _make_adapter_context_for_pipeline("mesh-orphan", runner)
+        await in_adapter.start(ctx)
+
+        # Reply to a packet ID that was never sent
+        packet = {
+            "fromId": "!node1",
+            "toId": "",
+            "channel": 0,
+            "id": 500,
+            "decoded": {"portnum": "text_message", "text": "orphan reply", "replyId": 99999},
+        }
+        # Should NOT raise — pipeline handles unresolved relations gracefully
+        await in_adapter.simulate_inbound(packet)
+
+        assert len(in_adapter.inbound_events) == 1
+        event = in_adapter.inbound_events[0]
+        assert len(event.relations) == 1
+        rel = event.relations[0]
+        assert rel.relation_type == "reply"
+        # Target event does not exist → stays unresolved
+        assert rel.target_event_id is None
+        assert rel.target_native_ref is not None
+        assert rel.target_native_ref.native_message_id == "99999"

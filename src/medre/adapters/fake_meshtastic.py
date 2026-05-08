@@ -20,7 +20,7 @@ Usage
 >>> event = adapter.make_text_event("Hello from mesh!")
 >>> await adapter.simulate_inbound(packet_dict)
 >>> # Deliver an outbound rendered payload
->>> result = await adapter.deliver(result)
+>>> delivery = await adapter.deliver(result)
 >>> assert adapter.delivered_payloads
 """
 from __future__ import annotations
