@@ -111,7 +111,7 @@ Fields:
 - `metadata_mode`
 - `native_source_summary`
 
-The envelope is round-trip tolerant. Unknown fields are preserved on decode. Missing or corrupt envelopes return `None` rather than raising. No secrets are ever embedded: no access tokens, no private keys.
+The envelope is round-trip tolerant. Unknown fields are tolerated/ignored on decode. Missing or corrupt envelopes return `None` rather than raising. No secrets are ever embedded: no access tokens, no private keys.
 
 
 ## Relation Behavior
