@@ -4,6 +4,8 @@ population, source_native_ref, replyId relation extraction, and edge cases.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from medre.adapters.meshtastic.codec import MeshtasticCodec
@@ -89,13 +91,14 @@ class TestMeshtasticCodecDecode:
     def test_decode_missing_decoded(self) -> None:
         codec = MeshtasticCodec("mesh-1", _make_config())
         packet = {"id": 1, "channel": 0}
-        event = codec.decode(packet)
-        assert event.payload["body"] == ""
+        with pytest.raises(MeshtasticCodecError, match="unsupported"):
+            codec.decode(packet)
 
     def test_decode_non_dict_raises(self) -> None:
         codec = MeshtasticCodec("mesh-1", _make_config())
+        packet: Any = "not a dict"
         with pytest.raises(MeshtasticCodecError, match="dict"):
-            codec.decode("not a dict")
+            codec.decode(packet)
 
     def test_decode_populates_native_metadata(self) -> None:
         codec = MeshtasticCodec("mesh-1", _make_config())
@@ -129,8 +132,62 @@ class TestMeshtasticCodecDecode:
         ch_packet = _make_text_packet(to_id="")
         dm_event = codec.decode(dm_packet)
         ch_event = codec.decode(ch_packet)
+        assert dm_event.metadata.native is not None
+        assert ch_event.metadata.native is not None
         assert dm_event.metadata.native.data["is_direct_message"] is True
         assert ch_event.metadata.native.data["is_direct_message"] is False
+
+    def test_decode_text_message_app_symbolic_portnum(self) -> None:
+        codec = MeshtasticCodec("mesh-1", _make_config())
+        packet = _make_text_packet(text="real symbolic")
+        packet["decoded"]["portnum"] = "TEXT_MESSAGE_APP"
+        event = codec.decode(packet)
+        assert event.payload["body"] == "real symbolic"
+        assert event.payload["portnum"] == "text_message"
+        assert event.metadata.native is not None
+        assert event.metadata.native.data["portnum"] == "text_message"
+
+    @pytest.mark.parametrize(
+        "portnum",
+        ["TELEMETRY_APP", "ADMIN_APP", "POSITION_APP", "NODEINFO_APP"],
+    )
+    def test_decode_rejects_unsupported_symbolic_portnums(self, portnum) -> None:
+        codec = MeshtasticCodec("mesh-1", _make_config())
+        packet = _make_text_packet(text="not text")
+        packet["decoded"]["portnum"] = portnum
+        with pytest.raises(MeshtasticCodecError, match="unsupported"):
+            codec.decode(packet)
+
+    def test_decode_rejects_routing_ack(self) -> None:
+        codec = MeshtasticCodec("mesh-1", _make_config())
+        packet = {
+            "fromId": "!node1",
+            "id": 1,
+            "decoded": {
+                "portnum": "ROUTING_APP",
+                "routing": {"errorReason": "NONE"},
+            },
+        }
+        with pytest.raises(MeshtasticCodecError, match="ACK"):
+            codec.decode(packet)
+
+    def test_decode_numeric_to_metadata_matches_classifier(self) -> None:
+        codec = MeshtasticCodec("mesh-1", _make_config())
+        packet = _make_text_packet(to_id="")
+        packet["to"] = 12345
+        event = codec.decode(packet)
+        assert event.metadata.native is not None
+        assert event.metadata.native.data["is_direct_message"] is True
+
+    def test_decode_numeric_sender_fallback_matches_classifier(self) -> None:
+        codec = MeshtasticCodec("mesh-1", _make_config())
+        packet = _make_text_packet()
+        del packet["fromId"]
+        packet["from"] = 123456
+        event = codec.decode(packet)
+        assert event.source_transport_id == "123456"
+        assert event.metadata.native is not None
+        assert event.metadata.native.data["from_id"] == "123456"
 
 
 class TestMeshtasticCodecSourceNativeRef:
@@ -157,6 +214,7 @@ class TestMeshtasticCodecSourceNativeRef:
         packet = _make_text_packet(channel=0, packet_id=1)
         event = codec.decode(packet, channel_index=5)
         assert event.source_channel_id == "5"
+        assert event.source_native_ref is not None
         assert event.source_native_ref.native_channel_id == "5"
 
 

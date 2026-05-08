@@ -304,6 +304,21 @@ class TestFakeMeshtasticAdapterSimulateInbound:
         event = inbound_collector.events[0]
         assert event.payload["body"] == "hello mesh"
 
+    async def test_simulate_inbound_accepts_text_message_app(
+        self, make_adapter_context, inbound_collector
+    ) -> None:
+        adapter = FakeMeshtasticAdapter()
+        ctx = make_adapter_context("mesh-1")
+        await adapter.start(ctx)
+
+        packet = _make_text_packet(text="real symbolic text")
+        packet["decoded"]["portnum"] = "TEXT_MESSAGE_APP"
+        await adapter.simulate_inbound(packet)
+
+        assert len(inbound_collector.events) == 1
+        assert inbound_collector.events[0].payload["body"] == "real symbolic text"
+        assert inbound_collector.events[0].payload["portnum"] == "text_message"
+
     async def test_simulate_inbound_without_start_raises(self) -> None:
         adapter = FakeMeshtasticAdapter()
         packet = _make_text_packet()
@@ -323,6 +338,25 @@ class TestFakeMeshtasticAdapterSimulateInbound:
         await adapter.simulate_inbound(packet)
         assert len(adapter.inbound_events) == 0
 
+    @pytest.mark.parametrize(
+        "portnum",
+        ["TELEMETRY_APP", "POSITION_APP", "NODEINFO_APP", "ADMIN_APP"],
+    )
+    async def test_simulate_inbound_ignores_symbolic_unsupported(
+        self, make_adapter_context, portnum
+    ) -> None:
+        adapter = FakeMeshtasticAdapter()
+        ctx = make_adapter_context("mesh-1")
+        await adapter.start(ctx)
+
+        packet = {
+            "fromId": "!node1",
+            "id": 1,
+            "decoded": {"portnum": portnum},
+        }
+        await adapter.simulate_inbound(packet)
+        assert len(adapter.inbound_events) == 0
+
     async def test_simulate_inbound_ignores_ack(self, make_adapter_context) -> None:
         adapter = FakeMeshtasticAdapter()
         ctx = make_adapter_context("mesh-1")
@@ -332,6 +366,24 @@ class TestFakeMeshtasticAdapterSimulateInbound:
             "fromId": "!node1",
             "id": 1,
             "decoded": {"portnum": "text_message_ack"},
+        }
+        await adapter.simulate_inbound(packet)
+        assert len(adapter.inbound_events) == 0
+
+    async def test_simulate_inbound_ignores_routing_ack(
+        self, make_adapter_context
+    ) -> None:
+        adapter = FakeMeshtasticAdapter()
+        ctx = make_adapter_context("mesh-1")
+        await adapter.start(ctx)
+
+        packet = {
+            "fromId": "!node1",
+            "id": 1,
+            "decoded": {
+                "portnum": "ROUTING_APP",
+                "routing": {"errorReason": "NONE"},
+            },
         }
         await adapter.simulate_inbound(packet)
         assert len(adapter.inbound_events) == 0
@@ -438,6 +490,21 @@ class TestMeshtasticAdapterLifecycle:
 
         assert len(inbound_collector.events) == 1
         assert inbound_collector.events[0].payload["body"] == "via real adapter"
+
+    async def test_simulate_inbound_symbolic_text_message_app(
+        self, make_adapter_context, inbound_collector
+    ) -> None:
+        config = _make_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        ctx = make_adapter_context("mesh-1")
+        await adapter.start(ctx)
+
+        packet = _make_text_packet(text="symbolic real adapter")
+        packet["decoded"]["portnum"] = "TEXT_MESSAGE_APP"
+        await adapter.simulate_inbound(packet)
+
+        assert len(inbound_collector.events) == 1
+        assert inbound_collector.events[0].payload["body"] == "symbolic real adapter"
 
 
 # ===================================================================

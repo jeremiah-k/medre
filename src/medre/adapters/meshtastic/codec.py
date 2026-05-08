@@ -24,9 +24,9 @@ from medre.core.events.metadata import EventMetadata, NativeMetadata
 class MeshtasticCodec:
     """Decode helper for the Meshtastic adapter.
 
-    Sender identity is resolved by first checking ``fromId``; if that
-    field is absent or empty, the numeric ``from`` field is used as a
-    fallback (consistent with the packet classifier).
+    Decode uses :class:`MeshtasticPacketClassifier` as the source of truth
+    for portnum normalization, category, ACK detection, channel, packet ID,
+    sender identity, and direct-message classification.
 
     Parameters
     ----------
@@ -71,6 +71,15 @@ class MeshtasticCodec:
                 f"packet must be a dict, got {type(packet).__name__}"
             )
 
+        classification = self._classifier.classify(packet)
+        category = classification["category"]
+        if classification["is_ack"]:
+            raise MeshtasticCodecError("ACK packets are not decodable as text events")
+        if category != "text":
+            raise MeshtasticCodecError(
+                f"unsupported Meshtastic packet category for decode: {category!r}"
+            )
+
         decoded = packet.get("decoded", {})
         if isinstance(decoded, dict):
             text = decoded.get("text", "")
@@ -80,25 +89,16 @@ class MeshtasticCodec:
         if text is None:
             text = ""
 
-        # Sender and channel — prefer fromId; fall back to numeric from
-        sender = packet.get("fromId", "") or ""
-        if not sender:
-            from_numeric = packet.get("from")
-            if from_numeric is not None:
-                sender = str(from_numeric)
-        pkt_channel = channel_index if channel_index is not None else packet.get("channel")
-        pkt_id = packet.get("id")
+        sender = classification["sender_id"] or ""
+        pkt_channel = (
+            channel_index
+            if channel_index is not None
+            else classification["channel_index"]
+        )
+        pkt_id = classification["packet_id"]
+        portnum = classification["portnum"]
 
-        # Portnum
-        portnum = decoded.get("portnum", "") if isinstance(decoded, dict) else ""
-
-        # Event kind
         event_kind = EventKind.MESSAGE_CREATED
-        if isinstance(portnum, str) and portnum in (
-            "text_message",
-            "text_message_ack",
-        ):
-            event_kind = EventKind.MESSAGE_CREATED
 
         # Build payload
         payload: dict[str, object] = {"body": text}
@@ -132,9 +132,7 @@ class MeshtasticCodec:
                 )
             )
 
-        # Native metadata with safe packet summary
         to_id = packet.get("toId", "") or ""
-        is_direct_message = not MeshtasticPacketClassifier._is_broadcast(to_id)
 
         native_meta = NativeMetadata(
             data={
@@ -143,7 +141,7 @@ class MeshtasticCodec:
                 "channel": pkt_channel,
                 "portnum": str(portnum) if portnum else None,
                 "to_id": to_id,
-                "is_direct_message": is_direct_message,
+                "is_direct_message": classification["is_direct_message"],
             }
         )
 

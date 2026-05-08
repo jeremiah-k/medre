@@ -11,14 +11,12 @@ Usage::
 
     pkt = make_text_packet(text="hello mesh", sender="!deadbeef")
 
-Portnum convention: these fixtures use MEDRE-normalised lowercase
-portnum strings (e.g. "text_message", "telemetry", "admin").  Real
-meshtastic-python (mtjk) callbacks emit UPPER_CASE portnums with a _APP
-suffix (e.g. "TEXT_MESSAGE_APP", "TELEMETRY_APP").  The classifier's
-.lower() handles case insensitivity, but the suffix difference means
-"TEXT_MESSAGE_APP" -> "text_message_app", not "text_message".  Full
-protobuf portnum support is deferred -- these fixtures test the MEDRE
-runtime boundary, not real protocol fidelity.
+Portnum convention: these fixtures include both MEDRE-normalised lowercase
+portnum strings (e.g. "text_message", "telemetry", "admin") and the real
+symbolic meshtastic-python / mtjk strings used by callback dictionaries
+(e.g. "TEXT_MESSAGE_APP", "TELEMETRY_APP", "ADMIN_APP").  Full protobuf
+enum coverage is deferred -- these fixtures test the MEDRE runtime
+boundary, not exhaustive hardware protocol fidelity.
 """
 
 
@@ -47,6 +45,7 @@ def make_text_packet(
     packet_id: int = 42,
     to_id: str = "",
     want_ack: bool = False,
+    portnum: str = "text_message",
 ) -> dict:
     """Return a canonical text-message packet dict.
 
@@ -55,7 +54,7 @@ def make_text_packet(
     callback payload where both ``from`` (NodeNum int) and ``fromId`` (hex
     string) are present.
     """
-    decoded: dict = {"portnum": "text_message", "text": text}
+    decoded: dict = {"portnum": portnum, "text": text}
     if want_ack:
         decoded["wantAck"] = True
 
@@ -179,14 +178,7 @@ def make_admin_packet(
     packet_id: int = 10,
     channel: int = 0,
 ) -> dict:
-    """Admin portnum packet.
-
-    Note: the classifier matches ``"admin"`` (MEDRE-normalized).  Real
-    meshtastic-python callbacks use ``"ADMIN_APP"`` (UPPER_CASE, ``_APP``
-    suffix); the classifier's ``.lower()`` normalisation would turn that
-    into ``"admin_app"``, which does **not** match ``"admin"``.  Full
-    protobuf portnum handling is deferred.
-    """
+    """Admin portnum packet using MEDRE-normalised ``admin``."""
     return {
         "from": _node_num(sender),
         "fromId": sender,
@@ -217,6 +209,100 @@ def make_ack_packet(
         "id": packet_id,
         "decoded": {"portnum": "text_message_ack"},
     }
+
+
+def make_symbolic_text_packet(
+    text: str = "hello symbolic mesh",
+    sender: str = "!abc123",
+    channel: int = 0,
+    packet_id: int = 42,
+    to_id: str = "",
+) -> dict:
+    """Text packet using real symbolic ``TEXT_MESSAGE_APP`` portnum."""
+    return make_text_packet(
+        text=text,
+        sender=sender,
+        channel=channel,
+        packet_id=packet_id,
+        to_id=to_id,
+        portnum="TEXT_MESSAGE_APP",
+    )
+
+
+def make_symbolic_telemetry_packet(
+    sender: str = "!node1",
+    packet_id: int = 10,
+    channel: int = 0,
+) -> dict:
+    """Telemetry packet using real symbolic ``TELEMETRY_APP`` portnum."""
+    pkt = make_telemetry_packet(sender=sender, packet_id=packet_id, channel=channel)
+    pkt["decoded"]["portnum"] = "TELEMETRY_APP"
+    return pkt
+
+
+def make_symbolic_position_packet(
+    sender: str = "!node1",
+    packet_id: int = 10,
+    channel: int = 0,
+) -> dict:
+    """Position packet using real symbolic ``POSITION_APP`` portnum."""
+    pkt = make_position_packet(sender=sender, packet_id=packet_id, channel=channel)
+    pkt["decoded"]["portnum"] = "POSITION_APP"
+    return pkt
+
+
+def make_symbolic_nodeinfo_packet(
+    sender: str = "!node1",
+    packet_id: int = 10,
+    channel: int = 0,
+) -> dict:
+    """Node-info packet using real symbolic ``NODEINFO_APP`` portnum."""
+    pkt = make_nodeinfo_packet(sender=sender, packet_id=packet_id, channel=channel)
+    pkt["decoded"]["portnum"] = "NODEINFO_APP"
+    return pkt
+
+
+def make_symbolic_admin_packet(
+    sender: str = "!node1",
+    packet_id: int = 10,
+    channel: int = 0,
+) -> dict:
+    """Admin packet using real symbolic ``ADMIN_APP`` portnum."""
+    pkt = make_admin_packet(sender=sender, packet_id=packet_id, channel=channel)
+    pkt["decoded"]["portnum"] = "ADMIN_APP"
+    return pkt
+
+
+def make_symbolic_routing_ack_packet(
+    sender: str = "!node1",
+    packet_id: int = 10,
+    channel: int = 0,
+) -> dict:
+    """Routing ACK-like packet using real symbolic ``ROUTING_APP`` portnum."""
+    return {
+        "from": _node_num(sender),
+        "fromId": sender,
+        "toId": "",
+        "channel": channel,
+        "id": packet_id,
+        "decoded": {
+            "portnum": "ROUTING_APP",
+            "routing": {"errorReason": "NONE"},
+        },
+    }
+
+
+def make_unknown_symbolic_app_packet(
+    sender: str = "!node1",
+    packet_id: int = 10,
+    portnum: str = "UNKNOWN_FUTURE_APP",
+) -> dict:
+    """Packet with an unsupported symbolic ``*_APP`` portnum."""
+    return make_unknown_portnum_packet(
+        sender=sender,
+        packet_id=packet_id,
+        portnum=portnum,
+    )
 
 
 def make_plugin_packet(

@@ -6,7 +6,10 @@ from __future__ import annotations
 
 import pytest
 
-from medre.adapters.meshtastic.packet_classifier import MeshtasticPacketClassifier
+from medre.adapters.meshtastic.packet_classifier import (
+    MeshtasticPacketClassifier,
+    normalize_portnum,
+)
 
 
 def _make_text_packet(
@@ -136,6 +139,17 @@ class TestPacketClassifierUnknownPortnum:
         result = cls.classify(packet)
         assert result["category"] == "text"
 
+    def test_unknown_symbolic_app_portnum(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = {
+            "fromId": "!node1",
+            "id": 1,
+            "decoded": {"portnum": "SOMETHING_ELSE_APP"},
+        }
+        result = cls.classify(packet)
+        assert result["category"] == "unknown"
+        assert result["portnum"] == "something_else_app"
+
     def test_telemetry_portnum(self) -> None:
         cls = MeshtasticPacketClassifier()
         packet = {
@@ -224,7 +238,37 @@ class TestPacketClassifierAck:
         }
         result = cls.classify(packet)
         assert result["is_ack"] is True
-        assert result["category"] == "text"
+        assert result["category"] == "ack"
+
+    def test_routing_app_ack_packet(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = {
+            "fromId": "!node1",
+            "id": 1,
+            "decoded": {
+                "portnum": "ROUTING_APP",
+                "routing": {"errorReason": "NONE"},
+            },
+        }
+        result = cls.classify(packet)
+        assert result["is_ack"] is True
+        assert result["category"] == "ack"
+        assert result["portnum"] == "routing"
+
+    def test_routing_app_nak_is_unknown(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = {
+            "fromId": "!node1",
+            "id": 1,
+            "decoded": {
+                "portnum": "ROUTING_APP",
+                "routing": {"errorReason": "NO_CHANNEL"},
+            },
+        }
+        result = cls.classify(packet)
+        assert result["is_ack"] is False
+        assert result["category"] == "unknown"
+        assert result["portnum"] == "routing"
 
     def test_normal_text_is_not_ack(self) -> None:
         cls = MeshtasticPacketClassifier()
@@ -316,3 +360,47 @@ class TestPacketClassifierNumericFields:
         # toId="" is broadcast, and numeric to=12345 is non-broadcast,
         # so the secondary check should flip it to direct.
         assert result["is_direct_message"] is True
+
+
+class TestPortnumNormalization:
+    """Real symbolic Meshtastic portnum normalization."""
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("TEXT_MESSAGE_APP", "text_message"),
+            ("TELEMETRY_APP", "telemetry"),
+            ("POSITION_APP", "position"),
+            ("NODEINFO_APP", "nodeinfo"),
+            ("ADMIN_APP", "admin"),
+            ("ROUTING_APP", "routing"),
+            ("TEXT_MESSAGE_ACK_APP", "text_message_ack"),
+            ("text_message", "text_message"),
+            ("telemetry", "telemetry"),
+            (1, "text_message"),
+            (None, None),
+            ("UNKNOWN_FUTURE_APP", "unknown_future_app"),
+        ],
+    )
+    def test_normalize_portnum(self, raw, expected) -> None:
+        assert normalize_portnum(raw) == expected
+
+    @pytest.mark.parametrize(
+        ("raw", "category"),
+        [
+            ("TEXT_MESSAGE_APP", "text"),
+            ("TELEMETRY_APP", "telemetry"),
+            ("POSITION_APP", "position"),
+            ("NODEINFO_APP", "nodeinfo"),
+            ("ADMIN_APP", "admin"),
+        ],
+    )
+    def test_real_symbolic_app_classification(self, raw, category) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = {
+            "fromId": "!node1",
+            "id": 1,
+            "decoded": {"portnum": raw, "text": "hello"},
+        }
+        result = cls.classify(packet)
+        assert result["category"] == category
