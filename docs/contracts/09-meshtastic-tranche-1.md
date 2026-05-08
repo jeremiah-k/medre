@@ -154,15 +154,21 @@ pip install medre[meshtastic]
 
 This installs `mtjk>=0.1`. The core install (`pip install medre`) does not include it. All core tests pass without `mtjk` present. The adapter's own tests use `FakeMeshtasticAdapter` and do not require `mtjk`.
 
-- **Distribution name:** `mtjk>=0.1` on PyPI.
+- **Distribution name:** `mtjk` on PyPI. Versions 2.7.8.post2+ verified.
 - **Python import name:** `meshtastic`.
+- **Package source:** Fork maintained at `github.com/jeremiah-k/mtjk`. Not the upstream `meshtastic` library.
 - **Optional.** The compat module sets `HAS_MESHTASTIC = False` when `mtjk` is not installed. The adapter's `start()` raises `MeshtasticConnectionError` for non-fake connection types when the library is missing.
+- **Protobuf PortNum enum:** Available at `meshtastic.protobuf.portnums_pb2.PortNum` when the dependency is installed. The compat module provides `get_portnum_table()` for optional authoritative portnum resolution.
+- **Callback shape:** The mtjk library normalizes protobuf MeshPackets to dicts via `MessageToDict()` and enriches them with `fromId`/`toId` via `_node_num_to_id()`. Inbound packets arrive via `pubsub` topic `"meshtastic.receive"`. The callback receives `(packet_dict, interface)`.
 
 ```python
 # medre/adapters/meshtastic/compat.py
 HAS_MESHTASTIC: bool
+_PORTNUM_ENUM: type | None = None
+
 try:
     import meshtastic  # noqa: F401
+    from meshtastic.protobuf import portnums_pb2  # noqa: F401
     HAS_MESHTASTIC = True
 except ImportError:
     HAS_MESHTASTIC = False
@@ -190,10 +196,24 @@ Changes in this pass:
 - Classifier now handles both `to` (numeric) and `toId` (string) broadcast/DM fields
 - Codec uses classifier-derived truth for category, normalized portnum, packet ID, channel, sender, ACK detection, and direct-message metadata
 - Codec rejects unsupported categories and ACKs deterministically instead of silently converting them to `message.created`
-- Numeric portnum map remains a narrow scaffold, not verified full protobuf support
+- Numeric portnum map remains a fixture scaffold, not verified full protobuf support (see `docs/contracts/10-meshtastic-source-audit.md` for the authoritative protobuf PortNum table)
 - Native ref reply relation tests confirm pipeline-owned resolution
 - `known_adapters` mechanism documented with a TODO for future registry improvement
-- Optional dependency (`mtjk`) has a verification TODO before real connection work
+- Optional dependency (`mtjk`) verified against the installed package (v2.7.8.post2, import name `meshtastic`)
+
+### Tranche 2: Source-of-Truth Audit (Current Bundle)
+
+Tranche 2 is a source-of-truth audit and connection boundary preparation pass. It does not add production connection support, telemetry decoding, or any new real adapter functionality.
+
+Changes in this pass:
+- Source audit document at `docs/contracts/10-meshtastic-source-audit.md` covering MMRelay behavioral facts, mtjk callback shapes, PortNum enum verification, and send-result analysis
+- Connection boundary design note at `docs/contracts/11-meshtastic-connection-boundary.md` for future real connection implementation
+- Optional dependency verified: `mtjk` v2.7.8.post2 installed, imports as `meshtastic`, protobuf PortNum enum accessible at `meshtastic.protobuf.portnums_pb2.PortNum`
+- `compat.get_portnum_table()` helper added for optional authoritative PortNum resolution when the dependency is installed
+- `_NUMERIC_PORTNUM_MAP` explicitly downgraded to fixture-scaffold wording with cross-reference to the audit doc
+- Fixture corpus refined with MMRelay-derived packet shapes (emoji flag, encrypted packets, DM shapes)
+- Send-result behavior documented: both mtjk `sendText` and MMRelay `_sendPacket` return `MeshPacket` protobuf with poplulated `id` field
+- No MMRelay code copied, no real hardware support added, no new adapter protocols implemented
 
 
 ## Non-Goals (This Tranche)

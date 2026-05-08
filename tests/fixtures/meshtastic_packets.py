@@ -1,9 +1,22 @@
 """Centralised Meshtastic packet fixture factories.
 
 These factories produce plain-dict approximations of the packet structures
-emitted by meshtastic-python TCP/BLE/serial callbacks.  They are **MEDRE
-fixture approximations**, not exhaustive hardware captures — real packets may
-carry additional protobuf fields not represented here.
+emitted by meshtastic-python (mtjk fork) TCP/BLE/serial callbacks.  They are
+**MEDRE fixture approximations**, not exhaustive hardware captures -- real
+packets may carry additional protobuf fields not represented here.
+
+Fixture derivation sources
+--------------------------
+Each fixture family documents its derivation source:
+
+* **MEDRE synthetic** — invented for MEDRE test coverage (not based on real
+  packet captures or old MMRelay observations).
+* **Old-MMRelay-derived** — based on observed shapes in the old
+  ``mmrelay`` codebase (``/home/jeremiah/dev/meshtastic-matrix-relay``).
+* **meshtastic-python / mtjk derived** — based on the installed mtjk
+  package's protobuf definitions and callback normalization code.
+* **Unverified scaffold** — placeholders whose correspondence to real
+  packet shapes has not been verified.
 
 Usage::
 
@@ -14,9 +27,10 @@ Usage::
 Portnum convention: these fixtures include both MEDRE-normalised lowercase
 portnum strings (e.g. "text_message", "telemetry", "admin") and the real
 symbolic meshtastic-python / mtjk strings used by callback dictionaries
-(e.g. "TEXT_MESSAGE_APP", "TELEMETRY_APP", "ADMIN_APP").  Full protobuf
-enum coverage is deferred -- these fixtures test the MEDRE runtime
-boundary, not exhaustive hardware protocol fidelity.
+(e.g. "TEXT_MESSAGE_APP", "TELEMETRY_APP", "ADMIN_APP").  The MEDRE
+``_NUMERIC_PORTNUM_MAP`` is **fixture scaffold only** — see
+``docs/contracts/10-meshtastic-source-audit.md`` for the authoritative
+protobuf PortNum table.
 """
 
 
@@ -37,6 +51,12 @@ def _node_num(node_id: str) -> int:
 # ---------------------------------------------------------------------------
 # Text-message variants
 # ---------------------------------------------------------------------------
+# Derivation: meshtastic-python / mtjk derived.
+# The ``from`` numeric field mirrors the real mtjk callback payload where
+# both ``from`` (NodeNum int) and ``fromId`` (hex string) are present.
+# ``toId`` is populated by mtjk's ``_enrich_packet_identity()``.
+# ``decoded.text`` is populated by mtjk's ``_on_text_receive()``.
+# ---------------------------------------------------------------------------
 
 def make_text_packet(
     text: str = "hello mesh",
@@ -53,6 +73,8 @@ def make_text_packet(
     here.  The ``from`` numeric field mirrors the real meshtastic-python
     callback payload where both ``from`` (NodeNum int) and ``fromId`` (hex
     string) are present.
+
+    Derivation: meshtastic-python / mtjk derived.
     """
     decoded: dict = {"portnum": portnum, "text": text}
     if want_ack:
@@ -423,3 +445,126 @@ def make_packet_with_numeric_from(
         "id": packet_id,
         "decoded": {"portnum": "text_message", "text": "numeric from test"},
     }
+
+
+# ---------------------------------------------------------------------------
+# MMRelay-derived fixtures
+# ---------------------------------------------------------------------------
+# Derivation: old-MMRelay-derived.
+# These factory functions produce packet shapes observed in the old MMRelay
+# codebase (``/home/jeremiah/dev/meshtastic-matrix-relay``).  They include
+# fields that real mtjk callbacks produce but MEDRE's basic fixtures may
+# omit.  Not all MMRelay-observed fields are required for MEDRE's tests --
+# extras like ``rxTime``, ``rxRssi``, ``rxSnr`` are included for realism
+# where useful.
+# ---------------------------------------------------------------------------
+
+
+def make_mmrelay_style_text_packet(
+    text: str = "hello from mmrelay",
+    sender: str = "!abc123",
+    channel: int = 0,
+    packet_id: int = 12345,
+    to_id: str | None = None,
+    rx_time: int = 0,
+    rx_rssi: int = -80,
+    rx_snr: float = 7.5,
+) -> dict:
+    """Text packet resembling old MMRelay ``on_meshtastic_message`` shape.
+
+    Adds realistic ``rxTime``, ``rxRssi``, and ``rxSnr`` fields that the
+    mtjk callback includes alongside the decoded payload.
+
+    Derivation: old-MMRelay-derived.
+    """
+    pkt = make_text_packet(
+        text=text,
+        sender=sender,
+        channel=channel,
+        packet_id=packet_id,
+        portnum="TEXT_MESSAGE_APP",
+    )
+    pkt["rxTime"] = rx_time
+    pkt["rxRssi"] = rx_rssi
+    pkt["rxSnr"] = rx_snr
+    pkt["to"] = 0xFFFFFFFF  # BROADCAST_NUM — always present in real packets
+    if to_id is not None:
+        pkt["toId"] = to_id
+    return pkt
+
+
+def make_emoji_reaction_packet(
+    text: str = "\U0001f44d",
+    sender: str = "!node1",
+    channel: int = 0,
+    packet_id: int = 100,
+    reply_to_id: int = 50,
+) -> dict:
+    """Reaction / emoji packet as observed in old MMRelay.
+
+    MMRelay detected reactions via ``decoded.emoji == 1`` together with
+    ``decoded.replyId``.  The ``emoji`` field is an int flag, not a
+    character.  The reaction symbol is carried in ``decoded.text``.
+
+    Derivation: old-MMRelay-derived.
+    """
+    pkt = make_text_packet(
+        text=text,
+        sender=sender,
+        channel=channel,
+        packet_id=packet_id,
+        portnum="TEXT_MESSAGE_APP",
+    )
+    pkt["decoded"]["emoji"] = 1
+    pkt["decoded"]["replyId"] = reply_to_id
+    return pkt
+
+
+def make_encrypted_packet(
+    sender: str = "!node1",
+    packet_id: int = 10,
+    channel: int = 0,
+) -> dict:
+    """Encrypted packet as received by MMRelay.
+
+    Real encrypted packets carry ``encrypted: true`` and may lack a
+    decoded payload.  MMRelay classified encrypted packets separately
+    via ``packet.get("encrypted")`` with configurable action.
+
+    Derivation: old-MMRelay-derived.
+    """
+    return {
+        "from": _node_num(sender),
+        "fromId": sender,
+        "toId": "",
+        "to": 0xFFFFFFFF,
+        "channel": channel,
+        "id": packet_id,
+        "encrypted": True,
+        "decoded": {"portnum": "TEXT_MESSAGE_APP"},
+    }
+
+
+def make_rxtime_packet(
+    text: str = "packet with rx timestamp",
+    sender: str = "!node1",
+    packet_id: int = 42,
+    rx_time: int = 1700000000,
+) -> dict:
+    """Text packet with ``rxTime`` field for backlog suppression tests.
+
+    Real mtjk callbacks include ``rxTime`` (Unix seconds), which MMRelay
+    used for startup backlog suppression.  This fixture allows MEDRE to
+    test rxTime-aware filtering when that feature is implemented.
+
+    Derivation: old-MMRelay-derived.
+    """
+    pkt = make_text_packet(
+        text=text,
+        sender=sender,
+        packet_id=packet_id,
+        portnum="TEXT_MESSAGE_APP",
+    )
+    pkt["rxTime"] = rx_time
+    pkt["to"] = 0xFFFFFFFF
+    return pkt

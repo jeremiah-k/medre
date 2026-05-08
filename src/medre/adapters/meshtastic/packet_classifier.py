@@ -12,22 +12,29 @@ from __future__ import annotations
 from typing import Any
 
 
-# Tranche-1 scaffold — deliberately narrow and unverified against the full
-# real protobuf PortNum enum.  This exists to normalize the portnums this
-# tranche explicitly classifies without claiming exhaustive protocol support.
+# **FIxTURE-SCAFFOLD ONLY** — This numeric map is NOT derived from the real
+# Meshtastic protobuf PortNum enum.  It is a MEDRE test fixture approximation
+# that does not claim enum accuracy.  The real protobuf PortNum values differ
+# significantly (see docs/contracts/10-meshtastic-source-audit.md for the
+# authoritative table).
+#
+# Before real connection work, this map should be replaced with values
+# imported from the optional meshtastic package.  The compat module provides
+# `get_portnum_table()` which returns real values when the dependency is
+# installed, or None otherwise.
 _NUMERIC_PORTNUM_MAP: dict[int, str] = {
-    0: "routing",           # ROUTING_APP
+    0: "routing",           # Fixture scaffold only — real: UNKNOWN_APP
     1: "text_message",      # TEXT_MESSAGE_APP
-    2: "text_message_ack",  # TEXT_MESSAGE_ACK_APP
+    2: "text_message_ack",  # Fixture scaffold only — real: REMOTE_HARDWARE_APP
     3: "position",          # POSITION_APP
     4: "nodeinfo",          # NODEINFO_APP
-    5: "telemetry",         # TELEMETRY_APP
-    6: "store_forward",     # STORE_FORWARD_APP
-    7: "waypoint",          # WAYPOINT_APP
+    5: "telemetry",         # Fixture scaffold only — real: ROUTING_APP
+    6: "store_forward",     # Fixture scaffold only — real: ADMIN_APP
+    7: "waypoint",          # Fixture scaffold only — real: TEXT_MESSAGE_COMPRESSED_APP
     9: "audio",             # AUDIO_APP
-    10: "remote_hardware",  # REMOTE_HARDWARE_APP
-    11: "private",          # PRIVATE_APP
-    68: "paxcounter",       # PAXCOUNTER_APP
+    10: "remote_hardware",  # Fixture scaffold only — real: DETECTION_SENSOR_APP
+    11: "private",          # Fixture scaffold only — real: ALERT_APP
+    68: "paxcounter",       # Fixture scaffold only — real: ZPS_APP
     71: "neighbor_info",    # NEIGHBORINFO_APP
     72: "traceroute",       # TRACEROUTE_APP
 }
@@ -60,6 +67,15 @@ def normalize_portnum(value: object) -> str | None:
     real symbolic Meshtastic names emitted by meshtastic-python / mtjk
     callback dictionaries (``"TEXT_MESSAGE_APP"``).  Unknown values are
     normalized deterministically but remain unsupported by the classifier.
+
+    .. caution::
+
+       The ``_NUMERIC_PORTNUM_MAP`` used for ``int`` values is **fixture
+       scaffold only**.  It does **not** match the real Meshtastic protobuf
+       ``PortNum`` enum (see ``docs/contracts/10-meshtastic-source-audit.md``).
+       Numeric portnum values should not be treated as protocol authority
+       until the map is replaced with values from the optional meshtastic
+       package (via ``compat.get_portnum_table()``).
     """
     if value is None:
         return None
@@ -90,6 +106,11 @@ def _is_routing_ack(decoded: dict[str, Any]) -> bool:
 
 class MeshtasticPacketClassifier:
     """Classify raw Meshtastic packet dicts.
+
+    Classification works correctly for both MEDRE-normalised portnum strings
+    and real symbolic ``*_APP`` portnum names.  Numeric portnum resolution
+    uses the ``_NUMERIC_PORTNUM_MAP`` which is **fixture scaffold only** —
+    see ``normalize_portnum()`` for details.
 
     Parameters
     ----------
