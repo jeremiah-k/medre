@@ -282,7 +282,7 @@ send/receive requires Reticulum.
 | Resource transfer (attachments) | **Scaffold**. No `RNS.Resource` usage. | Implement for `FIELD_FILE_ATTACHMENTS`. |
 | Ticket-based reply correlation | **Scaffold**. Tickets not generated or validated. | Implement `FIELD_TICKET` creation and parsing. |
 | Relation reconstruction from fields | **Deferred**. The fields envelope can carry relation metadata, but reconstructing `EventRelation` objects from inbound field data is not implemented. | Wire relation extraction in codec when needed. |
-| Fields envelope format | **Scaffold**. MEDRE convention only, not enforced by LXMF. Round-trip fidelity is a MEDRE convention, not a protocol guarantee. | Define and document field key mapping. |
+| Fields envelope format | **Scaffold**. MEDRE convention only, not enforced by LXMF. The MEDRE fields envelope can express structured metadata, but this is a MEDRE convention, not a protocol guarantee. | Define and document field key mapping. |
 | Propagation node sync | **Scaffold**. No propagation node client. | Implement `lxmf.propagation` destination handling. |
 | Paper message encode/decode | **Scaffold**. No QR/URI generation. | Wire PAPER mode if offline transfer needed. |
 

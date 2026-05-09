@@ -1,4 +1,4 @@
-"""Fake LXMF adapter for testing.
+"""Fake mode LXMF adapter for testing.
 
 :class:`FakeLxmfAdapter` simulates an LXMF transport adapter
 without any real Reticulum or LXMF dependency.  It mirrors the real
@@ -54,15 +54,15 @@ class FakeLxmfClient:
 
     Attributes
     ----------
-    sent_packets:
-        List of dicts for each sent packet.
+    sent_messages:
+        List of dicts for each sent message.
     sent_count:
-        Number of packets sent.
+        Number of messages sent.
     """
 
     def __init__(self) -> None:
         self._next_id: int = 1
-        self.sent_packets: list[dict[str, Any]] = []
+        self.sent_messages: list[dict[str, Any]] = []
         self.sent_count: int = 0
 
     async def send_text(
@@ -97,7 +97,7 @@ class FakeLxmfClient:
         raw = f"lxmf-fake-{counter}".encode()
         message_id = hashlib.sha256(raw).hexdigest()
 
-        self.sent_packets.append({
+        self.sent_messages.append({
             "text": text,
             "title": title,
             "fields": fields,
@@ -156,7 +156,7 @@ class FakeLxmfAdapter(BaseAdapter):
     """
 
     adapter_id: str
-    platform: str = "fake_lxmf"
+    platform: str = "lxmf"
     role: AdapterRole = AdapterRole.TRANSPORT
 
     def __init__(

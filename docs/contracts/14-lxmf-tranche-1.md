@@ -23,8 +23,8 @@ Reticulum is an internal implementation dependency when real connectivity is act
 - **Outbound text rendering.** `LxmfRenderer` turns canonical events into LXMF content payloads: a dict with keys `content` (the body string), `title` (optional title string), and `fields` (optional dict for the MEDRE metadata envelope). The renderer lives at `medre.adapters.lxmf.renderer`, owned by the adapter layer. Core never imports from the adapter package.
 - **Native refs via message IDs.** LXMF message IDs are 32-byte SHA-256 hashes, represented as hex strings. `LxmfCodec.decode()` sets `source_native_ref` with the message's hex ID as `native_message_id`. The pipeline's `_persist_inbound_native_ref` persists this as a `NativeMessageRef(direction="inbound")`. Outbound: `FakeLxmfAdapter.deliver()` returns an `AdapterDeliveryResult` with the deterministic hex message ID.
 - **Fake adapter for testing.** `FakeLxmfAdapter` is a full adapter (not a client-facing test utility) that mirrors the real adapter's lifecycle and inbound/outbound flow. It generates deterministic sequential message IDs using SHA-256 hashes of sequential counter values. It tracks all sent messages in `sent_messages`. The fake adapter's `deliver()` returns an `AdapterDeliveryResult` with the deterministic message ID. `set_deliver_failure(True)` triggers a `LxmfSendError` on the next delivery for error testing. No real Reticulum dependency, no network required.
-- **Metadata embedding in fields.** The adapter supports embedding MEDRE metadata into the LXMF fields dict. The envelope contains relation info, provenance data, and schema version. Round-trip fidelity is a MEDRE convention, not a protocol-level guarantee. The adapter does not interpret or transform the metadata contents.
-- **Relation metadata in fields (transport only).** MEDRE-native relations can be carried through the fields dict as structured data inside the `FIELD_CUSTOM_META` envelope. The adapter treats this as opaque metadata transport. Reconstructing `EventRelation` objects from inbound field data is **not implemented** in tranche 1 and is deferred. Relation resolution remains pipeline-owned.
+- **Metadata embedding in fields.** The adapter supports embedding MEDRE metadata into the LXMF fields dict. The envelope contains relation info, provenance data, and schema version. Known MEDRE envelope fields round-trip through `LxmfFieldsHelper`: the renderer embeds them, the codec extracts them. Unknown LXMF fields dict entries are preserved in the envelope only because `LxmfFieldsHelper` copies the fields dict. MEDRE canonical events do not preserve arbitrary unknown LXMF field data. The adapter does not interpret or transform the metadata contents beyond the known envelope keys.
+- **Relation metadata in fields (transport only).** Relation metadata is embedded in the fields envelope. MEDRE-native relations are carried as structured data inside the `FIELD_CUSTOM_META` envelope. The adapter treats this as opaque metadata transport. Canonical `EventRelation` reconstruction from fields is **deferred**. Relation resolution remains pipeline-owned.
 
 
 ## Architecture Boundaries
@@ -40,6 +40,7 @@ These boundaries are enforced by design, not by convention. Tests verify them.
 - Storage remains the authoritative source for event correlation. The pipeline owns receipts and persistence. Adapters transport and report native delivery metadata.
 - No real Reticulum or network is required for default tests. `FakeLxmfAdapter` simulates the full cycle.
 - Reticulum `Identity` and `Destination` classes are never exposed to the pipeline. They are internal implementation details when real connectivity is active.
+- **Platform identity.** A fake LXMF adapter declares `platform='lxmf'`, not `'fake_lxmf'`. The fake/testing nature is indicated by class name and `config.connection_type='fake'`, not by the platform string. This ensures the platform registry correctly maps fake LXMF adapters to `LxmfRenderer` for all LXMF routes.
 
 
 ## Capability Declaration
@@ -90,7 +91,7 @@ LXMF messages carry a `fields` dict that can hold arbitrary key-value pairs. The
 - **Namespace key:** `FIELD_CUSTOM_META` (0xFD). This is a custom field key chosen to avoid collision with standard LXMF field keys.
 - **Contents:** A structured dict containing `schema_version` (string), `event_id` (UUID string), `source_adapter` (adapter ID string), and optional `relations` (list of relation dicts with `relation_type`, `target_event_id`, `target_native_ref`).
 - **MEDRE convention, not LXMF semantics.** This envelope is a MEDRE-specific convention. Other LXMF clients will see the field key in the fields dict but may ignore it. The adapter does not validate schema conformance within the envelope beyond extracting known keys.
-- **Round-trip fidelity is a MEDRE convention.** Metadata embedded by the renderer into fields is extracted by the codec on decode. This works reliably for the known envelope keys, but it is not a protocol-level guarantee. It is a MEDRE convention applied on top of the LXMF fields dict.
+- **Known envelope keys round-trip through LxmfFieldsHelper.** Metadata embedded by the renderer into fields is extracted by the codec on decode. This works reliably for the known MEDRE envelope keys (schema_version, event_id, source_adapter, relations, metadata_keys). It is not a guarantee that arbitrary or future LXMF field data survives the MEDRE pipeline. Unknown fields dict entries are preserved only because `LxmfFieldsHelper` copies the fields dict, not because canonical events preserve all LXMF field data.
 
 
 ## Native Ref Flow
@@ -166,7 +167,7 @@ except ImportError:
 - **Unit isolation.** `LxmfRenderer` and `LxmfCodec` are tested independently of the adapter.
 - **Pipeline integration.** Tests combine `FakeLxmfAdapter` with `SQLiteStorage` to exercise the full decode/store/render/deliver path.
 - **Boundary verification.** Tests assert that core imports don't leak into the adapter package, and that the adapter doesn't import routing, planning, or storage modules.
-- **Fields round-trip.** Tests verify that metadata embedded in the fields dict survives a full render/decode round-trip for the known envelope keys.
+- **Fields round-trip.** Tests verify that known MEDRE envelope keys embedded by `LxmfFieldsHelper` survive a full render/decode cycle. This covers the defined envelope fields only, not arbitrary LXMF field data.
 - **No real Reticulum or network required.** No test in the default suite requires a running Reticulum instance, an LXMF propagation node, any network connectivity, or the `lxmf`/`reticulum` packages installed. All tests use the fake adapter and hand-crafted packet dicts.
 
 

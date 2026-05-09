@@ -75,9 +75,9 @@ class TestLxmfAdapterCapabilities:
         adapter = FakeLxmfAdapter()
         assert adapter.role == AdapterRole.TRANSPORT
 
-    def test_platform_is_fake_lxmf(self) -> None:
+    def test_platform_is_lxmf(self) -> None:
         adapter = FakeLxmfAdapter()
-        assert adapter.platform == "fake_lxmf"
+        assert adapter.platform == "lxmf"
 
     def test_capabilities_text_true(self) -> None:
         from medre.adapters.fake_lxmf import _FAKE_LXMF_CAPABILITIES
@@ -253,12 +253,12 @@ class TestFakeLxmfAdapterDeliver:
             await adapter.deliver(result)
         assert adapter.fake_client.sent_count == 0
 
-    async def test_fake_client_tracks_sent_packets(self) -> None:
+    async def test_fake_client_tracks_sent_messages(self) -> None:
         adapter = FakeLxmfAdapter()
         result = _make_rendering_result()
         await adapter.deliver(result)
         assert adapter.fake_client.sent_count == 1
-        assert adapter.fake_client.sent_packets[0]["text"] == "hello lxmf"
+        assert adapter.fake_client.sent_messages[0]["text"] == "hello lxmf"
 
 
 # ===================================================================

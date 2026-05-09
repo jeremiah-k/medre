@@ -331,7 +331,7 @@ class TestLxmfNativeRefPersistence:
         await in_adapter.simulate_inbound(packet)
 
         # FakeLxmfClient first send gets a deterministic message_id
-        first_sent = out_adapter.fake_client.sent_packets[0]
+        first_sent = out_adapter.fake_client.sent_messages[0]
         sent_msg_id = first_sent["message_id"]
 
         resolved = await temp_storage.resolve_native_ref(
@@ -394,3 +394,98 @@ class TestLxmfNativeRefPersistence:
             native_message_id="cd" * 32,
         )
         assert inbound_resolved is not None
+
+
+# ===================================================================
+# Platform-aware renderer selection tests
+# ===================================================================
+
+
+class TestLxmfPlatformRendererSelection:
+    """Prove platform-aware renderer selection works for LXMF
+    without relying on adapter-name prefixes or known_adapters."""
+
+    async def test_platform_aware_renderer_selection(
+        self, temp_storage
+    ) -> None:
+        """A realistic LXMF adapter ID that does NOT start with 'lxmf'
+        still selects LxmfRenderer through the pipeline's platform registry.
+
+        This proves:
+        - FakeLxmfAdapter.platform == "lxmf" drives dispatch
+        - The RenderingPipeline platform registry maps adapter_id -> platform
+        - LxmfRenderer.can_render matches on target_platform == "lxmf"
+        - TextRenderer is NOT selected for LXMF routes
+        - known_adapters is NOT required
+        """
+        # 1. Create adapters with realistic IDs that do NOT start with "lxmf"
+        in_adapter = FakeLxmfAdapter(LxmfConfig(adapter_id="field-node"))
+        in_adapter.platform = "lxmf"
+
+        out_adapter = FakeLxmfAdapter(LxmfConfig(adapter_id="rnode-out"))
+        out_adapter.platform = "lxmf"
+
+        # 2. Route: field-node -> rnode-out
+        route = Route(
+            id="platform-registry-route",
+            source=RouteSource(
+                adapter="field-node",
+                event_kinds=("message.created",),
+                channel=None,
+            ),
+            targets=[RouteTarget(adapter="rnode-out", channel=None)],
+        )
+        router = Router(routes=[route])
+
+        # 3. RenderingPipeline with LxmfRenderer — NO known_adapters (critical!)
+        rp = RenderingPipeline()
+        rp.register(LxmfRenderer(), priority=50)
+        rp.register(TextRenderer(), priority=100)
+
+        # 4. PipelineRunner — start() calls _populate_renderer_platforms()
+        runner = PipelineRunner(PipelineConfig(
+            storage=temp_storage,
+            router=router,
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters={"field-node": in_adapter, "rnode-out": out_adapter},
+            event_bus=EventBus(),
+            rendering_pipeline=rp,
+        ))
+        await runner.start()
+
+        # 5. Wire inbound adapter
+        ctx = _make_adapter_context_for_pipeline("field-node", runner)
+        await in_adapter.start(ctx)
+
+        # 6. Send inbound packet
+        packet = _make_text_packet(content="platform dispatch test")
+        await in_adapter.simulate_inbound(packet)
+
+        # 7. Assertions
+
+        # Outbound adapter received the rendered payload
+        assert len(out_adapter.delivered_payloads) == 1
+        result = out_adapter.delivered_payloads[0]
+
+        # Proves LxmfRenderer was selected (not TextRenderer)
+        assert result.metadata["renderer"] == "lxmf"
+
+        # Proves LXMF payload shape (content + destination_hash)
+        assert "content" in result.payload
+        assert (
+            "channel_index" not in result.payload
+            or "destination_hash" in result.payload
+        )
+
+        # Outbound delivery returned a deterministic native_message_id
+        assert out_adapter.fake_client.sent_count == 1
+        sent_msg_id = out_adapter.fake_client.sent_messages[0]["message_id"]
+
+        # Native ref was persisted in storage
+        resolved = await temp_storage.resolve_native_ref(
+            adapter="rnode-out",
+            native_channel_id=None,
+            native_message_id=sent_msg_id,
+        )
+        assert resolved is not None
