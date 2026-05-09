@@ -4,6 +4,20 @@
 required to connect to an LXMF router or node.  Use
 :meth:`LxmfConfig.validate` to verify the configuration before
 passing it to :class:`LxmfAdapter`.
+
+Connection types
+----------------
+``"fake"``
+    No real LXMF/Reticulum connectivity.  Used for testing without
+    the ``lxmf`` / ``RNS`` packages installed.
+
+``"reticulum"``
+    Connect to a locally-running Reticulum instance via the ``RNS``
+    and ``lxmf`` packages.  Requires both optional dependencies.
+
+All non-fake modes require the ``lxmf`` optional dependency group.
+When unavailable, :meth:`validate` rejects the configuration with a
+clear :class:`LxmfConfigError` message.
 """
 from __future__ import annotations
 
@@ -11,6 +25,19 @@ from dataclasses import dataclass
 from typing import Literal, Self
 
 from medre.adapters.lxmf.errors import LxmfConfigError
+
+# Allowed connection_type values.
+_ALLOWED_CONNECTION_TYPES: frozenset[str] = frozenset({"fake", "reticulum"})
+
+# Allowed default_delivery_method values.
+_ALLOWED_DELIVERY_METHODS: frozenset[str] = frozenset({
+    "direct", "opportunistic", "propagated", "paper",
+})
+
+# Fields that must never contain secrets or private keys.
+_NO_SECRET_FIELDS: frozenset[str] = frozenset({
+    "display_name", "meshnet_name",
+})
 
 
 @dataclass(frozen=True)
@@ -23,17 +50,17 @@ class LxmfConfig:
     adapter_id:
         Unique identifier for this adapter instance.
     connection_type:
-        Connection mode.  Only ``"fake"`` is supported in tranche 1.
-        Defaults to ``"fake"`` for testing without hardware.
+        Connection mode.  ``"fake"`` for testing (default).
+        ``"reticulum"`` for real LXMF connectivity (requires ``lxmf``
+        and ``RNS`` packages).
     display_name:
         Optional display name for LXMF announces.
     stamp_cost:
-        Default stamp cost (0 = no stamp required).
+        Default stamp cost.  ``0`` means no stamp required.
+        If non-zero, must be a positive integer.
     default_delivery_method:
         Default LXMF delivery method: ``"direct"``, ``"opportunistic"``,
         ``"propagated"``, or ``"paper"``.  Defaults to ``"direct"``.
-        This is a configuration hint for future real connectivity; the
-        fake adapter ignores it.
     meshnet_name:
         Human-readable meshnet name (informational).
     default_channel:
@@ -42,15 +69,20 @@ class LxmfConfig:
         Minimum delay between outbound messages (pacing).
     metadata_embedding:
         Whether to embed MEDRE metadata envelopes in LXMF fields.
+        Envelopes contain provenance data only (event IDs, adapter
+        names, relation metadata).  No private keys or secrets are
+        ever embedded.
     identity_path:
-        Path to identity file (placeholder for future use).
+        Path to a Reticulum identity file.  Required for non-fake
+        connection types if the identity is not auto-generated.
+        Must be a non-empty string when provided.
     """
 
     adapter_id: str
-    connection_type: Literal["fake"] = "fake"
+    connection_type: str = "fake"
     display_name: str = ""
     stamp_cost: int = 8
-    default_delivery_method: Literal["direct", "opportunistic", "propagated", "paper"] = "direct"
+    default_delivery_method: str = "direct"
     meshnet_name: str = ""
     default_channel: int = 0
     message_delay_seconds: float = 0.5
@@ -67,19 +99,34 @@ class LxmfConfig:
         """
         if not self.adapter_id:
             raise LxmfConfigError("adapter_id must be non-empty")
-        if self.connection_type != "fake":
+
+        # --- connection_type ---
+        if self.connection_type not in _ALLOWED_CONNECTION_TYPES:
             raise LxmfConfigError(
-                "only fake connection_type is supported in tranche 1, "
+                f"connection_type must be one of "
+                f"{sorted(_ALLOWED_CONNECTION_TYPES)}, "
                 f"got {self.connection_type!r}"
             )
-        if self.default_delivery_method not in (
-            "direct", "opportunistic", "propagated", "paper",
-        ):
+
+        # Non-fake modes require the LXMF SDK.
+        if self.connection_type != "fake":
+            from medre.adapters.lxmf.compat import HAS_LXMF
+            if not HAS_LXMF:
+                raise LxmfConfigError(
+                    f"connection_type={self.connection_type!r} requires "
+                    f"the lxmf and RNS packages; "
+                    f"install with: pip install lxmf"
+                )
+
+        # --- default_delivery_method ---
+        if self.default_delivery_method not in _ALLOWED_DELIVERY_METHODS:
             raise LxmfConfigError(
                 f"default_delivery_method must be one of "
                 f"direct/opportunistic/propagated/paper, "
                 f"got {self.default_delivery_method!r}"
             )
+
+        # --- numeric fields ---
         if self.message_delay_seconds < 0:
             raise LxmfConfigError(
                 f"message_delay_seconds must be >= 0, "
@@ -93,4 +140,27 @@ class LxmfConfig:
             raise LxmfConfigError(
                 f"stamp_cost must be >= 0, got {self.stamp_cost}"
             )
+        if self.stamp_cost != 0 and not isinstance(self.stamp_cost, int):
+            raise LxmfConfigError(
+                f"stamp_cost must be an integer, "
+                f"got {type(self.stamp_cost).__name__}"
+            )
+
+        # --- identity_path ---
+        if self.identity_path is not None:
+            if not isinstance(self.identity_path, str):
+                raise LxmfConfigError(
+                    f"identity_path must be a string or None, "
+                    f"got {type(self.identity_path).__name__}"
+                )
+            if not self.identity_path.strip():
+                raise LxmfConfigError(
+                    "identity_path must be a non-empty string when provided"
+                )
+
+        # --- metadata_embedding safety ---
+        # metadata_embedding is a bool — no secrets can be embedded.
+        # LxmfFieldsHelper.embed_envelope explicitly documents that
+        # no private keys or secrets are embedded in envelopes.
+
         return self

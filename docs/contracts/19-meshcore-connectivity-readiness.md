@@ -387,7 +387,7 @@ Contract 16 is the readiness authority. Where this document and Contract 16 conf
 ## 10. Explicit Out-of-Scope
 
 - No production connectivity implementation.
-- No changes to adapter code, tests, or configuration.
+- No production connection, live hardware testing, or real SDK integration.
 - No default dependency on `meshcore`.
 - No hardware procurement or firmware flashing instructions.
 - No bridge design between MeshCore and Meshtastic.

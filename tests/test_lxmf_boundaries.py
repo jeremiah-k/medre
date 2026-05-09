@@ -2,16 +2,19 @@
 MeshCore, and LXMF.
 
 These tests verify:
-- Core does not import LXMF adapter
+- Core does not import LXMF adapter or RNS/Reticulum
 - LXMF does not import Matrix, Meshtastic, or MeshCore
-- LXMF codec does not route/plan/deliver
+- LXMF codec/classifier remain pure (no routing/delivery)
 - LXMF renderer does not deliver
 - LXMF adapter does not route/plan/render
 - LXMF adapter rejects raw CanonicalEvent delivery
+- LXMF compat module is the sole import site for lxmf/RNS
 - Inbound LXMF native refs persist through pipeline
 - Outbound LXMF native refs use adapter-provided IDs
 - Failed LXMF delivery does not create native refs
 - Strict source scanning: no cross-platform imports in LXMF modules
+- Platform-aware rendering still passes
+- Fake tests still pass
 """
 
 from __future__ import annotations
@@ -510,3 +513,254 @@ class TestLxmfFailedDelivery:
         with pytest.raises(LxmfSendError):
             await adapter.deliver(result)
         assert adapter.fake_client.sent_count == 0
+
+
+# ===================================================================
+# Core does not import LXMF or RNS/Reticulum
+# ===================================================================
+
+
+class TestCoreNoLxmfOrRns:
+    """Core modules do not import LXMF or RNS/Reticulum directly."""
+
+    def test_core_events_does_not_import_rns(self) -> None:
+        """medre.core.events has no RNS references."""
+        import medre.core.events as events_mod
+        source = _read_module_source(events_mod)
+        # Check import lines only to avoid false positives from words like "returns"
+        import_lines = [
+            line.strip() for line in source.splitlines()
+            if line.strip().startswith(("import ", "from "))
+        ]
+        for line in import_lines:
+            assert "rns" not in line.lower(), (
+                f"Core events must not import RNS; found: {line!r}"
+            )
+            assert "reticulum" not in line.lower(), (
+                f"Core events must not import Reticulum; found: {line!r}"
+            )
+
+    def test_core_rendering_does_not_import_rns(self) -> None:
+        """medre.core.rendering.renderer has no RNS references."""
+        import medre.core.rendering.renderer as renderer_mod
+        source = _read_module_source(renderer_mod)
+        import_lines = [
+            line.strip() for line in source.splitlines()
+            if line.strip().startswith(("import ", "from "))
+        ]
+        for line in import_lines:
+            assert "rns" not in line.lower(), (
+                f"Core rendering must not import RNS; found: {line!r}"
+            )
+            assert "reticulum" not in line.lower(), (
+                f"Core rendering must not import Reticulum; found: {line!r}"
+            )
+
+    def test_core_engine_does_not_import_rns(self) -> None:
+        """medre.core.engine.pipeline has no RNS references."""
+        import medre.core.engine.pipeline as pipeline_mod
+        source = _read_module_source(pipeline_mod)
+        import_lines = [
+            line.strip() for line in source.splitlines()
+            if line.strip().startswith(("import ", "from "))
+        ]
+        for line in import_lines:
+            assert "rns" not in line.lower(), (
+                f"Core engine must not import RNS; found: {line!r}"
+            )
+            assert "reticulum" not in line.lower(), (
+                f"Core engine must not import Reticulum; found: {line!r}"
+            )
+
+
+# ===================================================================
+# LXMF compat module isolation
+# ===================================================================
+
+
+class TestLxmfCompatIsolation:
+    """compat.py is the sole import site for lxmf/RNS."""
+
+    def test_adapter_does_not_import_lxmf_directly(self) -> None:
+        """LXMF adapter uses compat.HAS_LXMF, not direct lxmf import."""
+        import medre.adapters.lxmf.adapter as mod
+        source = _read_module_source(mod)
+        import_lines = [
+            line.strip() for line in source.splitlines()
+            if line.strip().startswith(("import ", "from "))
+            and not line.strip().startswith("#")
+        ]
+        for line in import_lines:
+            # Allow: from medre.adapters.lxmf.compat import HAS_LXMF
+            # Disallow: import lxmf, from lxmf import, import RNS, from RNS import
+            if "lxmf.compat" in line or "lxmf." in line and ".compat" in line:
+                continue
+            assert not (
+                line.startswith("import lxmf")
+                or line.startswith("from lxmf")
+            ), (
+                f"LXMF adapter must not import lxmf directly; found: {line!r}"
+            )
+            assert not (
+                line.startswith("import RNS")
+                or line.startswith("from RNS")
+            ), (
+                f"LXMF adapter must not import RNS directly; found: {line!r}"
+            )
+
+    def test_codec_does_not_import_lxmf_or_rns(self) -> None:
+        """LXMF codec is pure — no lxmf/RNS imports."""
+        import medre.adapters.lxmf.codec as mod
+        source = _read_module_source(mod)
+        import_lines = [
+            line.strip() for line in source.splitlines()
+            if line.strip().startswith(("import ", "from "))
+        ]
+        for line in import_lines:
+            assert "lxmf" not in line.lower() or "medre.adapters.lxmf" in line, (
+                f"LXMF codec must not import lxmf; found: {line!r}"
+            )
+            assert "rns" not in line.lower(), (
+                f"LXMF codec must not import RNS; found: {line!r}"
+            )
+
+    def test_classifier_does_not_import_lxmf_or_rns(self) -> None:
+        """LXMF classifier is pure — no lxmf/RNS imports."""
+        import medre.adapters.lxmf.packet_classifier as mod
+        source = _read_module_source(mod)
+        import_lines = [
+            line.strip() for line in source.splitlines()
+            if line.strip().startswith(("import ", "from "))
+        ]
+        for line in import_lines:
+            assert "lxmf" not in line.lower() or "medre.adapters.lxmf" in line, (
+                f"Classifier must not import lxmf; found: {line!r}"
+            )
+            assert "rns" not in line.lower(), (
+                f"Classifier must not import RNS; found: {line!r}"
+            )
+
+    def test_renderer_does_not_import_lxmf_or_rns(self) -> None:
+        """LXMF renderer does not import lxmf/RNS."""
+        import medre.adapters.lxmf.renderer as mod
+        source = _read_module_source(mod)
+        import_lines = [
+            line.strip() for line in source.splitlines()
+            if line.strip().startswith(("import ", "from "))
+        ]
+        for line in import_lines:
+            assert "lxmf" not in line.lower() or "medre.adapters.lxmf" in line, (
+                f"Renderer must not import lxmf; found: {line!r}"
+            )
+            assert "rns" not in line.lower(), (
+                f"Renderer must not import RNS; found: {line!r}"
+            )
+
+
+# ===================================================================
+# Classifier purity
+# ===================================================================
+
+
+class TestLxmfClassifierPurity:
+    """LXMF classifier has no side effects."""
+
+    def test_classifier_has_no_deliver_method(self) -> None:
+        config = LxmfConfig(adapter_id="lxmf-1")
+        classifier = LxmfPacketClassifier(config)
+        assert not hasattr(classifier, "deliver")
+
+    def test_classifier_has_no_route_method(self) -> None:
+        config = LxmfConfig(adapter_id="lxmf-1")
+        classifier = LxmfPacketClassifier(config)
+        assert not hasattr(classifier, "route")
+
+    def test_classifier_has_no_publish_method(self) -> None:
+        config = LxmfConfig(adapter_id="lxmf-1")
+        classifier = LxmfPacketClassifier(config)
+        assert not hasattr(classifier, "publish")
+
+    def test_classifier_source_has_no_side_effects(self) -> None:
+        import medre.adapters.lxmf.packet_classifier as mod
+        source = _read_module_source(mod)
+        method_defs = re.findall(r"def\s+(\w+)", source)
+        assert "deliver" not in method_defs
+        assert "route" not in method_defs
+        assert "publish" not in method_defs
+        assert "store" not in method_defs
+
+
+# ===================================================================
+# Platform-aware rendering still passes
+# ===================================================================
+
+
+class TestLxmfPlatformRendering:
+    """Platform-aware rendering works for LXMF targets."""
+
+    async def test_renderer_matches_platform(self) -> None:
+        renderer = LxmfRenderer()
+        event = CanonicalEvent(
+            event_id="evt-1",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="lxmf-1",
+            source_transport_id="ab" * 16,
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"body": "test"},
+            metadata=EventMetadata(),
+        )
+        assert renderer.can_render(event, "lxmf_node", target_platform="lxmf")
+        assert not renderer.can_render(event, "matrix_bot", target_platform="matrix")
+
+    async def test_renderer_produces_valid_result(self) -> None:
+        renderer = LxmfRenderer()
+        event = CanonicalEvent(
+            event_id="evt-1",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="lxmf-1",
+            source_transport_id="ab" * 16,
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"body": "test"},
+            metadata=EventMetadata(),
+        )
+        result = await renderer.render(event, "lxmf_node")
+        assert isinstance(result, RenderingResult)
+        assert "content" in result.payload
+        assert "fields" in result.payload
+
+
+# ===================================================================
+# Fake adapter still works
+# ===================================================================
+
+
+class TestFakeLxmfStillWorks:
+    """FakeLxmfAdapter basic operations still pass."""
+
+    async def test_fake_adapter_starts(self, make_adapter_context) -> None:
+        adapter = FakeLxmfAdapter()
+        ctx = make_adapter_context("lxmf-1")
+        await adapter.start(ctx)
+        assert adapter.is_started is True
+
+    async def test_fake_adapter_delivers(self) -> None:
+        adapter = FakeLxmfAdapter()
+        result = RenderingResult(
+            event_id="evt-1",
+            target_adapter="lxmf-1",
+            target_channel=None,
+            payload={"content": "test", "title": "", "fields": {}},
+        )
+        delivery = await adapter.deliver(result)
+        assert delivery is not None
+        assert len(adapter.delivered_payloads) == 1

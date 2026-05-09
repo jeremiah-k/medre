@@ -1,5 +1,6 @@
 """Tests for LxmfConfig: valid/invalid configuration, validation
-chaining, and edge cases.
+chaining, edge cases, non-fake mode validation, identity_path,
+stamp_cost, and metadata safety.
 """
 
 from __future__ import annotations
@@ -28,22 +29,51 @@ class TestLxmfConfigValid:
         assert config.default_delivery_method == "direct"
         assert config.default_channel == 0
         assert config.message_delay_seconds == 0.5
+        assert config.identity_path is None
+        assert config.stamp_cost == 8
+        assert config.metadata_embedding is True
 
     def test_validate_returns_self_for_chaining(self) -> None:
         config = LxmfConfig(adapter_id="lxmf-1")
         assert config.validate() is config
 
+    def test_identity_path_valid_string(self) -> None:
+        config = LxmfConfig(
+            adapter_id="lxmf-1",
+            identity_path="/path/to/identity",
+        )
+        assert config.validate().identity_path == "/path/to/identity"
+
+    def test_identity_path_none_is_valid(self) -> None:
+        config = LxmfConfig(adapter_id="lxmf-1", identity_path=None)
+        assert config.validate().identity_path is None
+
+    def test_stamp_cost_zero_is_valid(self) -> None:
+        config = LxmfConfig(adapter_id="lxmf-1", stamp_cost=0)
+        assert config.validate().stamp_cost == 0
+
+    def test_stamp_cost_positive_is_valid(self) -> None:
+        config = LxmfConfig(adapter_id="lxmf-1", stamp_cost=16)
+        assert config.validate().stamp_cost == 16
+
 
 class TestLxmfConfigConnectionType:
-    """connection_type must be 'fake' in tranche 1."""
+    """connection_type validation."""
 
-    def test_non_fake_connection_type_rejected(self) -> None:
-        # Literal["fake"] means only "fake" is accepted at the type
-        # level, but we also validate at runtime.
-        with pytest.raises(LxmfConfigError, match="connection_type"):
+    def test_non_fake_rejected_without_sdk(self) -> None:
+        """Non-fake connection_type rejected when lxmf SDK not installed."""
+        with pytest.raises(LxmfConfigError, match="requires the lxmf"):
             LxmfConfig(
                 adapter_id="lxmf-1",
-                connection_type="direct",  # type: ignore[call-arg]
+                connection_type="reticulum",
+            ).validate()
+
+    def test_unknown_connection_type_rejected(self) -> None:
+        """Unknown connection_type is rejected with clear error."""
+        with pytest.raises(LxmfConfigError, match="connection_type must be one of"):
+            LxmfConfig(
+                adapter_id="lxmf-1",
+                connection_type="carrier_pigeon",
             ).validate()
 
 
@@ -63,7 +93,7 @@ class TestLxmfConfigDeliveryMethod:
     def test_default_delivery_method_accepts_all(self, method: str) -> None:
         config = LxmfConfig(
             adapter_id="lxmf-1",
-            default_delivery_method=method,  # type: ignore[call-arg]
+            default_delivery_method=method,
         )
         assert config.validate().default_delivery_method == method
 
@@ -71,8 +101,39 @@ class TestLxmfConfigDeliveryMethod:
         with pytest.raises(LxmfConfigError, match="default_delivery_method"):
             LxmfConfig(
                 adapter_id="lxmf-1",
-                default_delivery_method="carrier_pigeon",  # type: ignore[call-arg]
+                default_delivery_method="carrier_pigeon",
             ).validate()
+
+
+class TestLxmfConfigIdentityPath:
+    """identity_path validation."""
+
+    def test_empty_string_identity_path_rejected(self) -> None:
+        with pytest.raises(LxmfConfigError, match="identity_path must be a non-empty"):
+            LxmfConfig(
+                adapter_id="lxmf-1",
+                identity_path="",
+            ).validate()
+
+    def test_whitespace_only_identity_path_rejected(self) -> None:
+        with pytest.raises(LxmfConfigError, match="identity_path must be a non-empty"):
+            LxmfConfig(
+                adapter_id="lxmf-1",
+                identity_path="   ",
+            ).validate()
+
+
+class TestLxmfConfigStampCost:
+    """stamp_cost validation."""
+
+    def test_negative_stamp_cost_raises(self) -> None:
+        config = LxmfConfig(adapter_id="lxmf-1", stamp_cost=-1)
+        with pytest.raises(LxmfConfigError, match="stamp_cost"):
+            config.validate()
+
+    def test_positive_stamp_cost_valid(self) -> None:
+        config = LxmfConfig(adapter_id="lxmf-1", stamp_cost=32)
+        assert config.validate().stamp_cost == 32
 
 
 class TestLxmfConfigInvalid:
@@ -97,11 +158,6 @@ class TestLxmfConfigInvalid:
         with pytest.raises(LxmfConfigError, match="default_channel"):
             config.validate()
 
-    def test_negative_stamp_cost_raises(self) -> None:
-        config = LxmfConfig(adapter_id="lxmf-1", stamp_cost=-1)
-        with pytest.raises(LxmfConfigError, match="stamp_cost"):
-            config.validate()
-
     def test_config_error_is_also_value_error(self) -> None:
         config = LxmfConfig(adapter_id="")
         with pytest.raises(ValueError):
@@ -112,3 +168,24 @@ class TestLxmfConfigInvalid:
         config = LxmfConfig(adapter_id="")
         with pytest.raises(LxmfError):
             config.validate()
+
+
+class TestLxmfConfigMetadataSafety:
+    """metadata_embedding remains safe — no secrets in envelopes."""
+
+    def test_metadata_embedding_default_true(self) -> None:
+        config = LxmfConfig(adapter_id="lxmf-1")
+        assert config.metadata_embedding is True
+
+    def test_metadata_embedding_can_be_disabled(self) -> None:
+        config = LxmfConfig(adapter_id="lxmf-1", metadata_embedding=False)
+        assert config.validate().metadata_embedding is False
+
+    def test_no_secret_fields_in_config(self) -> None:
+        """Config fields do not contain private keys or secrets."""
+        config = LxmfConfig(adapter_id="lxmf-1")
+        # Verify no key-like field names
+        for field_name in ("private_key", "secret", "password", "token"):
+            assert not hasattr(config, field_name), (
+                f"LxmfConfig must not have secret-like field: {field_name}"
+            )

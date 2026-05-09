@@ -19,6 +19,9 @@ meshtastic = [
 meshcore = [
     "meshcore",
 ]
+lxmf = [
+    "lxmf",
+]
 
 [build-system]
 requires = ["setuptools>=68"]

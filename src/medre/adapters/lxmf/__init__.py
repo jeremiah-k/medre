@@ -27,6 +27,7 @@ Public symbols
 
 from medre.adapters.lxmf.adapter import LxmfAdapter
 from medre.adapters.lxmf.codec import LxmfCodec
+from medre.adapters.lxmf.compat import HAS_LXMF
 from medre.adapters.lxmf.config import LxmfConfig
 from medre.adapters.lxmf.errors import (
     LxmfCodecError,
@@ -41,6 +42,7 @@ from medre.adapters.lxmf.packet_classifier import LxmfPacketClassifier
 from medre.adapters.lxmf.renderer import LxmfRenderer
 
 __all__ = [
+    "HAS_LXMF",
     "LxmfAdapter",
     "LxmfCodec",
     "LxmfCodecError",
