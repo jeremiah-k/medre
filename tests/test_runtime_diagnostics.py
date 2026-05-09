@@ -357,7 +357,7 @@ class TestNoSecretLeakage:
         # Top-level keys must be the fixed set
         assert set(adapter.keys()) == {
             "adapter_id", "platform", "role", "health",
-            "fake_or_live", "details",
+            "fake_or_live", "capabilities", "details",
         }
 
     def test_snapshot_top_level_has_no_secrets(self) -> None:

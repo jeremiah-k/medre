@@ -51,6 +51,9 @@ _FAKE_TRANSPORT_CAPABILITIES = AdapterCapabilities(
     delivery_receipts=False,
     store_and_forward=False,
     direct_messages=True,
+    channels=True,
+    async_delivery=True,
+    mesh_routing=True,
     max_text_chars=200,
 )
 

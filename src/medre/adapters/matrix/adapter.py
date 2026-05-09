@@ -44,6 +44,9 @@ _MATRIX_CAPABILITIES = AdapterCapabilities(
     delivery_receipts=True,
     store_and_forward=False,
     direct_messages=True,
+    channels=True,
+    async_delivery=True,
+    topic_rooms=True,
 )
 
 

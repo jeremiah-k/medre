@@ -98,7 +98,7 @@ class TestNormalizeStructure:
         result = normalize_adapter_health(info)
         assert set(result.keys()) == {
             "adapter_id", "platform", "role", "health",
-            "fake_or_live", "details",
+            "fake_or_live", "capabilities", "details",
         }
 
     def test_adapter_id_from_info(self) -> None:
@@ -320,10 +320,10 @@ class TestDetailsIsolation:
         assert "native_event_id" in result["details"]
 
     def test_top_level_keys_are_fixed(self) -> None:
-        """Top-level key set is always the same six keys."""
+        """Top-level key set is always the same seven keys."""
         expected_keys = {
             "adapter_id", "platform", "role", "health",
-            "fake_or_live", "details",
+            "fake_or_live", "capabilities", "details",
         }
         for health_val in ("healthy", "failed", "unknown"):
             info = _make_info(health=health_val)

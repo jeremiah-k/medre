@@ -23,6 +23,7 @@ from typing import Any
 
 from medre.adapters.base import AdapterInfo
 from medre.core.lifecycle.states import AdapterState
+from medre.core.runtime.capabilities import serialize_adapter_capabilities
 
 # ---------------------------------------------------------------------------
 # Health vocabulary
@@ -143,9 +144,13 @@ def normalize_adapter_health(
 
         * ``adapter_id`` – unique adapter identifier.
         * ``platform`` – human-readable platform name.
-        * ``role`` – adapter role as a lowercase string.
+        * ``role`` – adapter role as lowercase string.
         * ``health`` – one of :data:`VALID_HEALTH_STRINGS`.
         * ``fake_or_live`` – ``"fake"``, ``"live"``, or ``"unknown"``.
+        * ``capabilities`` – deterministic, JSON-safe capability summary
+          projected from :class:`~medre.adapters.base.AdapterCapabilities`.
+          Contains only boolean, integer, and ``None`` values; no private
+          state or transport objects.
         * ``details`` – dict with version, raw health strings, and any
           caller-supplied details.
     """
@@ -177,5 +182,6 @@ def normalize_adapter_health(
         "role": info.role.value,
         "health": health,
         "fake_or_live": mode,
+        "capabilities": serialize_adapter_capabilities(info.capabilities),
         "details": out_details,
     }

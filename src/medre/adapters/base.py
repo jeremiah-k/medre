@@ -133,6 +133,26 @@ class AdapterCapabilities:
         Whether the adapter supports store-and-forward semantics.
     direct_messages:
         Whether the adapter supports direct (1-to-1) messages.
+    channels:
+        Whether the adapter supports channel, room, topic, or group-style
+        destinations.
+    ack_tracking:
+        Whether the adapter exposes transport-level acknowledgement tracking
+        to MEDRE.  This is descriptive only; it does not install retries.
+    async_delivery:
+        Whether delivery can complete asynchronously after MEDRE hands off a
+        payload to the adapter.
+    identity_encryption:
+        Whether the adapter's transport identity model includes native
+        identity-level encryption semantics that MEDRE may report.
+    presence:
+        Whether the adapter exposes presence/online state semantics.
+    topic_rooms:
+        Whether the adapter supports named topic/room destinations.
+    mesh_routing:
+        Whether the adapter participates in mesh/radio routing semantics.
+    priority_delivery:
+        Whether the adapter supports transport-level priority handling.
     max_text_bytes:
         Maximum text payload size in bytes, or ``None`` for unlimited.
     max_text_chars:
@@ -150,6 +170,14 @@ class AdapterCapabilities:
     delivery_receipts: bool = False
     store_and_forward: bool = False
     direct_messages: bool = True
+    channels: bool = True
+    ack_tracking: bool = False
+    async_delivery: bool = False
+    identity_encryption: bool = False
+    presence: bool = False
+    topic_rooms: bool = False
+    mesh_routing: bool = False
+    priority_delivery: bool = False
     max_text_bytes: int | None = None
     max_text_chars: int | None = None
 

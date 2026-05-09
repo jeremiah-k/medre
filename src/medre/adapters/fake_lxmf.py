@@ -122,6 +122,10 @@ _FAKE_LXMF_CAPABILITIES = AdapterCapabilities(
     delivery_receipts=False,
     store_and_forward=False,
     direct_messages=True,
+    channels=False,
+    async_delivery=True,
+    identity_encryption=True,
+    mesh_routing=True,
     max_text_bytes=None,
     max_text_chars=16384,
 )

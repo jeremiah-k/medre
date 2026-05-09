@@ -76,6 +76,9 @@ _MESHCORE_CAPABILITIES = AdapterCapabilities(
     delivery_receipts=False,
     store_and_forward=False,
     direct_messages=False,
+    channels=True,
+    async_delivery=True,
+    mesh_routing=True,
     max_text_bytes=512,
     max_text_chars=512,
 )
