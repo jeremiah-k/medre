@@ -1,6 +1,6 @@
 """Matrix boundary enforcement tests: architectural separation between
 core, rendering, and adapter layers; inbound/outbound correlation;
-reply resolution; and delivery contract.
+reply resolution; delivery contract; and nio response hardening.
 """
 
 from __future__ import annotations
@@ -17,11 +17,20 @@ from medre.adapters import FakeMatrixAdapter, FakePresentationAdapter
 from medre.adapters.base import AdapterDeliveryResult
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.codec import MatrixCodec
+from medre.adapters.matrix.compat import HAS_NIO
 from medre.adapters.matrix.config import MatrixConfig
 from medre.adapters.matrix.errors import MatrixSendError
+from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
+from medre.adapters.matrix.relations import MatrixRelationHandler
 from medre.adapters.matrix.renderer import MatrixRenderer
 from medre.core.events import CanonicalEvent, EventMetadata, NativeRef
 from medre.core.rendering.renderer import RenderingResult
+from tests.fixtures.matrix_packets import (
+    make_room_send_error,
+    make_room_send_response,
+    make_room_send_response_empty_event_id,
+    make_room_send_response_none_event_id,
+)
 
 
 class TestMatrixBoundaries:
@@ -47,6 +56,7 @@ class TestMatrixBoundaries:
         import medre.adapters.matrix.config as config_mod
 
         for mod in (adapter_mod, codec_mod, renderer_mod, config_mod):
+            assert mod.__file__ is not None
             source = open(mod.__file__).read()
             assert "meshtastic" not in source.lower(), (
                 f"{mod.__name__} references meshtastic"
@@ -126,8 +136,11 @@ class TestMatrixBoundaries:
             payload={"text": "raw"},
             metadata=EventMetadata(),
         )
+        # Intentionally pass a CanonicalEvent to verify runtime guard.
+        # Use getattr to avoid a static signature mismatch.
+        deliver_fn = getattr(adapter, "deliver")
         with pytest.raises(TypeError, match="RenderingResult only"):
-            await adapter.deliver(event)
+            await deliver_fn(event)
 
     async def test_fake_presentation_rejects_raw_canonical_event(self) -> None:
         """FakePresentationAdapter.deliver raises TypeError for CanonicalEvent."""
@@ -146,8 +159,11 @@ class TestMatrixBoundaries:
             payload={"text": "raw"},
             metadata=EventMetadata(),
         )
+        # Intentionally pass a CanonicalEvent to verify runtime guard.
+        # Use getattr to avoid a static signature mismatch.
+        deliver_fn = getattr(adapter, "deliver")
         with pytest.raises(TypeError, match="RenderingResult only"):
-            await adapter.deliver(event)
+            await deliver_fn(event)
 
     async def test_outbound_native_ref_uses_adapter_result_id(self) -> None:
         """Outbound native ref uses the adapter's actual result ID, not synthetic."""
@@ -232,12 +248,12 @@ class TestMatrixBoundaries:
 
 def _make_matrix_config(**overrides: Any) -> MatrixConfig:
     """Build a valid MatrixConfig for testing."""
-    defaults = dict(
-        adapter_id="matrix-1",
-        homeserver="https://matrix.example.com",
-        user_id="@bot:example.com",
-        access_token="tok",
-    )
+    defaults: dict[str, Any] = {
+        "adapter_id": "matrix-1",
+        "homeserver": "https://matrix.example.com",
+        "user_id": "@bot:example.com",
+        "access_token": "tok",
+    }
     defaults.update(overrides)
     return MatrixConfig(**defaults)
 
@@ -332,7 +348,7 @@ class TestMatrixDeliveryHygiene:
         mock_client.room_send = AsyncMock(return_value=_FakeResponse())
         adapter._client = mock_client
 
-        payload = {
+        payload: dict[str, object] = {
             "msgtype": "m.text",
             "body": "hello",
             "room_id": "!room:server",
@@ -347,3 +363,227 @@ class TestMatrixDeliveryHygiene:
 
         # Original payload still has room_id
         assert "room_id" in payload
+
+
+# ===================================================================
+# Extended boundary: cross-adapter import checks
+# ===================================================================
+
+
+class TestMatrixBoundaryCrossImports:
+    """Matrix package must not import meshtastic, meshcore, or lxmf."""
+
+    @pytest.fixture(params=[
+        "medre.adapters.matrix.adapter",
+        "medre.adapters.matrix.codec",
+        "medre.adapters.matrix.renderer",
+        "medre.adapters.matrix.config",
+        "medre.adapters.matrix.relations",
+        "medre.adapters.matrix.metadata",
+        "medre.adapters.matrix.compat",
+        "medre.adapters.matrix.errors",
+    ])
+    def matrix_module_file(self, request) -> str:
+        """Parametrized fixture yielding the file path of each Matrix module."""
+        import importlib
+        mod = importlib.import_module(request.param)
+        assert mod.__file__ is not None
+        return mod.__file__
+
+    def test_no_meshtastic_import(self, matrix_module_file: str) -> None:
+        source = open(matrix_module_file).read()
+        assert "meshtastic" not in source.lower(), (
+            f"{matrix_module_file} references meshtastic"
+        )
+
+    def test_no_meshcore_import(self, matrix_module_file: str) -> None:
+        source = open(matrix_module_file).read()
+        assert "meshcore" not in source.lower(), (
+            f"{matrix_module_file} references meshcore"
+        )
+
+    def test_no_lxmf_import(self, matrix_module_file: str) -> None:
+        source = open(matrix_module_file).read()
+        assert "lxmf" not in source.lower(), (
+            f"{matrix_module_file} references lxmf"
+        )
+
+
+class TestMatrixCodecBoundaryMethods:
+    """MatrixCodec must have no route/plan/deliver/store methods."""
+
+    def test_codec_has_no_route(self) -> None:
+        config = _make_matrix_config()
+        codec = MatrixCodec("test", config)
+        assert not hasattr(codec, "route")
+
+    def test_codec_has_no_plan(self) -> None:
+        config = _make_matrix_config()
+        codec = MatrixCodec("test", config)
+        assert not hasattr(codec, "plan")
+
+    def test_codec_has_no_deliver(self) -> None:
+        config = _make_matrix_config()
+        codec = MatrixCodec("test", config)
+        assert not hasattr(codec, "deliver")
+
+    def test_codec_has_no_store(self) -> None:
+        config = _make_matrix_config()
+        codec = MatrixCodec("test", config)
+        assert not hasattr(codec, "store")
+
+    def test_renderer_has_no_deliver(self) -> None:
+        renderer = MatrixRenderer()
+        assert not hasattr(renderer, "deliver")
+
+    def test_renderer_has_no_route(self) -> None:
+        renderer = MatrixRenderer()
+        assert not hasattr(renderer, "route")
+
+    def test_renderer_has_no_store(self) -> None:
+        renderer = MatrixRenderer()
+        assert not hasattr(renderer, "store")
+
+
+# ===================================================================
+# Delivery hardening: nio response fixtures
+# ===================================================================
+
+
+class TestMatrixDeliveryNioResponseHardening:
+    """MatrixAdapter.deliver handles success/error/missing-event-id correctly."""
+
+    async def test_successful_response_returns_native_id(self) -> None:
+        """Successful RoomSendResponse event_id persists as native_message_id."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+
+        mock_client = MagicMock()
+        mock_client.room_send = AsyncMock(
+            return_value=make_room_send_response("$good-evt-001")
+        )
+        adapter._client = mock_client
+
+        result = RenderingResult(
+            event_id="evt-ok",
+            target_adapter="matrix-1",
+            target_channel="!room:server",
+            payload={"msgtype": "m.text", "body": "hello"},
+        )
+        delivery = await adapter.deliver(result)
+        assert isinstance(delivery, AdapterDeliveryResult)
+        assert delivery.native_message_id == "$good-evt-001"
+        assert delivery.native_channel_id == "!room:server"
+
+    async def test_error_response_raises_matrix_send_error(self) -> None:
+        """nio error response raises MatrixSendError."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+
+        mock_client = MagicMock()
+        mock_client.room_send = AsyncMock(
+            return_value=make_room_send_error("M_FORBIDDEN")
+        )
+        adapter._client = mock_client
+
+        result = RenderingResult(
+            event_id="evt-err",
+            target_adapter="matrix-1",
+            target_channel="!room:server",
+            payload={"msgtype": "m.text", "body": "hello"},
+        )
+        with pytest.raises(MatrixSendError, match="M_FORBIDDEN"):
+            await adapter.deliver(result)
+
+    async def test_none_event_id_raises_matrix_send_error(self) -> None:
+        """event_id=None is treated as a failed delivery."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+
+        mock_client = MagicMock()
+        mock_client.room_send = AsyncMock(
+            return_value=make_room_send_response_none_event_id()
+        )
+        adapter._client = mock_client
+
+        result = RenderingResult(
+            event_id="evt-none",
+            target_adapter="matrix-1",
+            target_channel="!room:server",
+            payload={"msgtype": "m.text", "body": "hello"},
+        )
+        with pytest.raises(MatrixSendError, match="empty/missing event_id"):
+            await adapter.deliver(result)
+
+    async def test_empty_event_id_raises_matrix_send_error(self) -> None:
+        """event_id='' is treated as a failed delivery."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+
+        mock_client = MagicMock()
+        mock_client.room_send = AsyncMock(
+            return_value=make_room_send_response_empty_event_id()
+        )
+        adapter._client = mock_client
+
+        result = RenderingResult(
+            event_id="evt-empty",
+            target_adapter="matrix-1",
+            target_channel="!room:server",
+            payload={"msgtype": "m.text", "body": "hello"},
+        )
+        with pytest.raises(MatrixSendError, match="empty/missing event_id"):
+            await adapter.deliver(result)
+
+    async def test_client_not_connected_raises(self) -> None:
+        """deliver raises MatrixSendError when client is None."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+        adapter._client = None
+
+        result = RenderingResult(
+            event_id="evt-no-client",
+            target_adapter="matrix-1",
+            target_channel="!room:server",
+            payload={"msgtype": "m.text", "body": "hello"},
+        )
+        with pytest.raises(MatrixSendError, match="not connected"):
+            await adapter.deliver(result)
+
+    async def test_delivery_without_target_room_fails(self) -> None:
+        """Missing target room raises MatrixSendError."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+
+        mock_client = MagicMock()
+        adapter._client = mock_client
+
+        result = RenderingResult(
+            event_id="evt-no-room",
+            target_adapter="matrix-1",
+            target_channel=None,
+            payload={"msgtype": "m.text", "body": "hello"},
+        )
+        with pytest.raises(MatrixSendError, match="no room_id"):
+            await adapter.deliver(result)
+
+    async def test_failed_delivery_does_not_persist_native_ref(self) -> None:
+        """When deliver() raises MatrixSendError, no native ref is returned."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+
+        mock_client = MagicMock()
+        mock_client.room_send = AsyncMock(
+            return_value=make_room_send_response_none_event_id()
+        )
+        adapter._client = mock_client
+
+        result = RenderingResult(
+            event_id="evt-fail-no-ref",
+            target_adapter="matrix-1",
+            target_channel="!room:server",
+            payload={"msgtype": "m.text", "body": "hello"},
+        )
+        # Must raise, not silently return a bad native ref
+        with pytest.raises(MatrixSendError):
+            await adapter.deliver(result)

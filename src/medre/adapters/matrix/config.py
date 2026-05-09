@@ -58,14 +58,42 @@ class MatrixConfig:
         MatrixConfigError
             If any required field is missing or malformed.
         """
-        if not self.homeserver.startswith("http"):
+        if not isinstance(self.homeserver, str) or not self.homeserver.strip():
+            raise MatrixConfigError("homeserver must be a non-empty string")
+        if not (
+            self.homeserver.startswith("http://")
+            or self.homeserver.startswith("https://")
+        ):
             raise MatrixConfigError(
-                f"homeserver must start with 'http', got {self.homeserver!r}"
+                f"homeserver must start with 'http://' or 'https://', "
+                f"got {self.homeserver!r}"
             )
+        if not isinstance(self.user_id, str) or not self.user_id.strip():
+            raise MatrixConfigError("user_id must be a non-empty string")
         if not self.user_id.startswith("@"):
             raise MatrixConfigError(
                 f"user_id must start with '@', got {self.user_id!r}"
             )
-        if not self.access_token:
+        if not isinstance(self.access_token, str) or not self.access_token.strip():
             raise MatrixConfigError("access_token must be non-empty")
+        # Validate room allowlist entries if provided.
+        if self.room_allowlist is not None:
+            for entry in self.room_allowlist:
+                if not isinstance(entry, str) or not entry.strip():
+                    raise MatrixConfigError(
+                        "room_allowlist entries must be non-empty strings"
+                    )
         return self
+
+    def __repr__(self) -> str:
+        """Return a representation with access_token redacted."""
+        token_preview = (
+            self.access_token[:3] + "…" if len(self.access_token) > 3 else "***"
+        )
+        return (
+            f"MatrixConfig(adapter_id={self.adapter_id!r}, "
+            f"homeserver={self.homeserver!r}, "
+            f"user_id={self.user_id!r}, "
+            f"access_token={token_preview!r}, "
+            f"room_allowlist={self.room_allowlist!r})"
+        )

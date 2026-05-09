@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -311,12 +312,12 @@ class TestFakeMatrixAdapterMakeReactionEvent:
 
 def _make_matrix_config(**overrides: Any) -> MatrixConfig:
     """Build a valid MatrixConfig for testing."""
-    defaults = dict(
-        adapter_id="matrix-1",
-        homeserver="https://matrix.example.com",
-        user_id="@bot:example.com",
-        access_token="tok",
-    )
+    defaults: dict[str, Any] = {
+        "adapter_id": "matrix-1",
+        "homeserver": "https://matrix.example.com",
+        "user_id": "@bot:example.com",
+        "access_token": "tok",
+    }
     defaults.update(overrides)
     return MatrixConfig(**defaults)
 
@@ -326,34 +327,24 @@ def _make_fake_nio_event(
     event_id: str = "$evt-001",
     body: str = "hello",
     content: dict | None = None,
-) -> Any:
+) -> SimpleNamespace:
     """Build a minimal fake nio RoomMessageText event."""
-
-    class _FakeEvent:
-        pass
-
-    evt = _FakeEvent()
-    evt.sender = sender
-    evt.event_id = event_id
-    evt.body = body
-    evt.source = {
-        "content": content or {"msgtype": "m.text", "body": body},
-        "event_id": event_id,
-        "sender": sender,
-        "type": "m.room.message",
-    }
-    return evt
+    return SimpleNamespace(
+        sender=sender,
+        event_id=event_id,
+        body=body,
+        source={
+            "content": content or {"msgtype": "m.text", "body": body},
+            "event_id": event_id,
+            "sender": sender,
+            "type": "m.room.message",
+        },
+    )
 
 
-def _make_fake_room(room_id: str = "!room:server") -> Any:
+def _make_fake_room(room_id: str = "!room:server") -> SimpleNamespace:
     """Build a minimal fake nio Room object."""
-
-    class _FakeRoom:
-        pass
-
-    room = _FakeRoom()
-    room.room_id = room_id
-    return room
+    return SimpleNamespace(room_id=room_id)
 
 
 def _make_adapter_context(
@@ -419,17 +410,15 @@ class TestSelfMessageSuppression:
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
 
-        class _NoSender:
-            pass
-
-        evt = _NoSender()
-        evt.body = "hello"
-        evt.event_id = "$evt-no-sender"
-        evt.source = {
-            "content": {"msgtype": "m.text", "body": "hello"},
-            "event_id": "$evt-no-sender",
-            "type": "m.room.message",
-        }
+        evt = SimpleNamespace(
+            body="hello",
+            event_id="$evt-no-sender",
+            source={
+                "content": {"msgtype": "m.text", "body": "hello"},
+                "event_id": "$evt-no-sender",
+                "type": "m.room.message",
+            },
+        )
         room = _make_fake_room()
 
         await adapter._on_room_message(room, evt)
@@ -527,3 +516,88 @@ class TestMEDREOriginLoopSuppression:
 
         await adapter._on_room_message(room, event)
         assert len(published) == 1
+
+
+# ===================================================================
+# Room allowlist
+# ===================================================================
+
+
+class TestRoomAllowlist:
+    """Room allowlist filtering in _on_room_message."""
+
+    async def test_no_allowlist_accepts_all_rooms(self) -> None:
+        """room_allowlist=None means all rooms accepted."""
+        config = _make_matrix_config()
+        assert config.room_allowlist is None
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+        adapter.ctx = ctx
+
+        event = _make_fake_nio_event(sender="@alice:example.com")
+        room = _make_fake_room(room_id="!any:server")
+
+        await adapter._on_room_message(room, event)
+        assert len(published) == 1
+
+    async def test_allowlist_accepts_matching_room(self) -> None:
+        """Events from allowlisted rooms are accepted."""
+        config = _make_matrix_config(
+            room_allowlist={"!allowed:server"},
+        )
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+        adapter.ctx = ctx
+
+        event = _make_fake_nio_event(sender="@alice:example.com")
+        room = _make_fake_room(room_id="!allowed:server")
+
+        await adapter._on_room_message(room, event)
+        assert len(published) == 1
+
+    async def test_allowlist_drops_non_matching_room(self) -> None:
+        """Events from non-allowlisted rooms are silently dropped."""
+        config = _make_matrix_config(
+            room_allowlist={"!allowed:server"},
+        )
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+        adapter.ctx = ctx
+
+        event = _make_fake_nio_event(sender="@alice:example.com")
+        room = _make_fake_room(room_id="!denied:server")
+
+        await adapter._on_room_message(room, event)
+        assert len(published) == 0
+
+    async def test_allowlist_with_multiple_rooms(self) -> None:
+        """Allowlist with multiple rooms accepts any matching room."""
+        config = _make_matrix_config(
+            room_allowlist={"!room1:server", "!room2:server"},
+        )
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+        adapter.ctx = ctx
+
+        # Test room1
+        event1 = _make_fake_nio_event(
+            sender="@alice:example.com", event_id="$evt-r1",
+        )
+        room1 = _make_fake_room(room_id="!room1:server")
+        await adapter._on_room_message(room1, event1)
+
+        # Test room2
+        event2 = _make_fake_nio_event(
+            sender="@alice:example.com", event_id="$evt-r2",
+        )
+        room2 = _make_fake_room(room_id="!room2:server")
+        await adapter._on_room_message(room2, event2)
+
+        # Test denied room
+        event3 = _make_fake_nio_event(
+            sender="@alice:example.com", event_id="$evt-r3",
+        )
+        room3 = _make_fake_room(room_id="!room3:server")
+        await adapter._on_room_message(room3, event3)
+
+        assert len(published) == 2

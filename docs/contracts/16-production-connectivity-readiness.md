@@ -1,17 +1,17 @@
 # Production Connectivity Readiness
 
-> Contract version: 1
-> Last updated: 2026-05-08
+> Contract version: 2
+> Last updated: 2026-05-09
 > Track: 8 (Production Connectivity Readiness)
 
 This document assesses each adapter's readiness for real network operation. It is deliberately conservative. Nothing claimed here should be interpreted as "works against real hardware/services" until it has been explicitly verified against the actual SDK, transport, or service.
 
-All four adapters are in tranche 1. Every adapter uses fake delivery. No adapter has been tested against a real production endpoint.
+All four adapters are in tranche 1. Every adapter uses fake delivery. No adapter has been tested against a real production endpoint by default. The Matrix adapter has an **optional** live smoke harness that can verify real connectivity when explicitly enabled.
 
 
 ## Matrix
 
-### What tranche 1 proves
+### What tranche 1 proves (deterministic / fake-only)
 
 - The decode/render/deliver pipeline works end to end with fake data.
 - `MatrixCodec` converts nio-shaped event objects into `CanonicalEvent` instances. The codec is nio-agnostic (expects `.sender`, `.body`, `.event_id`, `.source` attributes but doesn't import nio).
@@ -21,30 +21,51 @@ All four adapters are in tranche 1. Every adapter uses fake delivery. No adapter
 - Room allowlist filtering works.
 - The `FakeMatrixAdapter` enforces the rendering boundary: `deliver()` accepts `RenderingResult` only, not `CanonicalEvent`.
 
+### What the optional live smoke harness proves
+
+A skipped-by-default live test harness at `tests/test_matrix_live.py` with a companion runbook at `docs/runbooks/matrix-live-smoke.md` provides optional real-homeserver validation. When enabled via environment variables, it proves:
+
+- The adapter connects to a real Matrix homeserver and authenticates via access token.
+- `health_check()` transitions correctly: `"unknown"` → `"healthy"` → `"unknown"`.
+- Outbound `room_send` produces a real `event_id` (starts with `$`).
+- The full lifecycle (start → send → healthy → stop → unknown) works as an ordered sequence.
+- No asyncio tasks are leaked after stop.
+
+The live harness is **optional** and **does not gate CI**.  Default `pytest` remains fake-only.  See `docs/runbooks/matrix-live-smoke.md` for setup and usage.
+
+### What the live smoke harness does NOT prove
+
+- **Inbound message reception.**  Requires a second Matrix account to send a message into the room.  With one account, timing-sensitive polling would be needed, making tests flaky.  Inbound codec correctness is covered by deterministic unit tests.
+- **Self-message suppression with real sync echoes.**  The homeserver echoes outbound messages back.  Verifying suppression requires waiting for the echo with a timeout, which is unreliable.  Self-message suppression is covered by deterministic unit tests.
+- **MEDRE-origin envelope suppression.**  Secondary suppression path, unit-tested.
+- **E2EE, reactions, edits, deletes, attachments, media.**  Not implemented in tranche 1.
+- **Admin API, webhooks, HTTP server.**  Out of scope.
+- **Non-Matrix connectivity.**  Meshtastic, MeshCore, LXMF are out of scope.
+- **Auth command / credential storage.**  Current tranche uses env-var access tokens.  A future mmrelay-like auth command may be useful but is not implemented.
+- **Real operation scope.**  The live harness confirms transport-level connectivity for Matrix tranche 1 features only.  It does not prove production readiness for bridging, federation, encrypted rooms, or multi-user scenarios.
+
 ### What is still fake/scaffolded
 
-- **No real `nio` client has been connected to a homeserver.** The `start()` method contains real `nio.AsyncClient` code, but it has not been executed against a live Matrix homeserver.
-- **No real sync loop has been observed.** `sync_forever()` is started as an asyncio task, but no test has verified that it receives real events and feeds them to `_on_room_message`.
-- **No real `room_send` has been executed.** The outbound path in `deliver()` calls `self._client.room_send()`, but only with a fake client in tests.
+- **No inbound message reception has been verified against a real homeserver.** The sync loop starts, but no test has verified that a real inbound event flows through `_on_room_message` → codec → `publish_inbound`.
 - **E2EE is not implemented.** No olm/megolm support.
 - **Reactions, edits, deletes, and attachments are all deferred.** Only text and replies work.
+- **Storage is authoritative.** The metadata envelope is secondary and diagnostic.  The live harness does not test storage round-trips against a real homeserver.
 
 ### What must be done before real operation
 
-1. **Real `mindroom-nio` integration test.** Connect `MatrixAdapter` to a real (or local Synapse/conduit) homeserver. Verify sync, inbound event decoding, and outbound delivery.
-2. **Verify `_on_room_message` callback behavior** with real nio event objects, not just test fakes.
-3. **Verify `room_send` response handling.** Confirm that `RoomSendResponse.event_id` is populated and that error responses are handled correctly.
-4. **Test the sync loop lifecycle.** Verify clean startup, sync operation, and graceful shutdown (`stop()`) against a real server.
-5. **Verify self-message suppression** with real echo events from the homeserver.
-6. **Test against multiple room types.** Public, private, DMs.
+1. **Verify `_on_room_message` callback behavior** with real nio event objects from a second user, not just test fakes.
+2. **Verify self-message suppression** with real echo events from the homeserver (requires a second account or device).
+3. **Test against multiple room types.** Public, private, DMs.
+4. **Test federation.** Cross-server message delivery.
+5. **Token storage and rotation.** The `access_token` is a plain string.  Production deployment needs a security review.  A future mmrelay-like auth command may address this.
 
 ### Likely first production-connectivity tranche focus
 
-Connect `MatrixAdapter` to a local Synapse or conduit homeserver. Send a message, receive a message, verify native ref round-trip. This is the smallest useful connectivity milestone.
+The live smoke harness already covers the smallest useful connectivity milestone (connect, send, lifecycle).  The next step is verifying inbound reception with a second account and testing self-message suppression with real echoes.
 
 ### Known risks
 
-- `mindroom-nio` is a fork (`migrating-nio`?). Its maintenance status and API stability relative to upstream `matrix-nio` need verification.
+- `mindroom-nio` is a fork. Its maintenance status and API stability relative to upstream `matrix-nio` need verification.
 - Sync loop error handling may need hardening for real network conditions (timeouts, reconnects, rate limiting).
 - The `access_token` config field is stored as a plain string. Token storage and rotation need a security review before production deployment.
 

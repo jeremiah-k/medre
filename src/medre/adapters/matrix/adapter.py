@@ -133,9 +133,11 @@ class MatrixAdapter(BaseAdapter):
             (nio.RoomMessageText, nio.RoomMessageNotice, nio.RoomMessageEmote),
         )
 
+        sync_coro = self._run_sync()
         try:
-            self._sync_task = asyncio.create_task(self._run_sync())
+            self._sync_task = asyncio.create_task(sync_coro)
         except Exception as exc:
+            sync_coro.close()
             await self._client.close()
             self._client = None
             raise MatrixConnectionError(
@@ -286,15 +288,25 @@ class MatrixAdapter(BaseAdapter):
             content=content,
         )
 
-        # Check for nio error responses
+        # Check for nio error responses — a successful RoomSendResponse
+        # carries event_id; anything else is an error.
         if hasattr(response, "event_id"):
             event_id = response.event_id
+            # Guard against None / empty event_id — the homeserver should
+            # always return one on success.  A missing or empty event_id
+            # indicates a malformed response and must not produce a native
+            # ref that the pipeline could persist.
+            if not event_id:
+                raise MatrixSendError(
+                    "homeserver returned empty/missing event_id; "
+                    "delivery may not have been recorded"
+                )
             return AdapterDeliveryResult(
                 native_message_id=event_id,
                 native_channel_id=room_id,
             )
         else:
-            # Error response
+            # Error response (nio ErrorResponse or similar)
             raise MatrixSendError(str(response))
 
     # -- Inbound callback ---------------------------------------------------

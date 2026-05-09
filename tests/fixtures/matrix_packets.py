@@ -349,3 +349,21 @@ def make_room_send_error(message: str = "Failed to send") -> object:
             return self._message
 
     return _ErrorResponse(message)
+
+
+def make_room_send_response_none_event_id() -> SimpleNamespace:
+    """Return a response with ``event_id=None`` (malformed success).
+
+    Simulates a homeserver bug where ``room_send`` returns a response
+    object that has an ``event_id`` attribute but it is ``None``.
+    """
+    return SimpleNamespace(event_id=None, transport_response=None)
+
+
+def make_room_send_response_empty_event_id() -> SimpleNamespace:
+    """Return a response with ``event_id=""`` (malformed success).
+
+    Simulates a homeserver bug where ``room_send`` returns a response
+    object that has an ``event_id`` attribute but it is an empty string.
+    """
+    return SimpleNamespace(event_id="", transport_response=None)

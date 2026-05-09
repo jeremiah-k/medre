@@ -74,3 +74,143 @@ class TestMatrixConfig:
             access_token="s3cret",
         )
         assert config.room_allowlist is None
+
+    def test_http_homeserver_supported(self) -> None:
+        """http:// scheme is valid for local Synapse/Conduit."""
+        config = MatrixConfig(
+            adapter_id="matrix-1",
+            homeserver="http://localhost:8008",
+            user_id="@bot:example.com",
+            access_token="s3cret",
+        )
+        config.validate()  # no error
+
+    def test_blank_homeserver_rejected(self) -> None:
+        """Blank/whitespace-only homeserver is rejected."""
+        config = MatrixConfig(
+            adapter_id="matrix-1",
+            homeserver="  ",
+            user_id="@bot:example.com",
+            access_token="s3cret",
+        )
+        with pytest.raises(MatrixConfigError, match="homeserver"):
+            config.validate()
+
+    def test_empty_homeserver_rejected(self) -> None:
+        """Empty string homeserver is rejected."""
+        config = MatrixConfig(
+            adapter_id="matrix-1",
+            homeserver="",
+            user_id="@bot:example.com",
+            access_token="s3cret",
+        )
+        with pytest.raises(MatrixConfigError, match="homeserver"):
+            config.validate()
+
+    def test_blank_user_id_rejected(self) -> None:
+        """Blank/whitespace-only user_id is rejected."""
+        config = MatrixConfig(
+            adapter_id="matrix-1",
+            homeserver="https://matrix.example.com",
+            user_id="  ",
+            access_token="s3cret",
+        )
+        with pytest.raises(MatrixConfigError, match="user_id"):
+            config.validate()
+
+    def test_whitespace_access_token_rejected(self) -> None:
+        """Whitespace-only access_token is rejected."""
+        config = MatrixConfig(
+            adapter_id="matrix-1",
+            homeserver="https://matrix.example.com",
+            user_id="@bot:example.com",
+            access_token="   ",
+        )
+        with pytest.raises(MatrixConfigError, match="access_token"):
+            config.validate()
+
+    def test_room_allowlist_with_blank_entry_rejected(self) -> None:
+        """room_allowlist with a blank string entry is rejected."""
+        config = MatrixConfig(
+            adapter_id="matrix-1",
+            homeserver="https://matrix.example.com",
+            user_id="@bot:example.com",
+            access_token="s3cret",
+            room_allowlist={"!valid:example.com", "  "},
+        )
+        with pytest.raises(MatrixConfigError, match="room_allowlist"):
+            config.validate()
+
+    def test_room_allowlist_with_non_string_entry_rejected(self) -> None:
+        """room_allowlist with a non-string entry is rejected."""
+        # Build a set containing a non-string entry to exercise
+        # runtime validation.  Construct via a kwargs dict to avoid
+        # a static type conflict on the mixed set literal.
+        from typing import Any
+
+        kwargs: dict[str, Any] = {
+            "adapter_id": "matrix-1",
+            "homeserver": "https://matrix.example.com",
+            "user_id": "@bot:example.com",
+            "access_token": "s3cret",
+            "room_allowlist": {"!valid:example.com", 42},
+        }
+        config = MatrixConfig(**kwargs)
+        with pytest.raises(MatrixConfigError, match="room_allowlist"):
+            config.validate()
+
+    def test_room_allowlist_valid_set_accepted(self) -> None:
+        """Valid room_allowlist passes validation."""
+        config = MatrixConfig(
+            adapter_id="matrix-1",
+            homeserver="https://matrix.example.com",
+            user_id="@bot:example.com",
+            access_token="s3cret",
+            room_allowlist={"!room1:example.com", "!room2:example.com"},
+        )
+        config.validate()  # no error
+
+
+# ===================================================================
+# Secret safety
+# ===================================================================
+
+
+class TestMatrixConfigSecretSafety:
+    """access_token must not leak through repr or logs."""
+
+    def test_repr_redacts_access_token(self) -> None:
+        """__repr__ must not expose the full access_token."""
+        config = MatrixConfig(
+            adapter_id="matrix-1",
+            homeserver="https://matrix.example.com",
+            user_id="@bot:example.com",
+            access_token="supersecret12345",
+        )
+        r = repr(config)
+        assert "supersecret12345" not in r
+        assert "access_token=" in r
+
+    def test_repr_short_token_redacted(self) -> None:
+        """Very short tokens are fully masked in repr."""
+        config = MatrixConfig(
+            adapter_id="matrix-1",
+            homeserver="https://matrix.example.com",
+            user_id="@bot:example.com",
+            access_token="ab",
+        )
+        r = repr(config)
+        assert "ab" not in r
+        assert "***" in r
+
+    def test_repr_shows_homeserver_and_user_id(self) -> None:
+        """Non-sensitive fields are visible in repr."""
+        config = MatrixConfig(
+            adapter_id="matrix-1",
+            homeserver="https://matrix.example.com",
+            user_id="@bot:example.com",
+            access_token="tok",
+        )
+        r = repr(config)
+        assert "matrix.example.com" in r
+        assert "@bot:example.com" in r

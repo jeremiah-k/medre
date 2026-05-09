@@ -8,8 +8,10 @@ The ``nio`` package is injected via ``sys.modules`` so the local
 ``HAS_NIO`` is patched on the adapter module to control the guard clause.
 
 The file contains 21 tests across 6 classes:
-  - ``TestMatrixAdapterStart`` (5 tests): start() with mocked nio.
-  - ``TestMatrixAdapterStop`` (4 tests): stop() idempotency and cleanup.
+  - ``TestMatrixAdapterStart`` (5 tests): start() with mocked nio;
+    login failure closes client; sync creation failure closes client.
+  - ``TestMatrixAdapterStop`` (4 tests): stop() idempotency and cleanup;
+    double-stop is safe; stop before start is safe.
   - ``TestMatrixAdapterHealthCheck`` (4 tests): health_check() state mapping.
   - ``TestMatrixAdapterRestart`` (1 test): full start-stop-start cycle.
   - ``TestMatrixAdapterLifecycleEdgeCases`` (2 tests): failure edge cases.
@@ -26,6 +28,7 @@ import asyncio
 import logging
 import sys
 from datetime import datetime, timezone
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -41,14 +44,14 @@ from medre.adapters.matrix.errors import MatrixConnectionError
 # ---------------------------------------------------------------------------
 
 
-def _make_config(**overrides) -> MatrixConfig:
+def _make_config(**overrides: Any) -> MatrixConfig:
     """Build a MatrixConfig with sensible defaults."""
-    defaults = dict(
-        adapter_id="matrix-test",
-        homeserver="https://matrix.example.com",
-        user_id="@bot:example.com",
-        access_token="tok_123",
-    )
+    defaults: dict[str, Any] = {
+        "adapter_id": "matrix-test",
+        "homeserver": "https://matrix.example.com",
+        "user_id": "@bot:example.com",
+        "access_token": "tok_123",
+    }
     defaults.update(overrides)
     return MatrixConfig(**defaults)
 
@@ -130,17 +133,23 @@ class TestMatrixAdapterStart:
         config = _make_config()
         adapter = MatrixAdapter(config)
         ctx = _make_context()
-        await adapter.start(ctx)
-        assert adapter.ctx is ctx
-        assert adapter._client is not None
-        assert adapter._sync_task is not None
+        try:
+            await adapter.start(ctx)
+            assert adapter.ctx is ctx
+            assert adapter._client is not None
+            assert adapter._sync_task is not None
+        finally:
+            await adapter.stop()
 
     async def test_start_sets_up_event_callback(self, mock_nio):
         """start() registers _on_room_message for RoomMessage types."""
         config = _make_config()
         adapter = MatrixAdapter(config)
-        await adapter.start(_make_context())
-        mock_nio.AsyncClient.return_value.add_event_callback.assert_called_once()
+        try:
+            await adapter.start(_make_context())
+            mock_nio.AsyncClient.return_value.add_event_callback.assert_called_once()
+        finally:
+            await adapter.stop()
 
     async def test_start_no_nio_raises(self):
         """start() raises MatrixConnectionError when nio is not available."""
@@ -234,9 +243,12 @@ class TestMatrixAdapterHealthCheck:
         """After successful start(), health is 'healthy'."""
         config = _make_config()
         adapter = MatrixAdapter(config)
-        await adapter.start(_make_context())
-        info = await adapter.health_check()
-        assert info.health == "healthy"
+        try:
+            await adapter.start(_make_context())
+            info = await adapter.health_check()
+            assert info.health == "healthy"
+        finally:
+            await adapter.stop()
 
     async def test_health_failed_after_login_failure(self, mock_nio):
         """When logged_in is False, health is 'failed'."""
@@ -269,12 +281,15 @@ class TestMatrixAdapterRestart:
         """start() after stop() creates a fresh client."""
         config = _make_config()
         adapter = MatrixAdapter(config)
-        await adapter.start(_make_context())
-        await adapter.stop()
-        # Reset mock call count
-        mock_nio.AsyncClient.reset_mock()
-        await adapter.start(_make_context())
-        mock_nio.AsyncClient.assert_called_once()
+        try:
+            await adapter.start(_make_context())
+            await adapter.stop()
+            # Reset mock call count
+            mock_nio.AsyncClient.reset_mock()
+            await adapter.start(_make_context())
+            mock_nio.AsyncClient.assert_called_once()
+        finally:
+            await adapter.stop()
 
 
 # ===================================================================
@@ -324,15 +339,18 @@ class TestMatrixAdapterSyncFailure:
         mock_nio.AsyncClient.return_value.sync_forever = _failing_sync
 
         # Start the adapter — the sync task is created with _failing_sync.
-        await adapter.start(_make_context())
+        try:
+            await adapter.start(_make_context())
 
-        # Let the sync task execute and fail.
-        await asyncio.sleep(0.05)
+            # Let the sync task execute and fail.
+            await asyncio.sleep(0.05)
 
-        # Verify _run_sync caught the exception.
-        assert adapter._sync_failure is not None
-        assert isinstance(adapter._sync_failure, RuntimeError)
-        assert str(adapter._sync_failure) == "sync lost connection"
+            # Verify _run_sync caught the exception.
+            assert adapter._sync_failure is not None
+            assert isinstance(adapter._sync_failure, RuntimeError)
+            assert str(adapter._sync_failure) == "sync lost connection"
+        finally:
+            await adapter.stop()
 
     async def test_health_failed_after_sync_failure(self, mock_nio):
         """health_check() returns 'failed' after sync_forever raises."""
@@ -344,12 +362,15 @@ class TestMatrixAdapterSyncFailure:
             raise RuntimeError("sync disconnected")
 
         mock_nio.AsyncClient.return_value.sync_forever = _failing_sync
-        await adapter.start(_make_context())
-        await asyncio.sleep(0.05)
+        try:
+            await adapter.start(_make_context())
+            await asyncio.sleep(0.05)
 
-        info = await adapter.health_check()
-        assert info.health == "failed"
-        assert info.platform == "matrix"
+            info = await adapter.health_check()
+            assert info.health == "failed"
+            assert info.platform == "matrix"
+        finally:
+            await adapter.stop()
 
     async def test_stop_after_sync_failure_clean(self, mock_nio):
         """stop() after a sync task failure is clean and idempotent."""
