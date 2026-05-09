@@ -28,3 +28,7 @@ where = ["src"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+    "live: tests that connect to a real Matrix homeserver (skipped by default)",
+]
+addopts = "-m 'not live'"

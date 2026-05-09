@@ -60,6 +60,11 @@ class MatrixAdapter(BaseAdapter):
         Validated :class:`~medre.adapters.matrix.config.MatrixConfig`.
     """
 
+    __slots__ = (
+        "_config", "_capabilities", "_client", "_sync_task",
+        "_codec", "_relation_handler", "_envelope_handler", "ctx",
+    )
+
     adapter_id: str
     platform: str = "matrix"
     role: AdapterRole = AdapterRole.PRESENTATION
@@ -112,36 +117,60 @@ class MatrixAdapter(BaseAdapter):
             access_token=self._config.access_token,
         )
 
+        if not getattr(self._client, "logged_in", False):
+            await self._client.close()
+            self._client = None
+            raise MatrixConnectionError(
+                f"failed to authenticate as {self._config.user_id} "
+                f"on {self._config.homeserver}"
+            )
+
         self._client.add_event_callback(
             self._on_room_message,
             (nio.RoomMessageText, nio.RoomMessageNotice, nio.RoomMessageEmote),
         )
 
-        self._sync_task = asyncio.create_task(
-            self._client.sync_forever(timeout=self._config.sync_timeout_ms)
-        )
+        try:
+            self._sync_task = asyncio.create_task(
+                self._client.sync_forever(timeout=self._config.sync_timeout_ms)
+            )
+        except Exception as exc:
+            await self._client.close()
+            self._client = None
+            raise MatrixConnectionError(
+                f"failed to start sync for {self._config.user_id}: {exc}"
+            ) from exc
 
         ctx.logger.info("MatrixAdapter %s started", self.adapter_id)
 
     async def stop(self, timeout: float = 5.0) -> None:
         """Stop syncing and disconnect from the homeserver.
 
-        Parameters
-        ----------
-        timeout:
-            Maximum seconds to wait for a clean shutdown.
+        Idempotent: safe to call multiple times or before start().
         """
         if self._sync_task is not None:
             self._sync_task.cancel()
             try:
-                await self._sync_task
+                await asyncio.wait_for(self._sync_task, timeout=timeout)
             except asyncio.CancelledError:
                 pass
+            except asyncio.TimeoutError:
+                if self.ctx is not None:
+                    self.ctx.logger.warning(
+                        "MatrixAdapter %s: sync task did not cancel within %ss",
+                        self.adapter_id, timeout,
+                    )
             self._sync_task = None
 
         if self._client is not None:
-            self._client.stop_sync_forever()
-            await self._client.close()
+            try:
+                self._client.stop_sync_forever()
+            except Exception:
+                pass
+            try:
+                await self._client.close()
+            except Exception:
+                pass
             self._client = None
 
         if self.ctx is not None:
@@ -155,9 +184,12 @@ class MatrixAdapter(BaseAdapter):
         AdapterInfo
             Metadata describing the adapter's state.
         """
-        health = "unknown"
-        if self._client is not None and getattr(self._client, "logged_in", False):
+        if self._client is None:
+            health = "unknown"
+        elif getattr(self._client, "logged_in", False):
             health = "healthy"
+        else:
+            health = "failed"
 
         return AdapterInfo(
             adapter_id=self.adapter_id,
