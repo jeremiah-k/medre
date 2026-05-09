@@ -190,6 +190,20 @@ def _make_context():
     )
 
 
+def _make_config_with_allowlist(allowlist: set[str] | None):
+    """Build a MatrixConfig with a specific room_allowlist."""
+    from medre.adapters.matrix.config import MatrixConfig
+
+    assert MATRIX_HOMESERVER and MATRIX_USER_ID and MATRIX_ACCESS_TOKEN
+    return MatrixConfig(
+        adapter_id="matrix-live-smoke",
+        homeserver=MATRIX_HOMESERVER,
+        user_id=MATRIX_USER_ID,
+        access_token=MATRIX_ACCESS_TOKEN,
+        room_allowlist=allowlist,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Live tests
 # ---------------------------------------------------------------------------
@@ -198,8 +212,9 @@ class TestMatrixLiveSmoke:
     """Live Matrix connectivity smoke tests.
 
     These tests connect to a real Matrix homeserver and verify the
-    adapter lifecycle, outbound delivery, health transitions, and (where
-    feasible without a second actor) self-message suppression.
+    adapter lifecycle, outbound delivery, health transitions, self-message
+    suppression, room allowlist enforcement, restart idempotency, and
+    replay semantics.
 
     All tests require the four MATRIX_* environment variables to be set.
     Run with::
@@ -208,7 +223,9 @@ class TestMatrixLiveSmoke:
 
     The tests are ordered so that the most fundamental operations
     (start/stop/health) come first, followed by delivery, followed by
-    optional suppression checks that may be flaky without a second user.
+    echo suppression, allowlist enforcement, restart idempotency, and
+    replay smoke tests.  Suppression and allowlist checks may be flaky
+    without a second user but are included for defense-in-depth coverage.
     """
 
     # -- Lifecycle: start, health, stop ------------------------------------
@@ -408,3 +425,411 @@ class TestMatrixLiveSmoke:
         # is defense-in-depth.  Storage is authoritative for dedup.
         # Deterministic coverage: tests/test_matrix_adapter.py.
         pass
+
+    # -- Send and verify: echo suppression round-trip ------------------------
+
+    async def test_live_send_and_receive(self):
+        """Send a message via deliver(), wait for sync, verify echo suppression.
+
+        Validates the complete send → sync → suppress pipeline:
+
+        1. ``deliver()`` sends an ``m.text`` message to ``MATRIX_ROOM_ID``.
+        2. The nio sync loop receives the echo event from the homeserver.
+        3. ``_on_room_message`` suppresses the self-echo because
+           ``event.sender == config.user_id``.
+        4. ``publish_inbound`` is never called with the echo event.
+
+        The test waits 5 seconds to give the sync loop time to process
+        the echo.  In a quiet room ``publish_inbound`` should have zero
+        calls; in an active room none of the calls should correspond to
+        our sent message.
+
+        **Caveat**: without a second Matrix account we cannot verify that
+        non-self messages *are* published.  Unit tests in
+        ``test_matrix_lifecycle.py`` cover the non-self path.
+        """
+        from medre.adapters.matrix.adapter import MatrixAdapter
+        from medre.adapters.base import AdapterContext
+        from medre.core.rendering.renderer import RenderingResult
+
+        publish_mock = AsyncMock()
+        ctx = AdapterContext(
+            adapter_id="matrix-live-smoke",
+            event_bus=None,
+            publish_inbound=publish_mock,
+            logger=logging.getLogger("test.matrix-live.echo"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+        )
+
+        adapter = MatrixAdapter(_make_config())
+        await adapter.start(ctx)
+        try:
+            ts = int(time.time())
+            body_text = (
+                f"MEDRE echo-suppression live test (ts={ts}) — safe to ignore"
+            )
+            result = RenderingResult(
+                event_id=f"live-echo-{ts}",
+                target_adapter="matrix-live-smoke",
+                target_channel=MATRIX_ROOM_ID,
+                payload={
+                    "msgtype": "m.text",
+                    "body": body_text,
+                },
+                metadata={"renderer": "matrix", "test": "echo-suppression"},
+            )
+            delivery = await adapter.deliver(result)
+            assert delivery is not None, "deliver() returned None"
+            assert delivery.native_message_id is not None, (
+                "native_message_id is None — homeserver did not return event_id"
+            )
+            event_id_sent = delivery.native_message_id
+
+            # Give the sync loop time to process the echo event.
+            await asyncio.sleep(5.0)
+
+            # Self-message suppression should have blocked the echo.
+            # Verify no published event contains our sent event_id or body.
+            for call in publish_mock.call_args_list:
+                args = call.args
+                if args:
+                    event = args[0]
+                    # Check native refs for our sent event_id
+                    native_refs = (
+                        event.metadata.native_refs
+                        if hasattr(event, "metadata") and event.metadata
+                        else ()
+                    )
+                    for ref in native_refs:
+                        if hasattr(ref, "native_message_id"):
+                            assert ref.native_message_id != event_id_sent, (
+                                f"Self-echo leaked through: event with native "
+                                f"message id {event_id_sent!r} was published "
+                                f"inbound"
+                            )
+                    # Check payload body doesn't match our test message
+                    if hasattr(event, "payload") and isinstance(event.payload, dict):
+                        assert event.payload.get("text") != body_text, (
+                            "Self-echo leaked through: payload body matches "
+                            "our sent message"
+                        )
+        finally:
+            await adapter.stop()
+
+    # -- Allowlist enforcement -----------------------------------------------
+
+    async def test_live_allowlist_enforcement(self):
+        """Verify room_allowlist blocks inbound events from non-allowlisted rooms.
+
+        Strategy:
+
+        1. Create an adapter whose ``room_allowlist`` does NOT include
+           ``MATRIX_ROOM_ID``.  Start it and verify health is ``healthy``
+           (allowlist filtering is an inbound concern, not a startup gate).
+        2. Send a message to ``MATRIX_ROOM_ID`` — outbound delivery succeeds
+           because ``deliver()`` does not apply the allowlist.
+        3. Wait for the sync echo — ``_on_room_message`` filters the echo
+           at the allowlist check (before the self-message suppression).
+        4. Stop the adapter.
+        5. Create a second adapter with ``room_allowlist={MATRIX_ROOM_ID}``.
+           Start it and verify health is ``healthy``.
+        6. Stop the second adapter.
+
+        **Caveat**: with a single Matrix account the allowlist filter and
+        self-message suppression both fire for our own messages.  Unit
+        tests in ``test_matrix_lifecycle.py`` and ``test_matrix_codec.py``
+        isolate the allowlist check from self-message suppression.
+        """
+        from medre.adapters.matrix.adapter import MatrixAdapter
+        from medre.adapters.base import AdapterContext
+        from medre.core.rendering.renderer import RenderingResult
+
+        wrong_allowlist = {"!nonexistent-room:example.com"}
+
+        # --- Phase 1: wrong allowlist ---
+        config_blocked = _make_config_with_allowlist(wrong_allowlist)
+        publish_blocked = AsyncMock()
+        ctx_blocked = AdapterContext(
+            adapter_id="matrix-live-allowlist-blocked",
+            event_bus=None,
+            publish_inbound=publish_blocked,
+            logger=logging.getLogger("test.matrix-live.allowlist-blocked"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+        )
+        adapter_blocked = MatrixAdapter(config_blocked)
+        await adapter_blocked.start(ctx_blocked)
+        try:
+            info = await adapter_blocked.health_check()
+            assert info.health == "healthy", (
+                f"Expected healthy with wrong allowlist (inbound filter), "
+                f"got {info.health!r}"
+            )
+
+            # Outbound delivery should still work (allowlist is inbound-only)
+            ts = int(time.time())
+            result = RenderingResult(
+                event_id=f"live-allowlist-blocked-{ts}",
+                target_adapter="matrix-live-allowlist-blocked",
+                target_channel=MATRIX_ROOM_ID,
+                payload={
+                    "msgtype": "m.text",
+                    "body": (
+                        f"MEDRE allowlist blocked test (ts={ts}) "
+                        f"— safe to ignore"
+                    ),
+                },
+                metadata={
+                    "renderer": "matrix",
+                    "test": "allowlist-blocked",
+                },
+            )
+            delivery = await adapter_blocked.deliver(result)
+            assert delivery is not None, "deliver() returned None"
+            assert delivery.native_message_id is not None, (
+                "native_message_id is None with wrong allowlist"
+            )
+
+            # Wait for sync echo — should be suppressed by allowlist
+            # (and also by self-message suppression as defense-in-depth).
+            await asyncio.sleep(3.0)
+
+            # Verify no inbound events were published for our message.
+            # With wrong allowlist, the allowlist filter fires BEFORE
+            # self-message suppression in _on_room_message.
+            for call in publish_blocked.call_args_list:
+                args = call.args
+                if args:
+                    event = args[0]
+                    if hasattr(event, "payload") and isinstance(event.payload, dict):
+                        assert (
+                            event.payload.get("text")
+                            != f"MEDRE allowlist blocked test (ts={ts}) "
+                            f"— safe to ignore"
+                        ), (
+                            "Allowlist enforcement failure: message from "
+                            "non-allowlisted room was published inbound"
+                        )
+        finally:
+            await adapter_blocked.stop()
+
+        # --- Phase 2: correct allowlist ---
+        assert MATRIX_ROOM_ID is not None  # narrowed by @require_live gate
+        config_allowed = _make_config_with_allowlist({MATRIX_ROOM_ID})
+        ctx_allowed = AdapterContext(
+            adapter_id="matrix-live-allowlist-allowed",
+            event_bus=None,
+            publish_inbound=AsyncMock(),
+            logger=logging.getLogger("test.matrix-live.allowlist-allowed"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+        )
+        adapter_allowed = MatrixAdapter(config_allowed)
+        await adapter_allowed.start(ctx_allowed)
+        try:
+            info = await adapter_allowed.health_check()
+            assert info.health == "healthy", (
+                f"Expected healthy with correct allowlist, "
+                f"got {info.health!r}"
+            )
+        finally:
+            await adapter_allowed.stop()
+
+    # -- Health check operational --------------------------------------------
+
+    async def test_live_health_check_operational(self):
+        """Verify health_check reflects connected state with full AdapterInfo.
+
+        After ``start()``, health_check must return:
+
+        - ``health == "healthy"`` (client is logged in)
+        - ``platform == "matrix"``
+        - ``role == AdapterRole.PRESENTATION``
+        - ``adapter_id`` matches config
+
+        After ``stop()``, health_check must return:
+
+        - ``health == "unknown"`` (client is None)
+        - ``platform`` and ``role`` still populated
+        """
+        from medre.adapters.matrix.adapter import MatrixAdapter
+        from medre.adapters.base import AdapterContext, AdapterRole
+
+        adapter = MatrixAdapter(_make_config())
+        ctx = AdapterContext(
+            adapter_id="matrix-live-smoke",
+            event_bus=None,
+            publish_inbound=AsyncMock(),
+            logger=logging.getLogger("test.matrix-live.health"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+        )
+
+        # Before start
+        info = await adapter.health_check()
+        assert info.health == "unknown"
+        assert info.platform == "matrix"
+
+        # After start — full operational state
+        await adapter.start(ctx)
+        try:
+            info = await adapter.health_check()
+            assert info.health == "healthy"
+            assert info.platform == "matrix"
+            assert info.role == AdapterRole.PRESENTATION
+            assert info.adapter_id == "matrix-live-smoke"
+        finally:
+            await adapter.stop()
+
+        # After stop — back to unknown
+        info = await adapter.health_check()
+        assert info.health == "unknown"
+        assert info.platform == "matrix"
+
+    # -- Restart idempotency ------------------------------------------------
+
+    async def test_live_restart_idempotency(self):
+        """Full start → stop → start → stop cycle verifies idempotent restart.
+
+        Exercises the complete restart lifecycle:
+
+        1. Start adapter → verify healthy
+        2. Stop adapter → verify unknown
+        3. Start adapter again → verify healthy
+        4. Stop adapter again → verify unknown
+
+        This catches state leaks, stale client references, and unclean
+        shutdown that would prevent a second start.
+        """
+        from medre.adapters.matrix.adapter import MatrixAdapter
+        from medre.adapters.base import AdapterContext
+
+        config = _make_config()
+
+        # Cycle 1
+        ctx1 = AdapterContext(
+            adapter_id="matrix-live-smoke",
+            event_bus=None,
+            publish_inbound=AsyncMock(),
+            logger=logging.getLogger("test.matrix-live.restart"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+        )
+        adapter = MatrixAdapter(config)
+        await adapter.start(ctx1)
+        info = await adapter.health_check()
+        assert info.health == "healthy", (
+            f"Cycle 1 start: expected healthy, got {info.health!r}"
+        )
+        await adapter.stop()
+        info = await adapter.health_check()
+        assert info.health == "unknown", (
+            f"Cycle 1 stop: expected unknown, got {info.health!r}"
+        )
+
+        # Cycle 2 — same adapter instance, new context
+        ctx2 = AdapterContext(
+            adapter_id="matrix-live-smoke",
+            event_bus=None,
+            publish_inbound=AsyncMock(),
+            logger=logging.getLogger("test.matrix-live.restart"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+        )
+        await adapter.start(ctx2)
+        info = await adapter.health_check()
+        assert info.health == "healthy", (
+            f"Cycle 2 start: expected healthy, got {info.health!r}"
+        )
+        await adapter.stop()
+        info = await adapter.health_check()
+        assert info.health == "unknown", (
+            f"Cycle 2 stop: expected unknown, got {info.health!r}"
+        )
+
+    # -- Replay smoke --------------------------------------------------------
+
+    async def test_live_replay_smoke(self):
+        """Verify the adapter supports re-delivery of a previously sent event.
+
+        This test sends an event, then re-sends the same logical event
+        (same ``canonical_event_id`` but a new ``native_message_id``) to
+        verify:
+
+        1. Both sends succeed (Matrix allows duplicate content).
+        2. The second ``deliver()`` returns a **new** ``native_message_id``
+           (Matrix assigns unique event IDs even for identical content).
+        3. Both deliveries target the same room.
+
+        This is **not** a core replay-engine test; see ``test_replay.py``
+        for the storage-level replay mechanism.  This test validates that
+        the Matrix adapter correctly supports the re-delivery pattern the
+        replay engine would invoke — the adapter returns delivery results
+        with distinct native refs that the pipeline can persist.
+        """
+        from medre.adapters.matrix.adapter import MatrixAdapter
+        from medre.adapters.base import AdapterContext
+        from medre.core.rendering.renderer import RenderingResult
+
+        adapter = MatrixAdapter(_make_config())
+        ctx = AdapterContext(
+            adapter_id="matrix-live-smoke",
+            event_bus=None,
+            publish_inbound=AsyncMock(),
+            logger=logging.getLogger("test.matrix-live.replay"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+        )
+        await adapter.start(ctx)
+        try:
+            ts = int(time.time())
+            canonical_id = f"live-replay-{ts}"
+
+            # First send
+            result1 = RenderingResult(
+                event_id=canonical_id,
+                target_adapter="matrix-live-smoke",
+                target_channel=MATRIX_ROOM_ID,
+                payload={
+                    "msgtype": "m.text",
+                    "body": f"MEDRE replay smoke test (ts={ts}) — safe to ignore",
+                },
+                metadata={"renderer": "matrix", "test": "replay-smoke"},
+            )
+            delivery1 = await adapter.deliver(result1)
+            assert delivery1 is not None, "First deliver() returned None"
+            assert delivery1.native_message_id is not None, (
+                "First delivery: native_message_id is None"
+            )
+            native_id_1 = delivery1.native_message_id
+
+            # Second send — same canonical ID, identical payload
+            result2 = RenderingResult(
+                event_id=canonical_id,
+                target_adapter="matrix-live-smoke",
+                target_channel=MATRIX_ROOM_ID,
+                payload={
+                    "msgtype": "m.text",
+                    "body": f"MEDRE replay smoke test (ts={ts}) — safe to ignore",
+                },
+                metadata={"renderer": "matrix", "test": "replay-smoke"},
+            )
+            delivery2 = await adapter.deliver(result2)
+            assert delivery2 is not None, "Second deliver() returned None"
+            assert delivery2.native_message_id is not None, (
+                "Second delivery: native_message_id is None"
+            )
+            native_id_2 = delivery2.native_message_id
+
+            # Matrix assigns unique event IDs even for identical content.
+            assert native_id_1 != native_id_2, (
+                f"Expected distinct native event IDs for two sends, "
+                f"got {native_id_1!r} for both"
+            )
+
+            # Both should target the same room.
+            assert delivery1.native_channel_id == MATRIX_ROOM_ID
+            assert delivery2.native_channel_id == MATRIX_ROOM_ID
+        finally:
+            await adapter.stop()

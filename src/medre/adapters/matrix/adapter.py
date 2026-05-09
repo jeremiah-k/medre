@@ -221,6 +221,16 @@ class MatrixAdapter(BaseAdapter):
         -------
         AdapterInfo
             Metadata describing the adapter's state.
+
+        Operational diagnostics
+        -----------------------
+        Callers that need fine-grained operational state (connected,
+        logged_in, sync_task_running, last_sync_error) should extract
+        it from the adapter's internal attributes and pass it as the
+        ``details`` dict to
+        :func:`~medre.core.runtime.health.normalize_adapter_health`.
+        See :func:`medre.runner.collect_diagnostics` for the canonical
+        extraction pattern.
         """
         if self._sync_failure is not None:
             health = "failed"
