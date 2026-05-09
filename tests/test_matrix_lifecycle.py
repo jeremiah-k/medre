@@ -181,6 +181,30 @@ class TestMatrixAdapterStart:
         # Client should be cleaned up
         assert adapter._client is None
 
+    async def test_start_passes_configured_store_path_to_async_client(self, mock_nio):
+        """start() forwards config.store_path to nio.AsyncClient."""
+        config = _make_config(store_path="/tmp/nio-store")
+        adapter = MatrixAdapter(config)
+        try:
+            await adapter.start(_make_context())
+            mock_nio.AsyncClient.assert_called_once()
+            _, kwargs = mock_nio.AsyncClient.call_args
+            assert kwargs["store_path"] == "/tmp/nio-store"
+        finally:
+            await adapter.stop()
+
+    async def test_start_passes_none_store_path_when_unset(self, mock_nio):
+        """start() passes store_path=None when config.store_path is not set."""
+        config = _make_config()  # store_path defaults to None
+        adapter = MatrixAdapter(config)
+        try:
+            await adapter.start(_make_context())
+            mock_nio.AsyncClient.assert_called_once()
+            _, kwargs = mock_nio.AsyncClient.call_args
+            assert kwargs["store_path"] is None
+        finally:
+            await adapter.stop()
+
 
 # ===================================================================
 # TestMatrixAdapterStop
