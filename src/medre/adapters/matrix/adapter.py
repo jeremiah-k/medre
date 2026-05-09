@@ -62,7 +62,8 @@ class MatrixAdapter(BaseAdapter):
 
     __slots__ = (
         "_config", "_capabilities", "_client", "_sync_task",
-        "_codec", "_relation_handler", "_envelope_handler", "ctx",
+        "_sync_failure", "_codec", "_relation_handler",
+        "_envelope_handler", "ctx",
     )
 
     adapter_id: str
@@ -76,6 +77,7 @@ class MatrixAdapter(BaseAdapter):
         self._capabilities = _MATRIX_CAPABILITIES
         self._client: Any = None
         self._sync_task: asyncio.Task | None = None
+        self._sync_failure: Exception | None = None
         self._codec = MatrixCodec(config.adapter_id, config)
         self._relation_handler = MatrixRelationHandler()
         self._envelope_handler = MatrixMetadataEnvelope
@@ -131,9 +133,7 @@ class MatrixAdapter(BaseAdapter):
         )
 
         try:
-            self._sync_task = asyncio.create_task(
-                self._client.sync_forever(timeout=self._config.sync_timeout_ms)
-            )
+            self._sync_task = asyncio.create_task(self._run_sync())
         except Exception as exc:
             await self._client.close()
             self._client = None
@@ -143,23 +143,55 @@ class MatrixAdapter(BaseAdapter):
 
         ctx.logger.info("MatrixAdapter %s started", self.adapter_id)
 
+    async def _run_sync(self) -> None:
+        """Wrap ``sync_forever`` and record any failure.
+
+        If ``sync_forever`` raises (e.g. network error, auth expiry), the
+        exception is captured in ``_sync_failure`` and logged so that
+        :meth:`health_check` can report the degraded state and :meth:`stop`
+        can clean up without unobserved-task-exception warnings.
+        """
+        try:
+            await self._client.sync_forever(timeout=self._config.sync_timeout_ms)
+        except asyncio.CancelledError:
+            # Normal cancellation during stop().  Suppress so the task
+            # completes cleanly without an unhandled CancelledError.
+            return
+        except Exception as exc:
+            self._sync_failure = exc
+            if self.ctx is not None:
+                self.ctx.logger.error(
+                    "MatrixAdapter %s: sync task failed: %s",
+                    self.adapter_id, exc,
+                )
+
     async def stop(self, timeout: float = 5.0) -> None:
         """Stop syncing and disconnect from the homeserver.
 
         Idempotent: safe to call multiple times or before start().
         """
         if self._sync_task is not None:
-            self._sync_task.cancel()
+            if not self._sync_task.done():
+                self._sync_task.cancel()
+                try:
+                    await asyncio.wait_for(self._sync_task, timeout=timeout)
+                except asyncio.CancelledError:
+                    pass
+                except asyncio.TimeoutError:
+                    if self.ctx is not None:
+                        self.ctx.logger.warning(
+                            "MatrixAdapter %s: sync task did not cancel within %ss",
+                            self.adapter_id, timeout,
+                        )
+            # Always retrieve any pending exception to fully drain the
+            # task.  Without this, a CancelledError left in the underlying
+            # _run_sync coroutine can trigger "RuntimeWarning: coroutine
+            # was never awaited" during GC — an artifact of the concrete
+            # Task/coroutine interaction on CPython, not a real bug.
             try:
-                await asyncio.wait_for(self._sync_task, timeout=timeout)
-            except asyncio.CancelledError:
+                self._sync_task.exception()
+            except (asyncio.CancelledError, Exception):
                 pass
-            except asyncio.TimeoutError:
-                if self.ctx is not None:
-                    self.ctx.logger.warning(
-                        "MatrixAdapter %s: sync task did not cancel within %ss",
-                        self.adapter_id, timeout,
-                    )
             self._sync_task = None
 
         if self._client is not None:
@@ -184,7 +216,9 @@ class MatrixAdapter(BaseAdapter):
         AdapterInfo
             Metadata describing the adapter's state.
         """
-        if self._client is None:
+        if self._sync_failure is not None:
+            health = "failed"
+        elif self._client is None:
             health = "unknown"
         elif getattr(self._client, "logged_in", False):
             health = "healthy"
