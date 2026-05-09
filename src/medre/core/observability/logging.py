@@ -18,6 +18,73 @@ import sys
 from datetime import datetime, timezone
 from typing import Any
 
+# ---------------------------------------------------------------------------
+# Redaction
+# ---------------------------------------------------------------------------
+
+_SENSITIVE_KEYS: frozenset[str] = frozenset(
+    {
+        "token",
+        "access_token",
+        "api_key",
+        "password",
+        "secret",
+        "credential",
+        "cookie",
+        "session",
+    }
+)
+
+_REDACTED: str = "[REDACTED]"
+
+# Attributes injected by the logging module itself — never include these as
+# extra fields in structured JSON output.
+_LOG_RECORD_INTERNALS: frozenset[str] = frozenset(
+    {
+        "name",
+        "msg",
+        "args",
+        "created",
+        "relativeCreated",
+        "exc_info",
+        "exc_text",
+        "stack_info",
+        "lineno",
+        "funcName",
+        "filename",
+        "module",
+        "pathname",
+        "thread",
+        "threadName",
+        "process",
+        "processName",
+        "levelname",
+        "levelno",
+        "message",
+        "msecs",
+        "taskName",
+    }
+)
+
+
+def _redact_value(key: str, value: Any) -> Any:
+    """Return ``[REDACTED]`` when *key* matches a sensitive key pattern.
+
+    Comparison is case-insensitive and matches both exact names and names
+    that **contain** a sensitive token (e.g. ``"user_password_hash"``
+    matches because it contains ``"password"``).
+    """
+    lower = key.lower()
+    for sensitive in _SENSITIVE_KEYS:
+        if sensitive in lower:
+            return _REDACTED
+    return value
+
+
+def _redact_context(data: dict[str, Any]) -> dict[str, Any]:
+    """Return a shallow copy of *data* with sensitive values redacted."""
+    return {k: _redact_value(k, v) for k, v in data.items()}
+
 
 # ---------------------------------------------------------------------------
 # JSON formatter
@@ -28,6 +95,8 @@ class _JsonFormatter(logging.Formatter):
     """Minimal JSON log formatter for structured output.
 
     Each log record is serialised as a single JSON object on one line.
+    Safe extra fields attached to the :class:`logging.LogRecord` are
+    included under the ``"extra"`` key, with sensitive values redacted.
     """
 
     def format(self, record: logging.LogRecord) -> str:
@@ -39,6 +108,20 @@ class _JsonFormatter(logging.Formatter):
         }
         if record.exc_info and record.exc_info[1] is not None:
             entry["exception"] = self.formatException(record.exc_info)
+
+        # Collect safe extra fields (not internal logging attributes).
+        extra_fields: dict[str, Any] = {}
+        for key, value in record.__dict__.items():
+            if key.startswith("_"):
+                continue
+            if key in _LOG_RECORD_INTERNALS:
+                continue
+            if key in entry:
+                continue
+            extra_fields[key] = value
+        if extra_fields:
+            entry["extra"] = _redact_context(extra_fields)
+
         return json.dumps(entry, default=str)
 
 
@@ -134,10 +217,13 @@ def diagnostic_event(
     **context:
         Arbitrary key–value pairs appended to the log entry.
     """
+    safe_context = _redact_context(context) if context else {}
     _diagnostic_logger.warning(
         "diagnostic event_id=%s category=%s message=%s %s",
         event_id,
         category,
         message,
-        " ".join(f"{k}={v!r}" for k, v in context.items()) if context else "",
+        " ".join(f"{k}={v!r}" for k, v in safe_context.items())
+        if safe_context
+        else "",
     )

@@ -171,8 +171,11 @@ class AdapterInfo:
     capabilities:
         The adapter's declared capabilities.
     health:
-        Current health status: ``"healthy"``, ``"degraded"``, or
-        ``"failed"``.
+        Current health status.  Adapters should use one of the six
+        protocol-neutral strings defined in
+        :data:`~medre.core.runtime.health.VALID_HEALTH_STRINGS`:
+        ``"healthy"``, ``"degraded"``, ``"failed"``, ``"unknown"``,
+        ``"starting"``, or ``"stopping"``.  Defaults to ``"unknown"``.
     """
 
     adapter_id: str

@@ -334,6 +334,22 @@ class EventBus:
                 event.event_id,
             )
 
+    def status_summary(self) -> dict[str, object]:
+        """Return a read-only snapshot of bus state for diagnostics.
+
+        Returns a plain dict safe for JSON serialisation.  Does **not**
+        expose handler references or internal lock state.
+
+        Returns
+        -------
+        dict[str, object]
+            Keys: ``subscription_count``, ``middleware_count``.
+        """
+        return {
+            "subscription_count": len(self._subscriptions),
+            "middleware_count": len(self._middleware),
+        }
+
     @staticmethod
     def _type_matches(subscription_type: str, event_kind: str) -> bool:
         """Return ``True`` if *subscription_type* matches *event_kind*.

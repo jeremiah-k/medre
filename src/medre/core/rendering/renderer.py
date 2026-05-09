@@ -219,6 +219,23 @@ class RenderingPipeline:
         not registered."""
         return self._adapter_platforms.get(adapter_id)
 
+    def status_summary(self) -> dict[str, object]:
+        """Return a read-only snapshot of pipeline state for diagnostics.
+
+        Returns a plain dict safe for JSON serialisation.  Does **not**
+        expose renderer references.
+
+        Returns
+        -------
+        dict[str, object]
+            Keys: ``renderer_count``, ``renderer_names``, ``platform_registry``.
+        """
+        return {
+            "renderer_count": len(self._renderers),
+            "renderer_names": sorted(r.name for _, _, r in self._renderers),
+            "platform_registry": dict(sorted(self._adapter_platforms.items())),
+        }
+
     # -- Rendering ----------------------------------------------------------
 
     async def render(

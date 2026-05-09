@@ -11,7 +11,8 @@ Re-exported symbols
 * :class:`StorageInitializationError` – initialisation failure.
 * :class:`SchemaValidationError` – schema validation failure.
 * From :mod:`~medre.core.storage.replay`:
-  ``ReplayMode``, ``ReplayRequest``, ``ReplayResult``, ``ReplayEngine``.
+  ``ReplayMode``, ``ReplayRequest``, ``ReplayResult``, ``ReplayEngine``,
+  ``ReplaySummary``, ``collect_replay_summary``, ``_build_summary``.
 """
 
 from medre.core.storage.backend import (
@@ -28,6 +29,9 @@ from medre.core.storage.replay import (
     ReplayMode,
     ReplayRequest,
     ReplayResult,
+    ReplaySummary,
+    _build_summary,
+    collect_replay_summary,
 )
 from medre.core.storage.sqlite import SQLiteStorage
 
@@ -38,10 +42,13 @@ __all__ = [
     "ReplayMode",
     "ReplayRequest",
     "ReplayResult",
+    "ReplaySummary",
     "SchemaValidationError",
     "SQLiteStorage",
     "StorageBackend",
     "StorageError",
     "StorageGuarantees",
     "StorageInitializationError",
+    "_build_summary",
+    "collect_replay_summary",
 ]
