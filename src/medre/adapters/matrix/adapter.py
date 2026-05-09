@@ -5,10 +5,8 @@
 messages into the MEDRE canonical event stream and outbound rendered
 payloads back to Matrix rooms.
 
-**Soft dependency**: all ``nio`` imports are guarded behind
-:mod:`~medre.adapters.matrix.compat`.  If ``mindroom-nio`` is not
-installed the adapter raises :class:`~medre.adapters.matrix.errors.MatrixConnectionError`
-on :meth:`start`.
+All client lifecycle (creation, login, sync, teardown) is delegated to
+:class:`~medre.adapters.matrix.session.MatrixSession`.
 """
 from __future__ import annotations
 
@@ -29,6 +27,7 @@ from medre.adapters.matrix.config import MatrixConfig
 from medre.adapters.matrix.errors import MatrixConnectionError, MatrixSendError
 from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
 from medre.adapters.matrix.relations import MatrixRelationHandler
+from medre.adapters.matrix.session import MatrixSession
 from medre.core.rendering.renderer import RenderingResult
 
 # Capabilities for the Matrix presentation adapter.
@@ -57,6 +56,8 @@ class MatrixAdapter(BaseAdapter):
     room messages, and publishes them as canonical events.  Outbound
     rendered payloads are sent via ``room_send``.
 
+    Client lifecycle is delegated to :class:`MatrixSession`.
+
     Parameters
     ----------
     config:
@@ -64,8 +65,10 @@ class MatrixAdapter(BaseAdapter):
     """
 
     __slots__ = (
-        "_config", "_capabilities", "_client", "_sync_task",
-        "_sync_failure", "_codec", "_relation_handler",
+        "_config", "_capabilities", "_session",
+        "_client", "_sync_task",
+        "_sync_failure_stored",
+        "_codec", "_relation_handler",
         "_envelope_handler", "ctx",
     )
 
@@ -78,23 +81,32 @@ class MatrixAdapter(BaseAdapter):
         self._config = config
         self.adapter_id = config.adapter_id
         self._capabilities = _MATRIX_CAPABILITIES
+        self._session: MatrixSession | None = None
         self._client: Any = None
         self._sync_task: asyncio.Task | None = None
-        self._sync_failure: Exception | None = None
+        self._sync_failure_stored: Exception | None = None
         self._codec = MatrixCodec(config.adapter_id, config)
         self._relation_handler = MatrixRelationHandler()
         self._envelope_handler = MatrixMetadataEnvelope
         self.ctx: AdapterContext | None = None
+
+    @property
+    def _sync_failure(self) -> Exception | None:
+        """Last sync error — reads from live session when available."""
+        if self._session is not None and self._session.last_sync_error is not None:
+            return self._session.last_sync_error
+        return self._sync_failure_stored
+
+    @_sync_failure.setter
+    def _sync_failure(self, value: Exception | None) -> None:
+        self._sync_failure_stored = value
 
     # -- Lifecycle ----------------------------------------------------------
 
     async def start(self, ctx: AdapterContext) -> None:
         """Connect to the Matrix homeserver and begin syncing.
 
-        The ``store_path`` from :attr:`self._config.store_path` is passed
-        through to the ``nio.AsyncClient`` constructor so that session
-        keys and other persistent data are stored on disk when a path
-        is provided.  This is required for future E2EE support.
+        Delegates client lifecycle to :class:`MatrixSession`.
 
         Parameters
         ----------
@@ -104,8 +116,8 @@ class MatrixAdapter(BaseAdapter):
         Raises
         ------
         MatrixConnectionError
-            If ``mindroom-nio`` is not installed or the client fails
-            to connect.
+            If ``mindroom-nio`` is not installed, the client fails
+            to connect, or E2EE preconditions are unmet.
         """
         self._sync_failure = None  # Reset from any previous failure
         self.ctx = ctx
@@ -115,107 +127,48 @@ class MatrixAdapter(BaseAdapter):
                 "mindroom-nio not installed; pip install mindroom-nio"
             )
 
-        import nio
+        # E2EE mode guards — check preconditions before starting session.
+        mode = self._config.encryption_mode
+        if mode == "e2ee_required":
+            from medre.adapters.matrix.compat import HAS_E2EE
 
-        self._client = nio.AsyncClient(
-            homeserver=self._config.homeserver,
-            user=self._config.user_id,
-            device_id=self._config.device_id or "",
-            store_path=self._config.store_path,
-        )
-        self._client.restore_login(
-            user_id=self._config.user_id,
-            device_id=self._config.device_id or "",
-            access_token=self._config.access_token,
-        )
-
-        if not getattr(self._client, "logged_in", False):
-            await self._client.close()
-            self._client = None
+            if not HAS_E2EE:
+                raise MatrixConnectionError(
+                    "E2EE runtime is not implemented yet; "
+                    "e2ee_required mode cannot start without crypto deps"
+                )
+            # If we reach here with HAS_E2EE=True in the future, we still
+            # gate on runtime implementation.
             raise MatrixConnectionError(
-                f"failed to authenticate as {self._config.user_id} "
-                f"on {self._config.homeserver}"
+                "E2EE runtime is not implemented yet; "
+                "e2ee_required mode is not operational"
             )
 
-        self._client.add_event_callback(
-            self._on_room_message,
-            (nio.RoomMessageText, nio.RoomMessageNotice, nio.RoomMessageEmote),
+        self._session = MatrixSession(
+            config=self._config,
+            message_callback=self._on_room_message,
         )
+        await self._session.start()
 
-        sync_coro = self._run_sync()
-        try:
-            self._sync_task = asyncio.create_task(sync_coro)
-        except Exception as exc:
-            sync_coro.close()
-            await self._client.close()
-            self._client = None
-            raise MatrixConnectionError(
-                f"failed to start sync for {self._config.user_id}: {exc}"
-            ) from exc
+        # Mirror session state onto adapter for backward-compatible access.
+        self._client = self._session.client
+        self._sync_task = self._session._sync_task
 
         ctx.logger.info("MatrixAdapter %s started", self.adapter_id)
-
-    async def _run_sync(self) -> None:
-        """Wrap ``sync_forever`` and record any failure.
-
-        If ``sync_forever`` raises (e.g. network error, auth expiry), the
-        exception is captured in ``_sync_failure`` and logged so that
-        :meth:`health_check` can report the degraded state and :meth:`stop`
-        can clean up without unobserved-task-exception warnings.
-        """
-        try:
-            await self._client.sync_forever(timeout=self._config.sync_timeout_ms)
-        except asyncio.CancelledError:
-            # Normal cancellation during stop().  Suppress so the task
-            # completes cleanly without an unhandled CancelledError.
-            return
-        except Exception as exc:
-            self._sync_failure = exc
-            if self.ctx is not None:
-                self.ctx.logger.error(
-                    "MatrixAdapter %s: sync task failed: %s",
-                    self.adapter_id, exc,
-                )
 
     async def stop(self, timeout: float = 5.0) -> None:
         """Stop syncing and disconnect from the homeserver.
 
         Idempotent: safe to call multiple times or before start().
         """
-        if self._sync_task is not None:
-            if not self._sync_task.done():
-                self._sync_task.cancel()
-                try:
-                    await asyncio.wait_for(self._sync_task, timeout=timeout)
-                except asyncio.CancelledError:
-                    pass
-                except asyncio.TimeoutError:
-                    if self.ctx is not None:
-                        self.ctx.logger.warning(
-                            "MatrixAdapter %s: sync task did not cancel within %ss",
-                            self.adapter_id, timeout,
-                        )
-            # Always retrieve any pending exception to fully drain the
-            # task.  Without this, a CancelledError left in the underlying
-            # _run_sync coroutine can trigger "RuntimeWarning: coroutine
-            # was never awaited" during GC — an artifact of the concrete
-            # Task/coroutine interaction on CPython, not a real bug.
-            try:
-                self._sync_task.exception()
-            except (asyncio.CancelledError, Exception):
-                pass
-            self._sync_task = None
+        if self._session is not None:
+            # Capture failure before stopping for health_check.
+            self._sync_failure_stored = self._session.last_sync_error
+            await self._session.stop(timeout=timeout)
+            self._session = None
 
-        if self._client is not None:
-            try:
-                self._client.stop_sync_forever()
-            except Exception:
-                pass
-            try:
-                await self._client.close()
-            except Exception:
-                pass
-            self._client = None
+        self._client = None
+        self._sync_task = None
 
         if self.ctx is not None:
             self.ctx.logger.info("MatrixAdapter %s stopped", self.adapter_id)
@@ -238,7 +191,14 @@ class MatrixAdapter(BaseAdapter):
         See :func:`medre.runner.collect_diagnostics` for the canonical
         extraction pattern.
         """
-        if self._sync_failure is not None:
+        # Check for sync failure — from adapter-level captured failure,
+        # from live session, or from _sync_failure attribute.
+        # Propagate session failure to adapter attribute for test access.
+        if self._session is not None and self._session.last_sync_error is not None:
+            self._sync_failure = self._session.last_sync_error
+        sync_failure = self._sync_failure
+
+        if sync_failure is not None:
             health = "failed"
         elif self._client is None:
             health = "unknown"
@@ -265,9 +225,8 @@ class MatrixAdapter(BaseAdapter):
         content dict already rendered by :class:`~medre.adapters.matrix.renderer.MatrixRenderer`.
 
         On success, returns an :class:`AdapterDeliveryResult` populated
-        with the ``event_id`` from the homeserver's ``RoomSendResponse``
-        and the ``room_id`` as the native channel ID.  If the response
-        lacks an ``event_id``, the result is returned without one (the
+        with the ``event_id`` from the homeserver's ``RoomSendResponse``.
+        If the response lacks an ``event_id``, the result is returned without one (the
         pipeline will not store a native ref in that case).
 
         Parameters
@@ -286,7 +245,8 @@ class MatrixAdapter(BaseAdapter):
             If the homeserver rejects the message or the client is not
             connected.
         """
-        if self._client is None:
+        client = self._client
+        if client is None:
             raise MatrixSendError("client is not connected")
 
         payload_room_id = result.payload.get("room_id")
@@ -301,7 +261,7 @@ class MatrixAdapter(BaseAdapter):
         content = dict(result.payload)
         content.pop("room_id", None)
 
-        response = await self._client.room_send(
+        response = await client.room_send(
             room_id=room_id,
             message_type="m.room.message",
             content=content,
@@ -401,3 +361,39 @@ class MatrixAdapter(BaseAdapter):
             The codec instance.
         """
         return self._codec
+
+    # -- Diagnostics --------------------------------------------------------
+
+    def diagnostics(self) -> dict[str, Any]:
+        """Return a dict of adapter diagnostics (no secrets).
+
+        Includes session diagnostics plus adapter-level fields.
+        """
+        if self._session is not None:
+            diag = self._session.diagnostics()
+            return {
+                "connected": diag.connected,
+                "logged_in": diag.logged_in,
+                "sync_task_running": diag.sync_task_running,
+                "last_sync_error": str(diag.last_sync_error) if diag.last_sync_error else None,
+                "store_path_configured": diag.store_path_configured,
+                "device_id_configured": diag.device_id_configured,
+                "encryption_mode": diag.encryption_mode,
+                "crypto_enabled": diag.crypto_enabled,
+                "last_crypto_error": diag.last_crypto_error,
+                "encrypted_room_seen": diag.encrypted_room_seen,
+                "undecryptable_event_count": diag.undecryptable_event_count,
+            }
+        return {
+            "connected": False,
+            "logged_in": False,
+            "sync_task_running": False,
+            "last_sync_error": None,
+            "store_path_configured": self._config.store_path is not None,
+            "device_id_configured": self._config.device_id is not None,
+            "encryption_mode": self._config.encryption_mode,
+            "crypto_enabled": False,
+            "last_crypto_error": None,
+            "encrypted_room_seen": False,
+            "undecryptable_event_count": 0,
+        }

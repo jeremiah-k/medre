@@ -13,6 +13,9 @@ dev = [
 matrix = [
     "mindroom-nio>=0.25",
 ]
+matrix-e2e = [
+    "mindroom-nio[e2e]>=0.25",
+]
 meshtastic = [
     "mtjk",
 ]

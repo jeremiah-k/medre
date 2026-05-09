@@ -10,6 +10,8 @@ Public symbols
   itself.
 * :class:`~medre.adapters.matrix.config.MatrixConfig` — configuration
   dataclass.
+* :class:`~medre.adapters.matrix.session.MatrixSession` — session
+  lifecycle boundary owning the nio client.
 * :class:`~medre.adapters.matrix.codec.MatrixCodec` — encode / decode
   helper.
 * :class:`~medre.adapters.matrix.renderer.MatrixRenderer` — platform
@@ -38,6 +40,7 @@ from medre.adapters.matrix.errors import (
 from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
 from medre.adapters.matrix.relations import MatrixRelationHandler
 from medre.adapters.matrix.renderer import MatrixRenderer
+from medre.adapters.matrix.session import MatrixSession
 
 __all__ = [
     "MatrixAdapter",
@@ -51,4 +54,5 @@ __all__ = [
     "MatrixRelationHandler",
     "MatrixRenderer",
     "MatrixSendError",
+    "MatrixSession",
 ]

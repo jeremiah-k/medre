@@ -175,7 +175,7 @@ class TestMatrixAdapterStart:
         """start() raises when asyncio.create_task fails."""
         config = _make_config()
         adapter = MatrixAdapter(config)
-        with patch("medre.adapters.matrix.adapter.asyncio.create_task", side_effect=RuntimeError("sync failed")):
+        with patch("medre.adapters.matrix.session.asyncio.create_task", side_effect=RuntimeError("sync failed")):
             with pytest.raises(MatrixConnectionError, match="failed to start sync"):
                 await adapter.start(_make_context())
         # Client should be cleaned up

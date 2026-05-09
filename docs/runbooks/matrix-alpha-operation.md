@@ -31,7 +31,7 @@ This runbook complements `docs/runbooks/matrix-live-smoke.md`. The smoke test va
 | Matrix homeserver | Synapse or Conduit, local or reachable over the network |
 | Bot account | A dedicated Matrix user, not your personal account |
 | Python | 3.11 or later |
-| Package install | `pip install -e ".[matrix]"` (installs `mindroom-nio`) |
+| Package install | `pip install -e ".[matrix]"` (installs `mindroom-nio`, plaintext alpha). Future E2EE: `pip install -e ".[matrix-e2e]"` (installs `mindroom-nio[e2e]` with crypto libs). |
 | Access token | Obtained via login API or Element UI |
 | A test room | Unencrypted, bot has joined it |
 | Network access | Your machine can reach the homeserver's HTTP(S) port |
@@ -104,7 +104,7 @@ Open Element, log in as the bot user, go to Settings, Help and About, and copy t
 
 Do not commit the token. Do not log the token. Do not paste it into chat. Set it as an environment variable and leave it there. The `MatrixConfig.__repr__` method redacts the token in log output, but you are responsible for not leaking it yourself.
 
-> **Note on E2EE.** Alpha authenticates with access tokens over plain HTTP(S). Future versions supporting E2EE will use `mindroom-nio[e2e]` as the dependency, which adds Olm/Megolm crypto libraries. The token handling mechanism will remain the same, but the runner and adapter will need to manage device keys and cross-signing in addition to the access token. E2EE mode will require stable `store_path` and `device_id` configuration (see section 8).
+> **Note on E2EE.** Alpha authenticates with access tokens over plain HTTP(S). The `.[matrix]` extra installs the base `mindroom-nio` package (no crypto). A separate `.[matrix-e2e]` extra is available that installs `mindroom-nio[e2e]` with Olm/Megolm crypto libraries — this is the future production target. Runtime encryption is not yet implemented; encrypted rooms remain unsupported until a future implementation tranche. When E2EE mode is delivered, the runner and adapter will manage device keys and cross-signing via a session boundary, and will require stable `store_path` and `device_id` configuration (see section 8).
 
 
 ## 5. Room Setup
@@ -263,11 +263,10 @@ pip install -e ".[matrix]"
 When E2EE support is implemented, Docker images and deployment scripts should install the E2EE-enabled dependency instead:
 
 ```
-pip install -e ".[matrix]"  # still works for plaintext
-pip install mindroom-nio[e2e]  # required for E2EE rooms
+pip install -e ".[matrix-e2e]"
 ```
 
-The E2EE extra adds Olm/Megolm native crypto libraries. Without it, attempting to operate in encrypted mode should produce a clear error (e.g., `ImportError` or a dedicated check), not a silent fallback to plaintext.
+The `.[matrix-e2e]` extra installs `mindroom-nio[e2e]`, which adds Olm/Megolm native crypto libraries (`vodozemac`), SQLite store dependencies (`peewee`), and related utilities. Without it, attempting to operate in encrypted mode should produce a clear error (e.g., `ImportError` or a dedicated check), not a silent fallback to plaintext.
 
 ### 8.4 Deferred E2EE capabilities
 
@@ -278,7 +277,7 @@ The following E2EE-related capabilities are **deferred** and not part of any cur
 - Room key import/export
 - Interactive device verification (emoji/QR)
 
-These will be addressed in a dedicated E2EE readiness contract when E2EE implementation begins. See the future `docs/contracts/25-matrix-e2ee-readiness.md` for the detailed plan.
+These will be addressed in a dedicated E2EE implementation tranche. See `docs/contracts/25-matrix-e2ee-readiness.md` for the detailed plan. The `.[matrix-e2e]` dependency extra now exists as a scaffold for that future work.
 
 ### 8.5 Future live/manual E2EE test harness
 
@@ -294,7 +293,7 @@ No implementation action is needed for this harness at this time.
 
 ## 9. Expected Logs and Diagnostics
 
-### 8.1 Healthy startup
+### 9.1 Healthy startup
 
 The runner logs a startup sequence. The key line from the adapter is:
 
@@ -304,7 +303,7 @@ MatrixAdapter matrix-alpha started
 
 Before that, you will see the runner's own startup lines (config loaded, PipelineRunner started). After the adapter starts, the runner logs initial diagnostics and then the "running" line. After that, the sync loop runs silently. There is no periodic "still alive" log. Silence is normal. The sync loop is long-polling the homeserver, waiting for new events.
 
-### 8.2 Inbound message received
+### 9.2 Inbound message received
 
 When someone sends a message in an allowlisted room, the `_on_room_message` callback fires. On success, you will see nothing in the logs (the event is published to the context silently). On failure, you will see an exception traceback:
 
@@ -314,7 +313,7 @@ Traceback (most recent call last):
   ...
 ```
 
-### 8.3 Self-message suppression
+### 9.3 Self-message suppression
 
 When the bot itself sends a message (including echoes of its own outbound messages via the sync loop), the adapter suppresses them. You will see:
 
@@ -324,7 +323,7 @@ MatrixAdapter matrix-alpha: suppressing self-message from @bot:localhost
 
 This is logged at DEBUG level. If your logger is configured for INFO or higher, you will not see it.
 
-### 8.4 Sync failure
+### 9.4 Sync failure
 
 If the sync loop crashes (network error, auth expiry, homeserver restart), the exception is captured internally. The next call to `health_check()` will return `health="failed"`. The error is logged:
 
@@ -332,7 +331,7 @@ If the sync loop crashes (network error, auth expiry, homeserver restart), the e
 MatrixAdapter matrix-alpha: sync task failed: <exception details>
 ```
 
-### 8.5 Health states
+### 9.5 Health states
 
 | State | Meaning |
 |-------|---------|

@@ -7,9 +7,14 @@ to verify the configuration before passing it to :class:`MatrixAdapter`.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Self
+from typing import Literal, Self
 
 from medre.adapters.matrix.errors import MatrixConfigError
+
+EncryptionMode = Literal["plaintext", "e2ee_required", "e2ee_optional"]
+_VALID_ENCRYPTION_MODES: frozenset[str] = frozenset(
+    {"plaintext", "e2ee_required", "e2ee_optional"}
+)
 
 
 @dataclass(frozen=True)
@@ -38,6 +43,12 @@ class MatrixConfig:
         Optional filesystem path for the nio store directory.
     sync_timeout_ms:
         Timeout in milliseconds for long-polling sync requests.
+    encryption_mode:
+        Encryption policy: ``"plaintext"`` (default), ``"e2ee_required"``,
+        or ``"e2ee_optional"``.
+    require_encrypted_rooms:
+        When ``True``, the adapter should only operate in encrypted
+        rooms.  Invalid with ``encryption_mode="plaintext"``.
     """
 
     adapter_id: str
@@ -49,6 +60,8 @@ class MatrixConfig:
     metadata_embedding_mode: str = "safe"
     store_path: str | None = None
     sync_timeout_ms: int = 30000
+    encryption_mode: str = "plaintext"
+    require_encrypted_rooms: bool = False
 
     def validate(self) -> Self:
         """Validate the configuration and return *self* for chaining.
@@ -83,6 +96,31 @@ class MatrixConfig:
                     raise MatrixConfigError(
                         "room_allowlist entries must be non-empty strings"
                     )
+
+        # --- Encryption-mode validation ---
+        if self.encryption_mode not in _VALID_ENCRYPTION_MODES:
+            raise MatrixConfigError(
+                f"encryption_mode must be one of "
+                f"{sorted(_VALID_ENCRYPTION_MODES)}, "
+                f"got {self.encryption_mode!r}"
+            )
+
+        if self.encryption_mode == "e2ee_required":
+            if not self.store_path:
+                raise MatrixConfigError(
+                    "e2ee_required mode requires a stable store_path"
+                )
+            if not self.device_id:
+                raise MatrixConfigError(
+                    "e2ee_required mode requires a device_id"
+                )
+
+        if self.require_encrypted_rooms and self.encryption_mode == "plaintext":
+            raise MatrixConfigError(
+                "require_encrypted_rooms=True is invalid with "
+                "encryption_mode='plaintext'"
+            )
+
         return self
 
     def __repr__(self) -> str:
@@ -95,5 +133,6 @@ class MatrixConfig:
             f"homeserver={self.homeserver!r}, "
             f"user_id={self.user_id!r}, "
             f"access_token={token_preview!r}, "
+            f"encryption_mode={self.encryption_mode!r}, "
             f"room_allowlist={self.room_allowlist!r})"
         )

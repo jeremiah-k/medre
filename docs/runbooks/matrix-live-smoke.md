@@ -226,15 +226,21 @@ in its codebase) does not activate E2EE in this tranche.
 
 **Plaintext alpha vs future E2EE production posture.** In plaintext
 alpha mode, `store_path` and `device_id` are optional (no crypto state
-to persist). Future E2EE production mode will require both: `store_path`
-to persist Olm/Megolm session keys across restarts, and `device_id` for
-stable device identification. Docker deployments should install
-`mindroom-nio[e2e]` once E2EE mode is implemented; missing E2EE
-dependencies in encrypted mode should fail clearly rather than silently
-falling back to plaintext. Cross-signing/verification and room key
-backup/import/export remain deferred. See the alpha operation runbook
-(`docs/runbooks/matrix-alpha-operation.md`, section 8) for full
-posture details.
+to persist); install with `pip install -e ".[matrix]"`. A separate
+`.[matrix-e2e]` extra is available that installs `mindroom-nio[e2e]`
+with Olm/Megolm crypto libraries — this is the future E2EE production
+target. Future E2EE mode will require both `store_path` and
+`device_id`: `store_path` to persist Olm/Megolm session keys across
+restarts, and `device_id` for stable device identification. A future
+E2EE live harness will require `.[matrix-e2e]` and a persistent
+store/device — not required now. Docker deployments targeting future
+E2EE should install `pip install -e ".[matrix-e2e]"`. Runtime
+encryption remains unimplemented; encrypted rooms are unsupported
+until a future implementation tranche. Cross-signing/verification and
+room key backup/import/export remain deferred. See the alpha operation
+runbook (`docs/runbooks/matrix-alpha-operation.md`, section 8) and the
+E2EE readiness contract (`docs/contracts/25-matrix-e2ee-readiness.md`)
+for full posture details.
 
 
 ## Explicit Scope Exclusions

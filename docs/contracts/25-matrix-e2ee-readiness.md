@@ -8,7 +8,7 @@
 
 This document captures the findings from a read-only audit of `mindroom-nio` (v0.25.3), the MindRoom reference project, and the current MEDRE Matrix adapter. Its purpose is to establish what is known, what is inferred, and what remains unknown about Matrix end-to-end encryption as it relates to MEDRE — so that a future E2EE tranche can proceed from a grounded, honest baseline.
 
-**No code changes result from this contract.** The current Matrix adapter operates in plaintext mode for all rooms. Core, runtime, renderer, codec, and storage remain encryption-agnostic.
+**No runtime E2EE behavior results from this contract.** The current Matrix adapter operates in plaintext mode for all rooms. Core, runtime, renderer, codec, and storage remain encryption-agnostic. A `matrix-e2e` optional dependency group now exists in `pyproject.toml` as a scaffold for future E2EE work; it does not enable encrypted message operation.
 
 Every factual claim is labeled **[CONFIRMED]**, **[INFERRED]**, **[UNKNOWN]**, or **[DEFERRED]**. Only **[CONFIRMED]** items have been verified against source code.
 
@@ -55,11 +55,20 @@ else:
 
 All crypto module classes (`Olm`, `Session`, `InboundGroupSession`, etc.) are only importable when `vodozemac` is present. The base client checks `ENCRYPTION_ENABLED` to decide whether to load the store and create the `Olm` machine during `restore_login`.
 
-### 1.4 Current MEDRE dependency posture [CONFIRMED]
+### 1.4 MEDRE dependency posture [CONFIRMED]
 
-The MEDRE `pyproject.toml` lists `mindroom-nio` as a dependency (imported via compat guard). The `[e2e]` extra is **not** currently required. Installing only the base package means `ENCRYPTION_ENABLED=False` at runtime.
+The MEDRE `pyproject.toml` defines two Matrix optional-dependency groups:
 
-**[INFERRED]**: A future E2EE tranche will need to either require `mindroom-nio[e2e]` in production dependencies or gate the feature behind an optional extra of MEDRE's own.
+| Extra | Dependency | Purpose |
+|---|---|---|
+| `matrix` | `mindroom-nio>=0.25` | Plaintext alpha. No E2EE crypto libraries. |
+| `matrix-e2e` | `mindroom-nio[e2e]>=0.25` | Future E2EE production target. Adds `vodozemac`, `peewee`, `atomicwrites`, `cachetools`. |
+
+**Plaintext alpha** installs `pip install -e ".[matrix]"`. This pulls only the base `mindroom-nio` package, meaning `ENCRYPTION_ENABLED=False` at runtime. The adapter operates normally in plaintext rooms.
+
+**Future E2EE mode** will use `pip install -e ".[matrix-e2e]"`, which adds the `[e2e]` extras (`vodozemac`, `peewee`, etc.) so that `ENCRYPTION_ENABLED=True` and the crypto subsystem initializes. Runtime encryption is **not yet implemented**: the extra exists as a scaffold for the next implementation tranche. Selecting `.[matrix-e2e]` today activates nio's crypto imports but MEDRE does not yet use them for any encrypted operation. Encrypted rooms remain unsupported until runtime encryption logic is delivered in a future tranche.
+
+The `matrix-e2e` extra is intended as the future default for production Docker images. The `matrix` extra continues to serve plaintext alpha and environments that do not need encryption.
 
 
 ## 2. AsyncClient Constructor & Configuration
@@ -350,8 +359,11 @@ The current `MatrixAdapter` directly owns the `nio.AsyncClient` lifecycle. For E
 | E2EE health diagnostics | Session |
 | Key export/import | Session (exposed as adapter methods) |
 | Unverified device policy | Session (configured at construction) |
+| e2ee_required config enforcement | Session (refuse start if E2EE deps missing) |
 
 The adapter holds a `MatrixSession` (or similar) instance. The session owns the `nio.AsyncClient`. The codec and renderer remain nio-agnostic.
+
+The session boundary is being introduced alongside the `matrix-e2e` dependency scaffold. In the current tranche, `MatrixConfig` may carry an `e2ee_required` field that, when set, instructs the session boundary to refuse startup if `ENCRYPTION_ENABLED` is `False` (i.e., if `mindroom-nio[e2e]` is not installed). This config gate exists as scaffold; runtime encryption remains unimplemented, so `e2ee_required=True` will correctly fail until a future tranche delivers the crypto lifecycle.
 
 ### 7.2 Adapter containment rules [DEFERRED but stated]
 

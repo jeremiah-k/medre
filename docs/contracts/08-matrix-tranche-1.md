@@ -192,7 +192,7 @@ Docker (optional, not required):
 
 ### Known limitations
 
-- No E2EE. Tests target unencrypted rooms only. E2EE is deferred to a future release. When implemented, `mindroom-nio[e2e]` will be required and both `store_path` and `device_id` will become mandatory. See the runbook (`docs/runbooks/matrix-alpha-operation.md`, section 8) and the future E2EE readiness contract (`docs/contracts/25-matrix-e2ee-readiness.md`) for posture details.
+- No E2EE. Tests target unencrypted rooms only. E2EE is deferred to a future release. When implemented, `mindroom-nio[e2e]` will be required (installable via `pip install -e ".[matrix-e2e]"`) and both `store_path` and `device_id` will become mandatory. The `.[matrix-e2e]` optional dependency group now exists in `pyproject.toml` as a scaffold; runtime encryption is not yet implemented. An `e2ee_required` config mode is being introduced that will refuse startup when E2EE deps are absent, but encrypted message operation remains unsupported until a future tranche. See the runbook (`docs/runbooks/matrix-alpha-operation.md`, section 8) and the E2EE readiness contract (`docs/contracts/25-matrix-e2ee-readiness.md`) for posture details.
 - Cross-signing/verification and room key backup/import/export remain deferred. No implementation timeline.
 - No reactions, edits, deletes, or attachments.
 - No production credential storage or auth command.
