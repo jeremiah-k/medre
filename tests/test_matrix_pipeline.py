@@ -398,10 +398,8 @@ class TestMatrixPlatformRendererSelection:
         """
         # 1. Create adapters with realistic IDs that do NOT start with "matrix"
         in_adapter = FakeMatrixAdapter("chat-source")
-        in_adapter.platform = "matrix"
 
         out_adapter = FakeMatrixAdapter("chat-service")
-        out_adapter.platform = "matrix"
 
         # 2. Route: chat-source -> chat-service
         route = Route(

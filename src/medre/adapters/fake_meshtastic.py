@@ -150,7 +150,7 @@ class FakeMeshtasticAdapter(BaseAdapter):
     """
 
     adapter_id: str
-    platform: str = "fake_meshtastic"
+    platform: str = "meshtastic"
     role: AdapterRole = AdapterRole.TRANSPORT
 
     def __init__(

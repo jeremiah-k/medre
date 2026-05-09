@@ -81,9 +81,9 @@ class TestMeshCoreAdapterCapabilities:
         adapter = FakeMeshCoreAdapter()
         assert adapter.role == AdapterRole.TRANSPORT
 
-    def test_platform_is_fake_meshcore(self) -> None:
+    def test_platform_is_meshcore(self) -> None:
         adapter = FakeMeshCoreAdapter()
-        assert adapter.platform == "fake_meshcore"
+        assert adapter.platform == "meshcore"
 
     def test_capabilities_text_true(self) -> None:
         from medre.adapters.fake_meshcore import _FAKE_MESHCORE_CAPABILITIES

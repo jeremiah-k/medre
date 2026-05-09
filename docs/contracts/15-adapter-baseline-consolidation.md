@@ -20,12 +20,12 @@ The `platform` class attribute on each adapter's `BaseAdapter` subclass.
 
 | Adapter | `platform` value | Notes |
 |---|---|---|
-| Matrix | `"matrix"` | Matches renderer `_PLATFORM` |
-| Meshtastic | `"meshtastic"` | Matches renderer `_PLATFORM` |
-| MeshCore | `"meshcore"` | Matches renderer `_PLATFORM` |
-| LXMF | `"lxmf"` | Matches renderer `_PLATFORM` |
+| Matrix | `"matrix"` | Real protocol; fake adapter reports same platform |
+| Meshtastic | `"meshtastic"` | Real protocol; fake adapter reports same platform |
+| MeshCore | `"meshcore"` | Real protocol; fake adapter reports same platform |
+| LXMF | `"lxmf"` | Real protocol; fake adapter reports same platform |
 
-**Verdict: Consistent.** All adapters use a lowercase string matching their package directory name. The real adapter's platform matches the fake adapter's platform (except Matrix's fake, which uses `"fake_matrix"` to distinguish test instances from production). The fakes for Meshtastic, MeshCore, and LXMF each use their own `"fake_*"` prefix. This is intentional: fake adapters must be distinguishable from real ones in health checks and logs.
+**Verdict: Consistent.** All adapters use a lowercase string matching their protocol family name. Both real and fake adapters report the same `platform` value (e.g., `"matrix"`, `"meshtastic"`, `"meshcore"`, `"lxmf"`). The `platform` field answers "what protocol family does this adapter speak?", never "is this adapter fake?". Fake/test mode is conveyed by class name, module name, and `config.connection_type="fake"` where applicable — never by the `platform` field.
 
 
 ## 2. Role (TRANSPORT vs PRESENTATION)

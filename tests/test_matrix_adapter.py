@@ -51,9 +51,9 @@ class TestMatrixAdapterCapabilities:
         adapter = FakeMatrixAdapter("m")
         assert adapter.role == AdapterRole.PRESENTATION
 
-    def test_platform_is_fake_matrix(self) -> None:
+    def test_platform_is_matrix(self) -> None:
         adapter = FakeMatrixAdapter("m")
-        assert adapter.platform == "fake_matrix"
+        assert adapter.platform == "matrix"
 
 
 # ===================================================================

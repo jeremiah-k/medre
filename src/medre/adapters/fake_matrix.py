@@ -95,7 +95,7 @@ class FakeMatrixAdapter(BaseAdapter):
     """
 
     adapter_id: str
-    platform: str = "fake_matrix"
+    platform: str = "matrix"
     role: AdapterRole = AdapterRole.PRESENTATION
 
     def __init__(

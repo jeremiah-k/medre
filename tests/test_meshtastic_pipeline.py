@@ -700,10 +700,8 @@ class TestMeshtasticPlatformRendererSelection:
         """
         # 1. Create adapters with realistic IDs that do NOT start with "meshtastic"
         in_adapter = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="local-node"))
-        in_adapter.platform = "meshtastic"
 
         out_adapter = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="radio-out"))
-        out_adapter.platform = "meshtastic"
 
         # 2. Route: local-node -> radio-out
         route = Route(

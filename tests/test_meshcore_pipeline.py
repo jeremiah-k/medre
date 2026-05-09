@@ -499,10 +499,8 @@ class TestMeshCorePlatformRendererSelection:
         """
         # 1. Create adapters with realistic IDs that do NOT start with "meshcore"
         in_adapter = FakeMeshCoreAdapter(MeshCoreConfig(adapter_id="field-node"))
-        in_adapter.platform = "meshcore"
 
         out_adapter = FakeMeshCoreAdapter(MeshCoreConfig(adapter_id="field-out"))
-        out_adapter.platform = "meshcore"
 
         # 2. Route: field-node -> field-out
         route = Route(

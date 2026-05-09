@@ -147,7 +147,7 @@ class FakeMeshCoreAdapter(BaseAdapter):
     """
 
     adapter_id: str
-    platform: str = "fake_meshcore"
+    platform: str = "meshcore"
     role: AdapterRole = AdapterRole.TRANSPORT
 
     def __init__(

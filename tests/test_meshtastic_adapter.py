@@ -72,9 +72,9 @@ class TestMeshtasticAdapterCapabilities:
         adapter = FakeMeshtasticAdapter()
         assert adapter.role == AdapterRole.TRANSPORT
 
-    def test_platform_is_fake_meshtastic(self) -> None:
+    def test_platform_is_meshtastic(self) -> None:
         adapter = FakeMeshtasticAdapter()
-        assert adapter.platform == "fake_meshtastic"
+        assert adapter.platform == "meshtastic"
 
     def test_capabilities_text_true(self) -> None:
         from medre.adapters.fake_meshtastic import _FAKE_MESHTASTIC_CAPABILITIES

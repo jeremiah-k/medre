@@ -484,10 +484,8 @@ class TestLxmfPlatformRendererSelection:
         """
         # 1. Create adapters with realistic IDs that do NOT start with "lxmf"
         in_adapter = FakeLxmfAdapter(LxmfConfig(adapter_id="field-node"))
-        in_adapter.platform = "lxmf"
 
         out_adapter = FakeLxmfAdapter(LxmfConfig(adapter_id="rnode-out"))
-        out_adapter.platform = "lxmf"
 
         # 2. Route: field-node -> rnode-out
         route = Route(
