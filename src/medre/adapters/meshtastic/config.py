@@ -31,6 +31,9 @@ class MeshtasticConfig:
         Port number for TCP connections.
     serial_port:
         Serial device path for serial connections.
+    ble_address:
+        BLE MAC address for BLE connections.  Required when
+        *connection_type* is ``"ble"``.
     meshnet_name:
         Human-readable meshnet name (informational).
     default_channel:
@@ -50,6 +53,7 @@ class MeshtasticConfig:
     host: str | None = None
     port: int | None = None
     serial_port: str | None = None
+    ble_address: str | None = None
     meshnet_name: str = ""
     default_channel: int = 0
     channel_mapping: dict[int, str] = field(default_factory=dict)
@@ -84,5 +88,9 @@ class MeshtasticConfig:
         if self.connection_type == "tcp" and not self.host:
             raise MeshtasticConfigError(
                 "host is required when connection_type is 'tcp'"
+            )
+        if self.connection_type == "ble" and not self.ble_address:
+            raise MeshtasticConfigError(
+                "ble_address is required when connection_type is 'ble'"
             )
         return self

@@ -49,6 +49,7 @@ class TestMeshtasticConfigValid:
         config = MeshtasticConfig(
             adapter_id="mesh-1",
             connection_type="ble",
+            ble_address="AA:BB:CC:DD:EE:FF",
         )
         assert config.validate() is config
 
@@ -59,10 +60,19 @@ class TestMeshtasticConfigValid:
         assert config.message_delay_seconds == 0.5
         assert config.sync_timeout_ms == 30000
         assert config.channel_mapping == {}
+        assert config.ble_address is None
 
     def test_validate_returns_self_for_chaining(self) -> None:
         config = MeshtasticConfig(adapter_id="mesh-1")
         assert config.validate() is config
+
+    def test_ble_address_field_stored(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1",
+            connection_type="ble",
+            ble_address="AA:BB:CC:DD:EE:FF",
+        )
+        assert config.ble_address == "AA:BB:CC:DD:EE:FF"
 
 
 class TestMeshtasticConfigInvalid:
@@ -118,3 +128,19 @@ class TestMeshtasticConfigInvalid:
         config = MeshtasticConfig(adapter_id="")
         with pytest.raises(MeshtasticError):
             config.validate()
+
+    def test_ble_without_address_raises(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1",
+            connection_type="ble",
+        )
+        with pytest.raises(MeshtasticConfigError, match="ble_address"):
+            config.validate()
+
+    def test_ble_with_address_is_valid(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1",
+            connection_type="ble",
+            ble_address="AA:BB:CC:DD:EE:FF",
+        )
+        assert config.validate() is config

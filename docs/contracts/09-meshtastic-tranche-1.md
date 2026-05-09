@@ -1,7 +1,7 @@
 # Meshtastic Adapter Tranche 1: Radio Transport Validation
 
-> Contract version: 2
-> Last updated: 2026-05-08
+> Contract version: 3
+> Last updated: 2026-05-09
 
 
 ## Overview
@@ -214,6 +214,32 @@ Changes in this pass:
 - Fixture corpus refined with MMRelay-derived packet shapes (emoji flag, encrypted packets, DM shapes)
 - Send-result behavior documented: both mtjk `sendText` and MMRelay `_sendPacket` return `MeshPacket` protobuf with poplulated `id` field
 - No MMRelay code copied, no real hardware support added, no new adapter protocols implemented
+
+### Tranche 2.1: Fixture Provenance and Live Harness (This Bundle)
+
+Tranche 2.1 adds fixture provenance labeling, an optional live test harness,
+and comprehensive documentation. It does not add production connection
+support or any new adapter functionality.
+
+Changes in this pass:
+- Fixture provenance labels added to every factory in
+  `tests/fixtures/meshtastic_packets.py`: mtjk-derived, MMRelay-derived,
+  synthetic scaffold, unverified
+- New fixtures: `make_stale_backlog_packet` (startup backlog scenario),
+  `make_channel_message_packet` (non-default channel index)
+- Optional live smoke test harness at `tests/test_meshtastic_live.py`,
+  gated by `MESHTASTIC_CONNECTION_TYPE` env var and `pytest.mark.live`,
+  skipped by default
+- Live smoke runbook at `docs/runbooks/meshtastic-live-smoke.md`
+- Source audit (contract 10) updated with master-branch verified API
+  signatures, sendText/sendData parameter tables, fixture provenance
+  matrix, and uncertainty documentation
+- Contract 09 updated with Tranche 2.1 section
+- Contract 16 updated with Meshtastic live smoke harness status
+- Contract 18 updated with Meshtastic runbook and live test coverage
+- Pytest `live` marker description updated to cover all services
+- No MMRelay compatibility mode implemented, no hardware/network required
+  in default tests, no production connectivity added
 
 
 ## Non-Goals (This Tranche)

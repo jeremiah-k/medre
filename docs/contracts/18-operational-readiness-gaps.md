@@ -1,6 +1,6 @@
 # Operational Readiness Gap Audit
 
-> Contract version: 1
+> Contract version: 2
 > Last updated: 2026-05-09
 > Track: 7 (Operational Runtime Hardening)
 
@@ -30,17 +30,18 @@ All four adapters are in tranche 1. Every adapter uses fake delivery. No adapter
 
 **What works now (fake/deterministic).** The decode/classify/deliver pipeline works with fake packet dicts. `MeshtasticCodec` converts packet dicts into `CanonicalEvent` instances including `replyId` extraction. `MeshtasticPacketClassifier` classifies by portnum, detects ACKs, and extracts sender/channel/packet_id. The outbound queue (`MeshtasticOutboundQueue`) handles message pacing with configurable delay.
 
-**Real connectivity status.** No real connectivity exists. When `connection_type` is not `"fake"`, `self._client` is set to `None` with a comment that real client creation is deferred. No real `send_text` has been executed. No real packet callbacks have been received.
+**Real connectivity status.** The adapter creates real client connections via `_create_client()` for TCP, serial, and BLE modes when `mtjk` is installed. The `start()` method is guarded by `HAS_MESHTASTIC` — non-fake modes raise `MeshtasticConnectionError` when `mtjk` is absent. Client creation has not been tested against real hardware (only monkeypatched fake interfaces in tests). No real `send_text` has been executed against hardware. Pubsub callback subscription (`_subscribe_callbacks`) is wired but untested with real traffic. An optional live smoke harness (`tests/test_meshtastic_live.py`) verifies raw `mtjk` interface connectivity (TCP/serial connect, sendText/sendData, pubsub callbacks) against a real node but does not exercise the MEDRE adapter's `_create_client` path.
 
 **Gaps.**
 
-- No real Meshtastic client connection (TCP, serial, or BLE).
-- No real `send_text` execution. Outbound goes through the queue but nothing is transmitted.
-- No real packet callbacks. `_on_packet()` is tested only with manual dict injection.
+- Client creation code exists (`_create_client`) but has not been tested against real hardware (only monkeypatched fakes).
+- No real `send_text` execution against hardware. Outbound goes through the queue but no real send has completed.
+- No real packet callbacks received. `_subscribe_callbacks` is wired but `_on_receive_callback` is tested only with manual dict injection.
 - The 512-byte payload limit is not enforced in the renderer. Real messages that exceed it will silently fail or be truncated by the radio.
 - The `_on_packet` callback is synchronous but publishes async. Error propagation from the async publish back to the callback context is unreviewed.
 - `mtjk` is a fork. Version pinning and firmware compatibility are unverified.
 - `startup_backlog_suppress_seconds` exists in config but has never been tested against real stale packets.
+- Live smoke harness tests raw `mtjk` API, not the MEDRE adapter's `_create_client()` path. The adapter's client creation has not been tested against a real node.
 
 ### 1.3 MeshCore
 
@@ -234,7 +235,9 @@ Contract 05 defines a complete plugin API: `Plugin` protocol, `PluginContext`, `
 
 ### 9.1 What Exists
 
-One runbook: `docs/runbooks/matrix-live-smoke.md` for the optional live smoke harness.
+Two runbooks:
+- `docs/runbooks/matrix-live-smoke.md` for the optional Matrix live smoke harness.
+- `docs/runbooks/meshtastic-live-smoke.md` for the optional Meshtastic live smoke harness.
 
 ### 9.2 What Is Missing
 
@@ -304,7 +307,7 @@ The following are explicitly not part of this audit and must not be inferred fro
 | Logging | Medium | Structured logging exists. No trace correlation, no per-adapter levels, no error codes. |
 | Replay | Medium | Five modes work. No progress tracking, no resumption, no rate limiting, no scheduling. |
 | Plugin API | Low | Full spec exists. Zero implementation. Scaffolding only. |
-| Runbooks | Low | One runbook for Matrix live smoke. No operational runbooks. |
+| Runbooks | Low | Two runbooks for Matrix and Meshtastic live smoke. No operational runbooks. |
 | Lifecycle state machine | Low | Spec and code diverge on state names and count. Both documented. Neither authoritative. |
 | Privacy modes | Low | Spec defines four modes. No code implements them. |
 

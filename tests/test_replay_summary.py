@@ -99,7 +99,7 @@ class TestReplaySummaryToDict:
             "events_scanned": 0,
             "failure_count": 0,
             "mode": None,
-            "relation_resolution_count": 0,
+            "route_resolution_count": 0,
             "skipped_count": 0,
         }
 
@@ -110,7 +110,7 @@ class TestReplaySummaryToDict:
             events_replayed=8,
             skipped_count=1,
             failure_count=2,
-            relation_resolution_count=3,
+            route_resolution_count=3,
             elapsed_ms=1234.5,
             by_status={"passed": 5, "skipped": 1, "failed": 1, "error": 1},
             by_stage={"store": 4, "route": 2},
@@ -203,7 +203,7 @@ class TestBuildSummary:
         assert summary.events_replayed == 0
         assert summary.skipped_count == 0
         assert summary.failure_count == 0
-        assert summary.relation_resolution_count == 0
+        assert summary.route_resolution_count == 0
         assert summary.elapsed_ms == 5.0
         assert summary.by_status == {"passed": 0, "skipped": 0, "failed": 0, "error": 0}
         assert summary.by_stage == {}
@@ -233,28 +233,28 @@ class TestBuildSummary:
         summary = _build_summary([], elapsed_ms=999.9)
         assert summary.elapsed_ms == 999.9
 
-    def test_relation_resolution_count_from_route_stage(self) -> None:
+    def test_route_resolution_count_from_route_stage(self) -> None:
         """route-stage results with passed status and non-empty output count."""
         results = [
             _result(stage="store", status="passed"),
             _result(stage="route", status="passed", output=[("route", ["target"])]),
         ]
         summary = _build_summary(results)
-        assert summary.relation_resolution_count == 1
+        assert summary.route_resolution_count == 1
 
-    def test_relation_resolution_count_zero_when_route_failed(self) -> None:
+    def test_route_resolution_count_zero_when_route_failed(self) -> None:
         results = [
             _result(stage="route", status="failed", output=[]),
         ]
         summary = _build_summary(results)
-        assert summary.relation_resolution_count == 0
+        assert summary.route_resolution_count == 0
 
-    def test_relation_resolution_count_zero_when_no_route_stage(self) -> None:
+    def test_route_resolution_count_zero_when_no_route_stage(self) -> None:
         results = [
             _result(stage="store", status="passed"),
         ]
         summary = _build_summary(results)
-        assert summary.relation_resolution_count == 0
+        assert summary.route_resolution_count == 0
 
     def test_error_truncation(self) -> None:
         """Errors beyond _MAX_SUMMARY_ERRORS are dropped."""
@@ -602,7 +602,7 @@ class TestReplaySummaryIntegration:
         assert summary.by_status["skipped"] == 1  # deliver
         assert summary.skipped_count == 1
         assert summary.failure_count == 0
-        assert summary.relation_resolution_count == 1  # route passed with output
+        assert summary.route_resolution_count == 1  # route passed with output
         assert summary.by_stage == {
             "store": 1,
             "route": 1,
@@ -616,5 +616,5 @@ class TestReplaySummaryIntegration:
         json_str = json.dumps(d, sort_keys=True)
         parsed = json.loads(json_str)
         assert parsed["by_status"]["skipped"] == 1
-        assert parsed["relation_resolution_count"] == 1
+        assert parsed["route_resolution_count"] == 1
         assert parsed["mode"] == "dry_run"

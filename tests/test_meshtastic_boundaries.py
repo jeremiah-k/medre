@@ -16,6 +16,7 @@ These tests verify:
 
 from __future__ import annotations
 
+import asyncio
 import re
 import sys
 from datetime import datetime, timezone
@@ -455,3 +456,157 @@ class TestMeshtasticPipelineNoSleep:
         queue = MeshtasticOutboundQueue()
         result = await queue.dequeue()
         assert result is None
+
+
+# ===================================================================
+# Adapter lifecycle boundary enforcement
+# ===================================================================
+
+
+class TestMeshtasticAdapterLifecycleBoundaries:
+    """Adapter lifecycle boundaries are enforced."""
+
+    async def test_real_adapter_fake_mode_has_no_client(
+        self, make_adapter_context
+    ) -> None:
+        """Real adapter in fake mode never has a real client."""
+        config = MeshtasticConfig(adapter_id="mesh-1", connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        ctx = make_adapter_context("mesh-1")
+        await adapter.start(ctx)
+        assert adapter._client is None
+        await adapter.stop()
+
+    async def test_real_adapter_deliver_does_not_send(self) -> None:
+        """Real adapter deliver() only enqueues — never sends directly."""
+        config = MeshtasticConfig(adapter_id="mesh-1")
+        adapter = MeshtasticAdapter(config)
+        result = RenderingResult(
+            event_id="evt-1",
+            target_adapter="mesh-1",
+            target_channel="0",
+            payload={"text": "test", "channel_index": 0},
+        )
+        delivery = await adapter.deliver(result)
+        # deliver() returns None — no overclaim of send
+        assert delivery is None
+        # But the payload is in the queue
+        assert adapter.queue.pending_count == 1
+
+    async def test_queue_owns_pacing_not_pipeline(self) -> None:
+        """Queue owns pacing; process_one without send_fn does not sleep."""
+        import time
+        queue = MeshtasticOutboundQueue(delay_between_messages=5.0)
+        await queue.enqueue({"text": "test"}, 0)
+
+        t0 = time.monotonic()
+        await queue.process_one()
+        elapsed = time.monotonic() - t0
+
+        assert elapsed < 0.1  # No pacing sleep without send_fn
+
+    async def test_queue_pacing_applies_only_with_send_fn(self) -> None:
+        """Pacing delay only applies when send_fn is provided."""
+        import time
+        queue = MeshtasticOutboundQueue(delay_between_messages=0.05)
+        await queue.enqueue({"text": "test1"}, 0)
+
+        async def fake_send(item):
+            return {"packet_id": 1}
+
+        # First send: no prior send, should be fast
+        t0 = time.monotonic()
+        await queue.process_one(send_fn=fake_send)
+        elapsed_first = time.monotonic() - t0
+
+        await queue.enqueue({"text": "test2"}, 0)
+        # Second send: should include pacing delay
+        t1 = time.monotonic()
+        await queue.process_one(send_fn=fake_send)
+        elapsed_second = time.monotonic() - t1
+
+        assert elapsed_first < 0.05
+        assert elapsed_second >= 0.03  # Should have some delay
+
+    async def test_idempotent_start_preserves_state(
+        self, make_adapter_context
+    ) -> None:
+        """Double start does not create a new client or reset state."""
+        config = MeshtasticConfig(adapter_id="mesh-1")
+        adapter = MeshtasticAdapter(config)
+        ctx = make_adapter_context("mesh-1")
+        await adapter.start(ctx)
+        state_after_first = adapter._started
+        await adapter.start(ctx)
+        assert adapter._started == state_after_first
+
+    async def test_idempotent_stop_clears_state(
+        self, make_adapter_context
+    ) -> None:
+        """Double stop does not raise and state remains cleared."""
+        config = MeshtasticConfig(adapter_id="mesh-1")
+        adapter = MeshtasticAdapter(config)
+        ctx = make_adapter_context("mesh-1")
+        await adapter.start(ctx)
+        await adapter.stop()
+        # Double stop should be safe
+        await adapter.stop()
+        assert adapter._started is False
+        assert adapter._client is None
+
+
+# ===================================================================
+# Callback task boundary
+# ===================================================================
+
+
+class TestMeshtasticCallbackBoundary:
+    """Inbound callback tasks are owned and drained by the adapter."""
+
+    async def test_on_receive_callback_delegates_to_on_packet(
+        self, make_adapter_context, inbound_collector
+    ) -> None:
+        """_on_receive_callback delegates to _on_packet."""
+        config = MeshtasticConfig(adapter_id="mesh-cb")
+        adapter = MeshtasticAdapter(config)
+        ctx = make_adapter_context("mesh-cb")
+        await adapter.start(ctx)
+
+        packet = {
+            "fromId": "!node1",
+            "toId": "",
+            "channel": 0,
+            "id": 42,
+            "decoded": {"portnum": "text_message", "text": "via callback"},
+        }
+        adapter._on_receive_callback(packet, interface=None)
+
+        await asyncio.sleep(0.05)
+
+        assert len(inbound_collector.events) == 1
+        assert inbound_collector.events[0].payload["body"] == "via callback"
+
+    async def test_background_tasks_drained_on_stop(
+        self, make_adapter_context
+    ) -> None:
+        """All background tasks are drained when stop() is called."""
+        config = MeshtasticConfig(adapter_id="mesh-drain")
+        adapter = MeshtasticAdapter(config)
+        ctx = make_adapter_context("mesh-drain")
+        await adapter.start(ctx)
+
+        # Simulate multiple inbound packets creating tasks
+        for i in range(5):
+            packet = {
+                "fromId": f"!node{i}",
+                "toId": "",
+                "channel": 0,
+                "id": i,
+                "decoded": {"portnum": "text_message", "text": f"msg-{i}"},
+            }
+            adapter._on_packet(packet)
+
+        await asyncio.sleep(0.05)
+        # All tasks should have completed and been discarded
+        await adapter.stop()
+        assert len(adapter._background_tasks) == 0

@@ -418,9 +418,12 @@ class ReplaySummary:
         Results with ``status == "skipped"``.
     failure_count:
         Results with ``status in ("failed", "error")``.
-    relation_resolution_count:
+    route_resolution_count:
         Count of route-stage results that resolved targets (non-None
         route output with at least one target).  ``0`` when unavailable.
+        This counts route-stage target resolution, *not*
+        :class:`~medre.core.planning.relation_resolution.RelationResolver`
+        or native-ref relation resolution.
     elapsed_ms:
         Wall-clock duration of the replay in milliseconds.  ``0.0``
         when not provided.
@@ -446,7 +449,7 @@ class ReplaySummary:
     events_replayed: int = 0
     skipped_count: int = 0
     failure_count: int = 0
-    relation_resolution_count: int = 0
+    route_resolution_count: int = 0
     elapsed_ms: float = 0.0
     by_status: dict[str, int] = field(default_factory=dict)
     by_stage: dict[str, int] = field(default_factory=dict)
@@ -473,7 +476,7 @@ class ReplaySummary:
             "events_scanned": self.events_scanned,
             "failure_count": self.failure_count,
             "mode": self.mode.value if self.mode is not None else None,
-            "relation_resolution_count": self.relation_resolution_count,
+            "route_resolution_count": self.route_resolution_count,
             "skipped_count": self.skipped_count,
         }
 
@@ -506,7 +509,7 @@ def _build_summary(
     by_status: dict[str, int] = {"passed": 0, "skipped": 0, "failed": 0, "error": 0}
     by_stage: dict[str, int] = {}
     errors: list[str] = []
-    relation_resolution_count = 0
+    route_resolution_count = 0
 
     for result in results:
         # Status counts
@@ -522,13 +525,13 @@ def _build_summary(
             if len(errors) < _MAX_SUMMARY_ERRORS:
                 errors.append(truncated)
 
-        # Relation-resolution: route-stage results with non-None,
+        # Route-resolution: route-stage results with non-None,
         # non-empty output indicate target resolution.
         if result.stage == "route" and result.status == "passed":
             if result.output is not None:
                 # route output is list[tuple[Any, list[Any]]]
                 if isinstance(result.output, list) and len(result.output) > 0:
-                    relation_resolution_count += 1
+                    route_resolution_count += 1
 
     events_replayed = len(results)
     skipped_count = by_status["skipped"]
@@ -539,7 +542,7 @@ def _build_summary(
         events_replayed=events_replayed,
         skipped_count=skipped_count,
         failure_count=failure_count,
-        relation_resolution_count=relation_resolution_count,
+        route_resolution_count=route_resolution_count,
         elapsed_ms=elapsed_ms,
         by_status=by_status,
         by_stage=by_stage,

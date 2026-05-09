@@ -1,15 +1,36 @@
 # Meshtastic Source-of-Truth Audit
 
-> Contract version: 1
-> Last updated: 2026-05-08
+> Contract version: 2
+> Last updated: 2026-05-09
 
 This document records findings from auditing MEDRE's Meshtastic adapter
 assumptions against available reference material: the old MMRelay codebase
 (`/home/jeremiah/dev/meshtastic-matrix-relay`) and the installed `mtjk`
-(meshtastic-python fork) package.
+(meshtastic-python fork) package.  All API findings are verified from
+direct GitHub/master-branch source evidence.
 
 **Tranche 2 status**: Audit only. No production connection or hardware
 support was added. This is still pre-production foundation hardening.
+
+---
+
+## 0. Master-Branch Evidence Summary
+
+All findings below are verified from the mtjk/master branch at
+`github.com/jeremiah-k/mtjk`.  The following APIs have been confirmed
+by direct source inspection:
+
+| API | Verified Signature | Notes |
+|-----|--------------------|-------|
+| `TCPInterface.__init__` | `(hostname, ..., portNumber=4403, noNodes=False, timeout=300)` | Default port 4403, not 4402 |
+| `SerialInterface.__init__` | `(devPath=None, ...)` | `devPath` is optional |
+| `BLEInterface.__init__` | `(address: Optional[str], ...)` | Uses `address`, not `ble_address` |
+| `sendText` | `(text, destinationId=BROADCAST_ADDR, wantAck=False, wantResponse=False, onResponse=None, channelIndex=0, portNum=TEXT_MESSAGE_APP, replyId=None, hopLimit=None)` | Returns `MeshPacket` with populated `id` |
+| `sendData` | `(data, destinationId, portNum, ...)` | Returns `MeshPacket` with populated `id`; `sendText` wraps this |
+| `close()` | Exists on TCP/Serial/BLE | Clean shutdown |
+| Pubsub subscribe | `pub.subscribe(callback, "meshtastic.receive")` | Callback: `(packet, interface)` |
+| Connection topic | `"meshtastic.connection.established"` | Fires on successful connection |
+| Receive topics | `"meshtastic.receive"`, `"meshtastic.receive.text"`, `"meshtastic.receive.position"`, `"meshtastic.receive.user"`, `"meshtastic.receive.data.portnum"` | Topic-hierarchy callbacks |
 
 ---
 
@@ -35,10 +56,15 @@ All MMRelay behavioral facts below are extracted from these sources.
 | Import name | `meshtastic` |
 | Package path | `/home/jeremiah/.platformio/penv/lib/python3.12/site-packages/meshtastic/` |
 | Protobuf PortNum enum | `meshtastic.protobuf.portnums_pb2.PortNum` |
+| Master pyproject name | `meshtastic` v2.7.8 |
+| PyPI drop-in claim | Import namespace remains `meshtastic` |
 
 The `mtjk` package is **not** the upstream `meshtastic` library — it is a
 fork maintained at `github.com/jeremiah-k/mtjk`. The old MMRelay pins
 `mtjk==2.7.8.post3`. MEDRE's pyproject.toml specifies no version pin.
+The upstream/fork master branch uses pyproject name `meshtastic` v2.7.8
+while the PyPI `mtjk` distribution advertises drop-in import namespace
+compatibility (import as `meshtastic`).
 
 ---
 
@@ -324,26 +350,73 @@ MMRelay validates channel index against `MESHTASTIC_CHANNEL_MIN=0` and
 
 ### 5.1 Real mtjk `sendText` Return Value
 
-```python
-def sendText(self, text, destinationId, ...) -> mesh_pb2.MeshPacket:
-    return self.sendData(text.encode("utf-8"), destinationId, ...)
+Verified from master branch source:
 
-def sendData(self, data, destinationId, ...) -> mesh_pb2.MeshPacket:
-    return self._send_pipeline.sendData(data, destinationId, ...)
+```python
+def sendText(self, text, destinationId=BROADCAST_ADDR, wantAck=False,
+             wantResponse=False, onResponse=None, channelIndex=0,
+             portNum=TEXT_MESSAGE_APP, replyId=None, hopLimit=None):
+    return self.sendData(text.encode("utf-8"), destinationId, portNum=portNum,
+                         wantAck=wantAck, wantResponse=wantResponse,
+                         onResponse=onResponse, channelIndex=channelIndex,
+                         hopLimit=hopLimit, replyId=replyId)
 ```
 
-`snedText` returns a `mesh_pb2.MeshPacket` protobuf object. The returned
+`sendText` returns a `mesh_pb2.MeshPacket` protobuf object. The returned
 packet has its `id` field populated with the packet ID assigned by the
 interface's `_send_pipeline`. This packet ID can be used for ACK/NAK
 tracking.
 
-### 5.2 MMRelay Send Return
+**Key `sendText` parameters (verified):**
+
+| Parameter | Default | Notes |
+|-----------|---------|-------|
+| `text` | (required) | String message body |
+| `destinationId` | `BROADCAST_ADDR` (`"^all"`) | Target node ID or broadcast |
+| `wantAck` | `False` | Request acknowledgment |
+| `wantResponse` | `False` | Request response |
+| `onResponse` | `None` | Callback for response/ACK |
+| `channelIndex` | `0` | Radio channel index |
+| `portNum` | `TEXT_MESSAGE_APP` | Protobuf portnum |
+| `replyId` | `None` | Reference to previous packet ID for threading |
+| `hopLimit` | `None` | Max hops (None = firmware default) |
+
+### 5.2 Real mtjk `sendData` Return Value
+
+`sendData` is the lower-level send that `sendText` wraps:
+
+```python
+def sendData(self, data, destinationId, portNum=TEXT_MESSAGE_APP,
+             wantAck=False, wantResponse=False, onResponse=None,
+             channelIndex=0, hopLimit=None, replyId=None):
+    return self._send_pipeline.sendData(data, destinationId, portNum, ...)
+```
+
+Both `sendText` and `sendData` return the same type:
+`mesh_pb2.MeshPacket` with populated `id`.  The `id` is assigned by
+`_send_pipeline` before transmission.
+
+### 5.3 sendText/sendData Uncertainty
+
+The following aspects have **not** been verified with hardware captures:
+
+1. **ID assignment timing.** Whether `id` is assigned client-side before
+   transmission or firmware-confirmed after over-the-air delivery.
+2. **`onResponse` callback behavior.** The mechanism for receiving ACK/NAK
+   responses has been identified in source but not tested against real
+   hardware.
+3. **`hopLimit` default.** When `hopLimit=None`, the firmware's default
+   hop limit is used.  The exact default value depends on firmware version.
+4. **Packet ID uniqueness.** Whether IDs are monotonic, sequential, or
+   have collision risk across reconnections.
+
+### 5.4 MMRelay Send Return
 
 MMRelay's direct protobuf send path (`_sendPacket`) also returns the sent
 `MeshPacket` protobuf with `id` populated. A fresh ID is generated via
 `interface._generatePacketId()`.
 
-### 5.3 Implications for MEDRE Outbound Native Refs
+### 5.5 Implications for MEDRE Outbound Native Refs
 
 Both mtjk and MMRelay **do return useful packet IDs** from their send APIs.
 This means the `FakeMeshtasticClient` returning deterministic sequential IDs
@@ -355,7 +428,7 @@ Current MEDRE approach (FakeMeshtasticAdapter returns IDs, real adapter
 returns `None`) is correct for tranche 1 scaffolding. The real adapter
 should be wired to return IDs once the send path is implemented.
 
-### 5.4 Strategy for Real Send
+### 5.6 Strategy for Real Send
 
 Future real send implementation should:
 
@@ -418,6 +491,74 @@ Future real send implementation should:
 
 ---
 
-*This document was produced by auditing available reference sources. It does
-not replace hardware-verified testing. All findings are based on source code
-analysis, not live radio captures.*
+## 9. Fixture Provenance
+
+The fixture corpus at `tests/fixtures/meshtastic_packets.py` uses a
+four-tier provenance labeling system:
+
+| Label | Meaning | Examples |
+|-------|---------|----------|
+| **mtjk-derived** | Shape verified against mtjk source code | `make_text_packet`, `make_symbolic_text_packet`, `make_symbolic_routing_ack_packet`, `make_packet_with_numeric_to` |
+| **MMRelay-derived** | Shape observed in old MMRelay codebase | `make_mmrelay_style_text_packet`, `make_rxtime_packet`, `make_emoji_reaction_packet`, `make_encrypted_packet`, `make_stale_backlog_packet` |
+| **synthetic scaffold** | Invented for MEDRE test coverage; basic structure correct | `make_telemetry_packet`, `make_position_packet`, `make_nodeinfo_packet`, `make_admin_packet`, `make_ack_packet`, `make_plugin_packet` |
+| **unverified** | Not verified against mtjk or MMRelay; may diverge | `make_numeric_portnum_packet` (numeric map is scaffold-only) |
+
+Each fixture factory includes a **provenance label** in its docstring
+indicating the derivation source and confidence level.
+
+### 9.1 Fixture Coverage Matrix
+
+| Packet Type | Fixture | Provenance | Portnum Style |
+|-------------|---------|------------|---------------|
+| Text message | `make_text_packet` | mtjk-derived | Normalized (`text_message`) |
+| Text (symbolic) | `make_symbolic_text_packet` | mtjk-derived | Real (`TEXT_MESSAGE_APP`) |
+| Direct message | `make_direct_message_packet` | mtjk-derived | Normalized |
+| Channel broadcast | `make_broadcast_packet` | mtjk-derived | Normalized |
+| Channel message (non-default) | `make_channel_message_packet` | mtjk-derived | Normalized |
+| Reply | `make_text_packet_with_reply` | mtjk-derived | Normalized |
+| ACK (scaffold) | `make_ack_packet` | synthetic scaffold | Normalized (`text_message_ack`) |
+| ACK (real) | `make_symbolic_routing_ack_packet` | mtjk-derived | Real (`ROUTING_APP`) |
+| Telemetry | `make_telemetry_packet` | synthetic scaffold | Normalized |
+| Telemetry (symbolic) | `make_symbolic_telemetry_packet` | mtjk-derived | Real (`TELEMETRY_APP`) |
+| Position | `make_position_packet` | synthetic scaffold | Normalized |
+| Position (symbolic) | `make_symbolic_position_packet` | mtjk-derived | Real (`POSITION_APP`) |
+| Nodeinfo | `make_nodeinfo_packet` | synthetic scaffold | Normalized |
+| Nodeinfo (symbolic) | `make_symbolic_nodeinfo_packet` | mtjk-derived | Real (`NODEINFO_APP`) |
+| Admin | `make_admin_packet` | synthetic scaffold | Normalized |
+| Admin (symbolic) | `make_symbolic_admin_packet` | mtjk-derived | Real (`ADMIN_APP`) |
+| Emoji reaction | `make_emoji_reaction_packet` | MMRelay-derived | Real (`TEXT_MESSAGE_APP`) |
+| Encrypted | `make_encrypted_packet` | MMRelay-derived | Real (`TEXT_MESSAGE_APP`) |
+| rxTime packet | `make_rxtime_packet` | MMRelay-derived | Real (`TEXT_MESSAGE_APP`) |
+| Stale backlog | `make_stale_backlog_packet` | MMRelay-derived | Real (`TEXT_MESSAGE_APP`) |
+| MMRelay-style full | `make_mmrelay_style_text_packet` | MMRelay-derived | Real (`TEXT_MESSAGE_APP`) |
+| Numeric to/from | `make_packet_with_numeric_to/from` | mtjk-derived | Normalized |
+| Numeric portnum | `make_numeric_portnum_packet` | unverified | Integer |
+| Unknown portnum | `make_unknown_portnum_packet` | synthetic scaffold | Custom string |
+| Plugin/custom | `make_plugin_packet` | synthetic scaffold | Custom string |
+| Minimal (no decoded) | `make_minimal_packet` | synthetic scaffold | None |
+
+---
+
+## 10. Live Smoke Harness
+
+An optional live smoke test harness exists at
+`tests/test_meshtastic_live.py` with a companion runbook at
+`docs/runbooks/meshtastic-live-smoke.md`.  The harness:
+
+- Is tagged with `pytest.mark.live` and excluded by default
+- Requires `MESHTASTIC_CONNECTION_TYPE` env var (and corresponding
+  connection params) to activate
+- Tests raw mtjk interface connectivity (TCP/serial), not the MEDRE
+  adapter's real connection code (which is not yet implemented)
+- Verifies `sendText`/`sendData` return packets with IDs
+- Verifies pubsub callback reception
+- Includes documentation-only tests for unimplemented features
+- Does not require hardware/network in default CI
+
+---
+
+*This document was produced by auditing available reference sources
+including direct master-branch source inspection. It does not replace
+hardware-verified testing. All findings are based on source code analysis,
+not live radio captures. See `docs/runbooks/meshtastic-live-smoke.md` for
+optional hardware verification procedures.*

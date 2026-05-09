@@ -1,6 +1,6 @@
 # Production Connectivity Readiness
 
-> Contract version: 2
+> Contract version: 3
 > Last updated: 2026-05-09
 > Track: 8 (Production Connectivity Readiness)
 
@@ -80,6 +80,30 @@ The live smoke harness already covers the smallest useful connectivity milestone
 - `MeshtasticAdapter` manages background tasks for async publish from the synchronous `_on_packet` callback.
 - The outbound queue (`MeshtasticOutboundQueue`) handles message pacing with configurable delay.
 - `FakeMeshtasticAdapter` returns `AdapterDeliveryResult` with deterministic packet IDs via `FakeMeshtasticClient`.
+- Fixture provenance labels (mtjk-derived, MMRelay-derived, synthetic scaffold, unverified) document the derivation source of each test packet shape.
+
+### What the optional live smoke harness proves
+
+A skipped-by-default live test harness at `tests/test_meshtastic_live.py` with a companion runbook at `docs/runbooks/meshtastic-live-smoke.md` provides optional real-node validation. When enabled via environment variables, it proves:
+
+- The `mtjk` package is installed and importable as `meshtastic`.
+- A `TCPInterface` (or `SerialInterface`) can connect to a real Meshtastic node.
+- `sendText()` completes and returns a `MeshPacket` with a populated `id`.
+- `sendData()` completes and returns a `MeshPacket` with a populated `id`.
+- The `meshtastic.receive` pubsub callback fires on packet reception.
+- Received packets have the expected shape (`decoded`, `id`, `portnum`).
+
+The live harness is **optional** and **does not gate CI**. Default `pytest` remains fake-only. See `docs/runbooks/meshtastic-live-smoke.md` for setup and usage.
+
+### What the live smoke harness does NOT prove
+
+- **MEDRE adapter integration.** The tests use the raw `mtjk` interface directly. The MEDRE adapter's real connection code is not yet implemented.
+- **Inbound reception from a second node.** Tests use self-receive only.
+- **Multi-hop mesh delivery.** Only direct node communication is tested.
+- **Encrypted channels.** No E2EE support.
+- **BLE connectivity.** BLE API is documented but not exercised in the harness.
+- **Reconnection handling.** No automatic recovery testing.
+- **Production deployment readiness.** The harness validates transport-level connectivity for a single session only.
 
 ### What is still fake/scaffolded
 
