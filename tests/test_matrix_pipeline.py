@@ -5,19 +5,23 @@ failure classification.
 
 from __future__ import annotations
 
+import asyncio
+import logging
+import uuid
 from datetime import datetime, timezone
 from typing import cast
 
 import pytest
 
 from medre.adapters import FakeMatrixAdapter, FakePresentationAdapter
-from medre.adapters.base import BaseAdapter
+from medre.adapters.base import AdapterContext, BaseAdapter
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
-from medre.core.events import CanonicalEvent, EventMetadata
+from medre.core.events import CanonicalEvent, EventMetadata, NativeMessageRef, NativeRef
 from medre.core.events.bus import EventBus
 from medre.core.planning import FallbackResolver, RelationResolver
 from medre.adapters.matrix.renderer import MatrixRenderer
 from medre.core.rendering.renderer import RenderingPipeline, RenderingResult
+from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, RouteSource, RouteTarget, Router
 from medre.core.storage import SQLiteStorage
 from medre.core.storage.backend import StorageBackend
@@ -73,6 +77,35 @@ def _make_event(
         relations=(),
         payload=payload or {"text": "hello"},
         metadata=EventMetadata(),
+    )
+
+
+def _make_inbound_event(
+    event_id: str = "evt-inbound-001",
+    source_adapter: str = "matrix-in",
+    source_channel_id: str = "!room:server",
+    native_message_id: str = "$evt-inbound-001",
+    body: str = "hello matrix",
+) -> CanonicalEvent:
+    """Create a CanonicalEvent with source_native_ref, mimicking MatrixCodec.decode()."""
+    return CanonicalEvent(
+        event_id=event_id,
+        event_kind="message.created",
+        schema_version=1,
+        timestamp=datetime.now(timezone.utc),
+        source_adapter=source_adapter,
+        source_transport_id="@alice:example.com",
+        source_channel_id=source_channel_id,
+        parent_event_id=None,
+        lineage=(),
+        relations=(),
+        payload={"body": body},
+        metadata=EventMetadata(),
+        source_native_ref=NativeRef(
+            adapter=source_adapter,
+            native_channel_id=source_channel_id,
+            native_message_id=native_message_id,
+        ),
     )
 
 
@@ -323,5 +356,335 @@ class TestMatrixPipelineIntegration:
             outcomes = await runner.handle_ingress(event)
             assert len(outcomes) == 1
             assert outcomes[0].status == "transient_failure"
+        finally:
+            await runner.stop()
+
+
+# ===================================================================
+# Platform-aware renderer selection tests
+# ===================================================================
+
+
+def _make_adapter_context_for_pipeline(
+    adapter_id: str, runner: PipelineRunner
+) -> AdapterContext:
+    """Create an AdapterContext wired to a PipelineRunner's ingress handler."""
+    return AdapterContext(
+        adapter_id=adapter_id,
+        event_bus=None,
+        publish_inbound=runner.ingress_handler,
+        logger=logging.getLogger(f"test.{adapter_id}"),
+        clock=lambda: datetime.now(timezone.utc),
+        shutdown_event=asyncio.Event(),
+    )
+
+
+class TestMatrixPlatformRendererSelection:
+    """Prove platform-aware renderer selection works for Matrix
+    without relying on adapter-name prefixes or known_adapters."""
+
+    async def test_platform_aware_renderer_selection(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """A realistic Matrix adapter ID that does NOT start with 'matrix'
+        still selects MatrixRenderer through the pipeline's platform registry.
+
+        This proves:
+        - FakeMatrixAdapter.platform == "matrix" drives dispatch
+        - The RenderingPipeline platform registry maps adapter_id -> platform
+        - MatrixRenderer.can_render matches on target_platform == "matrix"
+        - TextRenderer is NOT selected for Matrix routes
+        - No known_adapters or prefix-matching required
+        """
+        # 1. Create adapters with realistic IDs that do NOT start with "matrix"
+        in_adapter = FakeMatrixAdapter("chat-source")
+        in_adapter.platform = "matrix"
+
+        out_adapter = FakeMatrixAdapter("chat-service")
+        out_adapter.platform = "matrix"
+
+        # 2. Route: chat-source -> chat-service
+        route = Route(
+            id="platform-registry-route",
+            source=RouteSource(
+                adapter="chat-source",
+                event_kinds=("message.created",),
+                channel="ch-0",
+            ),
+            targets=[RouteTarget(adapter="chat-service")],
+        )
+        router = Router(routes=[route])
+
+        # 3. RenderingPipeline with MatrixRenderer — NO known_adapters (critical!)
+        rp = RenderingPipeline()
+        rp.register(MatrixRenderer(), priority=50)
+        rp.register(TextRenderer(), priority=100)
+
+        # 4. PipelineRunner — start() calls _populate_renderer_platforms()
+        runner = PipelineRunner(PipelineConfig(
+            storage=cast(StorageBackend, temp_storage),
+            router=router,
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters={"chat-source": in_adapter, "chat-service": out_adapter},
+            event_bus=EventBus(),
+            rendering_pipeline=rp,
+        ))
+        await runner.start()
+
+        # 5. Wire inbound adapter
+        ctx = _make_adapter_context_for_pipeline("chat-source", runner)
+        await in_adapter.start(ctx)
+
+        # 6. Send inbound event through simulate_inbound
+        event = _make_event(
+            event_id="matrix-platform-001",
+            source_adapter="chat-source",
+            source_channel_id="ch-0",
+            payload={"text": "platform dispatch test"},
+        )
+        await in_adapter.simulate_inbound(event)
+
+        # 7. Assertions
+
+        # Outbound adapter received the rendered payload
+        assert len(out_adapter.delivered_payloads) == 1
+        result = out_adapter.delivered_payloads[0]
+
+        # Proves MatrixRenderer was selected (not TextRenderer)
+        assert result.metadata["renderer"] == "matrix"
+
+        # Proves Matrix payload shape (msgtype + body)
+        assert result.payload["msgtype"] == "m.text"
+        assert result.payload["body"] == "platform dispatch test"
+
+        # Outbound delivery returned a deterministic native_message_id
+        assert isinstance(result, RenderingResult)
+        native_event_id = f"$fake_{result.event_id}"
+
+        # Native ref was persisted in storage
+        # FakeMatrixAdapter returns native_channel_id="" which the pipeline
+        # stores as None (due to "or target.channel" fallback)
+        resolved = await temp_storage.resolve_native_ref(
+            adapter="chat-service",
+            native_channel_id=None,
+            native_message_id=native_event_id,
+        )
+        assert resolved is not None
+
+
+# ===================================================================
+# Native ref persistence tests
+# ===================================================================
+
+
+class TestMatrixNativeRefPersistence:
+    """Pipeline integration tests for native ref persistence with Matrix."""
+
+    async def test_inbound_native_ref_persisted(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Inbound Matrix event → pipeline store → NativeMessageRef(direction="inbound")."""
+        route = Route(
+            id="matrix-inbound-route",
+            source=RouteSource(
+                adapter="matrix-in",
+                event_kinds=("message.created",),
+                channel="!room:server",
+            ),
+            targets=[],
+        )
+        router = Router(routes=[route])
+        config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = _make_inbound_event(
+            event_id="matrix-inbound-001",
+            source_adapter="matrix-in",
+            source_channel_id="!room:server",
+            native_message_id="$native-inbound-001",
+        )
+
+        try:
+            await runner.handle_ingress(event)
+
+            resolved = await temp_storage.resolve_native_ref(
+                adapter="matrix-in",
+                native_channel_id="!room:server",
+                native_message_id="$native-inbound-001",
+            )
+            assert resolved is not None
+            assert resolved == event.event_id
+        finally:
+            await runner.stop()
+
+    async def test_outbound_native_ref_persisted(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Outbound FakeMatrixAdapter deliver → pipeline store → NativeMessageRef(direction="outbound")."""
+        out_adapter = FakeMatrixAdapter("matrix-out")
+
+        route = Route(
+            id="matrix-outbound-route",
+            source=RouteSource(
+                adapter="matrix-out-in",
+                event_kinds=("message.created",),
+                channel="!room:server",
+            ),
+            targets=[RouteTarget(adapter="matrix-out")],
+        )
+        router = Router(routes=[route])
+        config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={"matrix-out": out_adapter},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = _make_inbound_event(
+            event_id="matrix-outbound-001",
+            source_adapter="matrix-out-in",
+            source_channel_id="!room:server",
+            native_message_id="$native-outbound-001",
+            body="outbound test",
+        )
+
+        try:
+            await runner.handle_ingress(event)
+
+            # FakeMatrixAdapter.deliver() returns native_message_id=f"$fake_{result.event_id}"
+            # With no target channel, native_channel_id resolves to None
+            resolved = await temp_storage.resolve_native_ref(
+                adapter="matrix-out",
+                native_channel_id=None,
+                native_message_id=f"$fake_{event.event_id}",
+            )
+            assert resolved is not None
+            assert resolved == event.event_id
+        finally:
+            await runner.stop()
+
+    async def test_failed_delivery_no_outbound_native_ref(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Failed deliver → no outbound native ref in storage."""
+
+        class _FaultyMatrix:
+            adapter_id = "faulty-matrix"
+
+            def __init__(self) -> None:
+                self.received_events: list[object] = []
+
+            async def deliver(self, payload: object) -> None:
+                raise RuntimeError("faulty adapter exploded")
+
+        faulty = _FaultyMatrix()
+
+        route = Route(
+            id="matrix-fail-route",
+            source=RouteSource(
+                adapter="matrix-fail-in",
+                event_kinds=("message.created",),
+                channel="!room:server",
+            ),
+            targets=[RouteTarget(adapter="faulty-matrix")],
+        )
+        router = Router(routes=[route])
+        config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={"faulty-matrix": faulty},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = _make_inbound_event(
+            event_id="matrix-fail-001",
+            source_adapter="matrix-fail-in",
+            source_channel_id="!room:server",
+            native_message_id="$native-fail-001",
+            body="fail test",
+        )
+
+        try:
+            await runner.handle_ingress(event)
+
+            # Verify no outbound native ref from failed delivery
+            resolved = await temp_storage.resolve_native_ref(
+                adapter="faulty-matrix",
+                native_channel_id=None,
+                native_message_id=f"$fake_{event.event_id}",
+            )
+            assert resolved is None
+
+            # Inbound ref should still exist
+            inbound_resolved = await temp_storage.resolve_native_ref(
+                adapter="matrix-fail-in",
+                native_channel_id="!room:server",
+                native_message_id="$native-fail-001",
+            )
+            assert inbound_resolved is not None
+        finally:
+            await runner.stop()
+
+    async def test_duplicate_inbound_native_ref_idempotent(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Duplicate inbound native refs are idempotent (INSERT OR IGNORE)."""
+        route = Route(
+            id="matrix-dup-route",
+            source=RouteSource(
+                adapter="matrix-dup",
+                event_kinds=("message.created",),
+                channel="!room:server",
+            ),
+            targets=[],
+        )
+        router = Router(routes=[route])
+        config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = _make_inbound_event(
+            event_id="matrix-dup-001",
+            source_adapter="matrix-dup",
+            source_channel_id="!room:server",
+            native_message_id="$native-dup-001",
+        )
+
+        try:
+            await runner.handle_ingress(event)
+
+            # Manually store a duplicate native ref — should be idempotent
+            dup_ref = NativeMessageRef(
+                id=f"nref-dup-{uuid.uuid4()}",
+                event_id=event.event_id,
+                adapter="matrix-dup",
+                native_channel_id="!room:server",
+                native_message_id="$native-dup-001",
+                native_thread_id=None,
+                native_relation_id=None,
+                direction="inbound",
+                created_at=datetime.now(tz=timezone.utc),
+            )
+            # This should NOT raise despite the same (adapter, channel, msg_id) triple
+            await temp_storage.store_native_ref(dup_ref)
+
+            # Should still resolve to the same event
+            resolved = await temp_storage.resolve_native_ref(
+                adapter="matrix-dup",
+                native_channel_id="!room:server",
+                native_message_id="$native-dup-001",
+            )
+            assert resolved is not None
+            assert resolved == event.event_id
         finally:
             await runner.stop()

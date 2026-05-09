@@ -409,3 +409,159 @@ class TestMeshCoreNativeRefPersistence:
             native_message_id="22222",
         )
         assert inbound_resolved is not None
+
+    async def test_duplicate_inbound_native_ref_idempotent(
+        self, temp_storage
+    ) -> None:
+        """Duplicate inbound native refs are idempotent (INSERT OR IGNORE)."""
+        config = MeshCoreConfig(adapter_id="meshcore-dup")
+        adapter = FakeMeshCoreAdapter(config)
+
+        route = Route(
+            id="meshcore-dup-route",
+            source=RouteSource(
+                adapter="meshcore-dup",
+                event_kinds=("message.created",),
+                channel="0",
+            ),
+            targets=[],
+        )
+        router = Router(routes=[route])
+
+        rp = RenderingPipeline()
+        runner = PipelineRunner(PipelineConfig(
+            storage=temp_storage,
+            router=router,
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters={"meshcore-dup": adapter},
+            event_bus=EventBus(),
+            rendering_pipeline=rp,
+        ))
+
+        ctx = _make_adapter_context_for_pipeline("meshcore-dup", runner)
+        await adapter.start(ctx)
+
+        packet = _make_channel_packet(timestamp=33333, channel_idx=0)
+        await adapter.simulate_inbound(packet)
+
+        # Manually store a duplicate native ref — should be idempotent
+        from medre.core.events.canonical import NativeMessageRef
+        import uuid as _uuid
+        from datetime import timezone as _tz
+
+        event = adapter.inbound_events[0]
+        dup_ref = NativeMessageRef(
+            id=f"nref-dup-{_uuid.uuid4()}",
+            event_id=event.event_id,
+            adapter="meshcore-dup",
+            native_channel_id="0",
+            native_message_id="33333",
+            native_thread_id=None,
+            native_relation_id=None,
+            direction="inbound",
+            created_at=datetime.now(tz=_tz.utc),
+        )
+        # This should NOT raise despite the same (adapter, channel, msg_id) triple
+        await temp_storage.store_native_ref(dup_ref)
+
+        # Should still resolve to the same event
+        resolved = await temp_storage.resolve_native_ref(
+            adapter="meshcore-dup",
+            native_channel_id="0",
+            native_message_id="33333",
+        )
+        assert resolved is not None
+        assert resolved == event.event_id
+
+
+# ===================================================================
+# Platform-aware renderer selection tests
+# ===================================================================
+
+
+class TestMeshCorePlatformRendererSelection:
+    """Prove platform-aware renderer selection works for MeshCore
+    without relying on adapter-name prefixes or known_adapters."""
+
+    async def test_platform_aware_renderer_selection(
+        self, temp_storage
+    ) -> None:
+        """A realistic MeshCore adapter ID that does NOT start with 'meshcore'
+        still selects MeshCoreRenderer through the pipeline's platform registry.
+
+        This proves:
+        - FakeMeshCoreAdapter.platform == "meshcore" drives dispatch
+        - The RenderingPipeline platform registry maps adapter_id -> platform
+        - MeshCoreRenderer.can_render matches on target_platform == "meshcore"
+        - TextRenderer is NOT selected for MeshCore routes
+        - known_adapters is NOT required
+        """
+        # 1. Create adapters with realistic IDs that do NOT start with "meshcore"
+        in_adapter = FakeMeshCoreAdapter(MeshCoreConfig(adapter_id="field-node"))
+        in_adapter.platform = "meshcore"
+
+        out_adapter = FakeMeshCoreAdapter(MeshCoreConfig(adapter_id="field-out"))
+        out_adapter.platform = "meshcore"
+
+        # 2. Route: field-node -> field-out
+        route = Route(
+            id="platform-registry-route",
+            source=RouteSource(
+                adapter="field-node",
+                event_kinds=("message.created",),
+                channel="0",
+            ),
+            targets=[RouteTarget(adapter="field-out", channel="0")],
+        )
+        router = Router(routes=[route])
+
+        # 3. RenderingPipeline with MeshCoreRenderer — NO known_adapters (critical!)
+        rp = RenderingPipeline()
+        rp.register(MeshCoreRenderer(), priority=50)
+        rp.register(TextRenderer(), priority=100)
+
+        # 4. PipelineRunner — start() calls _populate_renderer_platforms()
+        runner = PipelineRunner(PipelineConfig(
+            storage=temp_storage,
+            router=router,
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters={"field-node": in_adapter, "field-out": out_adapter},
+            event_bus=EventBus(),
+            rendering_pipeline=rp,
+        ))
+        await runner.start()
+
+        # 5. Wire inbound adapter
+        ctx = _make_adapter_context_for_pipeline("field-node", runner)
+        await in_adapter.start(ctx)
+
+        # 6. Send inbound packet
+        packet = _make_channel_packet(text="platform dispatch test", channel_idx=0, timestamp=99999)
+        await in_adapter.simulate_inbound(packet)
+
+        # 7. Assertions
+
+        # Outbound adapter received the rendered payload
+        assert len(out_adapter.delivered_payloads) == 1
+        result = out_adapter.delivered_payloads[0]
+
+        # Proves MeshCoreRenderer was selected (not TextRenderer)
+        assert result.metadata["renderer"] == "meshcore"
+
+        # Proves MeshCore payload shape (channel_index + meshnet_name)
+        assert "channel_index" in result.payload
+        assert "meshnet_name" in result.payload
+
+        # Outbound delivery returned a deterministic native_message_id
+        assert out_adapter.fake_client.sent_count == 1
+        sent_packet_id = out_adapter.fake_client.sent_packets[0]["packet_id"]
+
+        # Native ref was persisted in storage
+        resolved = await temp_storage.resolve_native_ref(
+            adapter="field-out",
+            native_channel_id="0",
+            native_message_id=str(sent_packet_id),
+        )
+        assert resolved is not None

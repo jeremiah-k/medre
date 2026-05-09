@@ -395,6 +395,70 @@ class TestLxmfNativeRefPersistence:
         )
         assert inbound_resolved is not None
 
+    async def test_duplicate_inbound_native_ref_idempotent(
+        self, temp_storage
+    ) -> None:
+        """Duplicate inbound native refs are idempotent (INSERT OR IGNORE)."""
+        config = LxmfConfig(adapter_id="lxmf-dup")
+        adapter = FakeLxmfAdapter(config)
+
+        route = Route(
+            id="lxmf-dup-route",
+            source=RouteSource(
+                adapter="lxmf-dup",
+                event_kinds=("message.created",),
+                channel=None,
+            ),
+            targets=[],
+        )
+        router = Router(routes=[route])
+
+        rp = RenderingPipeline()
+        runner = PipelineRunner(PipelineConfig(
+            storage=temp_storage,
+            router=router,
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters={"lxmf-dup": adapter},
+            event_bus=EventBus(),
+            rendering_pipeline=rp,
+        ))
+
+        ctx = _make_adapter_context_for_pipeline("lxmf-dup", runner)
+        await adapter.start(ctx)
+
+        packet = _make_text_packet(msg_id="ee" * 32)
+        await adapter.simulate_inbound(packet)
+
+        # Manually store a duplicate native ref — should be idempotent
+        from medre.core.events.canonical import NativeMessageRef
+        import uuid as _uuid
+        from datetime import timezone as _tz
+
+        event = adapter.inbound_events[0]
+        dup_ref = NativeMessageRef(
+            id=f"nref-dup-{_uuid.uuid4()}",
+            event_id=event.event_id,
+            adapter="lxmf-dup",
+            native_channel_id=None,
+            native_message_id="ee" * 32,
+            native_thread_id=None,
+            native_relation_id=None,
+            direction="inbound",
+            created_at=datetime.now(tz=_tz.utc),
+        )
+        # This should NOT raise despite the same (adapter, channel, msg_id) triple
+        await temp_storage.store_native_ref(dup_ref)
+
+        # Should still resolve to the same event
+        resolved = await temp_storage.resolve_native_ref(
+            adapter="lxmf-dup",
+            native_channel_id=None,
+            native_message_id="ee" * 32,
+        )
+        assert resolved is not None
+        assert resolved == event.event_id
+
 
 # ===================================================================
 # Platform-aware renderer selection tests

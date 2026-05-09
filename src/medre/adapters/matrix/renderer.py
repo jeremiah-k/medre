@@ -31,6 +31,9 @@ class MatrixRenderer:
 
     name: str = "matrix"
 
+    _PLATFORM: str = "matrix"
+    """Internal platform identifier for matching via ``target_platform``."""
+
     # ------------------------------------------------------------------
     # Capability check
     # ------------------------------------------------------------------

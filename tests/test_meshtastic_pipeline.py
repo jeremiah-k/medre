@@ -674,3 +674,95 @@ class TestMeshtasticReplyRelation:
         assert rel.target_event_id is None
         assert rel.target_native_ref is not None
         assert rel.target_native_ref.native_message_id == "99999"
+
+
+# ===================================================================
+# Platform-aware renderer selection tests
+# ===================================================================
+
+
+class TestMeshtasticPlatformRendererSelection:
+    """Prove platform-aware renderer selection works for Meshtastic
+    without relying on adapter-name prefixes or known_adapters."""
+
+    async def test_platform_aware_renderer_selection(
+        self, temp_storage
+    ) -> None:
+        """A realistic Meshtastic adapter ID that does NOT start with 'meshtastic'
+        still selects MeshtasticRenderer through the pipeline's platform registry.
+
+        This proves:
+        - FakeMeshtasticAdapter.platform == "meshtastic" drives dispatch
+        - The RenderingPipeline platform registry maps adapter_id -> platform
+        - MeshtasticRenderer.can_render matches on target_platform == "meshtastic"
+        - TextRenderer is NOT selected for Meshtastic routes
+        - known_adapters is NOT required
+        """
+        # 1. Create adapters with realistic IDs that do NOT start with "meshtastic"
+        in_adapter = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="local-node"))
+        in_adapter.platform = "meshtastic"
+
+        out_adapter = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="radio-out"))
+        out_adapter.platform = "meshtastic"
+
+        # 2. Route: local-node -> radio-out
+        route = Route(
+            id="platform-registry-route",
+            source=RouteSource(
+                adapter="local-node",
+                event_kinds=("message.created",),
+                channel="0",
+            ),
+            targets=[RouteTarget(adapter="radio-out", channel="0")],
+        )
+        router = Router(routes=[route])
+
+        # 3. RenderingPipeline with MeshtasticRenderer — NO known_adapters (critical!)
+        rp = RenderingPipeline()
+        rp.register(MeshtasticRenderer(), priority=50)
+        rp.register(TextRenderer(), priority=100)
+
+        # 4. PipelineRunner — start() calls _populate_renderer_platforms()
+        runner = PipelineRunner(PipelineConfig(
+            storage=temp_storage,
+            router=router,
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters={"local-node": in_adapter, "radio-out": out_adapter},
+            event_bus=EventBus(),
+            rendering_pipeline=rp,
+        ))
+        await runner.start()
+
+        # 5. Wire inbound adapter
+        ctx = _make_adapter_context_for_pipeline("local-node", runner)
+        await in_adapter.start(ctx)
+
+        # 6. Send inbound packet
+        packet = _make_text_packet(text="platform dispatch test", packet_id=99999)
+        await in_adapter.simulate_inbound(packet)
+
+        # 7. Assertions
+
+        # Outbound adapter received the rendered payload
+        assert len(out_adapter.delivered_payloads) == 1
+        result = out_adapter.delivered_payloads[0]
+
+        # Proves MeshtasticRenderer was selected (not TextRenderer)
+        assert result.metadata["renderer"] == "meshtastic"
+
+        # Proves Meshtastic payload shape (channel_index + meshnet_name)
+        assert "channel_index" in result.payload
+        assert "meshnet_name" in result.payload
+
+        # Outbound delivery returned a deterministic native_message_id
+        assert out_adapter.fake_client.sent_count == 1
+        sent_packet_id = out_adapter.fake_client.sent_packets[0]["packet_id"]
+
+        # Native ref was persisted in storage
+        resolved = await temp_storage.resolve_native_ref(
+            adapter="radio-out",
+            native_channel_id="0",
+            native_message_id=str(sent_packet_id),
+        )
+        assert resolved is not None
