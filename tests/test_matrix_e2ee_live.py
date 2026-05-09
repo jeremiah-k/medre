@@ -37,12 +37,15 @@ _REQUIRED_ENV = [
 
 _live_e2ee_ok = all(os.environ.get(v) for v in _REQUIRED_ENV)
 
-pytestmark = pytest.mark.skipif(
-    not _live_e2ee_ok,
-    reason="Live E2EE tests require MATRIX_HOMESERVER, MATRIX_USER_ID, "
-    "MATRIX_ACCESS_TOKEN, MATRIX_ROOM_ID, MATRIX_DEVICE_ID, "
-    "MATRIX_STORE_PATH environment variables",
-)
+pytestmark = [
+    pytest.mark.live,
+    pytest.mark.skipif(
+        not _live_e2ee_ok,
+        reason="Live E2EE tests require MATRIX_HOMESERVER, MATRIX_USER_ID, "
+        "MATRIX_ACCESS_TOKEN, MATRIX_ROOM_ID, MATRIX_DEVICE_ID, "
+        "MATRIX_STORE_PATH environment variables",
+    ),
+]
 
 
 def _live_config(**overrides: Any):
@@ -125,8 +128,11 @@ class TestLiveE2EESend:
                 target_channel=room_id,
             )
             deliver_result = await adapter.deliver(result)
-            # If crypto is enabled, message was sent encrypted
-            assert deliver_result is not None or True  # may not have event_id
+            assert deliver_result is not None
+            native_message_id = deliver_result.native_message_id
+            assert native_message_id, "expected non-empty event_id from delivery"
+            native_channel_id = deliver_result.native_channel_id
+            assert native_channel_id == os.environ["MATRIX_ROOM_ID"]
         finally:
             await adapter.stop()
 

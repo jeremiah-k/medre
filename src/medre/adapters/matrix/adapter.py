@@ -209,6 +209,11 @@ class MatrixAdapter(BaseAdapter):
     def _check_encrypted_room_safety(self, room_id: str, client: Any) -> None:
         """Raise if the room is encrypted but crypto is not active.
 
+        Checks the room-specific encryption state via
+        ``client.rooms[room_id].encrypted`` when available.  Rooms not
+        found in ``client.rooms`` are treated optimistically (send
+        allowed).
+
         Parameters
         ----------
         room_id:
@@ -219,19 +224,22 @@ class MatrixAdapter(BaseAdapter):
         Raises
         ------
         MatrixSendError
-            If the room appears encrypted but ``crypto_enabled`` is
-            ``False``.
+            If the room is encrypted but ``crypto_enabled`` is ``False``.
         """
         if self._session is None:
             return
-        if not self._session.encrypted_room_seen:
-            return
         if self._session.crypto_enabled:
             return
-        raise MatrixSendError(
-            f"Room {room_id} is encrypted but E2EE crypto is not active; "
-            f"cannot send encrypted message"
-        )
+
+        # Room-specific check: inspect client.rooms for encryption state.
+        rooms = getattr(client, "rooms", None)
+        if rooms is not None and isinstance(rooms, dict):
+            room_obj = rooms.get(room_id)
+            if room_obj is not None and getattr(room_obj, "encrypted", False):
+                raise MatrixSendError(
+                    f"Room {room_id} is encrypted but E2EE crypto is not active; "
+                    f"cannot send encrypted message"
+                )
 
     async def deliver(self, result: RenderingResult) -> AdapterDeliveryResult | None:
         """Send a pre-rendered payload to a Matrix room.

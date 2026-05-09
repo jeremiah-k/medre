@@ -222,9 +222,10 @@ class MatrixSession:
 
         try:
             client_config: Any = nio.ClientConfig(encryption_enabled=True)
-        except TypeError:
-            # Older nio versions may not accept encryption_enabled
-            client_config = None
+        except Exception as exc:
+            raise MatrixConnectionError(
+                f"Failed to configure E2EE: {exc}"
+            ) from exc
 
         self._client = nio.AsyncClient(
             homeserver=self._config.homeserver,
@@ -319,24 +320,39 @@ class MatrixSession:
             ) from exc
 
     def _register_megolm_callback(self) -> None:
-        """Register a callback for undecryptable MegolmEvent messages.
+        """Register callbacks for undecryptable MegolmEvent and RoomEncryptionEvent.
 
         When crypto is active nio auto-decrypts MegolmEvents to
         RoomMessageText.  The callback registered here fires for events
         that could *not* be decrypted (missing room key, etc.).
-        """
-        try:
-            from nio.events import MegolmEvent
-        except ImportError:
-            return
 
+        RoomEncryptionEvent fires when a room's encryption state changes.
+        This sets ``_encrypted_room_seen`` so the safety check can detect
+        encrypted rooms.  The event is NOT forwarded to the canonical
+        event pipeline.
+        """
         if self._client is None:
             return
 
-        self._client.add_event_callback(
-            self._on_megolm_event,
-            (MegolmEvent,),
-        )
+        try:
+            from nio.events import MegolmEvent
+
+            self._client.add_event_callback(
+                self._on_megolm_event,
+                (MegolmEvent,),
+            )
+        except ImportError:
+            pass
+
+        try:
+            from nio.events import RoomEncryptionEvent
+
+            self._client.add_event_callback(
+                self._on_room_encryption_event,
+                (RoomEncryptionEvent,),
+            )
+        except ImportError:
+            pass
 
     async def _on_megolm_event(self, room: Any, event: Any) -> None:
         """Handle an undecryptable MegolmEvent.
@@ -348,25 +364,27 @@ class MatrixSession:
         event_id = getattr(event, "event_id", "<unknown>")
         room_id = getattr(room, "room_id", "<unknown>") if room else "<unknown>"
 
-        # Extract a description from event.source if available.
-        source = getattr(event, "source", None)
-        if isinstance(source, dict):
-            content = source.get("content", {})
-            algo = content.get("algorithm", "")
-            session_id = content.get("session_id", "")
-            self._last_crypto_error = (
-                f"Undecryptable MegolmEvent in {room_id}: "
-                f"algorithm={algo}, session_id={session_id}"
-            )
-        else:
-            self._last_crypto_error = (
-                f"Undecryptable MegolmEvent {event_id} in {room_id}"
-            )
+        self._last_crypto_error = (
+            f"Undecryptable MegolmEvent {event_id} in {room_id}"
+        )
 
         self._encrypted_room_seen = True
         self._logger.warning(
             "Undecryptable MegolmEvent %s in room %s",
             event_id, room_id,
+        )
+
+    async def _on_room_encryption_event(self, room: Any, event: Any) -> None:
+        """Handle a RoomEncryptionEvent (m.room.encryption state event).
+
+        Sets ``_encrypted_room_seen`` and logs.  Does NOT forward to the
+        canonical event pipeline — this is a state-tracking callback only.
+        """
+        self._encrypted_room_seen = True
+        room_id = getattr(room, "room_id", "<unknown>") if room else "<unknown>"
+        self._logger.info(
+            "RoomEncryptionEvent received for room %s — room encryption enabled",
+            room_id,
         )
 
     async def _run_sync(self) -> None:

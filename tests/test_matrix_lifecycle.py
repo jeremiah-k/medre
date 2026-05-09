@@ -106,6 +106,7 @@ def _build_mock_nio_module() -> MagicMock:
     # nio.events.MegolmEvent for undecryptable event callback
     mock_events = MagicMock(name="nio.events")
     mock_events.MegolmEvent = MagicMock(name="MegolmEvent")
+    mock_events.RoomEncryptionEvent = MagicMock(name="RoomEncryptionEvent")
     mock.events = mock_events
     return mock
 
@@ -153,13 +154,13 @@ class TestMatrixAdapterStart:
             await adapter.stop()
 
     async def test_start_sets_up_event_callback(self, mock_nio):
-        """start() registers callbacks for RoomMessage types and MegolmEvent."""
+        """start() registers callbacks for RoomMessage types, MegolmEvent, and RoomEncryptionEvent."""
         config = _make_config()
         adapter = MatrixAdapter(config)
         try:
             await adapter.start(_make_context())
             assert (
-                mock_nio.AsyncClient.return_value.add_event_callback.call_count == 2
+                mock_nio.AsyncClient.return_value.add_event_callback.call_count == 3
             )
         finally:
             await adapter.stop()
