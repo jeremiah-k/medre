@@ -214,7 +214,7 @@ class TestMatrixLiveSmoke:
     These tests connect to a real Matrix homeserver and verify the
     adapter lifecycle, outbound delivery, health transitions, self-message
     suppression, room allowlist enforcement, restart idempotency, and
-    replay semantics.
+    adapter redelivery.
 
     All tests require the four MATRIX_* environment variables to be set.
     Run with::
@@ -224,7 +224,7 @@ class TestMatrixLiveSmoke:
     The tests are ordered so that the most fundamental operations
     (start/stop/health) come first, followed by delivery, followed by
     echo suppression, allowlist enforcement, restart idempotency, and
-    replay smoke tests.  Suppression and allowlist checks may be flaky
+    adapter redelivery smoke tests.  Suppression and allowlist checks may be flaky
     without a second user but are included for defense-in-depth coverage.
     """
 
@@ -748,9 +748,9 @@ class TestMatrixLiveSmoke:
             f"Cycle 2 stop: expected unknown, got {info.health!r}"
         )
 
-    # -- Replay smoke --------------------------------------------------------
+    # -- Adapter redelivery smoke --------------------------------------------
 
-    async def test_live_replay_smoke(self):
+    async def test_live_adapter_redelivery_smoke(self):
         """Verify the adapter supports re-delivery of a previously sent event.
 
         This test sends an event, then re-sends the same logical event
@@ -762,11 +762,10 @@ class TestMatrixLiveSmoke:
            (Matrix assigns unique event IDs even for identical content).
         3. Both deliveries target the same room.
 
-        This is **not** a core replay-engine test; see ``test_replay.py``
-        for the storage-level replay mechanism.  This test validates that
-        the Matrix adapter correctly supports the re-delivery pattern the
-        replay engine would invoke — the adapter returns delivery results
-        with distinct native refs that the pipeline can persist.
+        This is **not** a core replay-engine test.  This validates that the
+        Matrix adapter can redeliver rendered output through ``room_send``
+        and receive a new native ``event_id``.  See ``test_replay.py`` for
+        the storage-level replay mechanism.
         """
         from medre.adapters.matrix.adapter import MatrixAdapter
         from medre.adapters.base import AdapterContext
@@ -777,14 +776,14 @@ class TestMatrixLiveSmoke:
             adapter_id="matrix-live-smoke",
             event_bus=None,
             publish_inbound=AsyncMock(),
-            logger=logging.getLogger("test.matrix-live.replay"),
+            logger=logging.getLogger("test.matrix-live.redelivery"),
             clock=lambda: datetime.now(timezone.utc),
             shutdown_event=asyncio.Event(),
         )
         await adapter.start(ctx)
         try:
             ts = int(time.time())
-            canonical_id = f"live-replay-{ts}"
+            canonical_id = f"live-redelivery-{ts}"
 
             # First send
             result1 = RenderingResult(
@@ -793,9 +792,9 @@ class TestMatrixLiveSmoke:
                 target_channel=MATRIX_ROOM_ID,
                 payload={
                     "msgtype": "m.text",
-                    "body": f"MEDRE replay smoke test (ts={ts}) — safe to ignore",
+                    "body": f"MEDRE adapter redelivery smoke test (ts={ts}) — safe to ignore",
                 },
-                metadata={"renderer": "matrix", "test": "replay-smoke"},
+                metadata={"renderer": "matrix", "test": "redelivery-smoke"},
             )
             delivery1 = await adapter.deliver(result1)
             assert delivery1 is not None, "First deliver() returned None"
@@ -811,9 +810,9 @@ class TestMatrixLiveSmoke:
                 target_channel=MATRIX_ROOM_ID,
                 payload={
                     "msgtype": "m.text",
-                    "body": f"MEDRE replay smoke test (ts={ts}) — safe to ignore",
+                    "body": f"MEDRE adapter redelivery smoke test (ts={ts}) — safe to ignore",
                 },
-                metadata={"renderer": "matrix", "test": "replay-smoke"},
+                metadata={"renderer": "matrix", "test": "redelivery-smoke"},
             )
             delivery2 = await adapter.deliver(result2)
             assert delivery2 is not None, "Second deliver() returned None"

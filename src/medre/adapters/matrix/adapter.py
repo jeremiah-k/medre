@@ -91,6 +91,11 @@ class MatrixAdapter(BaseAdapter):
     async def start(self, ctx: AdapterContext) -> None:
         """Connect to the Matrix homeserver and begin syncing.
 
+        The ``store_path`` from :attr:`self._config.store_path` is passed
+        through to the ``nio.AsyncClient`` constructor so that session
+        keys and other persistent data are stored on disk when a path
+        is provided.  This is required for future E2EE support.
+
         Parameters
         ----------
         ctx:
@@ -116,6 +121,7 @@ class MatrixAdapter(BaseAdapter):
             homeserver=self._config.homeserver,
             user=self._config.user_id,
             device_id=self._config.device_id or "",
+            store_path=self._config.store_path,
         )
         self._client.restore_login(
             user_id=self._config.user_id,

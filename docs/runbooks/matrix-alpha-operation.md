@@ -104,6 +104,8 @@ Open Element, log in as the bot user, go to Settings, Help and About, and copy t
 
 Do not commit the token. Do not log the token. Do not paste it into chat. Set it as an environment variable and leave it there. The `MatrixConfig.__repr__` method redacts the token in log output, but you are responsible for not leaking it yourself.
 
+> **Note on E2EE.** Alpha authenticates with access tokens over plain HTTP(S). Future versions supporting E2EE will use `mindroom-nio[e2e]` as the dependency, which adds Olm/Megolm crypto libraries. The token handling mechanism will remain the same, but the runner and adapter will need to manage device keys and cross-signing in addition to the access token.
+
 
 ## 5. Room Setup
 
@@ -112,7 +114,7 @@ Do not commit the token. Do not log the token. Do not paste it into chat. Set it
 3. Invite the bot user to the room.
 4. Accept the invite from the bot account (log in as the bot in a second client session or via the join API).
 5. Copy the room ID. It looks like `!opaquestring:localhost`. Room aliases (the `#name:server` form) will not work in the allowlist.
-6. Confirm the room is unencrypted. E2EE is not supported. If the room has a lock icon in Element, it is encrypted and the adapter will not be able to read message content.
+6. Confirm the room is unencrypted. E2EE is not yet supported in alpha. If the room has a lock icon in Element, it is encrypted and the adapter will not be able to read message content. E2EE is planned as the future default (see section 12), but for now all test rooms must be plaintext.
 
 
 ## 6. Allowlist Configuration
@@ -133,7 +135,7 @@ Or None to accept all rooms:
 room_allowlist=None
 ```
 
-The environment variable convention for this is `MATRIX_ROOM_ALLOWLIST`, a comma-separated list of room IDs. If a runner module exists, it parses this into the set. If you are wiring the adapter manually, parse it yourself:
+The environment variable convention for this is `MATRIX_ROOM_ALLOWLIST`, a comma-separated list of room IDs. The runner (`python -m medre.runner`) parses this into the set automatically. If you are wiring the adapter manually, parse it yourself:
 
 ```python
 import os
@@ -147,93 +149,97 @@ allowlist = set(raw.split(",")) if raw.strip() else None
 
 ### 7.1 Environment variables
 
-| Variable | Required | Example | Notes |
-|----------|----------|---------|-------|
-| `MATRIX_HOMESERVER` | Yes | `http://localhost:8008` | Full URL, no trailing slash |
-| `MATRIX_USER_ID` | Yes | `@bot:localhost` | Must start with `@` |
-| `MATRIX_ACCESS_TOKEN` | Yes | `syt_xxxxxxxxxxxxx` | Keep it secret |
-| `MATRIX_ROOM_ALLOWLIST` | No | `!abc:localhost,!def:localhost` | Comma-separated room IDs. If unset, all rooms are accepted. |
+The runner reads all configuration from environment variables. The three required variables must be set before starting.
 
-### 7.2 Wiring the adapter
+| Variable | Required | Default | Example | Notes |
+|----------|----------|---------|---------|-------|
+| `MATRIX_HOMESERVER` | Yes | | `http://localhost:8008` | Full URL, no trailing slash |
+| `MATRIX_USER_ID` | Yes | | `@bot:localhost` | Must start with `@` |
+| `MATRIX_ACCESS_TOKEN` | Yes | | `syt_xxxxxxxxxxxxx` | Keep it secret |
+| `MATRIX_ROOM_ALLOWLIST` | No | (all rooms) | `!abc:localhost,!def:localhost` | Comma-separated room IDs. Unset or empty means all rooms are accepted. |
+| `MATRIX_ADAPTER_ID` | No | `matrix-alpha` | `my-adapter` | Adapter identifier used in logging and health checks. |
+| `MATRIX_DEVICE_ID` | No | | `DEVICEABC` | Device ID for the nio client session. |
+| `MATRIX_STORE_PATH` | No | | `/tmp/nio-store` | Filesystem path for the nio crypto/state store directory. |
+| `MATRIX_SYNC_TIMEOUT_MS` | No | `30000` | `60000` | Sync long-poll timeout in milliseconds. |
+| `MEDRE_DB_PATH` | No | `:memory:` | `/tmp/medre.db` | SQLite database path. Defaults to in-memory (lost on shutdown). |
 
-No runner module exists yet (as of this writing). The wiring pattern is straightforward:
+### 7.2 Running with the runner
 
-```python
-import asyncio
-import os
+`python -m medre.runner` is the primary alpha operation entry point. It wires the full pipeline, handles configuration from environment variables, manages signal-based shutdown, and provides structured logging.
 
-from medre.adapters.matrix import MatrixAdapter, MatrixConfig
+```bash
+# Set the required environment variables
+export MATRIX_HOMESERVER=http://localhost:8008
+export MATRIX_USER_ID=@bot:localhost
+export MATRIX_ACCESS_TOKEN=syt_xxxxxxxxxxxxx
+export MATRIX_ROOM_ALLOWLIST=!abc123:localhost
 
-async def main():
-    raw_allowlist = os.environ.get("MATRIX_ROOM_ALLOWLIST", "")
-    allowlist = set(raw_allowlist.split(",")) if raw_allowlist.strip() else None
-
-    config = MatrixConfig(
-        adapter_id="matrix-alpha",
-        homeserver=os.environ["MATRIX_HOMESERVER"],
-        user_id=os.environ["MATRIX_USER_ID"],
-        access_token=os.environ["MATRIX_ACCESS_TOKEN"],
-        room_allowlist=allowlist,
-    )
-
-    adapter = MatrixAdapter(config)
-
-    # Create a minimal context. The real runtime provides this.
-    # For alpha testing, a stub context with a logger and publish_inbound
-    # callback is sufficient.
-    from medre.adapters.base import AdapterContext
-
-    ctx = AdapterContext(
-        logger=...,           # a logging.Logger or compatible object
-        publish_inbound=...,  # an async callable accepting canonical events
-        storage=...,          # a storage backend or None
-    )
-
-    await adapter.start(ctx)
-    print("Adapter started. Press Ctrl+C to stop.")
-
-    try:
-        await asyncio.Event().wait()  # block forever
-    except KeyboardInterrupt:
-        pass
-    finally:
-        await adapter.stop()
-
-asyncio.run(main())
+# Run
+python -m medre.runner
 ```
 
-If a runner module (`src/medre/runner.py`) has been created by the time you read this, it will handle the wiring above. Consult that module for the actual invocation command.
+The runner does the following in order:
 
-### 7.3 Expected startup output
+1. Configures logging (INFO level to stderr).
+2. Reads and validates all environment variables into a `MatrixConfig`.
+3. Creates subsystems: `EventBus`, `RenderingPipeline`, `SQLiteStorage`, `Diagnostician`, `Router`.
+4. Registers the `MatrixRenderer` on the rendering pipeline.
+5. Creates the `MatrixAdapter` with the validated config.
+6. Wires a `PipelineRunner` with all subsystems.
+7. Builds an `AdapterContext` connecting the adapter to the pipeline.
+8. Registers signal handlers for SIGINT and SIGTERM.
+9. Starts the `PipelineRunner`, then starts the `MatrixAdapter`.
+10. Logs initial diagnostics (connection state, login state, sync task status).
+11. Waits for a shutdown signal.
+12. On shutdown: stops the adapter, stops the pipeline runner, closes the database.
 
-On a successful start, you should see:
+The old manual wiring approach (constructing `MatrixConfig` and `AdapterContext` by hand) is documented in Appendix A for developers who need fine-grained control.
+
+### 7.3 Expected startup and shutdown behavior
+
+**Startup.** On a successful start, you should see log lines like this (timestamps omitted):
 
 ```
-MatrixAdapter matrix-alpha started
+INFO  medre.runner  Matrix Operation Alpha: config loaded for @bot:localhost
+INFO  medre.runner  PipelineRunner started
+INFO  medre.runner  MatrixAdapter matrix-alpha started
+INFO  medre.runner  Initial diagnostics: {'status': 'healthy', 'details': {'connected': True, 'logged_in': True, 'sync_task_running': True, 'last_sync_error': None}}
+INFO  medre.runner  Matrix Operation Alpha running — awaiting shutdown signal
 ```
 
-That is the `ctx.logger.info` call at the end of `start()`. If you see that line, the adapter has:
+If you see the "running" line, the runner has:
 
-1. Verified `mindroom-nio` is installed.
-2. Created an `AsyncClient`.
-3. Restored login with the access token.
-4. Registered the inbound message callback.
-5. Started the `sync_forever` background task.
+1. Validated all required environment variables.
+2. Created and initialized the SQLite storage.
+3. Started the PipelineRunner.
+4. Started the MatrixAdapter (nio client created, login restored, sync loop running).
+5. Logged initial diagnostics confirming connection, login, and sync task state.
 
-If you do not see that line, check the failure modes in section 12.
+**Shutdown.** Press Ctrl+C (or send SIGTERM) to trigger a graceful shutdown:
+
+```
+INFO  medre.runner  Shutdown requested — stopping
+INFO  medre.runner  MatrixAdapter stopped
+INFO  medre.runner  PipelineRunner stopped
+INFO  medre.runner  Matrix Operation Alpha shut down cleanly
+```
+
+The runner catches SIGINT and SIGTERM, signals the adapter to stop, then stops the pipeline runner, then closes the database. Any in-flight sync operations are cancelled. See Known Limitation #2 for what this means about in-flight messages.
+
+If you do not see the startup lines above, check the troubleshooting section (section 13) for common configuration and connectivity errors.
 
 
 ## 8. Expected Logs and Diagnostics
 
 ### 8.1 Healthy startup
 
-The adapter logs one line on start:
+The runner logs a startup sequence. The key line from the adapter is:
 
 ```
 MatrixAdapter matrix-alpha started
 ```
 
-After that, the sync loop runs silently. There is no periodic "still alive" log. Silence is normal. The sync loop is long-polling the homeserver, waiting for new events.
+Before that, you will see the runner's own startup lines (config loaded, PipelineRunner started). After the adapter starts, the runner logs initial diagnostics and then the "running" line. After that, the sync loop runs silently. There is no periodic "still alive" log. Silence is normal. The sync loop is long-polling the homeserver, waiting for new events.
 
 ### 8.2 Inbound message received
 
@@ -335,7 +341,9 @@ This is an honest list. Everything here is real.
 
 9. **No metrics.** There is no Prometheus endpoint, no counters, no histograms. The only observability is the log output and the `health_check()` return value.
 
-10. **No runner.** As of this writing, there is no `src/medre/runner.py` or CLI entry point. You have to wire the adapter yourself (see section 7.2). If a runner exists when you read this, it was created by a parallel work stream and this section may be outdated. Check the source.
+10. **Runner is in alpha.** The runner (`python -m medre.runner`) works for testing but has limited error recovery. If a subsystem fails during startup, the runner exits with a traceback rather than attempting partial recovery. There is no watchdog to restart the runner if it crashes.
+
+11. **Plaintext only.** E2EE is not yet supported but is planned as the default for real deployments. Alpha operates on unencrypted rooms only. See section 12 for details.
 
 
 ## 11. Operational Risks
@@ -379,7 +387,7 @@ The following features are not supported in alpha mode. Do not attempt to use th
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| End-to-end encryption (E2EE) | Not supported | The adapter does not handle encrypted events. Messages in encrypted rooms will be ignored or produce errors. |
+| End-to-end encryption (E2EE) | Not yet supported in alpha | E2EE is planned as the future default for real deployments. The adapter does not handle encrypted events in alpha. Messages in encrypted rooms will be ignored or produce errors. The planned dependency for E2EE support is `mindroom-nio[e2e]`, which adds Olm/Megolm crypto libraries. Docker deployments should include E2EE dependencies when this becomes available. |
 | Reactions | Not supported | The adapter registers callbacks for `RoomMessageText`, `RoomMessageNotice`, and `RoomMessageEmote` only. Reaction events are not processed. |
 | Edits | Not supported | Edited messages appear as new messages. The adapter does not track `m.replace` relations. |
 | Deletes / redactions | Not supported | Redacted messages, if received, are not handled. |
@@ -469,3 +477,88 @@ The homeserver rejected the message content. Check that the payload is a valid `
 ### 13.11 `asyncio.CancelledError` warnings on shutdown
 
 These are expected. The `stop()` method cancels the sync task, which raises `CancelledError` inside `sync_forever`. The adapter catches and suppresses it, but Python's runtime may still emit warnings. They are harmless.
+
+### 13.12 `EnvironmentError: Required environment variable MATRIX_HOMESERVER is not set`
+
+The runner requires `MATRIX_HOMESERVER`, `MATRIX_USER_ID`, and `MATRIX_ACCESS_TOKEN` to be set. Double-check that all three are exported in your shell:
+
+```bash
+echo $MATRIX_HOMESERVER
+echo $MATRIX_USER_ID
+echo $MATRIX_ACCESS_TOKEN
+```
+
+If any is empty, set it and try again.
+
+### 13.13 Runner exits immediately with no output
+
+The most common cause is a missing or empty required environment variable. The runner raises `EnvironmentError` before logging is configured in some code paths, so the error may go to stderr without the standard log format. Run the runner explicitly and check stderr:
+
+```bash
+python -m medre.runner 2>&1
+```
+
+### 13.14 `ValueError` or `TypeError` from `MatrixConfig.validate()`
+
+The runner builds a `MatrixConfig` from environment variables and calls `validate()` before starting anything. Common causes:
+
+- `MATRIX_HOMESERVER` does not start with `http://` or `https://`.
+- `MATRIX_USER_ID` does not start with `@`.
+- `MATRIX_SYNC_TIMEOUT_MS` is not a valid integer.
+- `MATRIX_ACCESS_TOKEN` is empty.
+
+Check the error message, fix the variable, and restart.
+
+### 13.15 Runner starts but no inbound events arrive
+
+After the "running" line appears, check the diagnostics output. If `connected` is `False` or `logged_in` is `False`, the adapter failed to authenticate. Verify the access token is valid for the given user ID on the given homeserver. Then check the troubleshooting items in 13.7 (allowlist, self-message suppression, encryption, room membership, sync task state).
+
+
+## Appendix A: Manual Wiring (Advanced/Developer Reference)
+
+The runner (`python -m medre.runner`) is the primary way to operate MEDRE in alpha mode. This appendix documents the manual wiring pattern for developers who need to construct the adapter and context by hand, for example when testing a specific subsystem in isolation or building a custom pipeline.
+
+```python
+import asyncio
+import os
+
+from medre.adapters.matrix import MatrixAdapter, MatrixConfig
+from medre.adapters.base import AdapterContext
+
+async def main():
+    raw_allowlist = os.environ.get("MATRIX_ROOM_ALLOWLIST", "")
+    allowlist = set(raw_allowlist.split(",")) if raw_allowlist.strip() else None
+
+    config = MatrixConfig(
+        adapter_id="matrix-alpha",
+        homeserver=os.environ["MATRIX_HOMESERVER"],
+        user_id=os.environ["MATRIX_USER_ID"],
+        access_token=os.environ["MATRIX_ACCESS_TOKEN"],
+        room_allowlist=allowlist,
+    )
+
+    adapter = MatrixAdapter(config)
+
+    # Create a minimal context. The real runtime provides this.
+    # For alpha testing, a stub context with a logger and publish_inbound
+    # callback is sufficient.
+    ctx = AdapterContext(
+        logger=...,           # a logging.Logger or compatible object
+        publish_inbound=...,  # an async callable accepting canonical events
+        storage=...,          # a storage backend or None
+    )
+
+    await adapter.start(ctx)
+    print("Adapter started. Press Ctrl+C to stop.")
+
+    try:
+        await asyncio.Event().wait()  # block forever
+    except KeyboardInterrupt:
+        pass
+    finally:
+        await adapter.stop()
+
+asyncio.run(main())
+```
+
+This is not the recommended way to run MEDRE. Use the runner unless you have a specific reason to wire manually.
