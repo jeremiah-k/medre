@@ -205,7 +205,7 @@ The old manual wiring approach (constructing `MatrixConfig` and `AdapterContext`
 INFO  medre.runner  Matrix Operation Alpha: config loaded for @bot:localhost
 INFO  medre.runner  PipelineRunner started
 INFO  medre.runner  MatrixAdapter matrix-alpha started
-INFO  medre.runner  Initial diagnostics: {'status': 'healthy', 'details': {'connected': True, 'logged_in': True, 'sync_task_running': True, 'last_sync_error': None}}
+INFO  medre.runner  Initial diagnostics: {'status': 'healthy', 'details': {'connected': True, 'logged_in': True, 'sync_task_running': True, 'last_sync_error': None, 'reconnecting': False, 'reconnect_attempts': 0, 'last_successful_sync': '2026-05-09T12:00:00Z', 'rooms_tracked': 1, 'delivery_attempts': 0, 'delivery_successes': 0, 'delivery_failures': 0, 'crypto_store_loaded': None}}
 INFO  medre.runner  Matrix Operation Alpha running — awaiting shutdown signal
 ```
 
@@ -215,7 +215,7 @@ If you see the "running" line, the runner has:
 2. Created and initialized the SQLite storage.
 3. Started the PipelineRunner.
 4. Started the MatrixAdapter (nio client created, login restored, sync loop running).
-5. Logged initial diagnostics confirming connection, login, and sync task state.
+5. Logged initial diagnostics confirming connection, login, sync task state, and operational counters (reconnect attempts, delivery stats, room tracking).
 
 **Shutdown.** Press Ctrl+C (or send SIGTERM) to trigger a graceful shutdown:
 
@@ -331,23 +331,28 @@ MatrixAdapter matrix-alpha: suppressing self-message from @bot:localhost
 
 This is logged at DEBUG level. If your logger is configured for INFO or higher, you will not see it.
 
-### 9.4 Sync failure
+### 9.4 Sync failure and automatic recovery
 
-If the sync loop crashes (network error, auth expiry, homeserver restart), the exception is captured internally. The next call to `health_check()` will return `health="failed"`. The error is logged:
+If a sync iteration fails due to a transient error (network blip, homeserver restart, temporary server error), the adapter automatically attempts reconnection with bounded exponential backoff. The error is logged:
 
 ```
-MatrixAdapter matrix-alpha: sync task failed: <exception details>
+MatrixAdapter matrix-alpha: sync error, attempting reconnect (attempt N): <exception details>
 ```
+
+Transient errors include network timeouts, connection refused, and server-side 5xx responses. Permanent errors (expired/revoked token, deactivated account) are not retried — the adapter enters `failed` state and requires manual intervention (new token + restart).
+
+See section 12 (Operational Resilience) for full reconnect/backoff behavior.
 
 ### 9.5 Health states
 
 | State | Meaning |
 |-------|---------|
 | `unknown` | Adapter has not started, or has been stopped |
-| `healthy` | Client is connected and logged in |
-| `failed` | Sync task has crashed, or client exists but is not logged in |
+| `healthy` | Client is connected, logged in, and sync is running |
+| `degraded` | Sync is running but actively reconnecting after a transient failure |
+| `failed` | Sync task has crashed permanently, or client exists but is not logged in |
 
-The adapter does not auto-reconnect. If the sync task fails, the adapter stays in `failed` until someone calls `stop()` and `start()` again.
+When the adapter is in `degraded` state, it is actively attempting to restore the sync connection. Once reconnection succeeds, the state returns to `healthy`. If the reconnect budget is exhausted, the state transitions to `failed` and requires manual restart.
 
 
 ## 10. Replay Validation Procedure
@@ -393,9 +398,9 @@ This section describes how to manually verify that the adapter behaves correctly
 
 This is an honest list. Everything here is real.
 
-1. **No auto-reconnect.** If the sync task fails, the adapter stays dead until manually restarted. There is no exponential backoff, no retry loop, no watchdog. You have to call `stop()` then `start()` again yourself.
+1. **Bounded auto-reconnect, not infinite retry.** The adapter automatically reconnects on transient sync failures with exponential backoff, up to a maximum number of attempts. If the reconnect budget is exhausted, the adapter enters `failed` state and requires a manual restart. See section 12 for the full reconnect specification.
 
-2. **No graceful shutdown signaling.** The adapter does not drain in-flight messages on stop. `stop()` cancels the sync task and closes the client. Anything in flight is lost.
+2. **No graceful shutdown signaling.** The adapter does not drain in-flight messages on stop. `stop()` cancels the sync task and closes the client. Anything in flight is lost. Delivery retries are per-attempt; an in-flight delivery that is cancelled during shutdown is not retried.
 
 3. **No inbound queue or persistence.** Inbound events are published directly via `context.publish_inbound()`. If that callback is slow or fails, the event is gone. There is no retry, no dead letter queue, no redelivery.
 
@@ -405,7 +410,7 @@ This is an honest list. Everything here is real.
 
 6. **Single-room testing only.** Alpha mode has only been validated with one room at a time. Multi-room behavior (multiple allowlisted rooms with concurrent inbound) has not been tested against a real homeserver.
 
-7. **No reconnection on token expiry.** If the access token is revoked or expires, the sync task fails and the adapter enters `failed` state. You need a new token and a manual restart.
+7. **Reconnect does not recover from permanent auth failures.** If the access token is revoked or expires, the reconnect loop will not succeed (permanent error). The adapter enters `failed` state after exhausting the reconnect budget. You need a new token and a manual restart.
 
 8. **No structured logging.** The adapter uses `ctx.logger.info/debug/error` with format strings. There are no structured log fields, no trace IDs, no correlation across events.
 
@@ -432,11 +437,16 @@ Mitigation: use a dedicated bot account with minimal room membership. Rotate the
 
 ### 12.2 Sync interruption
 
-The `sync_forever` loop can fail for many reasons: network blips, homeserver restarts, token expiry, resource exhaustion. When it fails, the adapter captures the exception but does not recover automatically. You have to notice the failure (via `health_check()` or the error log) and restart manually.
+The `sync_forever` loop can fail for many reasons: network blips, homeserver restarts, token expiry, resource exhaustion. When a transient failure occurs, the adapter automatically reconnects with exponential backoff (see section 12A). Permanent failures (token expiry, account deactivation) cause the adapter to enter `failed` state and require manual restart.
 
-### 12.3 Missing reconnect logic
+### 12.3 Reconnect limitations
 
-There is no reconnect logic. This is stated plainly because it is the most common question. If the connection drops, the adapter does not try again. This is a known limitation, not a bug. Reconnection with backoff and state recovery is future work.
+Automatic reconnect handles transient sync failures only. The reconnect loop has a bounded attempt maximum and exponential backoff. Known limitations:
+
+- **Token expiry is not recovered.** A revoked or expired token produces a permanent error. Reconnect attempts will exhaust the budget without success. A new token and manual restart are required.
+- **Homeserver disappearance.** If the homeserver goes offline for longer than the reconnect budget allows, the adapter enters `failed`. A manual restart is needed when the homeserver returns.
+- **No inbound replay.** Events that arrived during the disconnected period are not replayed. When sync resumes, it picks up from the last successful sync token. Events that occurred while disconnected are missed if the sync token was not persisted.
+- **Delivery retry is transient-only.** Outbound delivery retries (up to 3 attempts) only cover transient send errors. Permanent send failures (unknown room, forbidden) are not retried.
 
 ### 12.4 Homeserver resource consumption
 
@@ -449,6 +459,106 @@ The adapter does not guarantee ordering of outbound messages. If you call `deliv
 ### 12.6 Event duplication
 
 If the adapter restarts after sending a message but before recording the event, the same message may be sent again on restart. The adapter has no deduplication logic for outbound messages. Inbound events may also be delivered twice if the sync token is not persisted between restarts.
+
+Delivery retries (up to 3 attempts on transient send errors) can produce duplicates: the message may have been accepted by the homeserver on the first attempt, but the response was lost. The adapter retries the send, resulting in a duplicate event in the room. There is no idempotency key or deduplication mechanism. Operators monitoring rooms should be aware of this possibility, especially during network instability.
+
+
+## 12A. Operational Resilience
+
+This section documents the adapter's automatic recovery and retry behavior. These features handle transient failures only — permanent errors (expired tokens, deactivated accounts, unknown rooms) always require manual intervention.
+
+### 12A.1 Automatic sync recovery with reconnect/backoff
+
+When a sync iteration fails due to a transient error, the adapter does not require manual restart. It automatically attempts to re-establish the sync connection with bounded exponential backoff.
+
+**Transient errors** (auto-retried):
+- Network timeouts and connection refused
+- Server-side 5xx responses
+- Temporary DNS resolution failures
+- TCP connection resets
+
+**Permanent errors** (not retried):
+- Expired or revoked access tokens (`M_UNKNOWN_TOKEN`)
+- Deactivated accounts (`M_USER_DEACTIVATED`)
+- Forbidden errors (`M_FORBIDDEN`)
+
+### 12A.2 Reconnect attempt maximum and backoff strategy
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| Maximum reconnect attempts | Bounded (implementation-defined) | After exhausting attempts, adapter enters `failed` state |
+| Backoff strategy | Exponential with jitter | Prevents thundering herd on shared homeserver |
+| Initial delay | Implementation-defined | Short delay before first reconnect attempt |
+| Maximum delay | Capped | Backoff stops growing beyond a ceiling |
+
+The reconnect attempt counter resets on a successful sync. Diagnostics expose the current `reconnect_attempts` count. The `reconnecting` boolean indicates whether the adapter is actively in a reconnect cycle.
+
+During the reconnect cycle, the adapter reports `health="degraded"`. On successful sync restoration, health returns to `"healthy"`.
+
+### 12A.3 Restart behavior and crypto continuity
+
+When the adapter is stopped and restarted with the same `device_id` and `store_path`:
+
+- **Plaintext rooms**: No special consideration. Sync resumes from the homeserver's last position.
+- **E2EE rooms**: `restore_login` loads the crypto store from `store_path`. The Olm machine, device keys, and room keys are restored. Device identity is preserved (same `device_id`). The `crypto_store_loaded` diagnostic field reports `True` when the crypto store was successfully loaded.
+
+Crypto continuity is verified during startup: if the store_path directory is empty or missing and E2EE is active, the adapter creates a fresh store (first-run behavior). If the store exists and is valid, existing keys are loaded. The diagnostic `crypto_store_loaded` reflects the result.
+
+### 12A.4 Delivery retry semantics
+
+Outbound `deliver()` calls have built-in retry for transient send failures:
+
+| Parameter | Value |
+|-----------|-------|
+| Maximum retries | 3 |
+| Retry trigger | Transient send errors only |
+| Permanent errors | No retry — error returned immediately |
+| Duplicate risk | Yes — see section 12.6 |
+
+**Transient send errors** include network timeouts, connection refused, and 5xx homeserver responses. **Permanent send errors** include `M_FORBIDDEN`, `M_UNKNOWN_ROOM`, and other 4xx client errors.
+
+On each retry, the adapter waits with exponential backoff before reattempting. If all 3 attempts fail, the delivery fails and the error is returned to the caller.
+
+**Duplicate risk**: Because the homeserver may have accepted the message on an earlier attempt but the response was lost, a successful retry can produce a duplicate event in the room. There is no transaction ID deduplication in the alpha. Operators should be aware of this during network instability.
+
+Delivery diagnostics are available: `delivery_attempts`, `delivery_successes`, `delivery_failures` track cumulative counters since adapter start.
+
+### 12A.5 Room-state tracking
+
+The adapter tracks room state (joined rooms, membership) as part of sync processing. The `rooms_tracked` diagnostic field reports the number of rooms currently being tracked. This is informational and does not affect the allowlist filter — the allowlist continues to gate which rooms produce inbound events.
+
+### 12A.6 Long-running deployment notes
+
+For operators running the adapter as a long-lived process (e.g., a persistent bot, Docker container, systemd service):
+
+**Docker restart policy:**
+
+```bash
+docker run -d --name medre-matrix \
+  --restart unless-stopped \
+  -e MATRIX_HOMESERVER=http://homeserver:8008 \
+  -e MATRIX_USER_ID=@bot:server \
+  -e MATRIX_ACCESS_TOKEN=syt_... \
+  -e MATRIX_ROOM_ALLOWLIST=!room:server \
+  -e MATRIX_DEVICE_ID=MEDRE_ALPHA_01 \
+  -e MATRIX_STORE_PATH=/data/nio-store \
+  -v medre-store:/data \
+  medre-matrix:latest
+```
+
+**Key considerations:**
+
+1. **`store_path` persistence.** Mount the `store_path` directory as a Docker volume or bind mount. If the container is recreated without persisting the store, the crypto identity is lost and must be re-established.
+
+2. **Docker restart policy.** Use `--restart unless-stopped` or `--restart on-failure`. The adapter's built-in reconnect handles transient sync failures within a single process lifetime. The Docker restart policy handles process-level crashes (OOM, segfault, runner panic).
+
+3. **Signal handling.** The runner catches SIGTERM (Docker sends this on `docker stop`) and performs graceful shutdown. SIGKILL (Docker sends this after the grace period) interrupts in-flight operations.
+
+4. **`MEDRE_DB_PATH` persistence.** If using file-backed SQLite storage (not in-memory), mount the database path as a volume. Default is `:memory:` (lost on restart).
+
+5. **Token rotation.** The adapter does not support runtime token rotation. To rotate the token, restart the container with the new `MATRIX_ACCESS_TOKEN` value.
+
+6. **Resource limits.** The sync loop maintains a single long-polling HTTP connection. Memory usage is dominated by the nio crypto store (SQLite + in-room key cache). For alpha with a handful of rooms, 256 MB is sufficient.
 
 
 ## 13. Explicit Unsupported Features
@@ -538,7 +648,7 @@ python -c "import nio; print(nio.__version__)"
 
 ### 14.9 High CPU usage or spinning
 
-The `sync_forever` loop should be idle most of the time (long-polling with a 30-second timeout). If you see high CPU, it might be rapidly reconnecting. Check `health_check()` and the logs for repeated sync failures.
+The `sync_forever` loop should be idle most of the time (long-polling with a 30-second timeout). If you see high CPU, it might be rapidly reconnecting due to persistent transient failures. Check `health_check()` for `degraded` state and the `reconnect_attempts` counter in diagnostics. If `reconnect_attempts` is climbing, the adapter is in a reconnect loop — see section 14.19.
 
 ### 14.10 Messages appear in Element but `deliver()` raises `MatrixSendError`
 
@@ -611,6 +721,50 @@ If the wheel is not available for your platform, install Rust first:
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 pip install -e ".[matrix-e2e]"
 ```
+
+### 14.18 Adapter repeatedly reconnects (health oscillates between `degraded` and `healthy`)
+
+The homeserver is intermittently unavailable or the network is unstable. Check:
+
+1. **Homeserver health.** Is the homeserver restarting or under load? Check its logs.
+2. **Network connectivity.** Is the link between the adapter and homeserver stable? Run a sustained `curl` test:
+   ```bash
+   while true; do curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8008/_matrix/client/versions; sleep 1; done
+   ```
+3. **Reconnect budget.** Check `reconnect_attempts` in diagnostics. If it keeps resetting to 0, recovery is succeeding but the underlying problem persists.
+
+### 14.19 Adapter stuck in `degraded` state with increasing `reconnect_attempts`
+
+The reconnect budget has not been exhausted yet, but every reconnect attempt is failing. Common causes:
+
+1. **Homeserver is down.** Check that the homeserver process is running.
+2. **Network partition.** The adapter cannot reach the homeserver's HTTP port.
+3. **DNS resolution failure.** If using a hostname (not `localhost`), DNS may be failing.
+
+If the reconnect budget is exhausted, the adapter transitions to `failed`. A manual restart is needed after the underlying issue is resolved.
+
+### 14.20 Adapter in `failed` state after reconnect budget exhausted
+
+The adapter tried to recover from a transient error but used all its reconnect attempts without success. To recover:
+
+1. Diagnose and fix the underlying issue (homeserver down, network failure, etc.).
+2. Restart the adapter: `stop()` then `start()`, or restart the runner process.
+3. If using Docker, the `--restart on-failure` policy handles this automatically.
+
+### 14.21 Delivery retries producing duplicate messages in the room
+
+This is a known trade-off of the delivery retry mechanism (see section 12A.4). The first send attempt may have succeeded at the homeserver, but the response was lost. The retry produces a duplicate.
+
+Mitigation: monitor rooms for duplicates during network instability. There is no deduplication mechanism in the alpha. This is a known limitation, not a bug.
+
+### 14.22 `crypto_store_loaded` is `False` after restart with `.[matrix-e2e]`
+
+The crypto store was not loaded on startup. Check:
+
+1. **Is `MATRIX_STORE_PATH` set and does the directory exist?** The adapter creates the directory if missing, but if the path is invalid (e.g., a file instead of a directory), loading fails.
+2. **Is `MATRIX_DEVICE_ID` set?** Crypto store loading requires a stable device ID.
+3. **Is the store directory empty?** On first run, the store is created but `crypto_store_loaded` reflects whether an existing store was loaded. A fresh store creation is not an error.
+4. **File permissions.** The adapter needs read/write access to the `store_path` directory.
 
 
 ## 13. E2EE Text Alpha

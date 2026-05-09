@@ -20,6 +20,9 @@ What live smoke proves:
 - `health_check()` transitions correctly through the lifecycle.
 - Outbound `room_send` produces a real `event_id` starting with `$`.
 - The adapter starts, sends, and stops cleanly without leaking tasks.
+- The adapter reconnects automatically on transient sync failures (bounded attempts, exponential backoff).
+- Stop/start cycles preserve adapter state; a second `start()` after `stop()` re-establishes sync.
+- Health reports `degraded` during reconnect cycles and `healthy` after recovery.
 
 What live smoke does **not** prove:
 
@@ -215,6 +218,8 @@ and MATRIX_ROOM_ID env vars to run live Matrix tests"*
 | `assert info.health == "healthy"` fails | Homeserver unreachable or token expired | Check homeserver URL; regenerate token                |
 | `native_message_id is None`         | Homeserver returned error response       | Check homeserver logs; verify room membership         |
 | All tests SKIP                      | Env vars not set                         | Set all four `MATRIX_*` environment variables         |
+| Health stays `degraded`             | Reconnect cycle in progress              | Wait for reconnect or check homeserver availability   |
+| Health `failed` after restart test  | Token expired during test                | Regenerate token; re-export env var                   |
 
 
 ## Cleanup
@@ -322,6 +327,34 @@ pytest tests/test_matrix_live.py -m live -v
 | Room keys | Not yet distributed | Available from store |
 | Inbound decryption | May fail until sender re-encrypts | Works immediately |
 | Outbound encryption | Works (auto-shares session) | Works (session in store) |
+
+
+## Stop/Start Cycle and Reconnect Tests
+
+The live smoke harness includes tests that validate adapter behavior across lifecycle transitions and transient failure recovery.
+
+### Stop/start cycle expectations
+
+1. **Start → healthy.** After `start()`, `health_check()` returns `"healthy"` with `connected=True`, `logged_in=True`, `sync_task_running=True`.
+2. **Stop → unknown.** After `stop()`, `health_check()` returns `"unknown"`. No sync task is running. The nio client is closed.
+3. **Restart → healthy.** Calling `start()` again after `stop()` re-creates the nio client, restores login, and starts a fresh sync loop. `health_check()` returns `"healthy"`.
+4. **No task leaks.** After `stop()`, no lingering asyncio tasks from the adapter. Verified by comparing `asyncio.all_tasks()` before and after.
+5. **Crypto continuity on restart (E2EE).** When `store_path` and `device_id` are stable, restarting the adapter preserves the crypto identity. `crypto_store_loaded` is `True` on the second start.
+
+### Reconnect behavior expectations
+
+1. **Transient failure → auto-reconnect.** When a sync iteration fails with a transient error, the adapter does not enter `failed` immediately. It begins a reconnect cycle.
+2. **Health during reconnect.** `health_check()` returns `"degraded"` with `reconnecting=True` and `reconnect_attempts > 0` during the reconnect cycle.
+3. **Recovery.** When the underlying issue resolves (homeserver comes back, network recovers), the next reconnect attempt succeeds. `health_check()` returns `"healthy"` with `reconnecting=False`, `reconnect_attempts=0`.
+4. **Budget exhaustion → failed.** If the reconnect budget is exhausted without a successful sync, the adapter transitions to `"failed"` state. Manual restart required.
+5. **Permanent error → failed.** Permanent errors (expired token, deactivated account) are not retried. The adapter enters `"failed"` immediately.
+
+### What reconnect tests do NOT cover
+
+- Simulating specific network failure modes (requires network simulation tooling).
+- Verifying no message loss during reconnect gaps (requires a second actor).
+- Measuring backoff timing precision (requires time-sensitive assertions).
+- Recovery from process-level crashes (requires external supervisor).
 
 
 ## Explicit Scope Exclusions

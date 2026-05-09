@@ -169,3 +169,138 @@ class TestLiveE2EERestart:
             assert diag["connected"] is True
         finally:
             await adapter.stop()
+
+    async def test_restart_preserves_crypto_state(self) -> None:
+        """Restart preserves crypto_enabled and crypto_store_loaded."""
+        pytest.importorskip("nio")
+        from medre.adapters.base import AdapterContext
+        from medre.adapters.matrix.adapter import MatrixAdapter
+        from datetime import datetime, timezone
+
+        config = _live_config()
+        adapter = MatrixAdapter(config)
+        ctx = AdapterContext(
+            adapter_id="matrix-e2ee-live",
+            event_bus=None,
+            publish_inbound=AsyncMock(),
+            logger=logging.getLogger("test.live.e2ee.restart"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+        )
+        try:
+            # First start
+            await adapter.start(ctx)
+            first_crypto_enabled = adapter.diagnostics()["crypto_enabled"]
+            first_crypto_store = adapter.diagnostics()["crypto_store_loaded"]
+            await adapter.stop()
+
+            # Second start — same store/device
+            await adapter.start(ctx)
+            diag = adapter.diagnostics()
+            assert diag["crypto_enabled"] == first_crypto_enabled
+            assert diag["crypto_store_loaded"] == first_crypto_store
+        finally:
+            await adapter.stop()
+
+    async def test_restart_send_encrypted(self) -> None:
+        """After restart, can still send encrypted messages."""
+        pytest.importorskip("nio")
+        from medre.adapters.base import AdapterContext
+        from medre.adapters.matrix.adapter import MatrixAdapter
+        from medre.core.rendering.renderer import RenderingResult
+        from datetime import datetime, timezone
+
+        config = _live_config()
+        adapter = MatrixAdapter(config)
+        ctx = AdapterContext(
+            adapter_id="matrix-e2ee-live",
+            event_bus=None,
+            publish_inbound=AsyncMock(),
+            logger=logging.getLogger("test.live.e2ee.send"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+        )
+        try:
+            await adapter.start(ctx)
+            await adapter.stop()
+
+            # Restart and send
+            await adapter.start(ctx)
+            room_id = os.environ["MATRIX_ROOM_ID"]
+            result = RenderingResult(
+                event_id="$live-restart-event",
+                target_adapter="matrix-e2ee-live",
+                payload={"msgtype": "m.text", "body": "meshnet e2ee restart test"},
+                target_channel=room_id,
+            )
+            deliver_result = await adapter.deliver(result)
+            assert deliver_result is not None
+        finally:
+            await adapter.stop()
+
+
+class TestLiveE2EEStartStopCycles:
+    """Repeated start/stop cycles verify clean state."""
+
+    async def test_repeated_start_stop_cycles(self) -> None:
+        """2-3 start/stop cycles are safe with no leaked resources."""
+        pytest.importorskip("nio")
+        from medre.adapters.base import AdapterContext
+        from medre.adapters.matrix.adapter import MatrixAdapter
+        from datetime import datetime, timezone
+
+        config = _live_config()
+        adapter = MatrixAdapter(config)
+        ctx = AdapterContext(
+            adapter_id="matrix-e2ee-live",
+            event_bus=None,
+            publish_inbound=AsyncMock(),
+            logger=logging.getLogger("test.live.e2ee.cycles"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+        )
+
+        for cycle in range(3):
+            await adapter.start(ctx)
+            diag = adapter.diagnostics()
+            assert diag["connected"] is True
+            assert diag["sync_running"] is True
+            assert diag["reconnecting"] is False
+            assert diag["reconnect_attempts"] == 0
+            await adapter.stop()
+            assert adapter._session is None
+
+    async def test_disconnect_reconnect(self) -> None:
+        """Stop/restart adapter simulates disconnect/reconnect."""
+        pytest.importorskip("nio")
+        from medre.adapters.base import AdapterContext
+        from medre.adapters.matrix.adapter import MatrixAdapter
+        from datetime import datetime, timezone
+
+        config = _live_config()
+        adapter = MatrixAdapter(config)
+        ctx = AdapterContext(
+            adapter_id="matrix-e2ee-live",
+            event_bus=None,
+            publish_inbound=AsyncMock(),
+            logger=logging.getLogger("test.live.e2ee.disco"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+        )
+        try:
+            # Start → verify running
+            await adapter.start(ctx)
+            assert adapter.diagnostics()["connected"] is True
+
+            # "Disconnect" — stop
+            await adapter.stop()
+            assert adapter._session is None
+
+            # "Reconnect" — start again
+            await adapter.start(ctx)
+            diag = adapter.diagnostics()
+            assert diag["connected"] is True
+            assert diag["sync_running"] is True
+            assert diag["crypto_enabled"] is True
+        finally:
+            await adapter.stop()

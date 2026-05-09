@@ -11,6 +11,8 @@ All client lifecycle (creation, login, sync, teardown) is delegated to
 from __future__ import annotations
 
 import asyncio
+import logging
+import random
 from typing import Any
 
 from medre.adapters.base import (
@@ -30,6 +32,8 @@ from medre.adapters.matrix.relations import MatrixRelationHandler
 from medre.adapters.matrix.session import MatrixSession
 from medre.core.rendering.renderer import RenderingResult
 
+_logger = logging.getLogger(__name__)
+
 # Capabilities for the Matrix presentation adapter.
 _MATRIX_CAPABILITIES = AdapterCapabilities(
     text=True,
@@ -47,6 +51,46 @@ _MATRIX_CAPABILITIES = AdapterCapabilities(
     async_delivery=True,
     topic_rooms=True,
 )
+
+# Track 5 — delivery retry constants
+_MAX_DELIVERY_RETRIES: int = 3
+_DELIVERY_BACKOFF_BASE: float = 0.5  # 500ms
+_DELIVERY_BACKOFF_JITTER: float = 0.25
+
+
+def _is_transient_error(exc: BaseException) -> bool:
+    """Classify an exception as transient (retry-able) or permanent.
+
+    Network-level errors from nio / aiohttp are considered transient.
+    MatrixSendError and other application-level errors are permanent.
+    """
+    # Common nio/aiohttp transient error patterns
+    exc_name = type(exc).__name__
+    exc_module = type(exc).__module__ or ""
+
+    # nio network errors
+    if exc_name in (
+        "TransportProtocolError",
+        "ConnectionError",
+        "LocalProtocolError",
+        "ClientConnectorError",
+        "ServerDisconnectedError",
+        "ClientOSError",
+        "ServerTimeoutError",
+        "asyncio.TimeoutError",
+        "TimeoutError",
+    ):
+        return True
+
+    # aiohttp transport errors
+    if "aiohttp" in exc_module and "Error" in exc_name:
+        return True
+
+    # OSError and its subclasses (network layer)
+    if isinstance(exc, OSError):
+        return True
+
+    return False
 
 
 class MatrixAdapter(BaseAdapter):
@@ -70,6 +114,9 @@ class MatrixAdapter(BaseAdapter):
         "_sync_failure_stored",
         "_codec", "_relation_handler",
         "_envelope_handler", "ctx",
+        # Track 5 — delivery retry stats
+        "_transient_delivery_failures",
+        "_permanent_delivery_failures",
     )
 
     adapter_id: str
@@ -89,6 +136,9 @@ class MatrixAdapter(BaseAdapter):
         self._relation_handler = MatrixRelationHandler()
         self._envelope_handler = MatrixMetadataEnvelope
         self.ctx: AdapterContext | None = None
+        # Track 5
+        self._transient_delivery_failures: int = 0
+        self._permanent_delivery_failures: int = 0
 
     @property
     def _sync_failure(self) -> Exception | None:
@@ -120,6 +170,9 @@ class MatrixAdapter(BaseAdapter):
             to connect, or E2EE preconditions are unmet.
         """
         self._sync_failure = None  # Reset from any previous failure
+        # Track 5 — reset delivery stats on start
+        self._transient_delivery_failures = 0
+        self._permanent_delivery_failures = 0
         self.ctx = ctx
 
         if not HAS_NIO:
@@ -209,10 +262,9 @@ class MatrixAdapter(BaseAdapter):
     def _check_encrypted_room_safety(self, room_id: str, client: Any) -> None:
         """Raise if the room is encrypted but crypto is not active.
 
-        Checks the room-specific encryption state via
-        ``client.rooms[room_id].encrypted`` when available.  Rooms not
-        found in ``client.rooms`` are treated optimistically (send
-        allowed).
+        Uses the session's room-state tracking cache first (Track 4),
+        then falls back to ``client.rooms[room_id].encrypted`` for
+        rooms not yet tracked.
 
         Parameters
         ----------
@@ -231,7 +283,18 @@ class MatrixAdapter(BaseAdapter):
         if self._session.crypto_enabled:
             return
 
-        # Room-specific check: inspect client.rooms for encryption state.
+        # Track 4 — use session room_state cache first
+        room_state = self._session.room_state(room_id)
+        if room_state == "encrypted":
+            raise MatrixSendError(
+                f"Room {room_id} is encrypted but E2EE crypto is not active; "
+                f"cannot send encrypted message"
+            )
+        if room_state == "plaintext":
+            # Room is known plaintext — allow send
+            return
+
+        # "unknown" — fall back to client.rooms check
         rooms = getattr(client, "rooms", None)
         if rooms is not None and isinstance(rooms, dict):
             room_obj = rooms.get(room_id)
@@ -252,6 +315,14 @@ class MatrixAdapter(BaseAdapter):
         If the response lacks an ``event_id``, the result is returned without one (the
         pipeline will not store a native ref in that case).
 
+        Implements bounded retry (Track 5) for transient network errors:
+        up to 3 attempts with exponential backoff (500ms, 1s, 2s, +-25% jitter).
+        Non-transient errors raise immediately without retry.
+
+        .. note::
+            Retry may cause duplicate messages if the first attempt
+            succeeded on the server but the response was lost.
+
         Parameters
         ----------
         result:
@@ -265,8 +336,8 @@ class MatrixAdapter(BaseAdapter):
         Raises
         ------
         MatrixSendError
-            If the homeserver rejects the message or the client is not
-            connected.
+            If the homeserver rejects the message, the client is not
+            connected, or all retries are exhausted.
         """
         client = self._client
         if client is None:
@@ -286,32 +357,61 @@ class MatrixAdapter(BaseAdapter):
         content = dict(result.payload)
         content.pop("room_id", None)
 
-        response = await client.room_send(
-            room_id=room_id,
-            message_type="m.room.message",
-            content=content,
-        )
-
-        # Check for nio error responses — a successful RoomSendResponse
-        # carries event_id; anything else is an error.
-        if hasattr(response, "event_id"):
-            event_id = response.event_id
-            # Guard against None / empty event_id — the homeserver should
-            # always return one on success.  A missing or empty event_id
-            # indicates a malformed response and must not produce a native
-            # ref that the pipeline could persist.
-            if not event_id:
-                raise MatrixSendError(
-                    "homeserver returned empty/missing event_id; "
-                    "delivery may not have been recorded"
+        # Track 5 — bounded retry for transient errors
+        last_exc: BaseException | None = None
+        for attempt in range(_MAX_DELIVERY_RETRIES):
+            try:
+                response = await client.room_send(
+                    room_id=room_id,
+                    message_type="m.room.message",
+                    content=content,
                 )
-            return AdapterDeliveryResult(
-                native_message_id=event_id,
-                native_channel_id=room_id,
-            )
-        else:
-            # Error response (nio ErrorResponse or similar)
-            raise MatrixSendError(str(response))
+
+                # Check for nio error responses
+                if hasattr(response, "event_id"):
+                    event_id = response.event_id
+                    if not event_id:
+                        raise MatrixSendError(
+                            "homeserver returned empty/missing event_id; "
+                            "delivery may not have been recorded"
+                        )
+                    return AdapterDeliveryResult(
+                        native_message_id=event_id,
+                        native_channel_id=room_id,
+                    )
+                else:
+                    # Error response (nio ErrorResponse or similar)
+                    raise MatrixSendError(str(response))
+
+            except MatrixSendError:
+                # Non-transient — raise immediately
+                self._permanent_delivery_failures += 1
+                raise
+            except BaseException as exc:
+                last_exc = exc
+                if _is_transient_error(exc):
+                    self._transient_delivery_failures += 1
+                    if attempt < _MAX_DELIVERY_RETRIES - 1:
+                        delay = _DELIVERY_BACKOFF_BASE * (2 ** attempt)
+                        jitter = delay * _DELIVERY_BACKOFF_JITTER
+                        actual_delay = max(0.0, delay + random.uniform(-jitter, jitter))
+                        await asyncio.sleep(actual_delay)
+                        continue
+                    # Exhausted retries
+                    self._permanent_delivery_failures += 1
+                    raise MatrixSendError(
+                        f"Delivery failed after {_MAX_DELIVERY_RETRIES} "
+                        f"transient retries: {exc}"
+                    ) from exc
+                else:
+                    # Non-transient unexpected error
+                    self._permanent_delivery_failures += 1
+                    raise MatrixSendError(str(exc)) from exc
+
+        # Should not reach here, but safety net
+        raise MatrixSendError(
+            f"Delivery failed: {last_exc}"
+        ) from last_exc
 
     # -- Inbound callback ---------------------------------------------------
 
@@ -334,6 +434,12 @@ class MatrixAdapter(BaseAdapter):
         """
         if self.ctx is None:
             return
+
+        # Track 4 — track room as seen
+        if self._session is not None:
+            room_id_val = getattr(room, "room_id", None)
+            if room_id_val is not None:
+                self._session._track_room(room_id_val)
 
         # Apply room allowlist filter
         if self._config.room_allowlist is not None:
@@ -393,6 +499,8 @@ class MatrixAdapter(BaseAdapter):
         """Return a dict of adapter diagnostics (no secrets).
 
         Includes session diagnostics plus adapter-level fields.
+        No access tokens, room keys, session IDs, user secrets,
+        or room-name dumps.
         """
         if self._session is not None:
             diag = self._session.diagnostics()
@@ -408,6 +516,19 @@ class MatrixAdapter(BaseAdapter):
                 "last_crypto_error": diag.last_crypto_error,
                 "encrypted_room_seen": diag.encrypted_room_seen,
                 "undecryptable_event_count": diag.undecryptable_event_count,
+                # Track 1 — sync recovery
+                "sync_running": diag.sync_running,
+                "reconnecting": diag.reconnecting,
+                "reconnect_attempts": diag.reconnect_attempts,
+                "last_successful_sync": diag.last_successful_sync,
+                # Track 2 — crypto-store continuity
+                "crypto_store_loaded": diag.crypto_store_loaded,
+                # Track 4 — room counts (no room IDs)
+                "encrypted_room_count": diag.encrypted_room_count,
+                "plaintext_room_count": diag.plaintext_room_count,
+                # Track 5 — delivery stats
+                "transient_delivery_failures": self._transient_delivery_failures,
+                "permanent_delivery_failures": self._permanent_delivery_failures,
             }
         return {
             "connected": False,
@@ -421,4 +542,17 @@ class MatrixAdapter(BaseAdapter):
             "last_crypto_error": None,
             "encrypted_room_seen": False,
             "undecryptable_event_count": 0,
+            # Track 1
+            "sync_running": False,
+            "reconnecting": False,
+            "reconnect_attempts": 0,
+            "last_successful_sync": None,
+            # Track 2
+            "crypto_store_loaded": False,
+            # Track 4
+            "encrypted_room_count": 0,
+            "plaintext_room_count": 0,
+            # Track 5
+            "transient_delivery_failures": self._transient_delivery_failures,
+            "permanent_delivery_failures": self._permanent_delivery_failures,
         }

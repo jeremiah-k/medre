@@ -14,14 +14,27 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
+import time
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 from medre.adapters.matrix import compat as _compat_mod
 from medre.adapters.matrix.config import MatrixConfig
 from medre.adapters.matrix.errors import MatrixConnectionError
 
 _logger = logging.getLogger(__name__)
+
+# Type alias for room encryption state tracking.
+RoomEncryptionState = Literal["unknown", "encrypted", "plaintext"]
+
+# Maximum consecutive sync failures before giving up.
+_MAX_RECONNECT_ATTEMPTS: int = 10
+
+# Exponential backoff base and cap (seconds).
+_BACKOFF_BASE: float = 1.0
+_BACKOFF_CAP: float = 60.0
+_BACKOFF_JITTER_FRACTION: float = 0.25
 
 
 @dataclass(frozen=True)
@@ -42,6 +55,16 @@ class MatrixSessionDiagnostics:
     last_crypto_error: str | None
     encrypted_room_seen: bool
     undecryptable_event_count: int
+    # Track 1 — sync recovery diagnostics
+    sync_running: bool
+    reconnecting: bool
+    reconnect_attempts: int
+    last_successful_sync: float | None
+    # Track 2 — crypto-store continuity
+    crypto_store_loaded: bool
+    # Track 4 — room-state tracking counts (no room names/IDs)
+    encrypted_room_count: int
+    plaintext_room_count: int
 
 
 class MatrixSession:
@@ -74,6 +97,16 @@ class MatrixSession:
         "_encrypted_room_seen",
         "_undecryptable_event_count",
         "_last_crypto_error",
+        # Track 1 — sync recovery
+        "_reconnect_attempts",
+        "_reconnecting",
+        "_last_reconnect_error",
+        "_last_successful_sync",
+        "_stop_requested",
+        # Track 2 — crypto-store continuity
+        "_crypto_store_loaded",
+        # Track 4 — room-state tracking
+        "_room_states",
     )
 
     def __init__(
@@ -93,6 +126,16 @@ class MatrixSession:
         self._encrypted_room_seen: bool = False
         self._undecryptable_event_count: int = 0
         self._last_crypto_error: str | None = None
+        # Track 1
+        self._reconnect_attempts: int = 0
+        self._reconnecting: bool = False
+        self._last_reconnect_error: str | None = None
+        self._last_successful_sync: float | None = None
+        self._stop_requested: bool = False
+        # Track 2
+        self._crypto_store_loaded: bool = False
+        # Track 4
+        self._room_states: dict[str, RoomEncryptionState] = {}
 
     # -- Properties -----------------------------------------------------------
 
@@ -141,6 +184,54 @@ class MatrixSession:
         """Description of the most recent crypto error, if any."""
         return self._last_crypto_error
 
+    # Track 1 — sync recovery properties
+
+    @property
+    def sync_running(self) -> bool:
+        """``True`` if the sync task exists and is not done."""
+        return self.sync_task_running
+
+    @property
+    def reconnecting(self) -> bool:
+        """``True`` when the session is in a reconnect backoff phase."""
+        return self._reconnecting
+
+    @property
+    def reconnect_attempts(self) -> int:
+        """Number of consecutive reconnect attempts in the current cycle."""
+        return self._reconnect_attempts
+
+    @property
+    def last_successful_sync(self) -> float | None:
+        """Monotonic time of last successful sync, or ``None``."""
+        return self._last_successful_sync
+
+    # Track 2 — crypto-store continuity
+
+    @property
+    def crypto_store_loaded(self) -> bool:
+        """``True`` when the crypto store was loaded/initialized."""
+        return self._crypto_store_loaded
+
+    # Track 4 — room-state tracking
+
+    def room_state(self, room_id: str) -> RoomEncryptionState:
+        """Return the tracked encryption state for a room.
+
+        Returns ``"unknown"`` for rooms not yet seen.
+        """
+        return self._room_states.get(room_id, "unknown")
+
+    @property
+    def encrypted_room_count(self) -> int:
+        """Number of rooms tracked as encrypted (no room IDs exposed)."""
+        return sum(1 for s in self._room_states.values() if s == "encrypted")
+
+    @property
+    def plaintext_room_count(self) -> int:
+        """Number of rooms tracked as plaintext (no room IDs exposed)."""
+        return sum(1 for s in self._room_states.values() if s == "plaintext")
+
     # -- Lifecycle ------------------------------------------------------------
 
     async def start(self) -> None:
@@ -162,12 +253,27 @@ class MatrixSession:
             unmet in ``e2ee_required`` mode, or the sync task cannot
             be created.
         """
+        # Track 3 — guard against double-start
+        if self._client is not None and not self._closed:
+            self._logger.warning("MatrixSession.start() called while already running")
+            return
+
         self._sync_failure = None
         self._closed = False
         self._crypto_enabled = False
         self._encrypted_room_seen = False
         self._undecryptable_event_count = 0
         self._last_crypto_error = None
+        # Track 1 — reset reconnect state
+        self._reconnect_attempts = 0
+        self._reconnecting = False
+        self._last_reconnect_error = None
+        self._last_successful_sync = None
+        self._stop_requested = False
+        # Track 2 — reset crypto store state
+        self._crypto_store_loaded = False
+        # Track 4 — reset room states
+        self._room_states = {}
 
         mode = self._config.encryption_mode
         if mode == "e2ee_required":
@@ -241,7 +347,11 @@ class MatrixSession:
         )
 
         if not getattr(self._client, "logged_in", False):
-            await self._client.close()
+            # Track 3 — partial startup cleanup
+            try:
+                await self._client.close()
+            except Exception:
+                pass
             self._client = None
             raise MatrixConnectionError(
                 f"failed to authenticate as {self._config.user_id} "
@@ -249,6 +359,8 @@ class MatrixSession:
             )
 
         self._crypto_enabled = True
+        # Track 2 — crypto store loaded
+        self._crypto_store_loaded = True
         await self._finalize_start()
 
     async def _start_e2ee_optional(self) -> None:
@@ -274,6 +386,7 @@ class MatrixSession:
                     "plaintext: %s", exc,
                 )
                 self._crypto_enabled = False
+                self._crypto_store_loaded = False
                 self._last_crypto_error = str(exc)
                 # Clean up any partial client from failed crypto start
                 if self._client is not None:
@@ -290,7 +403,11 @@ class MatrixSession:
         """Common post-client-creation steps: validate login, register
         callbacks, start sync task."""
         if not getattr(self._client, "logged_in", False):
-            await self._client.close()
+            # Track 3 — partial startup cleanup
+            try:
+                await self._client.close()
+            except Exception:
+                pass
             self._client = None
             raise MatrixConnectionError(
                 f"failed to authenticate as {self._config.user_id} "
@@ -313,7 +430,10 @@ class MatrixSession:
             self._sync_task = asyncio.create_task(sync_coro)
         except Exception as exc:
             sync_coro.close()
-            await self._client.close()
+            try:
+                await self._client.close()
+            except Exception:
+                pass
             self._client = None
             raise MatrixConnectionError(
                 f"failed to start sync for {self._config.user_id}: {exc}"
@@ -374,6 +494,12 @@ class MatrixSession:
             event_id, room_id,
         )
 
+        # Track 4 — mark room as encrypted
+        if room is not None:
+            rid = getattr(room, "room_id", None)
+            if rid is not None:
+                self._room_states[rid] = "encrypted"
+
     async def _on_room_encryption_event(self, room: Any, event: Any) -> None:
         """Handle a RoomEncryptionEvent (m.room.encryption state event).
 
@@ -387,22 +513,107 @@ class MatrixSession:
             room_id,
         )
 
+        # Track 4 — mark room as encrypted
+        if room is not None:
+            rid = getattr(room, "room_id", None)
+            if rid is not None:
+                self._room_states[rid] = "encrypted"
+
+    # Track 4 — track rooms seen via sync (called by message callback wrapper)
+    def _track_room(self, room_id: str) -> None:
+        """Track a room as seen.  Sets 'unknown' if not already tracked."""
+        if room_id not in self._room_states:
+            self._room_states[room_id] = "unknown"
+
+    # -- Sync loop (Track 1 — Automatic Sync Recovery) -----------------------
+
     async def _run_sync(self) -> None:
-        """Wrap ``sync_forever`` and record any failure."""
+        """Wrap ``_sync_with_reconnect`` — entry point for the sync task."""
         try:
-            await self._client.sync_forever(
-                timeout=self._config.sync_timeout_ms,
-            )
+            await self._sync_with_reconnect()
         except asyncio.CancelledError:
             return
-        except Exception as exc:
-            self._logger.error(
-                "Matrix sync task failed: %s", exc,
-            )
-            self._sync_failure = exc
+
+    async def _sync_with_reconnect(self) -> None:
+        """Bounded reconnect loop around ``sync_forever``.
+
+        On sync failure (transient), initiates reconnect with exponential
+        backoff (1s, 2s, 4s, 8s, 16s capped at 60s) with +-25% jitter.
+        After ``_MAX_RECONNECT_ATTEMPTS`` consecutive failures, gives up
+        and sets ``_sync_failure``.
+
+        On ``CancelledError``: stops reconnecting immediately, re-raises.
+        On ``_stop_requested``: does not start new reconnect.
+        """
+        while not self._stop_requested:
+            try:
+                self._reconnecting = False
+
+                await self._client.sync_forever(
+                    timeout=self._config.sync_timeout_ms,
+                )
+                # sync_forever returned normally (clean shutdown / unusual)
+                if self._reconnect_attempts > 0:
+                    self._logger.info(
+                        "Sync recovered after %d reconnect attempts",
+                        self._reconnect_attempts,
+                    )
+                self._reconnect_attempts = 0
+                self._last_successful_sync = time.monotonic()
+                return
+            except asyncio.CancelledError:
+                self._reconnecting = False
+                raise
+            except Exception as exc:
+                if self._stop_requested:
+                    self._sync_failure = exc
+                    self._reconnecting = False
+                    return
+
+                self._reconnect_attempts += 1
+                self._last_reconnect_error = str(exc)
+
+                if self._reconnect_attempts >= _MAX_RECONNECT_ATTEMPTS:
+                    self._logger.error(
+                        "Max sync reconnect attempts (%d) reached, "
+                        "giving up: %s",
+                        _MAX_RECONNECT_ATTEMPTS, exc,
+                    )
+                    self._sync_failure = exc
+                    self._reconnecting = False
+                    return
+
+                # Compute backoff with jitter
+                delay = min(
+                    _BACKOFF_BASE * (2 ** (self._reconnect_attempts - 1)),
+                    _BACKOFF_CAP,
+                )
+                jitter = delay * _BACKOFF_JITTER_FRACTION
+                actual_delay = max(0.0, delay + random.uniform(-jitter, jitter))
+
+                self._reconnecting = True
+                self._logger.warning(
+                    "Sync failed (attempt %d/%d), reconnecting in %.1fs: %s",
+                    self._reconnect_attempts, _MAX_RECONNECT_ATTEMPTS,
+                    actual_delay, exc,
+                )
+
+                try:
+                    await asyncio.sleep(actual_delay)
+                except asyncio.CancelledError:
+                    if self._stop_requested:
+                        self._reconnecting = False
+                        return
+                    raise
+
+        # _stop_requested was True
+        self._reconnecting = False
 
     async def stop(self, timeout: float = 5.0) -> None:
         """Stop syncing, close the client.  Idempotent."""
+        # Track 3 — signal stop to prevent reconnect loops
+        self._stop_requested = True
+
         if self._sync_task is not None:
             if not self._sync_task.done():
                 self._sync_task.cancel()
@@ -436,6 +647,7 @@ class MatrixSession:
             self._client = None
 
         self._closed = True
+        self._reconnecting = False
 
     # -- Diagnostics ----------------------------------------------------------
 
@@ -457,4 +669,14 @@ class MatrixSession:
             last_crypto_error=self._last_crypto_error,
             encrypted_room_seen=self._encrypted_room_seen,
             undecryptable_event_count=self._undecryptable_event_count,
+            # Track 1
+            sync_running=self.sync_running,
+            reconnecting=self._reconnecting,
+            reconnect_attempts=self._reconnect_attempts,
+            last_successful_sync=self._last_successful_sync,
+            # Track 2
+            crypto_store_loaded=self._crypto_store_loaded,
+            # Track 4
+            encrypted_room_count=self.encrypted_room_count,
+            plaintext_room_count=self.plaintext_room_count,
         )

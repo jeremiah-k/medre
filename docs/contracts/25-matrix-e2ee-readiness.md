@@ -380,6 +380,12 @@ The current `MatrixAdapter` directly owns the `nio.AsyncClient` lifecycle. For E
 | store_path resolution & directory creation | Session | Active |
 | restore_login | Session | Active |
 | sync_forever lifecycle | Session | Active |
+| Sync error classification (transient vs permanent) | Session | Active |
+| Reconnect with bounded exponential backoff | Session | Active — transient errors only; permanent errors skip reconnect |
+| Reconnect attempt tracking & budget | Session | Active — `reconnect_attempts` counter, capped maximum |
+| Room-state tracking | Session | Active — `rooms_tracked` count exposed in diagnostics |
+| Delivery retry (max 3, transient-only) | Session | Active — `delivery_attempts`, `delivery_successes`, `delivery_failures` counters |
+| Crypto continuity verification on restart | Session | Active — `crypto_store_loaded` diagnostic; same device_id/store_path preserves identity |
 | E2EE health diagnostics | Session | Active — `undecryptable_event_count`, `last_crypto_error`, `encrypted_room_seen` |
 | MegolmEvent callback (undecryptable events) | Session | Active — counted, logged (event_id/room_id only), not forwarded |
 | RoomEncryptionEvent callback | Session | Active — sets `encrypted_room_seen`, not forwarded |
@@ -389,9 +395,17 @@ The current `MatrixAdapter` directly owns the `nio.AsyncClient` lifecycle. For E
 
 The adapter holds a `MatrixSession` (or similar) instance. The session owns the `nio.AsyncClient`. The codec and renderer remain nio-agnostic.
 
-In the E2EE text alpha, the session boundary is implemented as a thin wrapper around the existing `AsyncClient` construction and `restore_login` flow. It enforces `e2ee_required` when set, ensures `store_path` exists, and passes `encryption_enabled=True` (the nio default when `ENCRYPTION_ENABLED` is `True`). Full E2EE health diagnostics, key export/import, and unverified device policy remain deferred.
+### 7.2 Reconnect/backoff behavioral contract [ACTIVE]
 
-### 7.2 Adapter containment rules [DEFERRED but stated]
+The session boundary owns reconnect/backoff for sync failures. The behavioral contract is:
+
+1. **Error classification.** Sync errors are classified as transient (network timeout, connection refused, 5xx) or permanent (`M_UNKNOWN_TOKEN`, `M_USER_DEACTIVATED`, `M_FORBIDDEN`). Only transient errors trigger reconnect.
+2. **Bounded exponential backoff.** Reconnect attempts use exponential backoff with jitter. The backoff has a minimum initial delay, a maximum delay ceiling, and a maximum attempt count. Once the maximum is exhausted, the adapter enters `failed` state.
+3. **Health state transitions.** During reconnect, `health_check()` returns `"degraded"` with `reconnecting=True`. On successful sync restoration, health returns to `"healthy"`. On budget exhaustion, health transitions to `"failed"`.
+4. **Crypto continuity.** Reconnect operates within the same process lifetime — the nio client and crypto store remain loaded. No re-authentication or store reload occurs during reconnect. On process restart (stop → start), `restore_login` reloads the crypto store from the same `store_path` and `device_id`, preserving identity.
+5. **No runtime/core coupling.** Reconnect/backoff is entirely within the adapter layer. Core, runtime, renderer, codec, and storage have no awareness of reconnect state. The `degraded` health state is visible through `health_check()` but does not trigger any upstream behavior.
+
+### 7.3 Adapter containment rules [DEFERRED but stated]
 
 - `MatrixAdapter` must not import from `nio.crypto` directly.
 - `MatrixAdapter` must not access `self._client.olm` or `self._client.store`.
@@ -399,9 +413,9 @@ In the E2EE text alpha, the session boundary is implemented as a thin wrapper ar
 - The codec continues to work with attribute-duck-typed event objects (`.sender`, `.body`, `.event_id`, `.source`).
 - The renderer remains unaware of encryption.
 
-### 7.3 MindRoom reference takeaways [INFERRED from confirmed patterns]
+### 7.4 MindRoom reference takeaways [INFERRED from confirmed patterns]
 
-The MindRoom project demonstrates patterns relevant to session boundary design (conceptual observations, no code copied):
+The MindRoom project demonstrates patterns relevant to session boundary design:
 
 - **Store path isolation**: Each user gets a dedicated subdirectory under a root encryption-keys path. The directory is auto-created at client construction time.
 - **Context manager lifecycle**: The client is used within an async context manager that guarantees `close()` in the `finally` block.
@@ -448,9 +462,25 @@ The following fields should be introduced only in the E2EE implementation tranch
 **[DEFERRED]**: Adding these now would be speculative. They belong in the implementation PR, not this readiness document.
 
 
-## 9. Future Diagnostics
+## 9. Diagnostics
 
-### 9.1 E2EE health indicators [PARTIALLY ACTIVE]
+### 9.1 Operational diagnostics [ACTIVE]
+
+The following operational diagnostics are surfaced through the adapter's `health_check()` return value:
+
+| Indicator | Source | Value | Status |
+|---|---|---|---|
+| `sync_running` | Sync task state | `bool` | **Active** |
+| `reconnecting` | Reconnect cycle flag | `bool` | **Active** |
+| `reconnect_attempts` | Reconnect attempt counter | `int` | **Active** |
+| `last_successful_sync` | Timestamp of last successful sync | `str or None` (ISO 8601) | **Active** |
+| `rooms_tracked` | Number of rooms being tracked | `int` | **Active** |
+| `delivery_attempts` | Cumulative outbound delivery attempts | `int` | **Active** |
+| `delivery_successes` | Cumulative successful deliveries | `int` | **Active** |
+| `delivery_failures` | Cumulative failed deliveries | `int` | **Active** |
+| `crypto_store_loaded` | Whether crypto store was loaded on startup | `bool or None` | **Active** |
+
+### 9.2 E2EE health indicators [PARTIALLY ACTIVE]
 
 When E2EE is active, the following are surfaced through the session boundary as structured diagnostic data:
 
@@ -469,7 +499,7 @@ When E2EE is active, the following are surfaced through the session boundary as 
 | `last_crypto_error` | Session error string | `str or None` | **Active** |
 | `encrypted_room_seen` | Session flag | `bool` | **Active** |
 
-### 9.2 Per-event decryption diagnostics [PARTIALLY ACTIVE]
+### 9.3 Per-event decryption diagnostics [PARTIALLY ACTIVE]
 
 | Indicator | Source | Value |
 |---|---|---|
@@ -522,7 +552,8 @@ This document addresses findings from the following investigation tracks:
 | **Track 5** | First sync / encrypted rooms behavior, key upload/query/share | §3, §4 (full) |
 | **Track 7** | Room key persistence, shutdown/close requirements | §4.6, §6 (full) |
 | **Track 8** | Encrypted event classification | §3 (full) |
-| **Track 9** | Future session boundary design, diagnostics, harness plan | §7, §9, §10 (full) |
+| **Track 9** | Session boundary design, reconnect/backoff, diagnostics, harness plan | §7, §9, §10 (full) |
+| **Resilience** | Operational resilience: reconnect/backoff, delivery retry, crypto continuity, room-state tracking, expanded diagnostics | §7.2, §9.1 (full) |
 
 Tracks not listed (Track 3, Track 6) were not part of the original audit scope or are subsumed by the tracks above.
 

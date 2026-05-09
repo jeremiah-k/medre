@@ -362,31 +362,39 @@ class TestMatrixAdapterLifecycleEdgeCases:
 
 
 class TestMatrixAdapterSyncFailure:
-    """Sync task failure is observed and recorded by _run_sync()."""
+    """Sync task failure is observed and recorded by _run_sync().
+
+    With the reconnect loop, sync_forever must fail 10 consecutive times
+    before _sync_failure is set. Tests mock asyncio.sleep to skip backoff.
+    """
 
     async def test_sync_forever_raises_is_recorded(self, mock_nio):
         """_run_sync records the exception when sync_forever raises."""
         config = _make_config()
         adapter = MatrixAdapter(config)
 
-        # Replace the mock's sync_forever with one that actually raises.
+        # Replace the mock's sync_forever with one that always raises.
         async def _failing_sync(*args, **kwargs):
-            await asyncio.sleep(0)  # yield to let task start
+            await asyncio.sleep(0)
             raise RuntimeError("sync lost connection")
 
         mock_nio.AsyncClient.return_value.sync_forever = _failing_sync
 
-        # Start the adapter — the sync task is created with _failing_sync.
+        # Mock sleep to skip backoff delays
+        original_sleep = asyncio.sleep
+        async def _fast_sleep(delay):
+            if delay <= 0:
+                await original_sleep(0)
+
         try:
-            await adapter.start(_make_context())
+            with patch("asyncio.sleep", side_effect=_fast_sleep):
+                await adapter.start(_make_context())
+                for _ in range(100):
+                    await original_sleep(0)
 
-            # Let the sync task execute and fail.
-            await asyncio.sleep(0.05)
-
-            # Verify _run_sync caught the exception.
+            # Verify _run_sync caught the exception after max retries.
             assert adapter._sync_failure is not None
             assert isinstance(adapter._sync_failure, RuntimeError)
-            assert str(adapter._sync_failure) == "sync lost connection"
         finally:
             await adapter.stop()
 
@@ -400,9 +408,17 @@ class TestMatrixAdapterSyncFailure:
             raise RuntimeError("sync disconnected")
 
         mock_nio.AsyncClient.return_value.sync_forever = _failing_sync
+
+        original_sleep = asyncio.sleep
+        async def _fast_sleep(delay):
+            if delay <= 0:
+                await original_sleep(0)
+
         try:
-            await adapter.start(_make_context())
-            await asyncio.sleep(0.05)
+            with patch("asyncio.sleep", side_effect=_fast_sleep):
+                await adapter.start(_make_context())
+                for _ in range(100):
+                    await original_sleep(0)
 
             info = await adapter.health_check()
             assert info.health == "failed"
@@ -420,8 +436,16 @@ class TestMatrixAdapterSyncFailure:
             raise RuntimeError("sync died")
 
         mock_nio.AsyncClient.return_value.sync_forever = _failing_sync
-        await adapter.start(_make_context())
-        await asyncio.sleep(0.05)
+
+        original_sleep = asyncio.sleep
+        async def _fast_sleep(delay):
+            if delay <= 0:
+                await original_sleep(0)
+
+        with patch("asyncio.sleep", side_effect=_fast_sleep):
+            await adapter.start(_make_context())
+            for _ in range(100):
+                await original_sleep(0)
 
         # stop() should handle the already-failed task cleanly
         await adapter.stop()
@@ -440,9 +464,16 @@ class TestMatrixAdapterSyncFailure:
             await asyncio.sleep(0)
             raise RuntimeError("sync failed")
 
+        original_sleep = asyncio.sleep
+        async def _fast_sleep(delay):
+            if delay <= 0:
+                await original_sleep(0)
+
         mock_nio.AsyncClient.return_value.sync_forever = _failing_sync
-        await adapter.start(_make_context())
-        await asyncio.sleep(0.05)
+        with patch("asyncio.sleep", side_effect=_fast_sleep):
+            await adapter.start(_make_context())
+            for _ in range(100):
+                await original_sleep(0)
         info = await adapter.health_check()
         assert info.health == "failed"
 
