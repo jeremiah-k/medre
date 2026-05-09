@@ -16,6 +16,9 @@ matrix = [
 meshtastic = [
     "mtjk",
 ]
+meshcore = [
+    "meshcore",
+]
 
 [build-system]
 requires = ["setuptools>=68"]

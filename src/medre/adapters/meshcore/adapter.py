@@ -4,9 +4,39 @@
 inbound event payloads into the MEDRE canonical event stream and outbound
 rendered payloads back to the mesh.
 
-**No real MeshCore connectivity**: all MeshCore imports are scaffolded.
-The adapter raises :class:`~medre.adapters.meshcore.errors.MeshCoreConnectionError`
+**Soft dependency**: all ``meshcore`` imports are guarded behind
+:mod:`~medre.adapters.meshcore.compat`.  If the SDK is not installed
+the adapter raises :class:`~medre.adapters.meshcore.errors.MeshCoreConnectionError`
 on :meth:`start` when using non-fake connection types.
+
+Connection modes
+----------------
+The adapter supports four connection types configured via
+:class:`~medre.adapters.meshcore.config.MeshCoreConfig`:
+
+``"fake"``
+    No real client.  Used for testing without hardware.  Inbound
+    simulation via :meth:`simulate_inbound`; outbound via :meth:`deliver`
+    returns ``None`` (scaffolded).
+
+``"tcp"``
+    Connects via TCP (future).
+
+``"serial"``
+    Connects via serial (future).
+
+``"ble"``
+    Connects via BLE (future).
+
+All non-fake modes require the ``meshcore`` package.  Real client
+creation is delegated to :meth:`_create_client`, which can be overridden
+in tests or monkeypatched with fake modules.
+
+Lifecycle
+---------
+:meth:`start` and :meth:`stop` are idempotent — calling them multiple
+times is safe.  The adapter tracks background :class:`asyncio.Task`
+instances spawned by inbound packet callbacks and drains them on stop.
 """
 from __future__ import annotations
 
@@ -25,6 +55,7 @@ from medre.adapters.base import (
     BaseAdapter,
 )
 from medre.adapters.meshcore.codec import MeshCoreCodec
+from medre.adapters.meshcore.compat import HAS_MESHCORE
 from medre.adapters.meshcore.config import MeshCoreConfig
 from medre.adapters.meshcore.errors import (
     MeshCoreConnectionError,
@@ -77,12 +108,15 @@ class MeshCoreAdapter(BaseAdapter):
         self._classifier = MeshCorePacketClassifier(config)
         self.ctx: AdapterContext | None = None
         self._started: bool = False
+        self._subscribed: bool = False
         self._background_tasks: set[asyncio.Task] = set()
 
     # -- Lifecycle ----------------------------------------------------------
 
     async def start(self, ctx: AdapterContext) -> None:
         """Connect to the MeshCore node and begin receiving events.
+
+        Idempotent: calling start on an already-started adapter is a no-op.
 
         Parameters
         ----------
@@ -92,41 +126,81 @@ class MeshCoreAdapter(BaseAdapter):
         Raises
         ------
         MeshCoreConnectionError
-            If connection_type is not ``"fake"`` (real connections not
-            yet implemented).
+            If ``meshcore`` SDK is not installed and connection_type is
+            not ``"fake"``, or if real connections are not yet implemented.
         """
+        if self._started:
+            return
+
         self.ctx = ctx
-        self._started = True
 
         if self._config.connection_type == "fake":
             # No real client needed for fake mode.
             self._client = None
         else:
+            if not HAS_MESHCORE:
+                raise MeshCoreConnectionError(
+                    "meshcore SDK not installed; pip install meshcore "
+                    "or use connection_type='fake'"
+                )
+            # Real client creation — scaffolded for now.
+            # self._client = self._create_client()
+            #
+            # Subscribe to inbound events.
+            # try:
+            #     self._subscribe_events()
+            # except Exception:
+            #     self._subscribed = False
+            #     try:
+            #         close_fn = getattr(self._client, "close", None)
+            #         if close_fn is not None:
+            #             close_fn()
+            #     except Exception:
+            #         pass
+            #     self._client = None
+            #     raise
+
+            # Tranche 1: real connections not yet implemented.
             raise MeshCoreConnectionError(
                 "Real MeshCore connections not yet implemented; "
                 "use connection_type='fake'"
             )
 
-        ctx.logger.info("MeshCoreAdapter %s started", self.adapter_id)
+        self._started = True
+        ctx.logger.info(
+            "MeshCoreAdapter %s started (mode=%s)",
+            self.adapter_id,
+            self._config.connection_type,
+        )
 
     async def stop(self, timeout: float = 5.0) -> None:
         """Disconnect from the MeshCore node.
 
-        Cancels all tracked background tasks before shutting down.
+        Idempotent: calling stop on an already-stopped adapter is a no-op.
+        Cancels all tracked background tasks and unsubscribes event
+        callbacks before shutting down.
 
         Parameters
         ----------
         timeout:
             Maximum seconds to wait for a clean shutdown.
         """
-        # Cancel all tracked background tasks
-        for task in list(self._background_tasks):
-            task.cancel()
-        if self._background_tasks:
-            await asyncio.gather(
-                *self._background_tasks, return_exceptions=True
-            )
-        self._background_tasks.clear()
+        if not self._started:
+            return
+
+        # Cancel all tracked background tasks and drain them.
+        await self._drain_background_tasks(timeout)
+
+        # Unsubscribe event callbacks.
+        self._unsubscribe_events()
+
+        if self._client is not None:
+            try:
+                close_fn = getattr(self._client, "close", None)
+                if close_fn is not None:
+                    close_fn()
+            except Exception:
+                pass
 
         self._client = None
         self._started = False
@@ -142,8 +216,20 @@ class MeshCoreAdapter(BaseAdapter):
         -------
         AdapterInfo
             Metadata describing the adapter's state.
+
+        Health states:
+            - ``"healthy"`` — adapter started in fake mode.
+            - ``"unknown"`` — adapter not yet started (no client).
+            - ``"failed"`` — client exists but start did not complete
+              (subscription failure).
         """
-        health = "healthy" if self._started else "unknown"
+        if self._started:
+            health = "healthy"
+        elif self._client is not None and not self._started:
+            # Client exists but start did not complete — subscription failure.
+            health = "failed"
+        else:
+            health = "unknown"
         return AdapterInfo(
             adapter_id=self.adapter_id,
             platform=self.platform,
@@ -278,6 +364,78 @@ class MeshCoreAdapter(BaseAdapter):
 
         canonical = self._codec.decode(packet)
         await self.ctx.publish_inbound(canonical)
+
+    # -- Event subscription (scaffolded) ------------------------------------
+
+    def _subscribe_events(self) -> None:
+        """Subscribe to MeshCore SDK event callbacks.
+
+        Only called when a real client exists.  This is scaffolded for
+        future implementation — currently logs that subscription would
+        occur.
+
+        Raises
+        ------
+        MeshCoreConnectionError
+            If callback registration fails.
+        """
+        if self.ctx is not None:
+            self.ctx.logger.debug(
+                "MeshCoreAdapter %s: _subscribe_events() scaffolded",
+                self.adapter_id,
+            )
+        # Future: subscribe to meshcore SDK event callbacks.
+        # try:
+        #     self._client.on("message", self._on_sdk_event)
+        # except Exception as exc:
+        #     raise MeshCoreConnectionError(
+        #         f"Failed to subscribe to MeshCore events: {exc}"
+        #     ) from exc
+        self._subscribed = True
+
+    def _unsubscribe_events(self) -> None:
+        """Unsubscribe from MeshCore SDK event callbacks.
+
+        Only attempts unsubscription if a previous subscription succeeded.
+        Failures are logged but not raised.
+        """
+        if not self._subscribed:
+            return
+        if self.ctx is not None:
+            self.ctx.logger.debug(
+                "MeshCoreAdapter %s: _unsubscribe_events() scaffolded",
+                self.adapter_id,
+            )
+        # Future: unsubscribe from meshcore SDK event callbacks.
+        # try:
+        #     self._client.off("message", self._on_sdk_event)
+        # except Exception:
+        #     pass
+        self._subscribed = False
+
+    # -- Background task management -----------------------------------------
+
+    async def _drain_background_tasks(self, timeout: float = 5.0) -> None:
+        """Cancel and await all tracked background tasks.
+
+        Parameters
+        ----------
+        timeout:
+            Maximum seconds to wait for tasks to finish after cancellation.
+        """
+        for task in list(self._background_tasks):
+            task.cancel()
+        if self._background_tasks:
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(
+                        *self._background_tasks, return_exceptions=True
+                    ),
+                    timeout=timeout,
+                )
+            except asyncio.TimeoutError:
+                pass
+        self._background_tasks.clear()
 
     # -- Codec access -------------------------------------------------------
 

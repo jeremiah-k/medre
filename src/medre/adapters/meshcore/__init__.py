@@ -26,6 +26,7 @@ Public symbols
 
 from medre.adapters.meshcore.adapter import MeshCoreAdapter
 from medre.adapters.meshcore.codec import MeshCoreCodec
+from medre.adapters.meshcore.compat import HAS_MESHCORE
 from medre.adapters.meshcore.config import MeshCoreConfig
 from medre.adapters.meshcore.errors import (
     MeshCoreCodecError,
@@ -41,6 +42,7 @@ from medre.adapters.meshcore.packet_classifier import (
 from medre.adapters.meshcore.renderer import MeshCoreRenderer
 
 __all__ = [
+    "HAS_MESHCORE",
     "MeshCoreAdapter",
     "MeshCoreCodec",
     "MeshCoreCodecError",

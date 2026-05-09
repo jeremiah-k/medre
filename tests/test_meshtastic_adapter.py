@@ -863,10 +863,10 @@ class TestMeshtasticAdapterPubsubSubscription:
         assert adapter._client is None
         assert adapter._subscribed is False
 
-    async def test_health_check_failed_after_subscription_failure(
+    async def test_health_check_unknown_after_subscription_failure(
         self, monkeypatch
     ) -> None:
-        """health_check() returns 'failed' when subscription failed."""
+        """health_check() returns 'unknown' after subscription failure and cleanup."""
         import types
 
         class FakeClient:

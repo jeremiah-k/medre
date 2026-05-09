@@ -1,6 +1,7 @@
 """Tests for FakeMeshCoreAdapter and MeshCoreAdapter: capabilities,
-lifecycle (start/stop), delivery contract, inbound simulation, rendering
-boundary enforcement, and packet simulation.
+lifecycle (start/stop idempotence), delivery contract, inbound simulation,
+rendering boundary enforcement, task scheduling, and event subscription
+scaffolding.
 """
 
 from __future__ import annotations
@@ -14,8 +15,8 @@ from medre.adapters import AdapterRole, FakeMeshCoreAdapter
 from medre.adapters.base import AdapterContext, AdapterDeliveryResult
 from medre.adapters.meshcore.adapter import MeshCoreAdapter
 from medre.adapters.meshcore.config import MeshCoreConfig
+from medre.adapters.meshcore.errors import MeshCoreConnectionError, MeshCoreSendError
 from medre.core.events import CanonicalEvent, EventMetadata
-from medre.adapters.meshcore.errors import MeshCoreSendError
 from medre.core.events.kinds import EventKind
 from medre.core.rendering.renderer import RenderingResult
 
@@ -180,6 +181,100 @@ class TestFakeMeshCoreAdapterLifecycle:
         assert info.health == "healthy"
         assert info.adapter_id == "fake_meshcore"
         assert info.role == AdapterRole.TRANSPORT
+
+
+class TestMeshCoreAdapterLifecycle:
+    """MeshCoreAdapter lifecycle: idempotent start/stop, health states."""
+
+    async def test_start_fake_mode(self, make_adapter_context) -> None:
+        config = _make_config(connection_type="fake")
+        adapter = MeshCoreAdapter(config)
+        ctx = make_adapter_context("meshcore-1")
+        await adapter.start(ctx)
+        info = await adapter.health_check()
+        assert info.health == "healthy"
+
+    async def test_start_is_idempotent(self, make_adapter_context) -> None:
+        """Calling start() twice is safe — second call is a no-op."""
+        config = _make_config(connection_type="fake")
+        adapter = MeshCoreAdapter(config)
+        ctx = make_adapter_context("meshcore-1")
+        await adapter.start(ctx)
+        await adapter.start(ctx)  # second call — no-op
+        info = await adapter.health_check()
+        assert info.health == "healthy"
+
+    async def test_stop_is_idempotent(self) -> None:
+        """Calling stop() on a never-started adapter is safe."""
+        config = _make_config(connection_type="fake")
+        adapter = MeshCoreAdapter(config)
+        await adapter.stop()  # never started — no-op
+        info = await adapter.health_check()
+        assert info.health == "unknown"
+
+    async def test_stop(self, make_adapter_context) -> None:
+        config = _make_config(connection_type="fake")
+        adapter = MeshCoreAdapter(config)
+        ctx = make_adapter_context("meshcore-1")
+        await adapter.start(ctx)
+        await adapter.stop()
+        info = await adapter.health_check()
+        assert info.health == "unknown"
+
+    async def test_health_unknown_before_start(self) -> None:
+        config = _make_config(connection_type="fake")
+        adapter = MeshCoreAdapter(config)
+        info = await adapter.health_check()
+        assert info.health == "unknown"
+
+    async def test_non_fake_raises_connection_error(self, make_adapter_context) -> None:
+        """Non-fake connection raises MeshCoreConnectionError."""
+        config = _make_config(connection_type="tcp", host="1.2.3.4")
+        adapter = MeshCoreAdapter(config)
+        ctx = make_adapter_context("meshcore-1")
+        with pytest.raises(MeshCoreConnectionError):
+            await adapter.start(ctx)
+        info = await adapter.health_check()
+        assert info.health == "unknown"
+
+
+class TestMeshCoreAdapterEventSubscription:
+    """Event subscription scaffolding tests."""
+
+    async def test_subscribe_events_scaffolded(
+        self, make_adapter_context
+    ) -> None:
+        """_subscribe_events() runs without error (scaffold)."""
+        config = _make_config(connection_type="fake")
+        adapter = MeshCoreAdapter(config)
+        ctx = make_adapter_context("meshcore-1")
+        await adapter.start(ctx)
+        # Direct call should not raise
+        adapter._subscribe_events()
+        assert adapter._subscribed is True
+
+    async def test_unsubscribe_events_without_subscribe(
+        self, make_adapter_context
+    ) -> None:
+        """_unsubscribe_events() when not subscribed is a no-op."""
+        config = _make_config(connection_type="fake")
+        adapter = MeshCoreAdapter(config)
+        ctx = make_adapter_context("meshcore-1")
+        await adapter.start(ctx)
+        adapter._unsubscribe_events()  # no-op — no error
+
+    async def test_unsubscribe_events_after_subscribe(
+        self, make_adapter_context
+    ) -> None:
+        """_unsubscribe_events() clears the subscribed flag."""
+        config = _make_config(connection_type="fake")
+        adapter = MeshCoreAdapter(config)
+        ctx = make_adapter_context("meshcore-1")
+        await adapter.start(ctx)
+        adapter._subscribe_events()
+        assert adapter._subscribed is True
+        adapter._unsubscribe_events()
+        assert adapter._subscribed is False
 
 
 # ===================================================================
@@ -388,29 +483,12 @@ class TestFakeMeshCoreAdapterMakeTextEvent:
 
 
 # ===================================================================
-# Real MeshCoreAdapter tests
+# Real MeshCoreAdapter delivery + inbound
 # ===================================================================
 
 
-class TestMeshCoreAdapterLifecycle:
-    """MeshCoreAdapter lifecycle with fake config."""
-
-    async def test_start_fake_mode(self, make_adapter_context) -> None:
-        config = _make_config(connection_type="fake")
-        adapter = MeshCoreAdapter(config)
-        ctx = make_adapter_context("meshcore-1")
-        await adapter.start(ctx)
-        info = await adapter.health_check()
-        assert info.health == "healthy"
-
-    async def test_stop(self, make_adapter_context) -> None:
-        config = _make_config(connection_type="fake")
-        adapter = MeshCoreAdapter(config)
-        ctx = make_adapter_context("meshcore-1")
-        await adapter.start(ctx)
-        await adapter.stop()
-        info = await adapter.health_check()
-        assert info.health == "unknown"
+class TestMeshCoreAdapterDelivery:
+    """Real adapter delivery and inbound via fake mode."""
 
     async def test_deliver_returns_none_in_tranche1(self) -> None:
         config = _make_config(connection_type="fake")
@@ -506,3 +584,22 @@ class TestMeshCoreAdapterTaskScheduling:
         source = inspect.getsource(MeshCoreAdapter._on_packet)
         assert "ensure_future" not in source
         assert "create_task" in source
+
+
+# ===================================================================
+# Compat guard
+# ===================================================================
+
+
+class TestMeshCoreCompat:
+    """compat.py provides HAS_MESHCORE guard."""
+
+    def test_compat_module_importable(self) -> None:
+        from medre.adapters.meshcore.compat import HAS_MESHCORE
+        assert isinstance(HAS_MESHCORE, bool)
+
+    def test_has_meshcore_is_false_without_sdk(self) -> None:
+        """In default test environment, meshcore SDK is not installed."""
+        from medre.adapters.meshcore.compat import HAS_MESHCORE
+        # The SDK is not installed in the test environment
+        assert HAS_MESHCORE is False
