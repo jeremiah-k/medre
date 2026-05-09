@@ -99,6 +99,7 @@ class MatrixAdapter(BaseAdapter):
             If ``mindroom-nio`` is not installed or the client fails
             to connect.
         """
+        self._sync_failure = None  # Reset from any previous failure
         self.ctx = ctx
 
         if not HAS_NIO:

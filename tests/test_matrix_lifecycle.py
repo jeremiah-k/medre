@@ -13,9 +13,9 @@ The file contains 21 tests across 6 classes:
   - ``TestMatrixAdapterHealthCheck`` (4 tests): health_check() state mapping.
   - ``TestMatrixAdapterRestart`` (1 test): full start-stop-start cycle.
   - ``TestMatrixAdapterLifecycleEdgeCases`` (2 tests): failure edge cases.
-  - ``TestMatrixAdapterSyncFailure`` (5 tests): sync task failure recording,
-    health check after failure, clean stop after failure, no unobserved task
-    exceptions.
+  - ``TestMatrixAdapterSyncFailure`` (5 tests): sync_forever raises — exception
+    is recorded by _run_sync(), health_check() reports failed, stop() is clean
+    after failure, restart recovers healthy state.
 
 See also:
   - test_matrix_adapter.py  — FakeMatrixAdapter tests, _on_room_message
@@ -309,79 +309,107 @@ class TestMatrixAdapterLifecycleEdgeCases:
 
 
 class TestMatrixAdapterSyncFailure:
-    """Sync task failure is observed and recorded."""
+    """Sync task failure is observed and recorded by _run_sync()."""
 
-    async def test_sync_forever_raises_after_task_creation(self, mock_nio):
-        """If sync_forever raises after the task is created, _sync_failure is set."""
+    async def test_sync_forever_raises_is_recorded(self, mock_nio):
+        """_run_sync records the exception when sync_forever raises."""
         config = _make_config()
         adapter = MatrixAdapter(config)
+
+        # Replace the mock's sync_forever with one that actually raises.
+        async def _failing_sync(*args, **kwargs):
+            await asyncio.sleep(0)  # yield to let task start
+            raise RuntimeError("sync lost connection")
+
+        mock_nio.AsyncClient.return_value.sync_forever = _failing_sync
+
+        # Start the adapter — the sync task is created with _failing_sync.
         await adapter.start(_make_context())
-        # Verify sync task was created and is running
-        assert adapter._sync_task is not None
-        assert adapter._sync_failure is None
-        # Cancel the running task first
-        adapter._sync_task.cancel()
-        try:
-            await adapter._sync_task
-        except asyncio.CancelledError:
-            pass
-        # Inject a failure by setting _sync_failure manually and verifying
-        # health_check reflects it.  (We inject manually because the mock's
-        # _sync_forever_stub blocks forever — we need a different mock to
-        # test spontaneous sync failure.)
-        adapter._sync_failure = RuntimeError("sync lost connection")
-        info = await adapter.health_check()
-        assert info.health == "failed"
 
-    async def test_failure_recorded(self, mock_nio):
-        """_sync_failure attribute exists and defaults to None."""
+        # Let the sync task execute and fail.
+        await asyncio.sleep(0.05)
+
+        # Verify _run_sync caught the exception.
+        assert adapter._sync_failure is not None
+        assert isinstance(adapter._sync_failure, RuntimeError)
+        assert str(adapter._sync_failure) == "sync lost connection"
+
+    async def test_health_failed_after_sync_failure(self, mock_nio):
+        """health_check() returns 'failed' after sync_forever raises."""
         config = _make_config()
         adapter = MatrixAdapter(config)
-        assert adapter._sync_failure is None
 
-    async def test_health_check_failed_after_sync_failure(self, mock_nio):
-        """health_check() reports 'failed' when _sync_failure is set."""
-        config = _make_config()
-        adapter = MatrixAdapter(config)
-        # Simulate a sync failure without starting
-        adapter._sync_failure = RuntimeError("sync disconnected")
+        async def _failing_sync(*args, **kwargs):
+            await asyncio.sleep(0)
+            raise RuntimeError("sync disconnected")
+
+        mock_nio.AsyncClient.return_value.sync_forever = _failing_sync
+        await adapter.start(_make_context())
+        await asyncio.sleep(0.05)
+
         info = await adapter.health_check()
         assert info.health == "failed"
         assert info.platform == "matrix"
 
     async def test_stop_after_sync_failure_clean(self, mock_nio):
-        """stop() is clean after a sync task failure — no warnings."""
+        """stop() after a sync task failure is clean and idempotent."""
         config = _make_config()
         adapter = MatrixAdapter(config)
+
+        async def _failing_sync(*args, **kwargs):
+            await asyncio.sleep(0)
+            raise RuntimeError("sync died")
+
+        mock_nio.AsyncClient.return_value.sync_forever = _failing_sync
         await adapter.start(_make_context())
-        # The mock sync_forever blocks forever. We cancel it to simulate
-        # a clean stop, then inject failure, then stop again.
-        adapter._sync_task.cancel()
-        try:
-            await adapter._sync_task
-        except asyncio.CancelledError:
-            pass
-        adapter._sync_failure = RuntimeError("sync died")
-        # stop() should handle the already-done + failed state cleanly
+        await asyncio.sleep(0.05)
+
+        # stop() should handle the already-failed task cleanly
         await adapter.stop()
         assert adapter._sync_task is None
         assert adapter._client is None
-        await adapter.stop()  # double-stop is still idempotent
+        # Double-stop must still be idempotent
+        await adapter.stop()
 
-    async def test_no_unobserved_task_exception(self, mock_nio):
-        """Stop after sync failure does not produce unobserved task exceptions."""
+    async def test_restart_recovers_health(self, mock_nio):
+        """After sync failure, stop() + start() with healthy sync recovers health."""
         config = _make_config()
         adapter = MatrixAdapter(config)
+
+        # First start: fail the sync.
+        async def _failing_sync(*args, **kwargs):
+            await asyncio.sleep(0)
+            raise RuntimeError("sync failed")
+
+        mock_nio.AsyncClient.return_value.sync_forever = _failing_sync
         await adapter.start(_make_context())
-        # Cancel, let task drain, set failure, then stop
-        adapter._sync_task.cancel()
-        try:
-            await adapter._sync_task
-        except asyncio.CancelledError:
-            pass
-        adapter._sync_failure = RuntimeError("sync lost")
-        # Clean stop
+        await asyncio.sleep(0.05)
+        info = await adapter.health_check()
+        assert info.health == "failed"
+
+        # Stop the failed adapter.
         await adapter.stop()
-        # Double stop
+
+        # Restart with healthy sync_forever.
+        mock_nio.AsyncClient.return_value.sync_forever = _sync_forever_stub
+        # Need fresh client mock since stop() cleared _client.
+        client = MagicMock(name="mock_async_client_2")
+        client.logged_in = True
+        client.restore_login = MagicMock()
+        client.add_event_callback = MagicMock()
+        client.stop_sync_forever = MagicMock()
+        client.close = AsyncMock()
+        client.sync_forever = _sync_forever_stub
+        client.room_send = AsyncMock()
+        mock_nio.AsyncClient.return_value = client
+
+        await adapter.start(_make_context())
+        info = await adapter.health_check()
+        assert info.health == "healthy"
         await adapter.stop()
-        assert adapter._sync_task is None
+
+    async def test_failure_recorded_none_by_default(self, mock_nio):
+        """_sync_failure defaults to None before any failure."""
+        config = _make_config()
+        adapter = MatrixAdapter(config)
+        assert adapter._sync_failure is None
