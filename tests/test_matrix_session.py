@@ -1,4 +1,4 @@
-"""Tests for MatrixSession lifecycle boundary and E2EE scaffolding.
+"""Tests for MatrixSession lifecycle boundary and E2EE implementation.
 
 Covers:
   - MatrixSession lifecycle (start/stop/diagnostics)
@@ -7,6 +7,10 @@ Covers:
   - Adapter start behavior per encryption_mode
   - Adapter diagnostics with crypto scaffold fields
   - Adapter delegates lifecycle to MatrixSession
+  - E2EE required/optional startup flows
+  - MegolmEvent undecryptable handling
+  - Sync failure logging
+  - Encrypted room safety check in deliver()
 
 No test requires mindroom-nio[e2e].
 """
@@ -78,9 +82,14 @@ def _build_mock_nio_module() -> MagicMock:
     client.sync_forever = _sync_forever_stub
     client.room_send = AsyncMock()
     mock.AsyncClient = MagicMock(return_value=client)
+    mock.ClientConfig = MagicMock(name="ClientConfig")
     mock.RoomMessageText = MagicMock(name="RoomMessageText")
     mock.RoomMessageNotice = MagicMock(name="RoomMessageNotice")
     mock.RoomMessageEmote = MagicMock(name="RoomMessageEmote")
+    # nio.events.MegolmEvent for undecryptable event callback
+    mock_events = MagicMock(name="nio.events")
+    mock_events.MegolmEvent = MagicMock(name="MegolmEvent")
+    mock.events = mock_events
     return mock
 
 
@@ -88,14 +97,21 @@ def _build_mock_nio_module() -> MagicMock:
 def mock_nio():
     """Inject a mock nio module into sys.modules and patch HAS_NIO."""
     mock = _build_mock_nio_module()
-    saved = sys.modules.get("nio")
+    saved_nio = sys.modules.get("nio")
+    saved_nio_events = sys.modules.get("nio.events")
     sys.modules["nio"] = mock
+    sys.modules["nio.events"] = mock.events
     with patch("medre.adapters.matrix.adapter.HAS_NIO", True):
         yield mock
-    if saved is None:
+    # Restore
+    if saved_nio is None:
         sys.modules.pop("nio", None)
     else:
-        sys.modules["nio"] = saved
+        sys.modules["nio"] = saved_nio
+    if saved_nio_events is None:
+        sys.modules.pop("nio.events", None)
+    else:
+        sys.modules["nio.events"] = saved_nio_events
 
 
 # ===================================================================
@@ -288,7 +304,10 @@ class TestMatrixSessionLifecycle:
         session = MatrixSession(config, message_callback=cb)
         try:
             await session.start()
-            mock_nio.AsyncClient.return_value.add_event_callback.assert_called_once()
+            # Two callbacks: message types + MegolmEvent
+            assert (
+                mock_nio.AsyncClient.return_value.add_event_callback.call_count == 2
+            )
         finally:
             await session.stop()
 
@@ -315,7 +334,8 @@ class TestMatrixSessionLifecycle:
 
         mock_nio.AsyncClient.return_value.sync_forever = _failing_sync
         config = _make_config()
-        session = MatrixSession(config)
+        logger = logging.getLogger("test.sync_failure")
+        session = MatrixSession(config, logger=logger)
         try:
             await session.start()
             await asyncio.sleep(0.05)
@@ -421,18 +441,28 @@ class TestAdapterStartBehavior:
         finally:
             await adapter.stop()
 
-    async def test_e2ee_required_raises_not_implemented(self, mock_nio) -> None:
-        config = _make_config(
-            encryption_mode="e2ee_required",
-            store_path="/tmp/store",
-            device_id="DEV",
-        )
-        adapter = MatrixAdapter(config)
-        with pytest.raises(MatrixConnectionError, match="E2EE runtime is not implemented"):
-            await adapter.start(_make_context())
+    async def test_e2ee_required_raises_without_e2ee_deps(self, mock_nio) -> None:
+        """e2ee_required raises when HAS_E2EE is False (no crypto deps)."""
+        import medre.adapters.matrix.compat as compat
+        original = compat.HAS_E2EE
+        try:
+            compat.HAS_E2EE = False
+            config = _make_config(
+                encryption_mode="e2ee_required",
+                store_path="/tmp/store",
+                device_id="DEV",
+            )
+            adapter = MatrixAdapter(config)
+            with pytest.raises(
+                MatrixConnectionError,
+                match="mindroom-nio\\[e2e\\] not installed",
+            ):
+                await adapter.start(_make_context())
+        finally:
+            compat.HAS_E2EE = original
 
-    async def test_e2ee_required_raises_even_with_e2ee_deps(self, mock_nio) -> None:
-        """Even if HAS_E2EE is True, e2ee_required raises (not yet implemented)."""
+    async def test_e2ee_required_succeeds_with_e2ee_deps(self, mock_nio) -> None:
+        """e2ee_required starts with crypto_enabled=True when HAS_E2EE=True."""
         import medre.adapters.matrix.compat as compat
         original = compat.HAS_E2EE
         try:
@@ -443,8 +473,15 @@ class TestAdapterStartBehavior:
                 device_id="DEV",
             )
             adapter = MatrixAdapter(config)
-            with pytest.raises(MatrixConnectionError, match="E2EE runtime is not implemented"):
+            try:
                 await adapter.start(_make_context())
+                assert adapter._session is not None
+                assert adapter._session.crypto_enabled is True
+                diag = adapter.diagnostics()
+                assert diag["crypto_enabled"] is True
+                assert diag["encryption_mode"] == "e2ee_required"
+            finally:
+                await adapter.stop()
         finally:
             compat.HAS_E2EE = original
 
@@ -459,6 +496,49 @@ class TestAdapterStartBehavior:
             assert diag["encryption_mode"] == "e2ee_optional"
         finally:
             await adapter.stop()
+
+    async def test_e2ee_optional_with_crypto_deps(self, mock_nio) -> None:
+        """e2ee_optional with HAS_E2EE=True, store_path, device_id → crypto_enabled."""
+        import medre.adapters.matrix.compat as compat
+        original = compat.HAS_E2EE
+        try:
+            compat.HAS_E2EE = True
+            config = _make_config(
+                encryption_mode="e2ee_optional",
+                store_path="/tmp/store",
+                device_id="DEV",
+            )
+            adapter = MatrixAdapter(config)
+            try:
+                await adapter.start(_make_context())
+                assert adapter._session is not None
+                assert adapter._session.crypto_enabled is True
+                diag = adapter.diagnostics()
+                assert diag["crypto_enabled"] is True
+            finally:
+                await adapter.stop()
+        finally:
+            compat.HAS_E2EE = original
+
+    async def test_e2ee_optional_without_store_falls_back(self, mock_nio) -> None:
+        """e2ee_optional without store_path → plaintext, crypto_enabled=False."""
+        import medre.adapters.matrix.compat as compat
+        original = compat.HAS_E2EE
+        try:
+            compat.HAS_E2EE = True
+            config = _make_config(
+                encryption_mode="e2ee_optional",
+                # no store_path, no device_id
+            )
+            adapter = MatrixAdapter(config)
+            try:
+                await adapter.start(_make_context())
+                assert adapter._session is not None
+                assert adapter._session.crypto_enabled is False
+            finally:
+                await adapter.stop()
+        finally:
+            compat.HAS_E2EE = original
 
     async def test_plaintext_no_nio_raises(self) -> None:
         config = _make_config()
@@ -572,3 +652,301 @@ class TestAdapterDelegatesToSession:
         await adapter.stop()
         await adapter.stop()
         assert adapter._session is None
+
+
+# ===================================================================
+# TestSyncFailureLogging
+# ===================================================================
+
+
+class TestSyncFailureLogging:
+    """Sync task failure is logged via the session logger."""
+
+    async def test_sync_failure_logged_to_session_logger(
+        self, mock_nio, caplog
+    ) -> None:
+        """Sync failure is recorded AND logged to the session logger."""
+        async def _failing_sync(*a: object, **kw: object) -> None:
+            await asyncio.sleep(0)
+            raise RuntimeError("sync died")
+
+        mock_nio.AsyncClient.return_value.sync_forever = _failing_sync
+        config = _make_config()
+        logger = logging.getLogger("test.sync_failure_log")
+        session = MatrixSession(config, logger=logger)
+        try:
+            await session.start()
+            await asyncio.sleep(0.05)
+            # Verify failure is recorded
+            assert session.last_sync_error is not None
+            assert isinstance(session.last_sync_error, RuntimeError)
+            # Verify failure is logged
+            with caplog.at_level(logging.ERROR, logger="test.sync_failure_log"):
+                # The log was emitted before we captured; check records
+                # by directly reading handler
+                pass
+            # Check via logger's handlers or by re-triggering
+            # Since log already happened, verify via mock approach:
+            # Use a handler that captures records
+            log_records: list[logging.LogRecord] = []
+            handler = logging.Handler()
+            handler.emit = lambda record: log_records.append(record)  # type: ignore[assignment]
+            logger.addHandler(handler)
+            logger.setLevel(logging.ERROR)
+
+            # Create a new session with same pattern to capture log
+            session2 = MatrixSession(config, logger=logger)
+            mock_nio.AsyncClient.return_value.sync_forever = _failing_sync
+            await session2.start()
+            await asyncio.sleep(0.05)
+
+            assert any(
+                "Matrix sync task failed" in rec.getMessage()
+                for rec in log_records
+            ), f"Expected sync failure log; got: {[r.getMessage() for r in log_records]}"
+            logger.removeHandler(handler)
+            await session2.stop()
+        finally:
+            await session.stop()
+
+
+# ===================================================================
+# TestMegolmEventHandling
+# ===================================================================
+
+
+class TestMegolmEventHandling:
+    """Undecryptable MegolmEvent handling."""
+
+    async def test_megolm_event_increments_count(self, mock_nio) -> None:
+        """Receiving an undecryptable MegolmEvent increments count and sets error."""
+        config = _make_config(
+            encryption_mode="e2ee_required",
+            store_path="/tmp/store",
+            device_id="DEV",
+        )
+        import medre.adapters.matrix.compat as compat
+        original = compat.HAS_E2EE
+        try:
+            compat.HAS_E2EE = True
+            session = MatrixSession(config)
+            try:
+                await session.start()
+                assert session.undecryptable_event_count == 0
+
+                # Simulate MegolmEvent callback
+                event = MagicMock(name="megolm_event")
+                event.event_id = "$undecryptable_1"
+                event.source = {
+                    "content": {
+                        "algorithm": "m.megolm.v1.aes-sha2",
+                        "session_id": "sess_abc",
+                    }
+                }
+                room = MagicMock(name="room")
+                room.room_id = "!encrypted:example.com"
+
+                await session._on_megolm_event(room, event)
+
+                assert session.undecryptable_event_count == 1
+                assert session.last_crypto_error is not None
+                assert "undecryptable" in session.last_crypto_error.lower()
+                assert session.encrypted_room_seen is True
+                # No tokens/keys in the error
+                assert "access_token" not in session.last_crypto_error
+            finally:
+                await session.stop()
+        finally:
+            compat.HAS_E2EE = original
+
+    async def test_megolm_event_does_not_crash(self, mock_nio) -> None:
+        """MegolmEvent callback never raises, even with bad data."""
+        config = _make_config(
+            encryption_mode="e2ee_required",
+            store_path="/tmp/store",
+            device_id="DEV",
+        )
+        import medre.adapters.matrix.compat as compat
+        original = compat.HAS_E2EE
+        try:
+            compat.HAS_E2EE = True
+            session = MatrixSession(config)
+            try:
+                await session.start()
+                # Call with None room, minimal event
+                event = MagicMock(name="bad_event")
+                event.event_id = "$bad"
+                del event.source  # no source attribute
+                await session._on_megolm_event(None, event)
+                assert session.undecryptable_event_count == 1
+            finally:
+                await session.stop()
+        finally:
+            compat.HAS_E2EE = original
+
+    async def test_megolm_event_no_secrets_in_error(self, mock_nio) -> None:
+        """last_crypto_error must not contain secrets."""
+        config = _make_config(
+            encryption_mode="e2ee_required",
+            store_path="/tmp/store",
+            device_id="DEV",
+            access_token="super-secret-token",
+        )
+        import medre.adapters.matrix.compat as compat
+        original = compat.HAS_E2EE
+        try:
+            compat.HAS_E2EE = True
+            session = MatrixSession(config)
+            try:
+                await session.start()
+                event = MagicMock(name="megolm_event")
+                event.event_id = "$test"
+                event.source = {"content": {"algorithm": "m.megolm.v1.aes-sha2"}}
+                room = MagicMock(name="room")
+                room.room_id = "!room:example.com"
+                await session._on_megolm_event(room, event)
+
+                assert "super-secret-token" not in (session.last_crypto_error or "")
+            finally:
+                await session.stop()
+        finally:
+            compat.HAS_E2EE = original
+
+
+# ===================================================================
+# TestEncryptedRoomSafety
+# ===================================================================
+
+
+class TestEncryptedRoomSafety:
+    """_check_encrypted_room_safety in adapter deliver() path."""
+
+    async def test_deliver_raises_if_encrypted_room_no_crypto(
+        self, mock_nio
+    ) -> None:
+        """deliver() raises when room is encrypted but crypto is not active."""
+        from medre.adapters.matrix.errors import MatrixSendError
+        from medre.core.rendering.renderer import RenderingResult
+
+        config = _make_config()
+        adapter = MatrixAdapter(config)
+        try:
+            await adapter.start(_make_context())
+            # Simulate encrypted room seen
+            adapter._session._encrypted_room_seen = True  # type: ignore[union-attr]
+            assert adapter._session.crypto_enabled is False  # type: ignore[union-attr]
+
+            result = RenderingResult(
+                event_id="evt_1",
+                target_adapter="matrix-test",
+                payload={"msgtype": "m.text", "body": "hello"},
+                target_channel="!encrypted_room:example.com",
+            )
+            with pytest.raises(MatrixSendError, match="encrypted but E2EE crypto is not active"):
+                await adapter.deliver(result)
+        finally:
+            await adapter.stop()
+
+    async def test_deliver_ok_if_not_encrypted_room(self, mock_nio) -> None:
+        """deliver() succeeds when room is not encrypted."""
+        from medre.core.rendering.renderer import RenderingResult
+
+        config = _make_config()
+        adapter = MatrixAdapter(config)
+        try:
+            await adapter.start(_make_context())
+            # Room not encrypted → should be fine
+            response_mock = MagicMock()
+            response_mock.event_id = "$event_123"
+            adapter._client.room_send = AsyncMock(return_value=response_mock)
+
+            result = RenderingResult(
+                event_id="evt_2",
+                target_adapter="matrix-test",
+                payload={"msgtype": "m.text", "body": "hello"},
+                target_channel="!plain_room:example.com",
+            )
+            deliver_result = await adapter.deliver(result)
+            assert deliver_result is not None
+            assert deliver_result.native_message_id == "$event_123"
+        finally:
+            await adapter.stop()
+
+
+# ===================================================================
+# TestE2EEDiagnostics
+# ===================================================================
+
+
+class TestE2EEDiagnostics:
+    """Diagnostics truthfully report crypto state."""
+
+    async def test_e2ee_required_diagnostics_with_crypto(
+        self, mock_nio
+    ) -> None:
+        """e2ee_required mode shows crypto_enabled=True in diagnostics."""
+        import medre.adapters.matrix.compat as compat
+        original = compat.HAS_E2EE
+        try:
+            compat.HAS_E2EE = True
+            config = _make_config(
+                encryption_mode="e2ee_required",
+                store_path="/tmp/store",
+                device_id="DEV",
+            )
+            adapter = MatrixAdapter(config)
+            try:
+                await adapter.start(_make_context())
+                diag = adapter.diagnostics()
+                assert diag["crypto_enabled"] is True
+                assert diag["encryption_mode"] == "e2ee_required"
+                assert diag["store_path_configured"] is True
+                assert diag["device_id_configured"] is True
+                assert diag["encrypted_room_seen"] is False
+                assert diag["undecryptable_event_count"] == 0
+                assert diag["last_crypto_error"] is None
+            finally:
+                await adapter.stop()
+        finally:
+            compat.HAS_E2EE = original
+
+    async def test_plaintext_diagnostics_crypto_false(self, mock_nio) -> None:
+        """plaintext mode shows crypto_enabled=False."""
+        config = _make_config()
+        adapter = MatrixAdapter(config)
+        try:
+            await adapter.start(_make_context())
+            diag = adapter.diagnostics()
+            assert diag["crypto_enabled"] is False
+        finally:
+            await adapter.stop()
+
+    async def test_diagnostics_after_megolm_event(self, mock_nio) -> None:
+        """Diagnostics reflect undecryptable event state."""
+        import medre.adapters.matrix.compat as compat
+        original = compat.HAS_E2EE
+        try:
+            compat.HAS_E2EE = True
+            config = _make_config(
+                encryption_mode="e2ee_required",
+                store_path="/tmp/store",
+                device_id="DEV",
+            )
+            adapter = MatrixAdapter(config)
+            try:
+                await adapter.start(_make_context())
+                event = MagicMock(name="megolm_event")
+                event.event_id = "$undec"
+                event.source = {"content": {"algorithm": "m.megolm.v1.aes-sha2"}}
+                room = MagicMock(name="room")
+                room.room_id = "!room:example.com"
+                await adapter._session._on_megolm_event(room, event)  # type: ignore[union-attr]
+
+                diag = adapter.diagnostics()
+                assert diag["encrypted_room_seen"] is True
+                assert diag["undecryptable_event_count"] == 1
+                assert diag["last_crypto_error"] is not None
+            finally:
+                await adapter.stop()
+        finally:
+            compat.HAS_E2EE = original

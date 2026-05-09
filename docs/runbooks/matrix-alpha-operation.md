@@ -2,11 +2,13 @@
 
 > Last updated: 2026-05-09
 > Scope: Real Matrix Operation Alpha (Track 7)
-> Status: Alpha. Not production. Not hardened. Not complete. Plaintext only — E2EE posture documented for future reference.
+> Status: Alpha. Not production. Not hardened. Not complete. Plaintext is the primary alpha path. E2EE text alpha is available as an add-on for encrypted rooms (see section 13).
 
 This runbook describes how to run MEDRE against a real Matrix homeserver in alpha mode. Alpha mode means the MatrixAdapter connects to a real homeserver using real credentials, syncs real rooms, sends real messages, and receives real events. It does not mean the system is ready for anything beyond a single operator on a local or test homeserver.
 
 Everything in this document is conservative. If something has not been tested against a real homeserver and confirmed working, this document says so. If something is known to be broken or missing, this document says that too.
+
+**Plaintext alpha** is the primary path. **E2EE text alpha** is an add-on that enables encrypted room operation for text messages only. See section 13 for E2EE setup and section 14 for troubleshooting encrypted rooms.
 
 
 ## 1. Purpose
@@ -17,7 +19,7 @@ Scope boundaries:
 
 - One transport: Matrix. No other transports are in scope for this runbook.
 - One operator: a single person running against a local or test homeserver.
-- Plain text messages and replies only. Nothing else.
+- Plain text messages and replies in unencrypted rooms. E2EE text alpha adds encrypted room support for text only (see section 13).
 - No production deployment, no scaling, no monitoring, no alerting.
 - No claims about reliability, durability, or correctness beyond what manual testing confirms.
 
@@ -31,7 +33,7 @@ This runbook complements `docs/runbooks/matrix-live-smoke.md`. The smoke test va
 | Matrix homeserver | Synapse or Conduit, local or reachable over the network |
 | Bot account | A dedicated Matrix user, not your personal account |
 | Python | 3.11 or later |
-| Package install | `pip install -e ".[matrix]"` (installs `mindroom-nio`, plaintext alpha). Future E2EE: `pip install -e ".[matrix-e2e]"` (installs `mindroom-nio[e2e]` with crypto libs). |
+| Package install | `pip install -e ".[matrix]"` (plaintext alpha, recommended). E2EE text alpha: `pip install -e ".[matrix-e2e]"` (adds Olm/Megolm crypto libs for encrypted rooms). |
 | Access token | Obtained via login API or Element UI |
 | A test room | Unencrypted, bot has joined it |
 | Network access | Your machine can reach the homeserver's HTTP(S) port |
@@ -104,7 +106,7 @@ Open Element, log in as the bot user, go to Settings, Help and About, and copy t
 
 Do not commit the token. Do not log the token. Do not paste it into chat. Set it as an environment variable and leave it there. The `MatrixConfig.__repr__` method redacts the token in log output, but you are responsible for not leaking it yourself.
 
-> **Note on E2EE.** Alpha authenticates with access tokens over plain HTTP(S). The `.[matrix]` extra installs the base `mindroom-nio` package (no crypto). A separate `.[matrix-e2e]` extra is available that installs `mindroom-nio[e2e]` with Olm/Megolm crypto libraries — this is the future production target. Runtime encryption is not yet implemented; encrypted rooms remain unsupported until a future implementation tranche. When E2EE mode is delivered, the runner and adapter will manage device keys and cross-signing via a session boundary, and will require stable `store_path` and `device_id` configuration (see section 8).
+> **Note on E2EE.** Alpha authenticates with access tokens over plain HTTP(S). The `.[matrix]` extra installs the base `mindroom-nio` package (no crypto) — this is the recommended plaintext alpha. The `.[matrix-e2e]` extra installs `mindroom-nio[e2e]` with Olm/Megolm crypto libraries — use this for the E2EE text alpha. E2EE text alpha is now active: when installed with `.[matrix-e2e]` and configured with `store_path` and `device_id`, the adapter can operate in encrypted rooms (see section 13). Plaintext rooms work identically in both modes.
 
 
 ## 5. Room Setup
@@ -114,7 +116,7 @@ Do not commit the token. Do not log the token. Do not paste it into chat. Set it
 3. Invite the bot user to the room.
 4. Accept the invite from the bot account (log in as the bot in a second client session or via the join API).
 5. Copy the room ID. It looks like `!opaquestring:localhost`. Room aliases (the `#name:server` form) will not work in the allowlist.
-6. Confirm the room is unencrypted. E2EE is not yet supported in alpha. If the room has a lock icon in Element, it is encrypted and the adapter will not be able to read message content. E2EE is planned as the future default. See section 13 for details.
+6. Confirm the room is unencrypted for plaintext alpha. If the room has a lock icon in Element, it is encrypted — see section 13 for E2EE text alpha setup. Plaintext alpha cannot read encrypted room content. E2EE text alpha supports encrypted rooms for text messages only.
 
 
 ## 6. Allowlist Configuration
@@ -231,7 +233,7 @@ If you do not see the startup lines above, check the troubleshooting section (se
 
 ## 8. Crypto Store and Device Identity Posture
 
-The Matrix adapter accepts two optional configuration fields that become critical when E2EE is introduced in a future release. In plaintext alpha mode they are safe to omit.
+The Matrix adapter accepts two optional configuration fields that are critical when E2EE is enabled. In plaintext alpha mode they are safe to omit.
 
 ### 8.1 Alpha (plaintext): store_path and device_id are optional
 
@@ -240,55 +242,59 @@ The Matrix adapter accepts two optional configuration fields that become critica
 | `store_path` | `MATRIX_STORE_PATH` | **Optional.** If unset, nio operates without a persistent crypto store. Plaintext sync and send work normally. No session keys or device data are persisted. |
 | `device_id` | `MATRIX_DEVICE_ID` | **Optional.** If unset, nio may receive a default device ID from the homeserver during login restore. Plaintext operation is unaffected. |
 
-Alpha can be run entirely without these fields. The runner (`python -m medre.runner`) does not require them. This is intentional: plaintext alpha has no crypto state to persist.
+Plaintext alpha can be run entirely without these fields. The runner (`python -m medre.runner`) does not require them. This is intentional: plaintext alpha has no crypto state to persist.
 
-### 8.2 Future E2EE production: store_path and device_id will be required
+### 8.2 E2EE text alpha: store_path and device_id are required
 
-When E2EE support is implemented:
+When operating in encrypted rooms with `.[matrix-e2e]` installed:
 
-- **`store_path` will be required.** The nio crypto store must persist Olm/Megolm session keys, device keys, and cross-signing data across restarts. Without a stable `store_path`, the adapter would lose its crypto identity on every restart, making encrypted rooms unusable.
-- **`device_id` will be required.** A stable device ID ensures the homeserver and other clients can identify this adapter's device for key verification and cross-signing.
-- **Missing these fields in E2EE mode should fail clearly.** The adapter should refuse to start with a descriptive error rather than silently losing crypto state.
+- **`store_path` is required.** The nio crypto store persists Olm/Megolm session keys and device keys across restarts in a SQLite database under this path. Without a stable `store_path`, the adapter loses its crypto identity on every restart, making encrypted rooms unusable.
+- **`device_id` is required.** A stable device ID ensures the homeserver and other clients can identify this adapter's device for key verification. Changing the device ID creates a new crypto identity requiring re-verification.
+- **The directory must exist or be creatable.** The adapter will create the `store_path` directory if it does not exist.
 
-These requirements do not apply in alpha. They are documented here so operators planning a future E2EE deployment know what to expect.
+Example configuration for E2EE text alpha:
+
+```bash
+export MATRIX_STORE_PATH="/var/lib/medre/nio-store"
+export MATRIX_DEVICE_ID="MEDRE_ALPHA_01"
+```
 
 ### 8.3 Docker deployments and E2EE dependencies
 
-Alpha Docker deployments install `mindroom-nio` (no E2EE extras):
+Plaintext alpha Docker deployments install `mindroom-nio` (no E2EE extras):
 
 ```
 pip install -e ".[matrix]"
 ```
 
-When E2EE support is implemented, Docker images and deployment scripts should install the E2EE-enabled dependency instead:
+E2EE text alpha Docker deployments install the E2EE-enabled dependency:
 
 ```
 pip install -e ".[matrix-e2e]"
 ```
 
-The `.[matrix-e2e]` extra installs `mindroom-nio[e2e]`, which adds Olm/Megolm native crypto libraries (`vodozemac`), SQLite store dependencies (`peewee`), and related utilities. Without it, attempting to operate in encrypted mode should produce a clear error (e.g., `ImportError` or a dedicated check), not a silent fallback to plaintext.
+The `.[matrix-e2e]` extra installs `mindroom-nio[e2e]`, which adds Olm/Megolm native crypto libraries (`vodozemac`), SQLite store dependencies (`peewee`), and related utilities. Without it, operating in encrypted rooms will fail — nio's `ENCRYPTION_ENABLED` will be `False` and the crypto subsystem will not initialize.
 
 ### 8.4 Deferred E2EE capabilities
 
-The following E2EE-related capabilities are **deferred** and not part of any current or near-term release:
+The following E2EE-related capabilities are **deferred** and not part of the E2EE text alpha:
 
 - Cross-signing setup and verification flows
 - Room key backup
 - Room key import/export
 - Interactive device verification (emoji/QR)
+- Undecryptable event diagnostic logging
 
-These will be addressed in a dedicated E2EE implementation tranche. See `docs/contracts/25-matrix-e2ee-readiness.md` for the detailed plan. The `.[matrix-e2e]` dependency extra now exists as a scaffold for that future work.
+These will be addressed in a future E2EE implementation tranche. See `docs/contracts/25-matrix-e2ee-readiness.md` for the detailed plan.
 
-### 8.5 Future live/manual E2EE test harness
+### 8.5 Live/manual E2EE test harness
 
-A future live E2EE harness will be needed to validate encrypted room operation against a real homeserver. This harness does not exist yet and no live E2EE tests are required now. The plan is referenced here for tracking:
+The E2EE text alpha includes a live harness for testing encrypted room operation against a real homeserver. See `docs/runbooks/matrix-live-smoke.md` for full instructions. The harness:
 
-- The harness will extend the existing live smoke test pattern (`tests/test_matrix_live.py`, `docs/runbooks/matrix-live-smoke.md`).
-- It will require a second Matrix account to send encrypted messages into a test room.
-- It will validate that the adapter can decrypt inbound messages and encrypt outbound messages.
-- It will remain skipped-by-default, gated by environment variables and the `live` pytest marker.
-
-No implementation action is needed for this harness at this time.
+- Extends the existing live smoke test pattern.
+- Requires `MATRIX_E2E_ROOM_ID` and `MATRIX_STORE_PATH` in addition to the base live test variables.
+- Validates that the adapter can decrypt inbound and encrypt outbound in an encrypted room.
+- Remains skipped by default, gated by environment variables and the `live` pytest marker.
 
 
 ## 9. Expected Logs and Diagnostics
@@ -312,6 +318,8 @@ MatrixAdapter matrix-alpha: error processing inbound event
 Traceback (most recent call last):
   ...
 ```
+
+In E2EE text alpha, encrypted messages that are successfully decrypted also fire `_on_room_message` as `RoomMessageText` — identical to plaintext. No log difference. Messages that fail to decrypt produce `MegolmEvent` which is silently dropped by the callback filter (see section 14.16 for troubleshooting).
 
 ### 9.3 Self-message suppression
 
@@ -405,7 +413,7 @@ This is an honest list. Everything here is real.
 
 10. **Runner is in alpha.** The runner (`python -m medre.runner`) works for testing but has limited error recovery. If a subsystem fails during startup, the runner exits with a traceback rather than attempting partial recovery. There is no watchdog to restart the runner if it crashes.
 
-11. **Plaintext only.** E2EE is not yet supported but is planned as the default for real deployments. Alpha operates on unencrypted rooms only. See section 13 for details.
+11. **Plaintext is primary; E2EE is add-on.** Plaintext alpha is the recommended path. E2EE text alpha adds encrypted room support for text only (see section 13). Reactions, edits, media, cross-signing, key backup, and undecryptable event logging remain unsupported.
 
 
 ## 12. Operational Risks
@@ -449,7 +457,7 @@ The following features are not supported in alpha mode. Do not attempt to use th
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| End-to-end encryption (E2EE) | Not yet supported in alpha | E2EE is planned as the future default for real deployments. The adapter does not handle encrypted events in alpha. Messages in encrypted rooms will be ignored or produce errors. The planned dependency for E2EE support is `mindroom-nio[e2e]`, which adds Olm/Megolm crypto libraries. Future E2EE production mode will require stable `store_path` and `device_id` (see section 8). Docker deployments should install `mindroom-nio[e2e]` once E2EE mode is implemented. Missing E2EE deps in encrypted mode should fail clearly, not silently fall back to plaintext. See future `docs/contracts/25-matrix-e2ee-readiness.md` for the full E2EE readiness plan. |
+| End-to-end encryption (E2EE) | E2EE text alpha available (section 13) | Encrypted rooms are supported for text messages when installed with `.[matrix-e2e]` and configured with `store_path` + `device_id`. Reactions, edits, media, cross-signing, key backup, and undecryptable event logging remain unsupported. Plaintext rooms work identically in both modes. |
 | Reactions | Not supported | The adapter registers callbacks for `RoomMessageText`, `RoomMessageNotice`, and `RoomMessageEmote` only. Reaction events are not processed. |
 | Edits | Not supported | Edited messages appear as new messages. The adapter does not track `m.replace` relations. |
 | Deletes / redactions | Not supported | Redacted messages, if received, are not handled. |
@@ -516,7 +524,7 @@ Check these things, in order:
 
 1. Is the room ID in the allowlist? If `room_allowlist` is set and the room is not in it, messages are silently dropped.
 2. Is someone other than the bot sending messages? The adapter suppresses self-messages.
-3. Is the room encrypted? Encrypted rooms produce events the adapter cannot decode.
+3. Is the room encrypted? If running plaintext alpha (`.[matrix]`), encrypted room messages cannot be decoded. Switch to E2EE text alpha (`.[matrix-e2e]`) with `store_path` and `device_id` configured (see section 13).
 4. Is the bot actually joined to the room? Check via Element or the Matrix membership API.
 5. Is the sync task still running? Call `health_check()`. If it returns `"failed"`, the sync loop crashed.
 
@@ -574,6 +582,132 @@ Check the error message, fix the variable, and restart.
 ### 14.15 Runner starts but no inbound events arrive
 
 After the "running" line appears, check the diagnostics output. If `connected` is `False` or `logged_in` is `False`, the adapter failed to authenticate. Verify the access token is valid for the given user ID on the given homeserver. Then check the troubleshooting items in 14.7 (allowlist, self-message suppression, encryption, room membership, sync task state).
+
+### 14.16 E2EE: adapter installed with `.[matrix-e2e]` but encrypted messages not decrypted
+
+Check these in order:
+
+1. **Is `MATRIX_STORE_PATH` set?** Without `store_path`, nio cannot persist or load the crypto store. The adapter will sync encrypted rooms but `MegolmEvent` will not be decrypted. Set `MATRIX_STORE_PATH` to a writable directory and restart.
+2. **Is `MATRIX_DEVICE_ID` set?** A stable device ID is required for crypto store loading. Without it, `load_store()` is skipped and no Olm machine is created. Set `MATRIX_DEVICE_ID` to a stable identifier and restart.
+3. **Is `mindroom-nio[e2e]` actually installed?** Verify with:
+   ```bash
+   python -c "import nio; print(nio.crypto.ENCRYPTION_ENABLED)"
+   ```
+   This should print `True`. If `False`, the `[e2e]` extra is not installed. Run `pip install -e ".[matrix-e2e]"`.
+4. **Is the device verified by the sender?** In the E2EE text alpha, the `ignore_unverified_devices` default is `False` (strict). If the bot's device is not verified by the sender's client, outbound encryption will block. As a workaround for alpha, the sender can verify the bot's device in Element, or the adapter can be configured to ignore unverified devices.
+5. **Was the room key shared?** If the adapter joined the encrypted room before the crypto store was initialized, room keys may not have been distributed to this device. Sending a message from another client into the room after the adapter is running with E2EE should trigger key distribution.
+
+### 14.17 E2EE: `ImportError` or `ModuleNotFoundError` for `vodozemac`
+
+The `.[matrix-e2e]` extra was not installed or `vodozemac` failed to build. `vodozemac` is a Rust library and requires a Rust toolchain to build from source. On most systems, pre-built wheels are available via PyPI.
+
+```bash
+pip install -e ".[matrix-e2e]"
+```
+
+If the wheel is not available for your platform, install Rust first:
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+pip install -e ".[matrix-e2e]"
+```
+
+
+## 13. E2EE Text Alpha
+
+This section describes how to operate MEDRE in encrypted rooms. **Plaintext alpha remains the primary and recommended path.** E2EE text alpha is an add-on for operators who need encrypted rooms.
+
+### 13.1 Install E2EE dependencies
+
+```bash
+pip install -e ".[matrix-e2e]"
+```
+
+This installs `mindroom-nio[e2e]` which adds `vodozemac` (Olm/Megolm), `peewee` (SQLite store), `atomicwrites`, and `cachetools`.
+
+Verify installation:
+
+```bash
+python -c "import nio; print('ENCRYPTION_ENABLED:', nio.crypto.ENCRYPTION_ENABLED)"
+```
+
+Should print `ENCRYPTION_ENABLED: True`.
+
+### 13.2 Encrypted room setup
+
+Encrypted rooms must be created via a Matrix client (Element, etc.) or the Matrix room creation API. The adapter does not create rooms or toggle encryption.
+
+1. Create a room in Element and enable encryption (toggle in room settings).
+2. Invite the bot user to the room.
+3. Accept the invite from the bot account.
+4. Copy the room ID (format: `!opaque:server`).
+5. Add the room ID to `MATRIX_ROOM_ALLOWLIST`.
+
+### 13.3 Configuration
+
+In addition to the standard alpha environment variables, E2EE text alpha requires:
+
+```bash
+export MATRIX_STORE_PATH="/path/to/nio-store"   # writable directory for crypto store
+export MATRIX_DEVICE_ID="MEDRE_ALPHA_01"         # stable device identifier
+export MATRIX_ROOM_ALLOWLIST="!encrypted:localhost"  # include the encrypted room
+```
+
+The `store_path` directory will be created if it does not exist. Use a persistent path (not `/tmp`) for the crypto store — losing the store means losing the crypto identity.
+
+### 13.4 Stable device_id guidance
+
+- Choose a device ID and keep it stable across restarts. Example: `MEDRE_ALPHA_01`.
+- Do not change the device ID after first run. Changing it creates a new crypto identity.
+- The device ID is used to load the crypto store on `restore_login`.
+- If you must change the device ID, delete the old store directory first and accept that you will need to re-verify.
+
+### 13.5 First-run expectations
+
+On first run with E2EE enabled:
+
+1. The adapter creates the nio client with `encryption_enabled=True` (automatic when `ENCRYPTION_ENABLED` is `True`).
+2. `restore_login` creates a new crypto store in `store_path` (no existing store found).
+3. The first `sync_forever` iteration uploads device keys (identity keys + one-time keys) to the homeserver. This registers the device.
+4. Subsequent sync iterations handle key query, key claim, and group session sharing automatically.
+5. The adapter's device appears as a new device on the bot's Matrix account. Other users in encrypted rooms will see an unverified device.
+
+For the sender's encrypted messages to be decryptable by the adapter, the sender's client must encrypt for the adapter's device. This typically happens automatically on the next message sent after the adapter joins.
+
+### 13.6 Restart expectations
+
+On subsequent runs with the same `store_path` and `device_id`:
+
+1. `restore_login` loads the existing crypto store from `store_path`.
+2. `logged_in=True` on success.
+3. The Olm machine and all previously received room keys are restored.
+4. `sync_forever` resumes from the last sync position.
+5. Device verification state is preserved.
+
+If `store_path` is changed or the store is deleted, the adapter creates a new crypto identity. Previous room keys are lost and previously decryptable messages become undecryptable.
+
+### 13.7 What works in E2EE text alpha
+
+| Capability | Status |
+|---|---|
+| Inbound encrypted text decryption | Working — `MegolmEvent` auto-decrypted to `RoomMessageText` during sync |
+| Outbound encrypted text | Working — `room_send` auto-encrypts for encrypted rooms |
+| Crypto store persistence | Working — store loads on `restore_login`, saves incrementally during sync |
+| Automatic key management | Working — upload/query/claim/share handled by `sync_forever` |
+| Plaintext rooms | Working — identical behavior to plaintext alpha |
+
+### 13.8 What does NOT work in E2EE text alpha
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Reactions (`m.annotation`) | Not supported | No callback registered |
+| Edits (`m.replace`) | Not supported | Edited messages appear as new messages |
+| Media / attachments | Not supported | Text only |
+| Cross-signing | Not supported | Device verification via cross-signing not implemented |
+| Key backup / export / import | Not supported | Not wired |
+| Interactive device verification (emoji/QR) | Not supported | `Sas` class exists but not wired |
+| Undecryptable event logging | Not supported | `MegolmEvent` passthrough silently dropped by callback filter |
+| Redactions / deletes | Not supported | Not handled |
 
 
 ## Appendix A: Manual Wiring (Advanced/Developer Reference)

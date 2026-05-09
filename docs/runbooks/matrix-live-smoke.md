@@ -26,7 +26,7 @@ What live smoke does **not** prove:
 - Inbound message reception (requires a second actor to send a message).
 - Self-message suppression with real sync echoes (timing-sensitive).
 - MEDRE-origin envelope suppression (secondary check; unit-tested).
-- E2EE, reactions, edits, deletes, attachments, media.
+- E2EE reactions, edits, deletes, attachments, media (text E2EE is covered by the E2EE harness, see section below).
 - Admin API, webhooks, or any non-text Matrix features.
 - Meshtastic, MeshCore, LXMF, or any non-Matrix adapter connectivity.
 - Production credential management or token rotation.
@@ -40,8 +40,10 @@ What live smoke does **not** prove:
 | `MATRIX_USER_ID`         | `@bot:localhost`              | Fully-qualified Matrix user ID       |
 | `MATRIX_ACCESS_TOKEN`    | `syt_xxxxxxxxxxxxx`           | Access token for the bot account     |
 | `MATRIX_ROOM_ID`         | `!abc123:localhost`           | Room ID to send test messages to     |
+| `MATRIX_DEVICE_ID`       | `DEVICEABC`                   | Stable device ID (required for E2EE harness) |
+| `MATRIX_STORE_PATH`      | `/tmp/nio-store`              | Crypto store directory (required for E2EE harness) |
 
-If any variable is unset, all live tests skip with a descriptive message.
+If any of the first four variables is unset, all live tests skip with a descriptive message. E2EE-specific tests additionally require `MATRIX_DEVICE_ID` and `MATRIX_STORE_PATH` and an encrypted room.
 
 
 ## Local Homeserver Setup
@@ -132,13 +134,14 @@ curl -s -X POST \
 3. **Ensure the bot has joined** the room.
 4. **Copy the room ID** (format: `!opaque:server`).  Set it as
    `MATRIX_ROOM_ID`.
-5. The room should be **unencrypted** (E2EE is not supported in tranche 1).
+5. The room should be **unencrypted** for the base live smoke tests.
+6. For E2EE harness tests: create a separate encrypted room (enable encryption in room settings in Element). The bot must be joined to it. This room is used only by E2EE-specific tests.
 
 
 ## Running the Tests
 
 ```bash
-# Install the Matrix adapter dependency
+# Install the Matrix adapter dependency (plaintext alpha)
 pip install -e ".[matrix]"
 
 # Set environment variables
@@ -152,6 +155,26 @@ pytest tests/test_matrix_live.py -m live -v
 
 # Run all tests EXCEPT live (default behavior)
 pytest
+```
+
+### Running E2EE live tests
+
+E2EE live tests are skipped by default alongside the base live tests. To run E2EE live tests:
+
+```bash
+# Install E2EE dependencies
+pip install -e ".[matrix-e2e]"
+
+# Set all environment variables including E2EE-specific ones
+export MATRIX_HOMESERVER="http://localhost:8008"
+export MATRIX_USER_ID="@bot:localhost"
+export MATRIX_ACCESS_TOKEN="syt_..."
+export MATRIX_ROOM_ID="!encrypted-room:localhost"   # must be an encrypted room
+export MATRIX_DEVICE_ID="MEDRE_SMOKE_01"
+export MATRIX_STORE_PATH="/tmp/nio-smoke-store"
+
+# Run live tests including E2EE
+pytest tests/test_matrix_live.py -m live -v
 
 # Run everything including live
 pytest -m ""
@@ -198,61 +221,112 @@ and MATRIX_ROOM_ID env vars to run live Matrix tests"*
 
 After running tests:
 
-1. **No persistent state is created.**  Test messages are sent to the room
-   but no files, databases, or configuration are written by the test
-   harness.
+1. **No persistent state is created by plaintext tests.** Test messages are sent to the room but no files, databases, or configuration are written by the test harness.
 
-2. **Test messages remain in the room.**  You may optionally redact them
-   via your Matrix client.
+2. **E2EE tests create a crypto store.** The `MATRIX_STORE_PATH` directory will contain a SQLite database after E2EE tests run. This is the nio crypto store. Deleting it means the next run will create a new crypto identity.
 
-3. **Unset environment variables** if running in a shared environment:
+3. **Test messages remain in the room.** You may optionally redact them via your Matrix client.
+
+4. **Unset environment variables** if running in a shared environment:
 
    ```bash
-   unset MATRIX_HOMESERVER MATRIX_USER_ID MATRIX_ACCESS_TOKEN MATRIX_ROOM_ID
+   unset MATRIX_HOMESERVER MATRIX_USER_ID MATRIX_ACCESS_TOKEN MATRIX_ROOM_ID MATRIX_DEVICE_ID MATRIX_STORE_PATH
    ```
 
-4. **Stop the homeserver** if started locally for testing.
+5. **Stop the homeserver** if started locally for testing.
 
 
 ## E2EE Statement
 
-**End-to-end encryption is not supported.**  The Matrix adapter in
-tranche 1 does not implement E2EE.  Live smoke tests target
-**unencrypted rooms only**.  Do not attempt to run these tests against
-an encrypted room — the adapter will not be able to decrypt inbound
-messages or encrypt outbound messages.  E2EE support is deferred to a
-future tranche.  Selecting `mindroom-nio` (which has olm/megolm support
-in its codebase) does not activate E2EE in this tranche.
+**E2EE text alpha is now available.** The Matrix adapter supports encrypted rooms for text messages when installed with `pip install -e ".[matrix-e2e]"` and configured with `store_path` + `device_id`. See the E2EE harness section below for live test instructions.
 
-**Plaintext alpha vs future E2EE production posture.** In plaintext
-alpha mode, `store_path` and `device_id` are optional (no crypto state
-to persist); install with `pip install -e ".[matrix]"`. A separate
-`.[matrix-e2e]` extra is available that installs `mindroom-nio[e2e]`
-with Olm/Megolm crypto libraries — this is the future E2EE production
-target. Future E2EE mode will require both `store_path` and
-`device_id`: `store_path` to persist Olm/Megolm session keys across
-restarts, and `device_id` for stable device identification. A future
-E2EE live harness will require `.[matrix-e2e]` and a persistent
-store/device — not required now. Docker deployments targeting future
-E2EE should install `pip install -e ".[matrix-e2e]"`. Runtime
-encryption remains unimplemented; encrypted rooms are unsupported
-until a future implementation tranche. Cross-signing/verification and
-room key backup/import/export remain deferred. See the alpha operation
-runbook (`docs/runbooks/matrix-alpha-operation.md`, section 8) and the
-E2EE readiness contract (`docs/contracts/25-matrix-e2ee-readiness.md`)
-for full posture details.
+**Plaintext alpha remains the primary path.** Base live smoke tests target **unencrypted rooms only** and work with `pip install -e ".[matrix]"` (no crypto libs). Plaintext rooms work identically in both modes.
+
+**E2EE text alpha scope:**
+- Inbound: encrypted messages auto-decrypted to `RoomMessageText` during sync.
+- Outbound: `room_send` auto-encrypts for encrypted rooms.
+- Key lifecycle: automatic via `sync_forever`.
+- Crypto store: persisted under `store_path`, loaded on `restore_login`.
+
+**Unsupported in E2EE text alpha:**
+- Reactions, edits, media, attachments.
+- Cross-signing, key backup, key import/export.
+- Interactive device verification (emoji/QR).
+- Undecryptable event logging (`MegolmEvent` passthrough silently dropped).
+
+See the alpha operation runbook (`docs/runbooks/matrix-alpha-operation.md`, sections 8 and 13) and the E2EE readiness contract (`docs/contracts/25-matrix-e2ee-readiness.md`) for full posture details.
+
+
+## E2EE Live Harness
+
+### Prerequisites
+
+- `pip install -e ".[matrix-e2e]"` (installs `mindroom-nio[e2e]` with crypto libs).
+- An encrypted Matrix room (created via Element, encryption enabled in room settings).
+- The bot user joined to the encrypted room.
+- A persistent `store_path` directory (not `/tmp` if you want state across runs).
+- A stable `device_id`.
+
+### Environment Variables
+
+| Variable | Required | Example | Notes |
+|----------|----------|---------|-------|
+| `MATRIX_HOMESERVER` | Yes | `http://localhost:8008` | Full URL |
+| `MATRIX_USER_ID` | Yes | `@bot:localhost` | Bot's user ID |
+| `MATRIX_ACCESS_TOKEN` | Yes | `syt_...` | Bot's access token |
+| `MATRIX_ROOM_ID` | Yes | `!encrypted:localhost` | Must be an encrypted room |
+| `MATRIX_DEVICE_ID` | Yes | `MEDRE_SMOKE_01` | Stable device ID |
+| `MATRIX_STORE_PATH` | Yes | `/tmp/nio-smoke-store` | Writable directory for crypto store |
+
+### Running
+
+```bash
+pip install -e ".[matrix-e2e]"
+
+export MATRIX_HOMESERVER="http://localhost:8008"
+export MATRIX_USER_ID="@bot:localhost"
+export MATRIX_ACCESS_TOKEN="syt_..."
+export MATRIX_ROOM_ID="!encrypted:localhost"
+export MATRIX_DEVICE_ID="MEDRE_SMOKE_01"
+export MATRIX_STORE_PATH="/path/to/nio-smoke-store"
+
+pytest tests/test_matrix_live.py -m live -v
+```
+
+### What to expect on first run
+
+1. The adapter creates a new crypto store in `MATRIX_STORE_PATH`.
+2. First `sync_forever` iteration uploads device keys (identity + one-time keys) to the homeserver.
+3. The adapter's device appears as an unverified device on the bot's account.
+4. Outbound `room_send` to the encrypted room auto-encrypts. The first send may take longer as it shares the Megolm session with room members.
+5. Inbound encrypted messages from other users may not decrypt until the sender's client encrypts for the adapter's device (typically the next message after the adapter uploads keys).
+
+### What to expect on subsequent runs
+
+1. `restore_login` loads the existing crypto store from `MATRIX_STORE_PATH`.
+2. All previously received room keys are available.
+3. Decryption of historical and new messages works immediately.
+4. Device identity is preserved (same `device_id`).
+
+### First run vs subsequent runs — quick reference
+
+| Aspect | First run | Subsequent runs |
+|--------|-----------|-----------------|
+| Crypto store | Created fresh | Loaded from disk |
+| Device keys | Uploaded to homeserver | Already registered |
+| Room keys | Not yet distributed | Available from store |
+| Inbound decryption | May fail until sender re-encrypts | Works immediately |
+| Outbound encryption | Works (auto-shares session) | Works (session in store) |
 
 
 ## Explicit Scope Exclusions
 
 The following are explicitly **out of scope** for the live smoke harness
-and the Matrix tranche 1 adapter:
+and the Matrix adapter (both plaintext and E2EE text alpha):
 
-- End-to-end encryption (E2EE)
-- Reactions (`m.annotation`)
-- Edits (`m.replace`)
-- Deletes / redactions (`m.redaction`)
-- Attachments / media (`m.file`, `m.image`, `m.audio`, `m.video`)
+- E2EE reactions, edits, deletes, attachments, media (text E2EE is in scope)
+- Cross-signing, key backup, key import/export
+- Interactive device verification (emoji/QR)
 - Admin API
 - Webhooks or HTTP server
 - Meshtastic, MeshCore, LXMF, or any non-Matrix connectivity

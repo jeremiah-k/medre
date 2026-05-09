@@ -127,26 +127,14 @@ class MatrixAdapter(BaseAdapter):
                 "mindroom-nio not installed; pip install mindroom-nio"
             )
 
-        # E2EE mode guards — check preconditions before starting session.
-        mode = self._config.encryption_mode
-        if mode == "e2ee_required":
-            from medre.adapters.matrix.compat import HAS_E2EE
+        # E2EE mode guards are now handled inside MatrixSession.start().
+        # The adapter simply creates the session and delegates.
 
-            if not HAS_E2EE:
-                raise MatrixConnectionError(
-                    "E2EE runtime is not implemented yet; "
-                    "e2ee_required mode cannot start without crypto deps"
-                )
-            # If we reach here with HAS_E2EE=True in the future, we still
-            # gate on runtime implementation.
-            raise MatrixConnectionError(
-                "E2EE runtime is not implemented yet; "
-                "e2ee_required mode is not operational"
-            )
-
+        session_logger = ctx.logger.getChild("session")
         self._session = MatrixSession(
             config=self._config,
             message_callback=self._on_room_message,
+            logger=session_logger,
         )
         await self._session.start()
 
@@ -218,6 +206,33 @@ class MatrixAdapter(BaseAdapter):
 
     # -- Outbound delivery --------------------------------------------------
 
+    def _check_encrypted_room_safety(self, room_id: str, client: Any) -> None:
+        """Raise if the room is encrypted but crypto is not active.
+
+        Parameters
+        ----------
+        room_id:
+            The target room ID.
+        client:
+            The nio client instance.
+
+        Raises
+        ------
+        MatrixSendError
+            If the room appears encrypted but ``crypto_enabled`` is
+            ``False``.
+        """
+        if self._session is None:
+            return
+        if not self._session.encrypted_room_seen:
+            return
+        if self._session.crypto_enabled:
+            return
+        raise MatrixSendError(
+            f"Room {room_id} is encrypted but E2EE crypto is not active; "
+            f"cannot send encrypted message"
+        )
+
     async def deliver(self, result: RenderingResult) -> AdapterDeliveryResult | None:
         """Send a pre-rendered payload to a Matrix room.
 
@@ -255,6 +270,8 @@ class MatrixAdapter(BaseAdapter):
         )
         if not room_id:
             raise MatrixSendError("no room_id in result")
+
+        self._check_encrypted_room_safety(room_id, client)
 
         # Create a clean copy and strip routing metadata so room_id
         # does not leak into the Matrix event content.

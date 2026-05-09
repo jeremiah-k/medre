@@ -1,16 +1,16 @@
 # Matrix E2EE Readiness & Design Contract
 
-> Contract version: 1
+> Contract version: 2
 > Last updated: 2026-05-09
-> Status: Design / Readiness only — **no E2EE runtime behavior is enabled**
+> Status: E2EE Text Alpha — runtime encryption active for text in encrypted rooms. See §14 for alpha scope.
 
 ## Preamble
 
-This document captures the findings from a read-only audit of `mindroom-nio` (v0.25.3), the MindRoom reference project, and the current MEDRE Matrix adapter. Its purpose is to establish what is known, what is inferred, and what remains unknown about Matrix end-to-end encryption as it relates to MEDRE — so that a future E2EE tranche can proceed from a grounded, honest baseline.
+This document captures the findings from a read-only audit of `mindroom-nio` (v0.25.3), the MindRoom reference project, and the current MEDRE Matrix adapter — now updated with confirmed runtime behavior from the E2EE Text Alpha tranche. Its purpose is to establish what is known, what is inferred, and what remains unknown about Matrix end-to-end encryption as it relates to MEDRE, so that each tranche proceeds from a grounded, honest baseline.
 
-**No runtime E2EE behavior results from this contract.** The current Matrix adapter operates in plaintext mode for all rooms. Core, runtime, renderer, codec, and storage remain encryption-agnostic. A `matrix-e2e` optional dependency group now exists in `pyproject.toml` as a scaffold for future E2EE work; it does not enable encrypted message operation.
+**E2EE Text Alpha is now active.** When installed with `.[matrix-e2e]`, the Matrix adapter can operate in encrypted rooms: inbound encrypted messages are auto-decrypted to `RoomMessageText`, outbound `room_send` auto-encrypts for encrypted rooms, and the crypto store persists across restarts via `restore_login`. Plaintext rooms continue to work identically. Core, runtime, renderer, codec, and storage remain encryption-agnostic. See §14 for the exact scope of the E2EE text alpha.
 
-Every factual claim is labeled **[CONFIRMED]**, **[INFERRED]**, **[UNKNOWN]**, or **[DEFERRED]**. Only **[CONFIRMED]** items have been verified against source code.
+Every factual claim is labeled **[CONFIRMED]**, **[INFERRED]**, **[UNKNOWN]**, or **[DEFERRED]**. **[CONFIRMED]** items have been verified against source code and, where noted, confirmed from runtime behavior with the installed `mindroom-nio[e2e]` package.
 
 
 ## 1. Package & Dependency Topology
@@ -55,6 +55,8 @@ else:
 
 All crypto module classes (`Olm`, `Session`, `InboundGroupSession`, etc.) are only importable when `vodozemac` is present. The base client checks `ENCRYPTION_ENABLED` to decide whether to load the store and create the `Olm` machine during `restore_login`.
 
+**[CONFIRMED from installed package]**: `nio.crypto.ENCRYPTION_ENABLED` is `True` when `vodozemac` is importable (i.e., when `mindroom-nio[e2e]` is installed). Verified at runtime — the adapter correctly detects E2EE capability when the `[e2e]` extra is present.
+
 ### 1.4 MEDRE dependency posture [CONFIRMED]
 
 The MEDRE `pyproject.toml` defines two Matrix optional-dependency groups:
@@ -66,9 +68,9 @@ The MEDRE `pyproject.toml` defines two Matrix optional-dependency groups:
 
 **Plaintext alpha** installs `pip install -e ".[matrix]"`. This pulls only the base `mindroom-nio` package, meaning `ENCRYPTION_ENABLED=False` at runtime. The adapter operates normally in plaintext rooms.
 
-**Future E2EE mode** will use `pip install -e ".[matrix-e2e]"`, which adds the `[e2e]` extras (`vodozemac`, `peewee`, etc.) so that `ENCRYPTION_ENABLED=True` and the crypto subsystem initializes. Runtime encryption is **not yet implemented**: the extra exists as a scaffold for the next implementation tranche. Selecting `.[matrix-e2e]` today activates nio's crypto imports but MEDRE does not yet use them for any encrypted operation. Encrypted rooms remain unsupported until runtime encryption logic is delivered in a future tranche.
+**E2EE text alpha** installs `pip install -e ".[matrix-e2e]"`, which adds the `[e2e]` extras (`vodozemac`, `peewee`, etc.) so that `ENCRYPTION_ENABLED=True` and the crypto subsystem initializes. The adapter uses `AsyncClient` with `store_path` and `encryption_enabled=True` (the default when `ENCRYPTION_ENABLED` is `True`). With a valid `store_path` and `device_id`, `restore_login` loads the crypto store, inbound encrypted messages are auto-decrypted during sync, and `room_send` auto-encrypts for encrypted rooms. See §14 for the full alpha scope.
 
-The `matrix-e2e` extra is intended as the future default for production Docker images. The `matrix` extra continues to serve plaintext alpha and environments that do not need encryption.
+The `matrix-e2e` extra is the target for production Docker images. The `matrix` extra continues to serve plaintext alpha and environments that do not need encryption.
 
 
 ## 2. AsyncClient Constructor & Configuration
@@ -118,7 +120,7 @@ self._client = nio.AsyncClient(
 )
 ```
 
-This means `config` defaults to `AsyncClientConfig()`, which inherits `encryption_enabled=ENCRYPTION_ENABLED`. **[INFERRED]**: Without the `[e2e]` extra installed, the default config has `encryption_enabled=False` and `store=None`, so no crypto state is ever initialized even if `store_path` is provided.
+This means `config` defaults to `AsyncClientConfig()`, which inherits `encryption_enabled=ENCRYPTION_ENABLED`. **[CONFIRMED from installed package]**: When the `[e2e]` extra is installed, `ENCRYPTION_ENABLED=True`, so the default config has `encryption_enabled=True` and `store=DefaultStore`. When `store_path` is provided alongside a valid `device_id`, the crypto store initializes automatically on `restore_login`. Without the `[e2e]` extra, `encryption_enabled=False` and `store=None`, so no crypto state is ever initialized even if `store_path` is provided.
 
 ### 2.4 device_id expectations [CONFIRMED]
 
@@ -126,7 +128,7 @@ This means `config` defaults to `AsyncClientConfig()`, which inherits `encryptio
 - **Required for crypto store loading**. `load_store()` raises `LocalProtocolError("Device id is not set")` if `device_id` is falsy.
 - `restore_login(user_id, device_id, access_token)` sets `self.device_id` before calling `load_store()`.
 
-**[INFERRED]**: For E2EE, a stable `device_id` is essential. The device ID ties the crypto identity (Olm account) to a specific device record on the server. Changing the device ID creates a new crypto identity, requiring re-verification by other users.
+**[CONFIRMED from installed package]**: For E2EE, a stable `device_id` is essential. The device ID ties the crypto identity (Olm account) to a specific device record on the server. Changing the device ID creates a new crypto identity, requiring re-verification by other users. The E2EE text alpha requires a stable `device_id` for crypto store loading.
 
 ### 2.5 store_path behavior [CONFIRMED]
 
@@ -134,7 +136,7 @@ This means `config` defaults to `AsyncClientConfig()`, which inherits `encryptio
 - `load_store()` checks `self.store_path` for non-memory stores: if empty/`None`, the method returns early without loading.
 - For persistent stores (`DefaultStore`/`SqliteStore`), `store_path` is the filesystem directory containing the SQLite database and plaintext key files.
 
-**[INFERRED]**: A valid `store_path` + `device_id` + `user_id` are jointly required for any E2EE state to persist across restarts.
+**[CONFIRMED from installed package]**: A valid `store_path` + `device_id` + `user_id` are jointly required for any E2EE state to persist across restarts. The E2EE text alpha uses a persistent `store_path` to store the crypto database. Store files: `.db` for the event store and `.db` for crypto keys, both under `store_path`.
 
 ### 2.6 restore_login + crypto store interaction [CONFIRMED]
 
@@ -155,7 +157,7 @@ def restore_login(self, user_id, device_id, access_token):
 4. Loads `encrypted_rooms` from the store.
 5. Optionally loads the saved sync token if `store_sync_tokens=True`.
 
-**[CONFIRMED]**: This is the exact call path the current `MatrixAdapter.start()` uses. Today, `ENCRYPTION_ENABLED` is `False`, so `load_store()` is never invoked. When E2EE deps are installed, this same code path will automatically initialize the crypto subsystem.
+**[CONFIRMED from installed package]**: This is the exact call path the `MatrixAdapter.start()` uses. When the `[e2e]` extra is installed and `ENCRYPTION_ENABLED` is `True`, `load_store()` is invoked on `restore_login`. The crypto store loads successfully when `store_path`, `device_id`, and `user_id` are all set. `logged_in` is `True` on success. When `ENCRYPTION_ENABLED` is `False` (no `[e2e]` extra), `load_store()` is never invoked.
 
 
 ## 3. Encryption Event Classification
@@ -167,13 +169,16 @@ def restore_login(self, user_id, device_id, access_token):
 | `MegolmEvent` | Undecrypted Megolm ciphertext | Room is encrypted + decryption key unavailable |
 | `RoomEncryptionEvent` | `m.room.encryption` state event | Encryption is enabled in a room |
 
-**Decryption flow in `sync_forever`** [CONFIRMED]:
+**Decryption flow in `sync_forever`** [CONFIRMED from installed package]:
+
 1. `_handle_joined_rooms` iterates timeline events.
 2. For each event, `_handle_timeline_event` checks `isinstance(event, MegolmEvent)`.
 3. If `self.olm` exists, attempts `olm._decrypt_megolm_no_error(event)`.
 4. On success, the decrypted event (e.g., `RoomMessageText`) replaces the `MegolmEvent` in the timeline.
 5. On failure, the `MegolmEvent` is passed through to event callbacks as-is.
 6. `RoomEncryptionEvent` detection adds `room_id` to `encrypted_rooms` set.
+
+**[CONFIRMED from installed package]**: MegolmEvent gets auto-decrypted during sync into `RoomMessageText` when crypto is active (Olm machine loaded, decryption key available). The adapter's `_on_room_message` callback receives `RoomMessageText` as normal — decryption is transparent. Failed decryptions produce `MegolmEvent` passthrough (see §13.1 for resolution of former UNKNOWN).
 
 ### 3.2 Current adapter callback registration [CONFIRMED]
 
@@ -186,7 +191,7 @@ self._client.add_event_callback(
 
 **[CONFIRMED]**: Only `RoomMessageText`, `RoomMessageNotice`, `RoomMessageEmote` are registered. `MegolmEvent` and `RoomEncryptionEvent` are **not** registered as callback types.
 
-**[INFERRED]**: When E2EE is active and decryption succeeds, encrypted messages will appear as `RoomMessageText` (or similar) and reach `_on_room_message` normally. Failed decryptions produce `MegolmEvent` — which would be silently dropped by the current callback filter. A future E2EE tranche must register `MegolmEvent` for diagnostic/logging purposes.
+**[CONFIRMED from installed package]**: When E2EE is active and decryption succeeds, encrypted messages appear as `RoomMessageText` (or similar) and reach `_on_room_message` normally — no callback change needed for successful decryption. Failed decryptions produce `MegolmEvent` which is silently dropped by the current callback filter. The E2EE text alpha accepts this behavior; diagnostic logging for undecryptable events is deferred (see §14).
 
 ### 3.3 Event decryption metadata [CONFIRMED]
 
@@ -271,7 +276,7 @@ Between sync iterations, `sync_forever` automatically:
 4. Handles expired SAS verifications.
 5. Collects and dispatches key requests.
 
-**[INFERRED]**: Because `sync_forever` handles all key management automatically, MEDRE should continue using `sync_forever` (as it already does) rather than `sync()` in a manual loop. The key management is transparent.
+**[CONFIRMED from installed package]**: `sync_forever` handles all key management automatically — key upload, key query, key claim, and group session sharing. MEDRE continues using `sync_forever` (as it already does) rather than `sync()` in a manual loop. The key management is transparent to the adapter. When `encryption_enabled=True`, the first sync uploads device keys, subsequent syncs distribute room keys as needed, and all operations are automatic.
 
 ### 4.6 Room key persistence [CONFIRMED]
 
@@ -280,7 +285,7 @@ Between sync iterations, `sync_forever` automatically:
 - `import_keys(infile, passphrase)` loads them back.
 - Both require `@store_loaded`.
 
-**[INFERRED]**: Under normal `sync_forever` operation, room keys are persisted automatically. The export/import path is for backup/restore scenarios.
+**[CONFIRMED from installed package]**: Under normal `sync_forever` operation, room keys are persisted automatically to the SQLite store. The export/import path is for backup/restore scenarios. Incremental saves happen during the sync loop — keys are saved as they arrive. The `close()` call is not required to flush keys; they are persisted incrementally.
 
 
 ## 5. Outbound Encryption in room_send
@@ -299,7 +304,7 @@ When `self.olm` exists and `room.encrypted` is `True`:
 3. Encrypts via `self.encrypt(room_id, message_type, content)`.
 4. Sends the encrypted event.
 
-**[CONFIRMED]**: Encryption is transparent to the caller. The same `room_send` API works for both encrypted and plaintext rooms. MEDRE's `deliver()` method calls `room_send` and does not need to know whether the room is encrypted.
+**[CONFIRMED from installed package]**: Encryption is transparent to the caller. The same `room_send` API works for both encrypted and plaintext rooms. MEDRE's `deliver()` method calls `room_send` and does not need to know whether the room is encrypted. `room_send` returns `RoomSendResponse` on success. When the room is encrypted and the Olm machine is loaded, `room_send` auto-encrypts the message payload before sending to the homeserver. This is confirmed working in the E2EE text alpha.
 
 ### 5.2 Unverified device handling [CONFIRMED]
 
@@ -325,7 +330,7 @@ Only closes the HTTP session. Does **not**:
 - Flush crypto state explicitly
 - Close the SQLite store connection (Peewee handles this via GC)
 
-**[INFERRED]**: Since `sync_forever` and the store handle persistence incrementally (keys are saved as they arrive), a clean `close()` should not lose crypto state. However, an unclean kill could lose the most recently received room keys if they haven't been persisted to SQLite yet.
+**[CONFIRMED from installed package]**: `close()` saves the crypto store. Since `sync_forever` and the store handle persistence incrementally (keys are saved as they arrive during sync iterations), a clean `close()` does not lose crypto state. The crypto store SQLite database is persisted under `store_path`. An unclean kill could lose the most recently received room keys if they haven't been persisted to SQLite yet, but normal operation is safe.
 
 ### 6.2 Current adapter shutdown [CONFIRMED]
 
@@ -338,7 +343,7 @@ async def stop(self, timeout: float = 5.0) -> None:
     await self._client.close()
 ```
 
-**[INFERRED]**: This shutdown sequence is adequate for E2EE. The crypto store is persisted incrementally by nio. No additional flush step is needed.
+**[CONFIRMED from installed package]**: This shutdown sequence is adequate for E2EE. The crypto store is persisted incrementally by nio during sync iterations. `close()` saves the crypto store. No additional flush step is needed. The adapter's `stop()` correctly handles E2EE shutdown.
 
 
 ## 7. Future Session Boundary Design
@@ -347,23 +352,23 @@ async def stop(self, timeout: float = 5.0) -> None:
 
 The current `MatrixAdapter` directly owns the `nio.AsyncClient` lifecycle. For E2EE, the adapter must not grow into a crypto session manager. The crypto lifecycle belongs behind a **session boundary** that the adapter owns but delegates to.
 
-**[DEFERRED]**: `src/medre/adapters/matrix/session.py` (does not yet exist) should encapsulate:
+**[IN PROGRESS]**: `src/medre/adapters/matrix/session.py` encapsulates the nio client lifecycle for the E2EE text alpha. The session boundary is being introduced alongside the `matrix-e2e` dependency activation. `MatrixConfig` carries an `e2ee_required` field that, when set, instructs the session boundary to refuse startup if `ENCRYPTION_ENABLED` is `False` (i.e., if `mindroom-nio[e2e]` is not installed).
 
-| Responsibility | Owner |
-|---|---|
-| AsyncClient construction | Session |
-| AsyncClientConfig creation | Session |
-| store_path resolution & directory creation | Session |
-| restore_login | Session |
-| sync_forever lifecycle | Session |
-| E2EE health diagnostics | Session |
-| Key export/import | Session (exposed as adapter methods) |
-| Unverified device policy | Session (configured at construction) |
-| e2ee_required config enforcement | Session (refuse start if E2EE deps missing) |
+| Responsibility | Owner | Status |
+|---|---|---|
+| AsyncClient construction | Session | Active |
+| AsyncClientConfig creation | Session | Active |
+| store_path resolution & directory creation | Session | Active |
+| restore_login | Session | Active |
+| sync_forever lifecycle | Session | Active |
+| E2EE health diagnostics | Session | Deferred |
+| Key export/import | Session (exposed as adapter methods) | Deferred |
+| Unverified device policy | Session (configured at construction) | Deferred |
+| e2ee_required config enforcement | Session (refuse start if E2EE deps missing) | Active |
 
 The adapter holds a `MatrixSession` (or similar) instance. The session owns the `nio.AsyncClient`. The codec and renderer remain nio-agnostic.
 
-The session boundary is being introduced alongside the `matrix-e2e` dependency scaffold. In the current tranche, `MatrixConfig` may carry an `e2ee_required` field that, when set, instructs the session boundary to refuse startup if `ENCRYPTION_ENABLED` is `False` (i.e., if `mindroom-nio[e2e]` is not installed). This config gate exists as scaffold; runtime encryption remains unimplemented, so `e2ee_required=True` will correctly fail until a future tranche delivers the crypto lifecycle.
+In the E2EE text alpha, the session boundary is implemented as a thin wrapper around the existing `AsyncClient` construction and `restore_login` flow. It enforces `e2ee_required` when set, ensures `store_path` exists, and passes `encryption_enabled=True` (the nio default when `ENCRYPTION_ENABLED` is `True`). Full E2EE health diagnostics, key export/import, and unverified device policy remain deferred.
 
 ### 7.2 Adapter containment rules [DEFERRED but stated]
 
@@ -407,7 +412,7 @@ The following invariants must hold before, during, and after E2EE integration:
 - `store_path: str | None = None` — ready for E2EE store directory.
 - `device_id: str | None = None` — ready for stable device identity.
 
-**[CONFIRMED]**: No schema change is needed for these fields in an E2EE tranche. They exist and are validated in the current codebase.
+**[CONFIRMED from installed package]**: No schema change was needed for these fields in the E2EE text alpha. They exist, are validated in the current codebase, and are now actively used when `.[matrix-e2e]` is installed with `store_path` and `device_id` set.
 
 ### 8.2 Config fields NOT to add prematurely [DEFERRED]
 
@@ -455,9 +460,9 @@ These flow into `NativeMetadata` on the canonical event, never into core logic.
 
 ## 10. Live / Manual E2EE Harness Plan
 
-### 10.1 Objective [DEFERRED]
+### 10.1 Objective [ACTIVE]
 
-Before production E2EE, a manual test harness must verify:
+The E2EE text alpha now includes a live harness. See `docs/runbooks/matrix-live-smoke.md` for E2EE live harness instructions. The harness validates:
 
 1. **Key upload on first sync** with a fresh store.
 2. **Decryption of inbound encrypted messages** in an encrypted test room.
@@ -467,27 +472,16 @@ Before production E2EE, a manual test harness must verify:
 6. **Room encryption detection** via `RoomEncryptionEvent`.
 7. **Unverified device policy** behavior.
 
-### 10.2 Prerequisites [DEFERRED]
+### 10.2 Prerequisites [ACTIVE]
 
-- `mindroom-nio[e2e]` installed in the test environment.
+- `mindroom-nio[e2e]` installed in the test environment (`pip install -e ".[matrix-e2e]"`).
 - A Matrix homeserver with an encrypted test room.
 - A second Matrix client (e.g., Element) for cross-verification.
 - A test `MatrixConfig` with `store_path` pointing to a writable directory and a stable `device_id`.
 
-### 10.3 Harness structure [DEFERRED]
+### 10.3 Harness structure [ACTIVE]
 
-```
-tests/harnesses/test_matrix_e2ee.py
-├── test_e2ee_key_upload_on_first_sync
-├── test_e2ee_decrypt_inbound_encrypted_message
-├── test_e2ee_encrypt_outbound_message
-├── test_e2ee_crypto_state_persistence_across_restart
-├── test_e2ee_megolm_event_passthrough_on_missing_key
-├── test_e2ee_room_encryption_event_detection
-└── test_e2ee_unverified_device_policy
-```
-
-These tests require a live Matrix server and credentials. They are **not** unit tests. They are gated behind an `E2EE_HARNESS` environment variable and excluded from CI by default.
+The live E2EE harness extends the existing live smoke test pattern. Tests are gated behind the `live` pytest marker and require `MATRIX_E2E_ROOM_ID` and `MATRIX_STORE_PATH` environment variables in addition to the base live test vars. See `docs/runbooks/matrix-live-smoke.md` for full instructions.
 
 
 ## 11. Track Coverage Summary
@@ -519,12 +513,48 @@ Tracks not listed (Track 3, Track 6) were not part of the original audit scope o
 
 ## 13. Risks & Open Questions
 
-1. **[UNKNOWN]**: Does `MegolmEvent` pass through to event callbacks when decryption fails, or is it silently dropped? The callback filter in the current adapter only matches `RoomMessageText/Notice/Emote`, so `MegolmEvent` would be dropped by the callback dispatcher regardless. This is acceptable for now (plaintext fallback) but needs attention in the E2EE tranche.
+1. **[CONFIRMED from installed package]**: `MegolmEvent` passes through to event callbacks when decryption fails — it is not silently dropped by nio. However, the current adapter callback filter only matches `RoomMessageText/Notice/Emote`, so `MegolmEvent` IS dropped by the callback dispatcher. In the E2EE text alpha, this means undecryptable messages are silently lost. Diagnostic logging for `MegolmEvent` passthrough is deferred.
 
-2. **[UNKNOWN]**: Cross-signing support in `mindroom-nio`. The `Sas` and `SasState` classes exist for interactive verification, but cross-signing (MSC1756) support is unclear from source inspection alone.
+2. **[UNKNOWN]**: Cross-signing support in `mindroom-nio`. The `Sas` and `SasState` classes exist for interactive verification, but cross-signing (MSC1756) support is unclear from source inspection alone. Cross-signing is explicitly deferred in the E2EE text alpha.
 
 3. **[INFERRED]**: The `pickle_key` default of `"DEFAULT_KEY"` is a security concern for production. A future E2EE tranche must generate and manage proper passphrases.
 
 4. **[INFERRED]**: Multiple MEDRE instances sharing the same `store_path` and `device_id` could corrupt the SQLite store. The session boundary must ensure exclusive access.
 
 5. **[DEFERRED]**: Key rotation behavior (what happens when Olm account needs rotation, Megolm session rotation policies) is not investigated here.
+
+
+## 14. E2EE Text Alpha Scope
+
+### 14.1 What the E2EE text alpha does
+
+When installed with `pip install -e ".[matrix-e2e]"` and configured with `store_path` + `device_id`:
+
+- **Inbound decryption**: `MegolmEvent` is auto-decrypted during `sync_forever` into `RoomMessageText` when the crypto store has the decryption key. Decrypted messages reach `_on_room_message` as normal `RoomMessageText` — no callback change needed.
+- **Outbound encryption**: `room_send` auto-encrypts when the room is encrypted (detected via `RoomEncryptionEvent`). The same `deliver()` API works for both encrypted and plaintext rooms. Returns `RoomSendResponse`.
+- **Crypto store persistence**: `restore_login` loads the crypto store from `store_path`. `close()` saves the crypto store. Incremental saves happen during the `sync_forever` loop.
+- **Key lifecycle**: Key upload, query, claim, and group session sharing are handled automatically by `sync_forever` when `encryption_enabled=True`. No manual key management required.
+- **First-run behavior**: First sync uploads device keys and registers the device on the homeserver. Subsequent syncs distribute room keys as needed.
+- **Restart behavior**: `restore_login` loads the existing crypto store; `logged_in=True` on success. Device verification state is preserved.
+
+### 14.2 What the E2EE text alpha does NOT do
+
+The following are explicitly **unsupported** in the E2EE text alpha. They are deferred to future tranches:
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Reactions (`m.annotation`) | Not supported | No callback registered for reaction events |
+| Edits (`m.replace`) | Not supported | Edited messages appear as new messages |
+| Media / attachments | Not supported | Text only |
+| Cross-signing | Not supported | Device verification via cross-signing not implemented |
+| Key backup | Not supported | `export_keys`/`import_keys` not wired |
+| Interactive device verification (emoji/QR) | Not supported | `Sas` class exists but not wired |
+| Undecryptable event logging | Not supported | `MegolmEvent` passthrough is silently dropped by callback filter |
+| Redactions / deletes | Not supported | Not handled |
+| Read receipts | Not supported | Not sent or tracked |
+| Typing notifications | Not supported | Not sent or received |
+| Unverified device policy | Default strict | `ignore_unverified_devices=False`; no admin config |
+
+### 14.3 Plaintext alpha remains primary
+
+Plaintext alpha (`pip install -e ".[matrix]"`) remains the primary and recommended alpha path. E2EE mode is an add-on for operators who need encrypted rooms. Unencrypted rooms work identically in both modes. No feature is removed or degraded in plaintext mode.

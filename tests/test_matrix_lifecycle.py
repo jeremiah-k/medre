@@ -99,9 +99,14 @@ def _build_mock_nio_module() -> MagicMock:
     client.sync_forever = _sync_forever_stub
     client.room_send = AsyncMock()
     mock.AsyncClient = MagicMock(return_value=client)
+    mock.ClientConfig = MagicMock(name="ClientConfig")
     mock.RoomMessageText = MagicMock(name="RoomMessageText")
     mock.RoomMessageNotice = MagicMock(name="RoomMessageNotice")
     mock.RoomMessageEmote = MagicMock(name="RoomMessageEmote")
+    # nio.events.MegolmEvent for undecryptable event callback
+    mock_events = MagicMock(name="nio.events")
+    mock_events.MegolmEvent = MagicMock(name="MegolmEvent")
+    mock.events = mock_events
     return mock
 
 
@@ -109,15 +114,21 @@ def _build_mock_nio_module() -> MagicMock:
 def mock_nio():
     """Inject a mock ``nio`` module into ``sys.modules`` and patch HAS_NIO."""
     mock = _build_mock_nio_module()
-    saved = sys.modules.get("nio")
+    saved_nio = sys.modules.get("nio")
+    saved_nio_events = sys.modules.get("nio.events")
     sys.modules["nio"] = mock
+    sys.modules["nio.events"] = mock.events
     with patch("medre.adapters.matrix.adapter.HAS_NIO", True):
         yield mock
     # Restore
-    if saved is None:
+    if saved_nio is None:
         sys.modules.pop("nio", None)
     else:
-        sys.modules["nio"] = saved
+        sys.modules["nio"] = saved_nio
+    if saved_nio_events is None:
+        sys.modules.pop("nio.events", None)
+    else:
+        sys.modules["nio.events"] = saved_nio_events
 
 
 # ===================================================================
@@ -142,12 +153,14 @@ class TestMatrixAdapterStart:
             await adapter.stop()
 
     async def test_start_sets_up_event_callback(self, mock_nio):
-        """start() registers _on_room_message for RoomMessage types."""
+        """start() registers callbacks for RoomMessage types and MegolmEvent."""
         config = _make_config()
         adapter = MatrixAdapter(config)
         try:
             await adapter.start(_make_context())
-            mock_nio.AsyncClient.return_value.add_event_callback.assert_called_once()
+            assert (
+                mock_nio.AsyncClient.return_value.add_event_callback.call_count == 2
+            )
         finally:
             await adapter.stop()
 
