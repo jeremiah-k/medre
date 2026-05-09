@@ -1,9 +1,21 @@
-"""Live Meshtastic adapter connectivity smoke tests.
+"""Live Meshtastic connectivity smoke tests.
 
-These tests connect to a **real** Meshtastic radio node and exercise the
-MEDRE Meshtastic adapter's lifecycle, outbound delivery, and inbound
-reception.  They are **skipped by default** and require explicit opt-in
-via environment variables.
+These tests connect to a **real** Meshtastic radio node and exercise two
+distinct categories of functionality:
+
+**Category A — Raw ``mtjk`` API Smoke Tests:**
+Exercise the raw ``meshtastic`` (mtjk) library directly, bypassing the
+MEDRE adapter.  These validate that the underlying library can connect,
+send, and receive against real hardware.
+
+**Category B — MEDRE Adapter Lifecycle Smoke Tests:**
+Exercise the MEDRE ``MeshtasticAdapter`` against a real node: start,
+health_check, and stop.  These do NOT exercise full MEDRE adapter
+``send_one`` / ``deliver`` integration with real hardware — that path
+is tested with monkeypatched clients in unit tests only.
+
+All tests are **skipped by default** and require explicit opt-in via
+environment variables.
 
 **Running live tests:**
 
@@ -85,14 +97,19 @@ with a descriptive reason.
 
 **What this proves:**
 
-- The adapter can connect to a real Meshtastic node via TCP (or serial/BLE).
-- ``health_check()`` transitions correctly through the lifecycle.
-- Outbound ``sendText`` produces a real packet with a populated ``id``.
-- Inbound packet callbacks fire and flow through the codec pipeline.
-- The full lifecycle (connect → send → receive → disconnect) works cleanly.
+- **Category A (raw mtjk):** The raw ``mtjk`` library can connect, send, and
+  receive against a real Meshtastic node.  ``sendText``/``sendData`` return
+  real packets with populated IDs.  Pubsub callbacks fire for received
+  packets.  Packet shape matches expected fields.
+- **Category B (MEDRE adapter lifecycle):** The MEDRE ``MeshtasticAdapter``
+  can ``start()`` against a real node, ``health_check()`` reports
+  ``"healthy"``, and ``stop()`` disconnects cleanly.
 
 **What this does NOT prove:**
 
+- Full MEDRE adapter ``send_one`` integration with real hardware (adapter's
+  queue → pacing → real ``sendText`` via ``send_one`` is not exercised;
+  tested with monkeypatched clients in unit tests only).
 - Production-grade reconnection handling.
 - Multi-hop mesh delivery (tests only cover direct node communication).
 - Encrypted channel support.
@@ -276,6 +293,8 @@ class TestMeshtasticLiveSmoke:
     async def test_tcp_interface_connects(self):
         """Verify a raw TCPInterface can connect to the configured node.
 
+        **Category A — Raw mtjk API smoke test.**
+
         This validates:
         - ``mtjk`` is installed and importable as ``meshtastic``.
         - The target host/port is reachable.
@@ -296,13 +315,16 @@ class TestMeshtasticLiveSmoke:
     async def test_adapter_starts_and_reports_healthy(self):
         """Start the real adapter and verify health_check reports healthy.
 
+        **Category B — MEDRE adapter lifecycle smoke test.**
+
         This validates:
         - The adapter creates a real mtjk interface in ``start()``.
         - ``health_check()`` returns ``"healthy"`` after start.
 
-        Note: The real MeshtasticAdapter creates a client via
-        ``_create_client()`` for non-fake connections.  When ``mtjk`` is
-        not installed, ``start()`` raises ``MeshtasticConnectionError``.
+        Note: This does NOT exercise full MEDRE ``send_one`` / ``deliver``
+        integration.  The adapter lifecycle (connect → health → disconnect)
+        is tested, but outbound delivery through the MEDRE queue + ``send_one``
+        path against real hardware is deferred to a future harness.
         """
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 
@@ -327,6 +349,8 @@ class TestMeshtasticLiveSmoke:
 
     async def test_send_text_via_raw_interface(self):
         """Send a text message using the raw mtjk interface directly.
+
+        **Category A — Raw mtjk API smoke test.**
 
         This validates:
         - ``sendText()`` completes without error.
@@ -368,6 +392,8 @@ class TestMeshtasticLiveSmoke:
 
     async def test_send_data_via_raw_interface(self):
         """Send raw data using ``sendData()`` via the mtjk interface.
+
+        **Category A — Raw mtjk API smoke test.**
 
         This validates:
         - ``sendData()`` with ``TEXT_MESSAGE_APP`` portnum works.
@@ -412,6 +438,8 @@ class TestMeshtasticLiveSmoke:
 
     async def test_pubsub_callback_receives_packets(self):
         """Verify that pubsub callback fires when a packet is received.
+
+        **Category A — Raw mtjk API smoke test.**
 
         This test subscribes to ``meshtastic.receive`` and waits up to
         30 seconds for an inbound packet.  If no packet arrives, it passes

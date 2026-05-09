@@ -10,12 +10,13 @@ cover.
 
 ## Purpose
 
-The live smoke harness validates that the MEDRE Meshtastic adapter works
-against a real Meshtastic radio node — not just against the
-`FakeMeshtasticAdapter` and mock-based unit tests.  It is **optional** and
-**skipped by default**.  Default `pytest` runs remain fake-only.
+The live smoke harness provides **two distinct categories** of tests, which
+must not be conflated:
 
-What live smoke proves:
+### Category A: Raw `mtjk` API Smoke Tests
+
+These tests exercise the **raw** `meshtastic` (mtjk) library directly —
+without going through the MEDRE adapter.  They validate that:
 
 - The `mtjk` package is installed and importable as `meshtastic`.
 - A `TCPInterface` (or `SerialInterface`) can connect to a real node.
@@ -24,16 +25,38 @@ What live smoke proves:
 - The `meshtastic.receive` pubsub callback fires on packet reception.
 - Received packets have the expected shape (`decoded`, `id`, `portnum`).
 
-What live smoke does **not** prove:
+**These tests do NOT exercise the MEDRE adapter's connection, codec, or
+send pipeline.**  They prove that the underlying `mtjk` library works
+against real hardware.
 
+### Category B: MEDRE Adapter Lifecycle Smoke Tests
+
+These tests exercise the **MEDRE** `MeshtasticAdapter` against a real node:
+
+- The adapter creates a real client via `_create_client()`.
+- `start()` connects and subscribes to pubsub callbacks.
+- `health_check()` reports `"healthy"` after a successful start.
+- `stop()` closes the client and unsubscribes cleanly.
+
+**These tests do NOT exercise full MEDRE adapter `send_one` / `deliver`
+integration.**  The adapter lifecycle (connect → health → disconnect) is
+tested, but outbound delivery through the MEDRE queue + `send_one` path
+against real hardware is deferred to a future harness.
+
+### What is NOT tested live
+
+- Full MEDRE adapter `send_one` integration with real hardware (adapter's
+  queue → pacing → real `sendText` via `send_one` is not exercised in
+  the live harness; it is tested with monkeypatched clients in unit tests).
 - Inbound message reception from a **second** node (tests use self-receive).
 - Multi-hop mesh delivery.
 - Encrypted channel support.
 - Telemetry, position, nodeinfo, or admin packet processing.
 - Production-grade reconnection handling.
 - BLE connectivity (documented but not exercised in this harness).
-- Real MEDRE adapter integration (tests use raw `mtjk` interface directly;
-  the adapter's real connection code is not yet implemented).
+
+The harness is **optional** and **skipped by default**.  Default `pytest`
+runs remain fake-only.
 
 
 ## Dependency Installation
@@ -297,16 +320,20 @@ iface.sendData(
 
 ### Proves
 
-- `mtjk` installs correctly and imports as `meshtastic`.
-- TCP/serial connection to a real node works.
-- `sendText` and `sendData` return packets with IDs.
-- Pubsub callbacks fire for received packets.
-- Packet shape includes expected fields (`decoded`, `id`, `portnum`).
+- `mtjk` installs correctly and imports as `meshtastic`.  (Category A)
+- TCP/serial connection to a real node works.  (Category A)
+- `sendText` and `sendData` return packets with IDs.  (Category A)
+- Pubsub callbacks fire for received packets.  (Category A)
+- Packet shape includes expected fields (`decoded`, `id`, `portnum`).  (Category A)
+- MEDRE `MeshtasticAdapter.start()` connects to a real node.  (Category B)
+- MEDRE `health_check()` reports `"healthy"` after start.  (Category B)
+- MEDRE `stop()` disconnects cleanly.  (Category B)
 
 ### Does Not Prove
 
-- Production MEDRE adapter integration (real adapter connection code is
-  not yet implemented).
+- Full MEDRE adapter `send_one` integration with real hardware (outbound
+  delivery through the queue + pacing + real `sendText` via `send_one` is
+  not tested live; tested with monkeypatched clients in unit tests only).
 - Inbound packet reception from a **different** node.
 - Multi-hop mesh delivery or routing.
 - Encrypted channel support.

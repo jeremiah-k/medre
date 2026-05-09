@@ -144,3 +144,28 @@ class TestMeshtasticConfigInvalid:
             ble_address="AA:BB:CC:DD:EE:FF",
         )
         assert config.validate() is config
+
+    def test_serial_without_serial_port_raises(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1",
+            connection_type="serial",
+        )
+        with pytest.raises(MeshtasticConfigError, match="serial_port"):
+            config.validate()
+
+    def test_serial_with_blank_serial_port_raises(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1",
+            connection_type="serial",
+            serial_port="",
+        )
+        with pytest.raises(MeshtasticConfigError, match="serial_port"):
+            config.validate()
+
+    def test_serial_with_serial_port_is_valid(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1",
+            connection_type="serial",
+            serial_port="/dev/ttyUSB0",
+        )
+        assert config.validate() is config

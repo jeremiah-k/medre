@@ -13,6 +13,14 @@ Meshtastic-specific sleeping.
 * **With ``send_fn``**: dequeues, applies pacing delay, calls the async
   *send_fn*, and returns an :class:`AdapterDeliveryResult` with the
   native packet ID if available.
+
+Failure semantics
+-----------------
+When *send_fn* raises an exception during ``process_one``, the dequeued
+item is **permanently dropped** — it is NOT requeued or retried.  The
+queue increments ``total_failed`` and re-raises the exception to the
+caller.  Production-grade retry / requeue logic is explicitly deferred
+to a future tranche.  This is a scaffold design choice, not a bug.
 """
 from __future__ import annotations
 

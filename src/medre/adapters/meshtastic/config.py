@@ -89,6 +89,10 @@ class MeshtasticConfig:
             raise MeshtasticConfigError(
                 "host is required when connection_type is 'tcp'"
             )
+        if self.connection_type == "serial" and not self.serial_port:
+            raise MeshtasticConfigError(
+                "serial_port is required when connection_type is 'serial'"
+            )
         if self.connection_type == "ble" and not self.ble_address:
             raise MeshtasticConfigError(
                 "ble_address is required when connection_type is 'ble'"

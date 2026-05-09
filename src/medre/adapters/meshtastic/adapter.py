@@ -114,6 +114,7 @@ class MeshtasticAdapter(BaseAdapter):
         )
         self.ctx: AdapterContext | None = None
         self._started: bool = False
+        self._subscribed: bool = False
         self._background_tasks: set[asyncio.Task] = set()
 
     # -- Lifecycle ----------------------------------------------------------
@@ -149,7 +150,19 @@ class MeshtasticAdapter(BaseAdapter):
             self._client = self._create_client()
 
             # Subscribe to inbound packets via pubsub callback.
-            self._subscribe_callbacks()
+            try:
+                self._subscribe_callbacks()
+            except Exception:
+                # Clean up client on subscription failure.
+                self._subscribed = False
+                try:
+                    close_fn = getattr(self._client, "close", None)
+                    if close_fn is not None:
+                        close_fn()
+                except Exception:
+                    pass
+                self._client = None
+                raise
 
         self._started = True
         ctx.logger.info(
@@ -201,7 +214,13 @@ class MeshtasticAdapter(BaseAdapter):
         AdapterInfo
             Metadata describing the adapter's state.
         """
-        health = "healthy" if self._started else "unknown"
+        if self._started:
+            health = "healthy"
+        elif self._client is not None and not self._started:
+            # Client exists but start did not complete — subscription failure.
+            health = "failed"
+        else:
+            health = "unknown"
         return AdapterInfo(
             adapter_id=self.adapter_id,
             platform=self.platform,
@@ -383,7 +402,6 @@ class MeshtasticAdapter(BaseAdapter):
                 )
             elif conn == "serial":
                 from meshtastic.serial_interface import SerialInterface
-                assert self._config.serial_port is not None  # validated by config
                 return SerialInterface(
                     devPath=self._config.serial_port,
                 )
@@ -411,22 +429,34 @@ class MeshtasticAdapter(BaseAdapter):
         with the ``meshtastic.receive`` topic and the ``onReceive``
         callback signature ``(packet, interface)``.
 
-        Silently ignores import errors and missing topics (the real
-        meshtastic library creates the topic on first use).
+        Raises
+        ------
+        MeshtasticConnectionError
+            If callback registration fails.
         """
         try:
             from pubsub import pub
             pub.subscribe(self._on_receive_callback, "meshtastic.receive")
-        except Exception:
-            pass
+        except Exception as exc:
+            raise MeshtasticConnectionError(
+                f"Failed to subscribe to meshtastic.receive: {exc}"
+            ) from exc
+        self._subscribed = True
 
     def _unsubscribe_callbacks(self) -> None:
-        """Unsubscribe from Meshtastic pubsub callbacks."""
+        """Unsubscribe from Meshtastic pubsub callbacks.
+
+        Only attempts unsubscription if a previous subscription succeeded.
+        Failures are logged but not raised.
+        """
+        if not self._subscribed:
+            return
         try:
             from pubsub import pub
             pub.unsubscribe(self._on_receive_callback, "meshtastic.receive")
         except Exception:
             pass
+        self._subscribed = False
 
     def _on_receive_callback(self, packet: dict[str, Any], interface: Any = None) -> None:
         """Pubsub callback matching the Meshtastic ``onReceive(packet, interface)`` signature.

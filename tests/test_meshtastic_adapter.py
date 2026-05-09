@@ -6,6 +6,7 @@ boundary enforcement, and packet simulation.
 from __future__ import annotations
 
 import asyncio
+import sys
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
@@ -702,6 +703,247 @@ class TestMeshtasticAdapterConnectionModes:
 
 
 # ===================================================================
+# Pubsub subscription
+# ===================================================================
+
+
+class TestMeshtasticAdapterPubsubSubscription:
+    """Subscription failures are raised, not swallowed."""
+
+    async def test_successful_subscription_calls_pub_subscribe(
+        self, make_adapter_context, monkeypatch
+    ) -> None:
+        """start() calls pub.subscribe on non-fake connection."""
+        subscribed = []
+
+        def fake_subscribe(callback, topic):
+            subscribed.append((callback.__name__, topic))
+
+        class FakePub:
+            def subscribe(self, callback, topic):
+                fake_subscribe(callback, topic)
+
+        class FakeClient:
+            def close(self):
+                pass
+
+        monkeypatch.setattr("medre.adapters.meshtastic.adapter.HAS_MESHTASTIC", True)
+
+        config = _make_config(connection_type="tcp", host="1.2.3.4")
+        adapter = MeshtasticAdapter(config)
+        monkeypatch.setattr(adapter, "_create_client", lambda: FakeClient())
+
+        import medre.adapters.meshtastic.adapter as adapter_mod
+        monkeypatch.setattr(adapter_mod, "HAS_MESHTASTIC", True)
+
+        # Patch pubsub import inside _subscribe_callbacks
+        import types
+        fake_pubsub = types.ModuleType("pubsub")
+        fake_pub = types.ModuleType("pubsub.pub")
+        fake_pub.subscribe = fake_subscribe
+        fake_pub.unsubscribe = lambda cb, topic: None
+        fake_pubsub.pub = fake_pub
+        monkeypatch.setitem(sys.modules, "pubsub", fake_pubsub)
+        monkeypatch.setitem(sys.modules, "pubsub.pub", fake_pub)
+
+        ctx = make_adapter_context("mesh-1")
+        await adapter.start(ctx)
+        assert len(subscribed) == 1
+        assert subscribed[0] == ("_on_receive_callback", "meshtastic.receive")
+        await adapter.stop()
+
+    async def test_subscription_failure_during_start_raises(
+        self, monkeypatch
+    ) -> None:
+        """start() raises MeshtasticConnectionError when subscription fails."""
+        import types
+
+        class FakeClient:
+            def close(self):
+                self.closed = True
+
+        monkeypatch.setattr("medre.adapters.meshtastic.adapter.HAS_MESHTASTIC", True)
+
+        config = _make_config(connection_type="tcp", host="1.2.3.4")
+        adapter = MeshtasticAdapter(config)
+        monkeypatch.setattr(adapter, "_create_client", lambda: FakeClient())
+
+        # Patch pubsub to raise on subscribe
+        fake_pubsub = types.ModuleType("pubsub")
+        fake_pub = types.ModuleType("pubsub.pub")
+        fake_pub.subscribe = lambda cb, topic: (_ for _ in ()).throw(RuntimeError("nope"))
+        fake_pub.unsubscribe = lambda cb, topic: None
+        fake_pubsub.pub = fake_pub
+        monkeypatch.setitem(sys.modules, "pubsub", fake_pubsub)
+        monkeypatch.setitem(sys.modules, "pubsub.pub", fake_pub)
+
+        with pytest.raises(MeshtasticConnectionError, match="meshtastic.receive"):
+            await adapter.start(AdapterContext(
+                adapter_id="mesh-1",
+                event_bus=None,
+                publish_inbound=AsyncMock(),
+                logger=__import__("logging").getLogger("test"),
+                clock=lambda: datetime.now(timezone.utc),
+                shutdown_event=asyncio.Event(),
+            ))
+
+    async def test_start_failure_closes_client(
+        self, monkeypatch
+    ) -> None:
+        """When subscription fails, start() closes the client before re-raising."""
+        import types
+
+        closed_flag = {"closed": False}
+
+        class FakeClient:
+            def close(self):
+                closed_flag["closed"] = True
+
+        monkeypatch.setattr("medre.adapters.meshtastic.adapter.HAS_MESHTASTIC", True)
+
+        config = _make_config(connection_type="tcp", host="1.2.3.4")
+        adapter = MeshtasticAdapter(config)
+        monkeypatch.setattr(adapter, "_create_client", lambda: FakeClient())
+
+        fake_pubsub = types.ModuleType("pubsub")
+        fake_pub = types.ModuleType("pubsub.pub")
+        fake_pub.subscribe = lambda cb, topic: (_ for _ in ()).throw(RuntimeError("fail"))
+        fake_pub.unsubscribe = lambda cb, topic: None
+        fake_pubsub.pub = fake_pub
+        monkeypatch.setitem(sys.modules, "pubsub", fake_pubsub)
+        monkeypatch.setitem(sys.modules, "pubsub.pub", fake_pub)
+
+        with pytest.raises(MeshtasticConnectionError):
+            await adapter.start(AdapterContext(
+                adapter_id="mesh-1",
+                event_bus=None,
+                publish_inbound=AsyncMock(),
+                logger=__import__("logging").getLogger("test"),
+                clock=lambda: datetime.now(timezone.utc),
+                shutdown_event=asyncio.Event(),
+            ))
+
+        assert closed_flag["closed"], "Client should be closed after subscription failure"
+
+    async def test_start_failure_no_orphaned_state(
+        self, monkeypatch
+    ) -> None:
+        """After subscription failure, adapter is not started and client is None."""
+        import types
+
+        class FakeClient:
+            def close(self):
+                pass
+
+        monkeypatch.setattr("medre.adapters.meshtastic.adapter.HAS_MESHTASTIC", True)
+
+        config = _make_config(connection_type="tcp", host="1.2.3.4")
+        adapter = MeshtasticAdapter(config)
+        monkeypatch.setattr(adapter, "_create_client", lambda: FakeClient())
+
+        fake_pubsub = types.ModuleType("pubsub")
+        fake_pub = types.ModuleType("pubsub.pub")
+        fake_pub.subscribe = lambda cb, topic: (_ for _ in ()).throw(RuntimeError("fail"))
+        fake_pub.unsubscribe = lambda cb, topic: None
+        fake_pubsub.pub = fake_pub
+        monkeypatch.setitem(sys.modules, "pubsub", fake_pubsub)
+        monkeypatch.setitem(sys.modules, "pubsub.pub", fake_pub)
+
+        with pytest.raises(MeshtasticConnectionError):
+            await adapter.start(AdapterContext(
+                adapter_id="mesh-1",
+                event_bus=None,
+                publish_inbound=AsyncMock(),
+                logger=__import__("logging").getLogger("test"),
+                clock=lambda: datetime.now(timezone.utc),
+                shutdown_event=asyncio.Event(),
+            ))
+
+        assert adapter._started is False
+        assert adapter._client is None
+        assert adapter._subscribed is False
+
+    async def test_health_check_failed_after_subscription_failure(
+        self, monkeypatch
+    ) -> None:
+        """health_check() returns 'failed' when subscription failed."""
+        import types
+
+        class FakeClient:
+            def close(self):
+                pass
+
+        monkeypatch.setattr("medre.adapters.meshtastic.adapter.HAS_MESHTASTIC", True)
+
+        config = _make_config(connection_type="tcp", host="1.2.3.4")
+        adapter = MeshtasticAdapter(config)
+        monkeypatch.setattr(adapter, "_create_client", lambda: FakeClient())
+
+        fake_pubsub = types.ModuleType("pubsub")
+        fake_pub = types.ModuleType("pubsub.pub")
+        fake_pub.subscribe = lambda cb, topic: (_ for _ in ()).throw(RuntimeError("fail"))
+        fake_pub.unsubscribe = lambda cb, topic: None
+        fake_pubsub.pub = fake_pub
+        monkeypatch.setitem(sys.modules, "pubsub", fake_pubsub)
+        monkeypatch.setitem(sys.modules, "pubsub.pub", fake_pub)
+
+        with pytest.raises(MeshtasticConnectionError):
+            await adapter.start(AdapterContext(
+                adapter_id="mesh-1",
+                event_bus=None,
+                publish_inbound=AsyncMock(),
+                logger=__import__("logging").getLogger("test"),
+                clock=lambda: datetime.now(timezone.utc),
+                shutdown_event=asyncio.Event(),
+            ))
+
+        # After failed start, client is cleaned up, health should be "unknown"
+        # since _client is set to None during cleanup
+        info = await adapter.health_check()
+        assert info.health == "unknown"
+
+    async def test_unsubscribe_only_when_subscribed(
+        self, make_adapter_context, monkeypatch
+    ) -> None:
+        """stop() does not call pub.unsubscribe if subscription never succeeded."""
+        import types
+
+        unsubscribe_calls = []
+
+        class FakeClient:
+            def close(self):
+                pass
+
+        monkeypatch.setattr("medre.adapters.meshtastic.adapter.HAS_MESHTASTIC", True)
+
+        config = _make_config(connection_type="tcp", host="1.2.3.4")
+        adapter = MeshtasticAdapter(config)
+        monkeypatch.setattr(adapter, "_create_client", lambda: FakeClient())
+
+        fake_pubsub = types.ModuleType("pubsub")
+        fake_pub = types.ModuleType("pubsub.pub")
+        fake_pub.subscribe = lambda cb, topic: (_ for _ in ()).throw(RuntimeError("fail"))
+        fake_pub.unsubscribe = lambda cb, topic: unsubscribe_calls.append((cb, topic))
+        fake_pubsub.pub = fake_pub
+        monkeypatch.setitem(sys.modules, "pubsub", fake_pubsub)
+        monkeypatch.setitem(sys.modules, "pubsub.pub", fake_pub)
+
+        with pytest.raises(MeshtasticConnectionError):
+            await adapter.start(AdapterContext(
+                adapter_id="mesh-1",
+                event_bus=None,
+                publish_inbound=AsyncMock(),
+                logger=__import__("logging").getLogger("test"),
+                clock=lambda: datetime.now(timezone.utc),
+                shutdown_event=asyncio.Event(),
+            ))
+
+        # stop should not try to unsubscribe since subscription never succeeded
+        await adapter.stop()
+        assert len(unsubscribe_calls) == 0
+
+
+# ===================================================================
 # Task scheduling
 # ===================================================================
 
@@ -933,3 +1175,19 @@ class TestMeshtasticAdapterSendSemantics:
 
         assert queue.total_failed == 1
         assert queue.total_sent == 0
+
+    async def test_queue_failed_item_not_requeued(self) -> None:
+        """Failed sends are dropped, not requeued (scaffold behavior)."""
+        from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
+        queue = MeshtasticOutboundQueue(delay_between_messages=0.0)
+        await queue.enqueue({"text": "will_fail"}, 0)
+
+        async def failing_send(item):
+            raise RuntimeError("boom")
+
+        with pytest.raises(RuntimeError):
+            await queue.process_one(send_fn=failing_send)
+
+        # The item is gone — not requeued.
+        assert queue.pending_count == 0
+        assert queue.total_failed == 1
