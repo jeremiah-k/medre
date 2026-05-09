@@ -14,6 +14,22 @@ the LXMF mesh messaging protocol over Reticulum.
 
 ---
 
+## Tranche 1 Scope
+
+This is a **pre-production audit**. The findings below are derived from
+reading source code, not from running network captures or live
+Reticulum sessions. Specifically:
+
+- Test fixtures are **source-shaped approximations** built to match the
+  LXMF wire format as described in the reference source. They are not
+  captured from a running LXMF router.
+- No real LXMF or Reticulum dependency is required for default tests.
+  All tests use `FakeLxmfAdapter` and hand-crafted packet dicts.
+- The adapter operates exclusively in `connection_type="fake"` mode.
+  Real connectivity is deferred.
+
+---
+
 ## 1. Reference Material Availability
 
 ### 1.1 LXMF Library
@@ -265,7 +281,8 @@ send/receive requires Reticulum.
 | Announce/advertisement | **Scaffold**. No announce logic. | Call `destination.announce()` for presence. |
 | Resource transfer (attachments) | **Scaffold**. No `RNS.Resource` usage. | Implement for `FIELD_FILE_ATTACHMENTS`. |
 | Ticket-based reply correlation | **Scaffold**. Tickets not generated or validated. | Implement `FIELD_TICKET` creation and parsing. |
-| Fields envelope format | **Scaffold**. MEDRE convention only, not enforced by LXMF. | Define and document field key mapping. |
+| Relation reconstruction from fields | **Deferred**. The fields envelope can carry relation metadata, but reconstructing `EventRelation` objects from inbound field data is not implemented. | Wire relation extraction in codec when needed. |
+| Fields envelope format | **Scaffold**. MEDRE convention only, not enforced by LXMF. Round-trip fidelity is a MEDRE convention, not a protocol guarantee. | Define and document field key mapping. |
 | Propagation node sync | **Scaffold**. No propagation node client. | Implement `lxmf.propagation` destination handling. |
 | Paper message encode/decode | **Scaffold**. No QR/URI generation. | Wire PAPER mode if offline transfer needed. |
 

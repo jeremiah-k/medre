@@ -257,7 +257,7 @@ class FakeLxmfAdapter(BaseAdapter):
 
         self.delivered_payloads.append(result)
 
-        text = str(result.payload.get("text", ""))
+        text = str(result.payload.get("content", ""))
         title = str(result.payload.get("title", ""))
         fields = result.payload.get("fields")
         dest_hash = str(result.payload.get("destination_hash", ""))

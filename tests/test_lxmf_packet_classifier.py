@@ -6,7 +6,11 @@ from __future__ import annotations
 
 import pytest
 
-from medre.adapters.lxmf.packet_classifier import LxmfPacketClassifier
+from medre.adapters.lxmf.errors import LxmfCodecError
+from medre.adapters.lxmf.packet_classifier import (
+    LxmfPacketClassifier,
+    normalize_lxmf_text,
+)
 
 
 class TestPacketClassifierText:
@@ -221,3 +225,88 @@ class TestPacketClassifierUnknown:
         packet = {"source_hash": "ab" * 16}
         result = cls.classify(packet)
         assert result["category"] == "unknown"
+
+
+class TestPacketClassifierBytesContent:
+    """Bytes content/title normalisation."""
+
+    def test_classify_bytes_content(self) -> None:
+        """Bytes content is classified as 'text' and normalised."""
+        cls = LxmfPacketClassifier()
+        packet = {
+            "content": b"hello bytes",
+            "source_hash": "ab" * 16,
+            "message_id": "cd" * 32,
+        }
+        result = cls.classify(packet)
+        assert result["category"] == "text"
+        assert result["content"] == "hello bytes"
+
+    def test_classify_bytes_title(self) -> None:
+        """Bytes title is normalised to str."""
+        cls = LxmfPacketClassifier()
+        packet = {
+            "content": "body",
+            "title": b"Subject",
+            "source_hash": "ab" * 16,
+            "message_id": "cd" * 32,
+        }
+        result = cls.classify(packet)
+        assert result["title"] == "Subject"
+
+    def test_classify_str_content(self) -> None:
+        """Str content still works unchanged."""
+        cls = LxmfPacketClassifier()
+        packet = {
+            "content": "plain string",
+            "source_hash": "ab" * 16,
+            "message_id": "cd" * 32,
+        }
+        result = cls.classify(packet)
+        assert result["category"] == "text"
+        assert result["content"] == "plain string"
+
+    def test_classify_none_content(self) -> None:
+        """None content → unknown category, empty string in result."""
+        cls = LxmfPacketClassifier()
+        packet = {
+            "content": None,
+            "source_hash": "ab" * 16,
+        }
+        result = cls.classify(packet)
+        assert result["category"] == "unknown"
+        assert result["content"] == ""
+
+    def test_classify_invalid_content_type(self) -> None:
+        """Int content raises LxmfCodecError."""
+        cls = LxmfPacketClassifier()
+        packet = {
+            "content": 42,
+            "source_hash": "ab" * 16,
+        }
+        with pytest.raises(LxmfCodecError, match="unsupported content type"):
+            cls.classify(packet)
+
+
+class TestNormalizeLxmfText:
+    """Direct tests for the normalize_lxmf_text helper."""
+
+    def test_normalize_lxmf_text_str(self) -> None:
+        assert normalize_lxmf_text("hello") == "hello"
+
+    def test_normalize_lxmf_text_bytes(self) -> None:
+        assert normalize_lxmf_text(b"hello bytes") == "hello bytes"
+
+    def test_normalize_lxmf_text_bytearray(self) -> None:
+        assert normalize_lxmf_text(bytearray(b"hello ba")) == "hello ba"
+
+    def test_normalize_lxmf_text_none(self) -> None:
+        assert normalize_lxmf_text(None) == ""
+
+    def test_normalize_lxmf_text_invalid_utf8(self) -> None:
+        with pytest.raises(LxmfCodecError, match="invalid UTF-8"):
+            normalize_lxmf_text(b"\xff\xfe\x00\x01")
+
+    def test_normalize_lxmf_text_unsupported_type(self) -> None:
+        with pytest.raises(LxmfCodecError, match="unsupported content type"):
+            normalize_lxmf_text(123)

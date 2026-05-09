@@ -1,6 +1,6 @@
 """Tests for LxmfCodec: decode (native → canonical), metadata
-population, source_native_ref, title extraction, fields envelope, and
-edge cases.
+population, source_native_ref, title extraction, fields envelope,
+deferred relation reconstruction, and edge cases.
 """
 
 from __future__ import annotations
@@ -156,7 +156,12 @@ class TestLxmfCodecFieldsEnvelope:
 
     def test_decode_extracts_medre_envelope(self) -> None:
         codec = LxmfCodec("lxmf-1", _make_config())
-        envelope = {"schema_version": 1, "event_id": "evt-123"}
+        envelope = {
+            "schema_version": 1,
+            "event_id": "evt-123",
+            "relations": [],
+            "metadata_keys": [],
+        }
         fields = {0xFD: {"medre": envelope}}
         packet = _make_text_packet(fields=fields)
         event = codec.decode(packet)
@@ -169,6 +174,56 @@ class TestLxmfCodecFieldsEnvelope:
         packet = _make_text_packet(fields={})
         event = codec.decode(packet)
         assert "medre_envelope" not in event.metadata.custom
+
+    def test_decode_envelope_stored_in_metadata_custom(self) -> None:
+        """Decode stores the full envelope dict under metadata.custom."""
+        codec = LxmfCodec("lxmf-1", _make_config())
+        envelope = {
+            "schema_version": 1,
+            "event_id": "evt-custom",
+            "source_adapter": "lxmf-2",
+            "source_transport_id": "ef" * 16,
+            "lineage": ["evt-parent"],
+            "relations": [],
+            "metadata_keys": ["k1"],
+        }
+        fields = {0xFD: {"medre": envelope}}
+        packet = _make_text_packet(fields=fields)
+        event = codec.decode(packet)
+        stored = event.metadata.custom["medre_envelope"]
+        assert stored["source_adapter"] == "lxmf-2"
+        assert stored["source_transport_id"] == "ef" * 16
+        assert stored["lineage"] == ("evt-parent",)
+
+
+class TestLxmfCodecDeferredRelations:
+    """Inbound relation reconstruction from fields envelope is deferred
+    to a future tranche.  The codec stores the raw envelope but does NOT
+    create EventRelation objects from it."""
+
+    def test_decode_does_not_create_event_relations_from_envelope(self) -> None:
+        """Envelope with relations does NOT produce EventRelation objects."""
+        codec = LxmfCodec("lxmf-1", _make_config())
+        envelope = {
+            "schema_version": 1,
+            "event_id": "evt-rel",
+            "relations": [
+                {
+                    "relation_type": "reply",
+                    "target_event_id": "evt-target",
+                    "target_native_ref": None,
+                    "fallback_text": "a reply",
+                },
+            ],
+            "metadata_keys": [],
+        }
+        fields = {0xFD: {"medre": envelope}}
+        packet = _make_text_packet(fields=fields)
+        event = codec.decode(packet)
+        # The envelope is stored but no EventRelation objects are created
+        assert len(event.relations) == 0
+        # The envelope data is still accessible via custom metadata
+        assert event.metadata.custom["medre_envelope"]["relations"] is not None
 
 
 class TestLxmfCodecNoReplyRelations:

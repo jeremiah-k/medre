@@ -466,7 +466,7 @@ class TestLxmfOutboundNativeRefs:
             event_id="evt-1",
             target_adapter="lxmf-1",
             target_channel=None,
-            payload={"text": "test", "title": "", "fields": {}},
+            payload={"content": "test", "title": "", "fields": {}},
         )
         delivery = await adapter.deliver(result)
         assert delivery is not None
@@ -481,7 +481,7 @@ class TestLxmfOutboundNativeRefs:
             event_id="evt-1",
             target_adapter="lxmf-1",
             target_channel=None,
-            payload={"text": "test", "title": "", "fields": {}},
+            payload={"content": "test", "title": "", "fields": {}},
         )
         delivery = await adapter.deliver(result)
         assert delivery is None
@@ -505,7 +505,7 @@ class TestLxmfFailedDelivery:
             event_id="evt-fail",
             target_adapter="lxmf-1",
             target_channel=None,
-            payload={"text": "test", "title": "", "fields": {}},
+            payload={"content": "test", "title": "", "fields": {}},
         )
         with pytest.raises(LxmfSendError):
             await adapter.deliver(result)

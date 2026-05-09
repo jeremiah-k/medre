@@ -37,7 +37,7 @@ def _make_rendering_result(
         target_adapter=target_adapter,
         target_channel=target_channel,
         payload=payload or {
-            "text": "hello lxmf",
+            "content": "hello lxmf",
             "title": "",
             "fields": {},
             "destination_hash": "",
@@ -213,7 +213,7 @@ class TestFakeLxmfAdapterDeliver:
     async def test_deliver_does_not_reformat(self) -> None:
         adapter = FakeLxmfAdapter()
         result = _make_rendering_result(payload={
-            "text": "original", "title": "T", "fields": {}, "destination_hash": "",
+            "content": "original", "title": "T", "fields": {}, "destination_hash": "",
         })
         await adapter.deliver(result)
         assert adapter.delivered_payloads[0] is result

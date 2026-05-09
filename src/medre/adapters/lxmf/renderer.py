@@ -1,7 +1,7 @@
 """LXMF renderer for target-specific event rendering.
 
 The :class:`LxmfRenderer` converts canonical events into
-LXMF-ready content payloads (dicts with ``text``, ``title``,
+LXMF-ready content payloads (dicts with ``content``, ``title``,
 ``fields``, and ``destination_hash``).
 
 This renderer is owned by the LXMF adapter package and is registered
@@ -42,7 +42,7 @@ from medre.adapters.lxmf.fields import LxmfFieldsHelper
 class LxmfRenderer:
     """Renderer for LXMF transport targets.
 
-    Produces content dicts with ``text``, ``title``, ``fields``, and
+    Produces content dicts with ``content``, ``title``, ``fields``, and
     ``destination_hash``.
 
     When ``metadata_embedding`` is enabled (default), the renderer
@@ -127,7 +127,7 @@ class LxmfRenderer:
 
         The rendered payload includes:
 
-        * ``text``: extracted text from the event payload.
+        * ``content``: extracted text from the event payload.
         * ``title``: title from the event payload, or empty string.
         * ``fields``: dict with optional MEDRE envelope.
         * ``destination_hash``: empty string placeholder.
@@ -161,10 +161,14 @@ class LxmfRenderer:
                 event_id=event.event_id,
                 relations=event.relations,
                 metadata=meta_keys,
+                source_adapter=event.source_adapter,
+                source_transport_id=event.source_transport_id,
+                source_channel_id=event.source_channel_id,
+                lineage=event.lineage,
             )
 
         content: dict[str, object] = {
-            "text": text,
+            "content": text,
             "title": title,
             "fields": fields,
             "destination_hash": "",

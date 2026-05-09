@@ -86,7 +86,7 @@ class TestLxmfPipelineIntegration:
         )
 
         result = await rp.render(event, "lxmf_node")
-        assert result.payload["text"] == "hello"
+        assert result.payload["content"] == "hello"
         assert result.metadata["renderer"] == "lxmf"
 
     async def test_text_renderer_fallback_for_non_lxmf(self) -> None:

@@ -71,38 +71,46 @@ class TestLxmfRenderer:
         assert renderer.can_render(event, "lxmf-node") is True
         assert renderer.can_render(event, "lxmf_out") is True
 
-    async def test_render_basic_text(self) -> None:
+    async def test_render_basic_content(self) -> None:
         renderer = LxmfRenderer()
         event = _make_event(payload={"body": "hello lxmf"})
         result = await renderer.render(event, "lxmf_node")
         assert isinstance(result, RenderingResult)
-        assert result.payload["text"] == "hello lxmf"
+        assert result.payload["content"] == "hello lxmf"
 
     async def test_render_with_title(self) -> None:
         renderer = LxmfRenderer()
         event = _make_event(payload={"body": "body", "title": "Subject"})
         result = await renderer.render(event, "lxmf_node")
-        assert result.payload["text"] == "body"
+        assert result.payload["content"] == "body"
         assert result.payload["title"] == "Subject"
 
-    async def test_render_empty_text(self) -> None:
+    async def test_render_empty_content(self) -> None:
         renderer = LxmfRenderer()
         event = _make_event(payload={"body": ""})
         result = await renderer.render(event, "lxmf_node")
-        assert result.payload["text"] == ""
+        assert result.payload["content"] == ""
 
     async def test_render_extracts_body_field(self) -> None:
         renderer = LxmfRenderer()
         event = _make_event(payload={"body": "specific body"})
         result = await renderer.render(event, "lxmf_node")
         assert "body" not in result.payload
-        assert result.payload["text"] == "specific body"
+        assert result.payload["content"] == "specific body"
 
     async def test_render_falls_back_to_text_field(self) -> None:
         renderer = LxmfRenderer()
         event = _make_event(payload={"text": "fallback text"})
         result = await renderer.render(event, "lxmf_node")
-        assert result.payload["text"] == "fallback text"
+        assert result.payload["content"] == "fallback text"
+
+    async def test_render_payload_has_content_not_text_key(self) -> None:
+        """Payload uses 'content' key, not 'text'."""
+        renderer = LxmfRenderer()
+        event = _make_event(payload={"body": "check keys"})
+        result = await renderer.render(event, "lxmf_node")
+        assert "content" in result.payload
+        assert "text" not in result.payload
 
     async def test_render_includes_destination_hash(self) -> None:
         renderer = LxmfRenderer()
@@ -156,5 +164,5 @@ class TestLxmfRenderer:
         long_text = "x" * 1000
         event = _make_event(payload={"body": long_text})
         result = await renderer.render(event, "lxmf_node")
-        assert result.payload["text"] == long_text
+        assert result.payload["content"] == long_text
         assert result.truncated is False

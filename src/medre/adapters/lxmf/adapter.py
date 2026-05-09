@@ -102,8 +102,8 @@ class LxmfAdapter(BaseAdapter):
             self._client = None
         else:
             raise LxmfConnectionError(
-                "Real LXMF connections not yet implemented; "
-                "use connection_type='fake'"
+                "only fake connection_type is supported in tranche 1; "
+                f"got connection_type={self._config.connection_type!r}"
             )
 
         ctx.logger.info("LxmfAdapter %s started", self.adapter_id)

@@ -74,9 +74,8 @@ class LxmfCodec:
                 f"unsupported LXMF packet category for decode: {category!r}"
             )
 
-        content = packet.get("content", "")
-        if content is None:
-            content = ""
+        content = classification["content"]
+        title = classification["title"]
 
         sender = classification["sender_id"] or ""
         pkt_id = classification["packet_id"]
@@ -88,7 +87,6 @@ class LxmfCodec:
             "body": content,
             "portnum": "lxmf",
         }
-        title = packet.get("title")
         if title:
             payload["title"] = title
 
@@ -128,6 +126,11 @@ class LxmfCodec:
             envelope = LxmfFieldsHelper.extract_envelope(fields)
             if envelope is not None:
                 custom_meta["medre_envelope"] = envelope
+
+        # Relation reconstruction from fields envelope is deferred to a
+        # future tranche.  The raw envelope dict is stored under
+        # metadata.custom["medre_envelope"] but EventRelation objects
+        # are NOT created from envelope relations during decode.
 
         metadata = EventMetadata(
             native=NativeMetadata(data=native_meta_data),

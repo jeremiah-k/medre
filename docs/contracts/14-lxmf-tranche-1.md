@@ -23,8 +23,8 @@ Reticulum is an internal implementation dependency when real connectivity is act
 - **Outbound text rendering.** `LxmfRenderer` turns canonical events into LXMF content payloads: a dict with keys `content` (the body string), `title` (optional title string), and `fields` (optional dict for the MEDRE metadata envelope). The renderer lives at `medre.adapters.lxmf.renderer`, owned by the adapter layer. Core never imports from the adapter package.
 - **Native refs via message IDs.** LXMF message IDs are 32-byte SHA-256 hashes, represented as hex strings. `LxmfCodec.decode()` sets `source_native_ref` with the message's hex ID as `native_message_id`. The pipeline's `_persist_inbound_native_ref` persists this as a `NativeMessageRef(direction="inbound")`. Outbound: `FakeLxmfAdapter.deliver()` returns an `AdapterDeliveryResult` with the deterministic hex message ID.
 - **Fake adapter for testing.** `FakeLxmfAdapter` is a full adapter (not a client-facing test utility) that mirrors the real adapter's lifecycle and inbound/outbound flow. It generates deterministic sequential message IDs using SHA-256 hashes of sequential counter values. It tracks all sent messages in `sent_messages`. The fake adapter's `deliver()` returns an `AdapterDeliveryResult` with the deterministic message ID. `set_deliver_failure(True)` triggers a `LxmfSendError` on the next delivery for error testing. No real Reticulum dependency, no network required.
-- **Metadata embedding in fields.** The adapter supports embedding MEDRE metadata into the LXMF fields dict. The envelope contains relation info, provenance data, and schema version. This embedding is lossless: metadata that goes into fields comes back out on decode. The adapter does not interpret or transform the metadata contents.
-- **Relation metadata in fields.** MEDRE-native relations can be carried through the fields dict. Relation type, target event ID, and target native ref are stored as structured data inside the `FIELD_CUSTOM_META` envelope. The adapter treats this as opaque metadata transport. Relation resolution remains pipeline-owned.
+- **Metadata embedding in fields.** The adapter supports embedding MEDRE metadata into the LXMF fields dict. The envelope contains relation info, provenance data, and schema version. Round-trip fidelity is a MEDRE convention, not a protocol-level guarantee. The adapter does not interpret or transform the metadata contents.
+- **Relation metadata in fields (transport only).** MEDRE-native relations can be carried through the fields dict as structured data inside the `FIELD_CUSTOM_META` envelope. The adapter treats this as opaque metadata transport. Reconstructing `EventRelation` objects from inbound field data is **not implemented** in tranche 1 and is deferred. Relation resolution remains pipeline-owned.
 
 
 ## Architecture Boundaries
@@ -72,11 +72,15 @@ This is an honest declaration. The adapter does what it says and nothing more. `
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `adapter_id` | `str` | Yes | Unique adapter instance ID. Must be non-empty. |
-| `connection_type` | `Literal["fake"]` | No | Connection mode. Defaults to `"fake"` for testing without Reticulum. Only `"fake"` is supported in tranche 1. |
-| `identity_path` | `str \| None` | No | Path to Reticulum identity file. Reserved for future real connectivity. |
-| `lxmf_address` | `str \| None` | No | LXMF destination address (16-byte hex hash). Reserved for future real connectivity. |
+| `connection_type` | `Literal["fake"]` | No | Connection mode. Only `"fake"` is supported in tranche 1. Defaults to `"fake"`. |
+| `default_delivery_method` | `Literal["direct", "opportunistic", "propagated", "paper"]` | No | Default LXMF delivery method. Defaults to `"direct"`. This is a configuration hint for future real connectivity; the fake adapter ignores it. |
+| `display_name` | `str` | No | Optional display name for LXMF announces. Defaults to `""`. |
+| `stamp_cost` | `int` | No | Default stamp cost (0 = no stamp required). Defaults to `8`. |
 | `meshnet_name` | `str` | No | Human-readable meshnet name. Informational. Defaults to `""`. |
-| `startup_backlog_suppress_seconds` | `float` | No | Seconds after start to suppress stale backlog messages. Defaults to `5.0`. |
+| `default_channel` | `int` | No | Default radio channel index for outbound messages. Defaults to `0`. |
+| `message_delay_seconds` | `float` | No | Minimum delay between outbound messages (pacing). Defaults to `0.5`. |
+| `metadata_embedding` | `bool` | No | Whether to embed MEDRE metadata envelopes in LXMF fields. Defaults to `True`. |
+| `identity_path` | `str \| None` | No | Path to identity file. Placeholder for future use. Defaults to `None`. |
 
 
 ## Fields Envelope Convention
@@ -86,7 +90,7 @@ LXMF messages carry a `fields` dict that can hold arbitrary key-value pairs. The
 - **Namespace key:** `FIELD_CUSTOM_META` (0xFD). This is a custom field key chosen to avoid collision with standard LXMF field keys.
 - **Contents:** A structured dict containing `schema_version` (string), `event_id` (UUID string), `source_adapter` (adapter ID string), and optional `relations` (list of relation dicts with `relation_type`, `target_event_id`, `target_native_ref`).
 - **MEDRE convention, not LXMF semantics.** This envelope is a MEDRE-specific convention. Other LXMF clients will see the field key in the fields dict but may ignore it. The adapter does not validate schema conformance within the envelope beyond extracting known keys.
-- **Lossless round-trip.** Metadata embedded by the renderer into fields is extracted by the codec on decode. No data is lost in the round-trip.
+- **Round-trip fidelity is a MEDRE convention.** Metadata embedded by the renderer into fields is extracted by the codec on decode. This works reliably for the known envelope keys, but it is not a protocol-level guarantee. It is a MEDRE convention applied on top of the LXMF fields dict.
 
 
 ## Native Ref Flow
@@ -122,9 +126,9 @@ Outbound reply delivery is not supported. Future tranches may add structured rel
 
 ## Relationship to Reticulum
 
-LXMF is built on Reticulum, a self-configuring mesh networking stack. The relationship between the LXMF adapter and Reticulum is strictly internal.
+LXMF is built on Reticulum, a self-configuring mesh networking stack. The relationship between the LXMF adapter and Reticulum is strictly internal and **deferred** in tranche 1.
 
-- The LXMF adapter uses Reticulum internally when real connectivity is active. This is an implementation detail, not a MEDRE concern.
+- The LXMF adapter will use Reticulum internally when real connectivity is active. This is an implementation detail, not a MEDRE concern. In tranche 1, Reticulum is not used at all.
 - MEDRE core does not import or depend on Reticulum. No `import reticulum` appears outside the adapter package.
 - Reticulum `Identity` and `Destination` classes are never exposed to the pipeline. They stay inside the adapter's internal client code.
 - LXMF addresses (16-byte hashes) are plain strings as far as MEDRE is concerned. The adapter handles any necessary conversion between string addresses and Reticulum destination objects internally.
@@ -142,7 +146,7 @@ This installs `lxmf` and `reticulum` packages. The core install (`pip install me
 
 - **Distribution names:** `lxmf` and `reticulum` on PyPI.
 - **Optional.** The compat module sets `HAS_LXMF = False` when the packages are not installed. The adapter's `start()` raises `LxmfConnectionError` for non-fake connection types when the libraries are missing.
-- **Tranche 1 does not require either package.** All tests use the fake adapter. Real connectivity is deferred.
+- **Tranche 1 does not require either package.** All tests use the fake adapter. Real connectivity is deferred. The adapter's `start()` raises `LxmfConnectionError` if `connection_type` is anything other than `"fake"`.
 
 ```python
 # medre/adapters/lxmf/compat.py
@@ -162,8 +166,23 @@ except ImportError:
 - **Unit isolation.** `LxmfRenderer` and `LxmfCodec` are tested independently of the adapter.
 - **Pipeline integration.** Tests combine `FakeLxmfAdapter` with `SQLiteStorage` to exercise the full decode/store/render/deliver path.
 - **Boundary verification.** Tests assert that core imports don't leak into the adapter package, and that the adapter doesn't import routing, planning, or storage modules.
-- **Fields round-trip.** Tests verify that metadata embedded in the fields dict survives a full render/decode round-trip without data loss.
-- **No real Reticulum or network required.** No test in the default suite requires a running Reticulum instance, an LXMF propagation node, or any network connectivity.
+- **Fields round-trip.** Tests verify that metadata embedded in the fields dict survives a full render/decode round-trip for the known envelope keys.
+- **No real Reticulum or network required.** No test in the default suite requires a running Reticulum instance, an LXMF propagation node, any network connectivity, or the `lxmf`/`reticulum` packages installed. All tests use the fake adapter and hand-crafted packet dicts.
+
+
+## Not Implemented in Tranche 1
+
+The following are explicitly **not implemented**. Code may exist as
+scaffolding or placeholder, but none of these are functional:
+
+- **Real LXMF/Reticulum connectivity.** The adapter only operates in `connection_type="fake"` mode. No live Reticulum transport is established.
+- **Resource/attachment transfer.** No `RNS.Resource` usage. `FIELD_FILE_ATTACHMENTS`, `FIELD_IMAGE`, and `FIELD_AUDIO` are not processed.
+- **Identity file loading.** No `RNS.Identity()` recall or creation. The `identity_path` config field is a placeholder.
+- **Announce/advertisement handling.** No processing of LXMF or Reticulum announce packets. No `destination.announce()` calls.
+- **Path discovery.** No Reticulum path requests or routing table interaction.
+- **Propagation node interaction.** No `lxmf.propagation` destination handling. No store-and-forward through LXMF's distributed propagation network.
+- **Relation reconstruction from fields envelope.** The fields dict can carry relation metadata, but the codec does not extract and reconstruct `EventRelation` objects from it. This is deferred.
+- **LXST.** LXMF Streaming Transport is out of scope. No streaming, no bulk transfer.
 
 
 ## Non-Goals (This Tranche)
