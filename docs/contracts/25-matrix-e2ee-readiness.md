@@ -1,0 +1,518 @@
+# Matrix E2EE Readiness & Design Contract
+
+> Contract version: 1
+> Last updated: 2026-05-09
+> Status: Design / Readiness only — **no E2EE runtime behavior is enabled**
+
+## Preamble
+
+This document captures the findings from a read-only audit of `mindroom-nio` (v0.25.3), the MindRoom reference project, and the current MEDRE Matrix adapter. Its purpose is to establish what is known, what is inferred, and what remains unknown about Matrix end-to-end encryption as it relates to MEDRE — so that a future E2EE tranche can proceed from a grounded, honest baseline.
+
+**No code changes result from this contract.** The current Matrix adapter operates in plaintext mode for all rooms. Core, runtime, renderer, codec, and storage remain encryption-agnostic.
+
+Every factual claim is labeled **[CONFIRMED]**, **[INFERRED]**, **[UNKNOWN]**, or **[DEFERRED]**. Only **[CONFIRMED]** items have been verified against source code.
+
+
+## 1. Package & Dependency Topology
+
+### 1.1 mindroom-nio base package [CONFIRMED]
+
+- **Package name**: `mindroom-nio` v0.25.3
+- **Import namespace**: `import nio` (source tree: `src/nio/`)
+- **Base dependencies** (always installed):
+  - `aiohttp~=3.10` — HTTP transport
+  - `aiofiles~=24.1` — async file I/O
+  - `h11~=0.14`, `h2~=4.0` — HTTP/1.1 and HTTP/2 framing
+  - `jsonschema~=4.14` — event validation
+  - `unpaddedbase64~=2.1` — Base64 encoding for crypto
+  - `pycryptodome~=3.10` — general-purpose crypto primitives (always installed, not E2EE-specific)
+  - `aiohttp-socks~=0.8` — SOCKS proxy support
+
+### 1.2 E2EE extra: `mindroom-nio[e2e]` [CONFIRMED]
+
+The `[e2e]` optional-dependency group adds:
+
+| Dependency | Version constraint | Purpose |
+|---|---|---|
+| `atomicwrites` | `~=1.4` | Atomic file writes for key store |
+| `cachetools` | `~=5.3` | In-memory caching for key/device lookups |
+| `peewee` | `~=3.14` | SQLite ORM for persistent key/device store |
+| `vodozemac` | `~=0.9` | Olm/Megolm implementation (Rust) |
+
+**Critical gate**: `vodozemac` is the hard gate for all E2EE. Without it, `nio.crypto.ENCRYPTION_ENABLED` is `False` and every crypto API becomes inert.
+
+### 1.3 ENCRYPTION_ENABLED sentinel [CONFIRMED]
+
+```python
+# nio/crypto/__init__.py
+if package_installed("vodozemac"):
+    ENCRYPTION_ENABLED = True
+    # Olm, OlmDevice, Sas, sessions, etc. become available
+else:
+    ENCRYPTION_ENABLED = False
+    # Only DeviceStore, OlmDevice, OutgoingKeyRequest are available
+```
+
+All crypto module classes (`Olm`, `Session`, `InboundGroupSession`, etc.) are only importable when `vodozemac` is present. The base client checks `ENCRYPTION_ENABLED` to decide whether to load the store and create the `Olm` machine during `restore_login`.
+
+### 1.4 Current MEDRE dependency posture [CONFIRMED]
+
+The MEDRE `pyproject.toml` lists `mindroom-nio` as a dependency (imported via compat guard). The `[e2e]` extra is **not** currently required. Installing only the base package means `ENCRYPTION_ENABLED=False` at runtime.
+
+**[INFERRED]**: A future E2EE tranche will need to either require `mindroom-nio[e2e]` in production dependencies or gate the feature behind an optional extra of MEDRE's own.
+
+
+## 2. AsyncClient Constructor & Configuration
+
+### 2.1 Constructor signature [CONFIRMED]
+
+```python
+class AsyncClient(Client):
+    def __init__(
+        self,
+        homeserver: str,
+        user: str = "",
+        device_id: Optional[str] = "",
+        store_path: Optional[str] = "",
+        config: Optional[AsyncClientConfig] = None,
+        ssl: Optional[bool] = None,
+        proxy: Optional[str] = None,
+    ):
+```
+
+All parameters after `homeserver` are optional.
+
+### 2.2 ClientConfig / AsyncClientConfig [CONFIRMED]
+
+`ClientConfig` (base) controls E2EE behavior:
+
+| Field | Type | Default | E2EE relevance |
+|---|---|---|---|
+| `encryption_enabled` | `bool` | `ENCRYPTION_ENABLED` | Master switch; if `True` but deps missing, raises `ImportWarning` |
+| `store` | `Type[MatrixStore]` or `None` | `DefaultStore` if deps present else `None` | SQLite-backed key store class |
+| `store_name` | `str` | `""` | Database filename override |
+| `pickle_key` | `str` | `"DEFAULT_KEY"` | Passphrase for encrypting stored crypto keys |
+| `store_sync_tokens` | `bool` | `False` | Persist sync tokens for E2EE state continuity |
+
+`AsyncClientConfig` extends `ClientConfig` with HTTP-level settings (timeouts, backoff, chunk size) — none directly relevant to E2EE.
+
+### 2.3 Current adapter behavior [CONFIRMED]
+
+`MatrixAdapter.start()` creates the client without an explicit `AsyncClientConfig`:
+
+```python
+self._client = nio.AsyncClient(
+    homeserver=self._config.homeserver,
+    user=self._config.user_id,
+    device_id=self._config.device_id or "",
+    store_path=self._config.store_path,
+)
+```
+
+This means `config` defaults to `AsyncClientConfig()`, which inherits `encryption_enabled=ENCRYPTION_ENABLED`. **[INFERRED]**: Without the `[e2e]` extra installed, the default config has `encryption_enabled=False` and `store=None`, so no crypto state is ever initialized even if `store_path` is provided.
+
+### 2.4 device_id expectations [CONFIRMED]
+
+- **Optional at construction**. If empty string, the server assigns a device ID after login.
+- **Required for crypto store loading**. `load_store()` raises `LocalProtocolError("Device id is not set")` if `device_id` is falsy.
+- `restore_login(user_id, device_id, access_token)` sets `self.device_id` before calling `load_store()`.
+
+**[INFERRED]**: For E2EE, a stable `device_id` is essential. The device ID ties the crypto identity (Olm account) to a specific device record on the server. Changing the device ID creates a new crypto identity, requiring re-verification by other users.
+
+### 2.5 store_path behavior [CONFIRMED]
+
+- Passed through to base `Client.__init__` as `self.store_path`.
+- `load_store()` checks `self.store_path` for non-memory stores: if empty/`None`, the method returns early without loading.
+- For persistent stores (`DefaultStore`/`SqliteStore`), `store_path` is the filesystem directory containing the SQLite database and plaintext key files.
+
+**[INFERRED]**: A valid `store_path` + `device_id` + `user_id` are jointly required for any E2EE state to persist across restarts.
+
+### 2.6 restore_login + crypto store interaction [CONFIRMED]
+
+```python
+# base_client.py
+def restore_login(self, user_id, device_id, access_token):
+    self.user_id = user_id
+    self.device_id = device_id
+    self.access_token = access_token
+    if ENCRYPTION_ENABLED:
+        self.load_store()
+```
+
+`load_store()` then:
+1. Validates `user_id`, `device_id`, and `config.store` are all set.
+2. Instantiates the store (e.g., `DefaultStore(user_id, device_id, store_path, pickle_key, store_name)`).
+3. Creates `Olm(user_id, device_id, store)`.
+4. Loads `encrypted_rooms` from the store.
+5. Optionally loads the saved sync token if `store_sync_tokens=True`.
+
+**[CONFIRMED]**: This is the exact call path the current `MatrixAdapter.start()` uses. Today, `ENCRYPTION_ENABLED` is `False`, so `load_store()` is never invoked. When E2EE deps are installed, this same code path will automatically initialize the crypto subsystem.
+
+
+## 3. Encryption Event Classification
+
+### 3.1 Inbound encrypted events [CONFIRMED]
+
+| nio event class | Description | Arrives when |
+|---|---|---|
+| `MegolmEvent` | Undecrypted Megolm ciphertext | Room is encrypted + decryption key unavailable |
+| `RoomEncryptionEvent` | `m.room.encryption` state event | Encryption is enabled in a room |
+
+**Decryption flow in `sync_forever`** [CONFIRMED]:
+1. `_handle_joined_rooms` iterates timeline events.
+2. For each event, `_handle_timeline_event` checks `isinstance(event, MegolmEvent)`.
+3. If `self.olm` exists, attempts `olm._decrypt_megolm_no_error(event)`.
+4. On success, the decrypted event (e.g., `RoomMessageText`) replaces the `MegolmEvent` in the timeline.
+5. On failure, the `MegolmEvent` is passed through to event callbacks as-is.
+6. `RoomEncryptionEvent` detection adds `room_id` to `encrypted_rooms` set.
+
+### 3.2 Current adapter callback registration [CONFIRMED]
+
+```python
+self._client.add_event_callback(
+    self._on_room_message,
+    (nio.RoomMessageText, nio.RoomMessageNotice, nio.RoomMessageEmote),
+)
+```
+
+**[CONFIRMED]**: Only `RoomMessageText`, `RoomMessageNotice`, `RoomMessageEmote` are registered. `MegolmEvent` and `RoomEncryptionEvent` are **not** registered as callback types.
+
+**[INFERRED]**: When E2EE is active and decryption succeeds, encrypted messages will appear as `RoomMessageText` (or similar) and reach `_on_room_message` normally. Failed decryptions produce `MegolmEvent` — which would be silently dropped by the current callback filter. A future E2EE tranche must register `MegolmEvent` for diagnostic/logging purposes.
+
+### 3.3 Event decryption metadata [CONFIRMED]
+
+`Event` base class carries E2EE-relevant attributes:
+
+| Attribute | Type | Set when |
+|---|---|---|
+| `decrypted` | `bool` | `True` if event was decrypted from a `MegolmEvent` |
+| `verified` | `bool` | `True` if sender device is verified |
+| `sender_key` | `str` or `None` | Sender's curve25519 key (decrypted events only) |
+| `session_id` | `str` or `None` | Megolm session ID used for decryption |
+
+These are accessible on the `native_event` object passed to `MatrixCodec.decode()`. The codec currently does not inspect them. **[DEFERRED]**: Future E2EE diagnostics may surface these through canonical event metadata.
+
+### 3.4 Encrypted rooms tracking [CONFIRMED]
+
+- Base client maintains `self.encrypted_rooms: Set[str]`.
+- `room.encrypted: bool` is set by `RoomEncryptionEvent` processing.
+- Persisted via `store.save_encrypted_rooms(encrypted_rooms)`.
+- After `load_store()`, previously known encrypted rooms are restored from `store.load_encrypted_rooms()`.
+
+**[CONFIRMED]**: Room encryption status is fully managed by nio internally. MEDRE does not need to track it independently.
+
+
+## 4. Key Lifecycle
+
+### 4.1 Key upload (`keys_upload`) [CONFIRMED]
+
+```python
+@logged_in_async
+@store_loaded
+async def keys_upload(self) -> Union[KeysUploadResponse, KeysUploadError]:
+```
+
+- Uploads long-lived identity keys + one-time keys.
+- Called automatically by `sync_forever()` when `self.should_upload_keys` is `True`.
+- Guarded by `@store_loaded` (requires `self.store` and `self.olm`).
+
+### 4.2 Key query (`keys_query`) [CONFIRMED]
+
+```python
+@logged_in_async
+@store_loaded
+async def keys_query(self) -> Union[KeysQueryResponse, KeysQueryError]:
+```
+
+- Queries server for device keys of users sharing encrypted rooms.
+- Called automatically by `sync_forever()` and `room_send()`.
+- Triggered when `self.should_query_keys` is `True`.
+
+### 4.3 Key claim (`keys_claim`) [CONFIRMED]
+
+```python
+@logged_in_async
+@store_loaded
+async def keys_claim(self, user_set: Dict[str, Iterable[str]]) -> ...:
+```
+
+- Claims one-time keys for user/device pairs missing active Olm sessions.
+- Called automatically by `sync_forever()` and `room_send()`.
+- Input: `get_users_for_key_claiming()` or `get_missing_sessions(room_id)`.
+
+### 4.4 Group session sharing (`share_group_session`) [CONFIRMED]
+
+```python
+@logged_in_async
+@store_loaded
+async def share_group_session(self, room_id, ignore_unverified_devices=False) -> ...:
+```
+
+- Distributes Megolm session to room members via to-device messages.
+- Called automatically by `room_send()` when `olm.should_share_group_session(room_id)` is `True`.
+- Uses `sharing_session: Dict[str, AsyncioEvent]` to prevent concurrent shares for same room.
+
+### 4.5 sync_forever automatic key management [CONFIRMED]
+
+Between sync iterations, `sync_forever` automatically:
+
+1. Sends queued to-device messages (including room key shares).
+2. Calls `keys_upload()` if `should_upload_keys`.
+3. Calls `keys_claim()` for users needing one-time keys.
+4. Handles expired SAS verifications.
+5. Collects and dispatches key requests.
+
+**[INFERRED]**: Because `sync_forever` handles all key management automatically, MEDRE should continue using `sync_forever` (as it already does) rather than `sync()` in a manual loop. The key management is transparent.
+
+### 4.6 Room key persistence [CONFIRMED]
+
+- Inbound Megolm sessions are stored in the SQLite database via `store.save_inbound_group_session()`.
+- `export_keys(outfile, passphrase)` writes all inbound Megolm sessions to an encrypted file.
+- `import_keys(infile, passphrase)` loads them back.
+- Both require `@store_loaded`.
+
+**[INFERRED]**: Under normal `sync_forever` operation, room keys are persisted automatically. The export/import path is for backup/restore scenarios.
+
+
+## 5. Outbound Encryption in room_send
+
+### 5.1 Transparent encryption [CONFIRMED]
+
+```python
+async def room_send(self, room_id, message_type, content, tx_id=None,
+                    ignore_unverified_devices=False):
+```
+
+When `self.olm` exists and `room.encrypted` is `True`:
+
+1. Checks `room.members_synced`; if not, calls `joined_members(room_id)` + optional `keys_query()`.
+2. Checks `olm.should_share_group_session(room_id)`; if needed, calls `share_group_session(room_id)`.
+3. Encrypts via `self.encrypt(room_id, message_type, content)`.
+4. Sends the encrypted event.
+
+**[CONFIRMED]**: Encryption is transparent to the caller. The same `room_send` API works for both encrypted and plaintext rooms. MEDRE's `deliver()` method calls `room_send` and does not need to know whether the room is encrypted.
+
+### 5.2 Unverified device handling [CONFIRMED]
+
+The `ignore_unverified_devices` parameter in both `room_send` and `share_group_session` controls whether unverified devices receive keys. Default is `False` (strict — will block if unverified devices exist).
+
+**[DEFERRED]**: A future E2EE tranche needs a policy decision on how to handle unverified devices. Options: auto-ignore, require admin verification, or prompt.
+
+
+## 6. Shutdown & Close Requirements
+
+### 6.1 AsyncClient.close() [CONFIRMED]
+
+```python
+async def close(self):
+    """Close the underlying http session."""
+    if self.client_session:
+        await self.client_session.close()
+        self.client_session = None
+```
+
+Only closes the HTTP session. Does **not**:
+- Export keys
+- Flush crypto state explicitly
+- Close the SQLite store connection (Peewee handles this via GC)
+
+**[INFERRED]**: Since `sync_forever` and the store handle persistence incrementally (keys are saved as they arrive), a clean `close()` should not lose crypto state. However, an unclean kill could lose the most recently received room keys if they haven't been persisted to SQLite yet.
+
+### 6.2 Current adapter shutdown [CONFIRMED]
+
+```python
+async def stop(self, timeout: float = 5.0) -> None:
+    # 1. Cancel sync_forever task
+    # 2. Stop sync_forever loop
+    self._client.stop_sync_forever()
+    # 3. Close HTTP session
+    await self._client.close()
+```
+
+**[INFERRED]**: This shutdown sequence is adequate for E2EE. The crypto store is persisted incrementally by nio. No additional flush step is needed.
+
+
+## 7. Future Session Boundary Design
+
+### 7.1 The session boundary principle
+
+The current `MatrixAdapter` directly owns the `nio.AsyncClient` lifecycle. For E2EE, the adapter must not grow into a crypto session manager. The crypto lifecycle belongs behind a **session boundary** that the adapter owns but delegates to.
+
+**[DEFERRED]**: `src/medre/adapters/matrix/session.py` (does not yet exist) should encapsulate:
+
+| Responsibility | Owner |
+|---|---|
+| AsyncClient construction | Session |
+| AsyncClientConfig creation | Session |
+| store_path resolution & directory creation | Session |
+| restore_login | Session |
+| sync_forever lifecycle | Session |
+| E2EE health diagnostics | Session |
+| Key export/import | Session (exposed as adapter methods) |
+| Unverified device policy | Session (configured at construction) |
+
+The adapter holds a `MatrixSession` (or similar) instance. The session owns the `nio.AsyncClient`. The codec and renderer remain nio-agnostic.
+
+### 7.2 Adapter containment rules [DEFERRED but stated]
+
+- `MatrixAdapter` must not import from `nio.crypto` directly.
+- `MatrixAdapter` must not access `self._client.olm` or `self._client.store`.
+- All crypto diagnostics flow through the session boundary as structured data (dicts/dataclasses), not nio objects.
+- The codec continues to work with attribute-duck-typed event objects (`.sender`, `.body`, `.event_id`, `.source`).
+- The renderer remains unaware of encryption.
+
+### 7.3 MindRoom reference takeaways [INFERRED from confirmed patterns]
+
+The MindRoom project demonstrates patterns relevant to session boundary design (conceptual observations, no code copied):
+
+- **Store path isolation**: Each user gets a dedicated subdirectory under a root encryption-keys path. The directory is auto-created at client construction time.
+- **Context manager lifecycle**: The client is used within an async context manager that guarantees `close()` in the `finally` block.
+- **restore_login over login**: Sessions are restored from persisted credentials rather than re-authenticated. This preserves the crypto identity across restarts.
+- **SSL context management**: Conditional SSL verification based on configuration, with proper context creation for HTTPS homeservers.
+- **Startup error classification**: Permanent errors (forbidden, unknown token, deactivated) are distinguished from transient ones, enabling appropriate retry logic.
+
+These patterns inform the session boundary design but do not dictate its implementation. MEDRE's adapter architecture (codec/renderer/session separation) will follow its own structural contracts.
+
+
+## 8. Boundary Preservation Rules
+
+The following invariants must hold before, during, and after E2EE integration:
+
+| Layer | Invariant |
+|---|---|
+| **Core** | No import of `nio` or `nio.crypto`. No awareness of encryption state. |
+| **Runtime** | Event pipeline processes `CanonicalEvent` without knowledge of encryption. |
+| **Renderer** | `MatrixRenderer` produces `m.room.message` dicts. Encryption is applied downstream by `room_send`. |
+| **Codec** | `MatrixCodec` works with duck-typed event objects. Does not import nio. May read `.decrypted`/`.verified` attributes in future but never calls crypto APIs. |
+| **Storage** | Canonical event storage is encryption-agnostic. Encryption metadata (session_id, sender_key) may appear in `NativeMetadata` but the storage layer does not interpret it. |
+| **Adapter** | Owns session boundary. Does not leak nio crypto objects to upstream layers. |
+| **Config** | `MatrixConfig` may gain E2EE-relevant fields in a future tranche, but the current fields (`store_path`, `device_id`) are already present and forward-compatible. |
+
+### 8.1 Current forward-compatible fields [CONFIRMED]
+
+`MatrixConfig` already has:
+
+- `store_path: str | None = None` — ready for E2EE store directory.
+- `device_id: str | None = None` — ready for stable device identity.
+
+**[CONFIRMED]**: No schema change is needed for these fields in an E2EE tranche. They exist and are validated in the current codebase.
+
+### 8.2 Config fields NOT to add prematurely [DEFERRED]
+
+The following fields should be introduced only in the E2EE implementation tranche, not before:
+
+- `encryption_enabled` (or similar toggle)
+- `pickle_key` / key passphrase
+- `store_sync_tokens`
+- `ignore_unverified_devices` policy
+- Custom store class override
+
+**[DEFERRED]**: Adding these now would be speculative. They belong in the implementation PR, not this readiness document.
+
+
+## 9. Future Diagnostics
+
+### 9.1 E2EE health indicators [DEFERRED]
+
+When E2EE is active, the following should be surfaced through the session boundary as structured diagnostic data:
+
+| Indicator | Source | Value |
+|---|---|---|
+| `e2ee_enabled` | `ENCRYPTION_ENABLED` | `bool` |
+| `olm_loaded` | `self._client.olm is not None` | `bool` |
+| `store_loaded` | `self._client.store is not None` | `bool` |
+| `should_upload_keys` | `self._client.should_upload_keys` | `bool` |
+| `should_query_keys` | `self._client.should_query_keys` | `bool` |
+| `should_claim_keys` | `self._client.should_claim_keys` | `bool` |
+| `encrypted_rooms_count` | `len(self._client.encrypted_rooms)` | `int` |
+| `device_count` | `len(self._client.device_store)` | `int` |
+| `olm_account_shared` | `self._client.olm_account_shared` | `bool` |
+
+### 9.2 Per-event decryption diagnostics [DEFERRED]
+
+| Indicator | Source | Value |
+|---|---|---|
+| `decrypted` | `event.decrypted` | `bool` |
+| `verified` | `event.verified` | `bool` |
+| `sender_key` | `event.sender_key` | `str or None` |
+| `session_id` | `event.session_id` | `str or None` |
+| `was_megolm` | Whether original event was `MegolmEvent` | `bool` |
+
+These flow into `NativeMetadata` on the canonical event, never into core logic.
+
+
+## 10. Live / Manual E2EE Harness Plan
+
+### 10.1 Objective [DEFERRED]
+
+Before production E2EE, a manual test harness must verify:
+
+1. **Key upload on first sync** with a fresh store.
+2. **Decryption of inbound encrypted messages** in an encrypted test room.
+3. **Encryption of outbound messages** verified by a second Matrix client.
+4. **Crypto state persistence** across adapter restarts (stop → start with same store_path).
+5. **MegolmEvent passthrough** when decryption fails (for diagnostic logging).
+6. **Room encryption detection** via `RoomEncryptionEvent`.
+7. **Unverified device policy** behavior.
+
+### 10.2 Prerequisites [DEFERRED]
+
+- `mindroom-nio[e2e]` installed in the test environment.
+- A Matrix homeserver with an encrypted test room.
+- A second Matrix client (e.g., Element) for cross-verification.
+- A test `MatrixConfig` with `store_path` pointing to a writable directory and a stable `device_id`.
+
+### 10.3 Harness structure [DEFERRED]
+
+```
+tests/harnesses/test_matrix_e2ee.py
+├── test_e2ee_key_upload_on_first_sync
+├── test_e2ee_decrypt_inbound_encrypted_message
+├── test_e2ee_encrypt_outbound_message
+├── test_e2ee_crypto_state_persistence_across_restart
+├── test_e2ee_megolm_event_passthrough_on_missing_key
+├── test_e2ee_room_encryption_event_detection
+└── test_e2ee_unverified_device_policy
+```
+
+These tests require a live Matrix server and credentials. They are **not** unit tests. They are gated behind an `E2EE_HARNESS` environment variable and excluded from CI by default.
+
+
+## 11. Track Coverage Summary
+
+This document addresses findings from the following investigation tracks:
+
+| Track | Topic | Coverage |
+|---|---|---|
+| **Track 1** | Package extra `mindroom-nio[e2e]`, import namespace, crypto deps | §1 (full) |
+| **Track 2** | AsyncClient constructor, config, `encryption_enabled` behavior | §2 (full) |
+| **Track 4** | `device_id` expectations, `restore_login`/crypto store behavior | §2.4, §2.6 (full) |
+| **Track 5** | First sync / encrypted rooms behavior, key upload/query/share | §3, §4 (full) |
+| **Track 7** | Room key persistence, shutdown/close requirements | §4.6, §6 (full) |
+| **Track 8** | Encrypted event classification | §3 (full) |
+| **Track 9** | Future session boundary design, diagnostics, harness plan | §7, §9, §10 (full) |
+
+Tracks not listed (Track 3, Track 6) were not part of the original audit scope or are subsumed by the tracks above.
+
+
+## 12. Summary of Labels
+
+| Label | Meaning |
+|---|---|
+| **[CONFIRMED]** | Directly verified by reading source code of `mindroom-nio`, MindRoom, or MEDRE. No ambiguity. |
+| **[INFERRED]** | Reasonable deduction from confirmed facts. Not directly tested in MEDRE runtime. Should be verified during implementation. |
+| **[UNKNOWN]** | Could not determine from source alone. Requires live testing or additional investigation. |
+| **[DEFERRED]** | Explicitly out of scope for this readiness document. Belongs in the E2EE implementation tranche. |
+
+
+## 13. Risks & Open Questions
+
+1. **[UNKNOWN]**: Does `MegolmEvent` pass through to event callbacks when decryption fails, or is it silently dropped? The callback filter in the current adapter only matches `RoomMessageText/Notice/Emote`, so `MegolmEvent` would be dropped by the callback dispatcher regardless. This is acceptable for now (plaintext fallback) but needs attention in the E2EE tranche.
+
+2. **[UNKNOWN]**: Cross-signing support in `mindroom-nio`. The `Sas` and `SasState` classes exist for interactive verification, but cross-signing (MSC1756) support is unclear from source inspection alone.
+
+3. **[INFERRED]**: The `pickle_key` default of `"DEFAULT_KEY"` is a security concern for production. A future E2EE tranche must generate and manage proper passphrases.
+
+4. **[INFERRED]**: Multiple MEDRE instances sharing the same `store_path` and `device_id` could corrupt the SQLite store. The session boundary must ensure exclusive access.
+
+5. **[DEFERRED]**: Key rotation behavior (what happens when Olm account needs rotation, Megolm session rotation policies) is not investigated here.

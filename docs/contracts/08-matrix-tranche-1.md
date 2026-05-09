@@ -192,7 +192,8 @@ Docker (optional, not required):
 
 ### Known limitations
 
-- No E2EE.  Tests target unencrypted rooms only.
+- No E2EE. Tests target unencrypted rooms only. E2EE is deferred to a future release. When implemented, `mindroom-nio[e2e]` will be required and both `store_path` and `device_id` will become mandatory. See the runbook (`docs/runbooks/matrix-alpha-operation.md`, section 8) and the future E2EE readiness contract (`docs/contracts/25-matrix-e2ee-readiness.md`) for posture details.
+- Cross-signing/verification and room key backup/import/export remain deferred. No implementation timeline.
 - No reactions, edits, deletes, or attachments.
 - No production credential storage or auth command.
 - No admin API.
@@ -245,11 +246,11 @@ Outbound message delivery follows strict hygiene rules to prevent protocol viola
 | `adapter_id` | `str` | Yes | Unique adapter instance ID |
 | `homeserver` | `str` | Yes | Matrix homeserver URL (`https://...`) |
 | `user_id` | `str` | Yes | Full Matrix user ID (`@user:server`) |
-| `device_id` | `Optional[str]` | No | Persistent device identifier |
+| `device_id` | `Optional[str]` | No | Persistent device identifier. Unused in plaintext alpha; will be required for E2EE production. |
 | `access_token` | `str` | Yes | Matrix access token. Never logged or embedded in events. |
 | `room_allowlist` | `Optional[set[str]]` | No | Allowed room IDs. `None` means all rooms are accepted. |
 | `metadata_embedding_mode` | `str` | No | `"safe"` (default) or `"rich"` |
-| `store_path` | `Optional[str]` | No | State store path. Unused without E2EE. |
+| `store_path` | `Optional[str]` | No | State store path. Optional in plaintext alpha (no crypto state to persist). Will be required for E2EE production to persist Olm/Megolm session keys and device data across restarts. |
 | `sync_timeout_ms` | `int` | No | Sync poll timeout. Default: 30000. |
 
 

@@ -224,6 +224,18 @@ messages or encrypt outbound messages.  E2EE support is deferred to a
 future tranche.  Selecting `mindroom-nio` (which has olm/megolm support
 in its codebase) does not activate E2EE in this tranche.
 
+**Plaintext alpha vs future E2EE production posture.** In plaintext
+alpha mode, `store_path` and `device_id` are optional (no crypto state
+to persist). Future E2EE production mode will require both: `store_path`
+to persist Olm/Megolm session keys across restarts, and `device_id` for
+stable device identification. Docker deployments should install
+`mindroom-nio[e2e]` once E2EE mode is implemented; missing E2EE
+dependencies in encrypted mode should fail clearly rather than silently
+falling back to plaintext. Cross-signing/verification and room key
+backup/import/export remain deferred. See the alpha operation runbook
+(`docs/runbooks/matrix-alpha-operation.md`, section 8) for full
+posture details.
+
 
 ## Explicit Scope Exclusions
 

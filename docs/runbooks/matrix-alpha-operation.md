@@ -2,7 +2,7 @@
 
 > Last updated: 2026-05-09
 > Scope: Real Matrix Operation Alpha (Track 7)
-> Status: Alpha. Not production. Not hardened. Not complete.
+> Status: Alpha. Not production. Not hardened. Not complete. Plaintext only — E2EE posture documented for future reference.
 
 This runbook describes how to run MEDRE against a real Matrix homeserver in alpha mode. Alpha mode means the MatrixAdapter connects to a real homeserver using real credentials, syncs real rooms, sends real messages, and receives real events. It does not mean the system is ready for anything beyond a single operator on a local or test homeserver.
 
@@ -104,7 +104,7 @@ Open Element, log in as the bot user, go to Settings, Help and About, and copy t
 
 Do not commit the token. Do not log the token. Do not paste it into chat. Set it as an environment variable and leave it there. The `MatrixConfig.__repr__` method redacts the token in log output, but you are responsible for not leaking it yourself.
 
-> **Note on E2EE.** Alpha authenticates with access tokens over plain HTTP(S). Future versions supporting E2EE will use `mindroom-nio[e2e]` as the dependency, which adds Olm/Megolm crypto libraries. The token handling mechanism will remain the same, but the runner and adapter will need to manage device keys and cross-signing in addition to the access token.
+> **Note on E2EE.** Alpha authenticates with access tokens over plain HTTP(S). Future versions supporting E2EE will use `mindroom-nio[e2e]` as the dependency, which adds Olm/Megolm crypto libraries. The token handling mechanism will remain the same, but the runner and adapter will need to manage device keys and cross-signing in addition to the access token. E2EE mode will require stable `store_path` and `device_id` configuration (see section 8).
 
 
 ## 5. Room Setup
@@ -114,7 +114,7 @@ Do not commit the token. Do not log the token. Do not paste it into chat. Set it
 3. Invite the bot user to the room.
 4. Accept the invite from the bot account (log in as the bot in a second client session or via the join API).
 5. Copy the room ID. It looks like `!opaquestring:localhost`. Room aliases (the `#name:server` form) will not work in the allowlist.
-6. Confirm the room is unencrypted. E2EE is not yet supported in alpha. If the room has a lock icon in Element, it is encrypted and the adapter will not be able to read message content. E2EE is planned as the future default (see section 12), but for now all test rooms must be plaintext.
+6. Confirm the room is unencrypted. E2EE is not yet supported in alpha. If the room has a lock icon in Element, it is encrypted and the adapter will not be able to read message content. E2EE is planned as the future default. See section 13 for details.
 
 
 ## 6. Allowlist Configuration
@@ -226,10 +226,73 @@ INFO  medre.runner  Matrix Operation Alpha shut down cleanly
 
 The runner catches SIGINT and SIGTERM, signals the adapter to stop, then stops the pipeline runner, then closes the database. Any in-flight sync operations are cancelled. See Known Limitation #2 for what this means about in-flight messages.
 
-If you do not see the startup lines above, check the troubleshooting section (section 13) for common configuration and connectivity errors.
+If you do not see the startup lines above, check the troubleshooting section (section 14) for common configuration and connectivity errors.
 
 
-## 8. Expected Logs and Diagnostics
+## 8. Crypto Store and Device Identity Posture
+
+The Matrix adapter accepts two optional configuration fields that become critical when E2EE is introduced in a future release. In plaintext alpha mode they are safe to omit.
+
+### 8.1 Alpha (plaintext): store_path and device_id are optional
+
+| Field | Env var | Alpha behavior |
+|-------|---------|----------------|
+| `store_path` | `MATRIX_STORE_PATH` | **Optional.** If unset, nio operates without a persistent crypto store. Plaintext sync and send work normally. No session keys or device data are persisted. |
+| `device_id` | `MATRIX_DEVICE_ID` | **Optional.** If unset, nio may receive a default device ID from the homeserver during login restore. Plaintext operation is unaffected. |
+
+Alpha can be run entirely without these fields. The runner (`python -m medre.runner`) does not require them. This is intentional: plaintext alpha has no crypto state to persist.
+
+### 8.2 Future E2EE production: store_path and device_id will be required
+
+When E2EE support is implemented:
+
+- **`store_path` will be required.** The nio crypto store must persist Olm/Megolm session keys, device keys, and cross-signing data across restarts. Without a stable `store_path`, the adapter would lose its crypto identity on every restart, making encrypted rooms unusable.
+- **`device_id` will be required.** A stable device ID ensures the homeserver and other clients can identify this adapter's device for key verification and cross-signing.
+- **Missing these fields in E2EE mode should fail clearly.** The adapter should refuse to start with a descriptive error rather than silently losing crypto state.
+
+These requirements do not apply in alpha. They are documented here so operators planning a future E2EE deployment know what to expect.
+
+### 8.3 Docker deployments and E2EE dependencies
+
+Alpha Docker deployments install `mindroom-nio` (no E2EE extras):
+
+```
+pip install -e ".[matrix]"
+```
+
+When E2EE support is implemented, Docker images and deployment scripts should install the E2EE-enabled dependency instead:
+
+```
+pip install -e ".[matrix]"  # still works for plaintext
+pip install mindroom-nio[e2e]  # required for E2EE rooms
+```
+
+The E2EE extra adds Olm/Megolm native crypto libraries. Without it, attempting to operate in encrypted mode should produce a clear error (e.g., `ImportError` or a dedicated check), not a silent fallback to plaintext.
+
+### 8.4 Deferred E2EE capabilities
+
+The following E2EE-related capabilities are **deferred** and not part of any current or near-term release:
+
+- Cross-signing setup and verification flows
+- Room key backup
+- Room key import/export
+- Interactive device verification (emoji/QR)
+
+These will be addressed in a dedicated E2EE readiness contract when E2EE implementation begins. See the future `docs/contracts/25-matrix-e2ee-readiness.md` for the detailed plan.
+
+### 8.5 Future live/manual E2EE test harness
+
+A future live E2EE harness will be needed to validate encrypted room operation against a real homeserver. This harness does not exist yet and no live E2EE tests are required now. The plan is referenced here for tracking:
+
+- The harness will extend the existing live smoke test pattern (`tests/test_matrix_live.py`, `docs/runbooks/matrix-live-smoke.md`).
+- It will require a second Matrix account to send encrypted messages into a test room.
+- It will validate that the adapter can decrypt inbound messages and encrypt outbound messages.
+- It will remain skipped-by-default, gated by environment variables and the `live` pytest marker.
+
+No implementation action is needed for this harness at this time.
+
+
+## 9. Expected Logs and Diagnostics
 
 ### 8.1 Healthy startup
 
@@ -280,18 +343,18 @@ MatrixAdapter matrix-alpha: sync task failed: <exception details>
 The adapter does not auto-reconnect. If the sync task fails, the adapter stays in `failed` until someone calls `stop()` and `start()` again.
 
 
-## 9. Replay Validation Procedure
+## 10. Replay Validation Procedure
 
 This section describes how to manually verify that the adapter behaves correctly in both directions.
 
-### 9.1 Outbound validation
+### 10.1 Outbound validation
 
 1. Start the adapter.
 2. Trigger a `deliver()` call with a rendered text message targeting your test room.
 3. Open the room in Element (or another client). Confirm the message appears.
 4. Check the return value from `deliver()`. It should contain an `event_id` starting with `$` and the correct `room_id`.
 
-### 9.2 Inbound validation
+### 10.2 Inbound validation
 
 1. Start the adapter with the allowlist set to your test room.
 2. From a second Matrix account (not the bot), send a plain text message in the test room.
@@ -299,27 +362,27 @@ This section describes how to manually verify that the adapter behaves correctly
 4. Confirm the event's `source_transport_id` matches the sender's MXID, not the bot's.
 5. Confirm the event's `channel_id` matches the room ID.
 
-### 9.3 Self-message suppression validation
+### 10.3 Self-message suppression validation
 
 1. Start the adapter.
 2. Send a message through the adapter using `deliver()`.
 3. Wait for the sync loop to echo the message back.
 4. Confirm that `publish_inbound()` is not called for the echoed message.
 
-### 9.4 Allowlist validation
+### 10.4 Allowlist validation
 
 1. Start the adapter with `room_allowlist` set to room A.
 2. Have someone send a message in room A. Confirm it is received.
 3. Have someone send a message in room B (which the bot has also joined). Confirm it is not received.
 
-### 9.5 Stop validation
+### 10.5 Stop validation
 
 1. Start the adapter. Confirm `health_check()` returns `"healthy"`.
 2. Call `stop()`. Confirm `health_check()` returns `"unknown"`.
 3. Confirm no lingering asyncio tasks. Use `asyncio.all_tasks()` before and after to check.
 
 
-## 10. Known Limitations
+## 11. Known Limitations
 
 This is an honest list. Everything here is real.
 
@@ -343,14 +406,14 @@ This is an honest list. Everything here is real.
 
 10. **Runner is in alpha.** The runner (`python -m medre.runner`) works for testing but has limited error recovery. If a subsystem fails during startup, the runner exits with a traceback rather than attempting partial recovery. There is no watchdog to restart the runner if it crashes.
 
-11. **Plaintext only.** E2EE is not yet supported but is planned as the default for real deployments. Alpha operates on unencrypted rooms only. See section 12 for details.
+11. **Plaintext only.** E2EE is not yet supported but is planned as the default for real deployments. Alpha operates on unencrypted rooms only. See section 13 for details.
 
 
-## 11. Operational Risks
+## 12. Operational Risks
 
 These are things that can go wrong. Read them before running the adapter.
 
-### 11.1 Token leakage
+### 12.1 Token leakage
 
 The access token is a long-lived credential. Anyone who has it can impersonate the bot. Risks:
 
@@ -360,34 +423,34 @@ The access token is a long-lived credential. Anyone who has it can impersonate t
 
 Mitigation: use a dedicated bot account with minimal room membership. Rotate the token if you suspect it has been exposed. Unset the environment variable when you are done testing.
 
-### 11.2 Sync interruption
+### 12.2 Sync interruption
 
 The `sync_forever` loop can fail for many reasons: network blips, homeserver restarts, token expiry, resource exhaustion. When it fails, the adapter captures the exception but does not recover automatically. You have to notice the failure (via `health_check()` or the error log) and restart manually.
 
-### 11.3 Missing reconnect logic
+### 12.3 Missing reconnect logic
 
 There is no reconnect logic. This is stated plainly because it is the most common question. If the connection drops, the adapter does not try again. This is a known limitation, not a bug. Reconnection with backoff and state recovery is future work.
 
-### 11.4 Homeserver resource consumption
+### 12.4 Homeserver resource consumption
 
 The long-polling sync loop holds an HTTP connection open to the homeserver. On Synapse, this is a `/_matrix/client/v3/sync` request with a 30-second timeout. On Conduit, behavior is similar. This is normal Matrix client behavior, but if you run many adapter instances against a small homeserver, you may see performance degradation.
 
-### 11.5 Message ordering
+### 12.5 Message ordering
 
 The adapter does not guarantee ordering of outbound messages. If you call `deliver()` twice in rapid succession, the homeserver may process them in either order depending on its internal queueing. The adapter does not sequence or gate outbound sends.
 
-### 11.6 Event duplication
+### 12.6 Event duplication
 
 If the adapter restarts after sending a message but before recording the event, the same message may be sent again on restart. The adapter has no deduplication logic for outbound messages. Inbound events may also be delivered twice if the sync token is not persisted between restarts.
 
 
-## 12. Explicit Unsupported Features
+## 13. Explicit Unsupported Features
 
 The following features are not supported in alpha mode. Do not attempt to use them. They are listed here so you do not have to wonder.
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| End-to-end encryption (E2EE) | Not yet supported in alpha | E2EE is planned as the future default for real deployments. The adapter does not handle encrypted events in alpha. Messages in encrypted rooms will be ignored or produce errors. The planned dependency for E2EE support is `mindroom-nio[e2e]`, which adds Olm/Megolm crypto libraries. Docker deployments should include E2EE dependencies when this becomes available. |
+| End-to-end encryption (E2EE) | Not yet supported in alpha | E2EE is planned as the future default for real deployments. The adapter does not handle encrypted events in alpha. Messages in encrypted rooms will be ignored or produce errors. The planned dependency for E2EE support is `mindroom-nio[e2e]`, which adds Olm/Megolm crypto libraries. Future E2EE production mode will require stable `store_path` and `device_id` (see section 8). Docker deployments should install `mindroom-nio[e2e]` once E2EE mode is implemented. Missing E2EE deps in encrypted mode should fail clearly, not silently fall back to plaintext. See future `docs/contracts/25-matrix-e2ee-readiness.md` for the full E2EE readiness plan. |
 | Reactions | Not supported | The adapter registers callbacks for `RoomMessageText`, `RoomMessageNotice`, and `RoomMessageEmote` only. Reaction events are not processed. |
 | Edits | Not supported | Edited messages appear as new messages. The adapter does not track `m.replace` relations. |
 | Deletes / redactions | Not supported | Redacted messages, if received, are not handled. |
@@ -404,9 +467,9 @@ The following features are not supported in alpha mode. Do not attempt to use th
 | User profile operations | Not supported | The adapter does not set avatars, display names, or profile data. |
 
 
-## 13. Troubleshooting
+## 14. Troubleshooting
 
-### 13.1 `MatrixConnectionError: mindroom-nio not installed`
+### 14.1 `MatrixConnectionError: mindroom-nio not installed`
 
 You forgot to install the Matrix dependency.
 
@@ -414,7 +477,7 @@ You forgot to install the Matrix dependency.
 pip install -e ".[matrix]"
 ```
 
-### 13.2 `MatrixConnectionError: failed to authenticate as @bot:localhost`
+### 14.2 `MatrixConnectionError: failed to authenticate as @bot:localhost`
 
 The access token is wrong, expired, or the user ID does not match.
 
@@ -426,29 +489,29 @@ The access token is wrong, expired, or the user ID does not match.
    ```
    This should return a JSON object with a `versions` array.
 
-### 13.3 `MatrixConfigError: homeserver must start with 'http://' or 'https://'`
+### 14.3 `MatrixConfigError: homeserver must start with 'http://' or 'https://'`
 
 The `MATRIX_HOMESERVER` environment variable is missing the scheme. It must be a full URL.
 
 Wrong: `localhost:8008`
 Right: `http://localhost:8008`
 
-### 13.4 `MatrixConfigError: user_id must start with '@'`
+### 14.4 `MatrixConfigError: user_id must start with '@'`
 
 The `MATRIX_USER_ID` value is missing the leading `@`. Matrix user IDs always start with `@`.
 
 Wrong: `bot:localhost`
 Right: `@bot:localhost`
 
-### 13.5 `MatrixSendError: no room_id in result`
+### 14.5 `MatrixSendError: no room_id in result`
 
 The `deliver()` call did not include a `target_channel` and the payload did not contain a `room_id` key. The adapter needs to know which room to send to.
 
-### 13.6 `MatrixSendError: homeserver returned empty/missing event_id`
+### 14.6 `MatrixSendError: homeserver returned empty/missing event_id`
 
 The homeserver accepted the request but did not return an event ID. This is unusual. Check the homeserver logs. It could indicate a Synapse bug, a database issue, or a malformed request.
 
-### 13.7 Adapter starts but no inbound messages are received
+### 14.7 Adapter starts but no inbound messages are received
 
 Check these things, in order:
 
@@ -458,7 +521,7 @@ Check these things, in order:
 4. Is the bot actually joined to the room? Check via Element or the Matrix membership API.
 5. Is the sync task still running? Call `health_check()`. If it returns `"failed"`, the sync loop crashed.
 
-### 13.8 Adapter crashes on startup with `ImportError: nio`
+### 14.8 Adapter crashes on startup with `ImportError: nio`
 
 The `compat.py` guard should catch this and raise `MatrixConnectionError` instead. If you see a raw `ImportError`, something is wrong with the guard. Check that `mindroom-nio` is installed and importable:
 
@@ -466,19 +529,19 @@ The `compat.py` guard should catch this and raise `MatrixConnectionError` instea
 python -c "import nio; print(nio.__version__)"
 ```
 
-### 13.9 High CPU usage or spinning
+### 14.9 High CPU usage or spinning
 
 The `sync_forever` loop should be idle most of the time (long-polling with a 30-second timeout). If you see high CPU, it might be rapidly reconnecting. Check `health_check()` and the logs for repeated sync failures.
 
-### 13.10 Messages appear in Element but `deliver()` raises `MatrixSendError`
+### 14.10 Messages appear in Element but `deliver()` raises `MatrixSendError`
 
 The homeserver rejected the message content. Check that the payload is a valid `m.room.message` content dict with a `msgtype` and `body`. The `MatrixRenderer` should produce this format, but if you are constructing payloads manually, double-check the structure.
 
-### 13.11 `asyncio.CancelledError` warnings on shutdown
+### 14.11 `asyncio.CancelledError` warnings on shutdown
 
 These are expected. The `stop()` method cancels the sync task, which raises `CancelledError` inside `sync_forever`. The adapter catches and suppresses it, but Python's runtime may still emit warnings. They are harmless.
 
-### 13.12 `EnvironmentError: Required environment variable MATRIX_HOMESERVER is not set`
+### 14.12 `EnvironmentError: Required environment variable MATRIX_HOMESERVER is not set`
 
 The runner requires `MATRIX_HOMESERVER`, `MATRIX_USER_ID`, and `MATRIX_ACCESS_TOKEN` to be set. Double-check that all three are exported in your shell:
 
@@ -490,7 +553,7 @@ echo $MATRIX_ACCESS_TOKEN
 
 If any is empty, set it and try again.
 
-### 13.13 Runner exits immediately with no output
+### 14.13 Runner exits immediately with no output
 
 The most common cause is a missing or empty required environment variable. The runner raises `EnvironmentError` before logging is configured in some code paths, so the error may go to stderr without the standard log format. Run the runner explicitly and check stderr:
 
@@ -498,7 +561,7 @@ The most common cause is a missing or empty required environment variable. The r
 python -m medre.runner 2>&1
 ```
 
-### 13.14 `ValueError` or `TypeError` from `MatrixConfig.validate()`
+### 14.14 `ValueError` or `TypeError` from `MatrixConfig.validate()`
 
 The runner builds a `MatrixConfig` from environment variables and calls `validate()` before starting anything. Common causes:
 
@@ -509,9 +572,9 @@ The runner builds a `MatrixConfig` from environment variables and calls `validat
 
 Check the error message, fix the variable, and restart.
 
-### 13.15 Runner starts but no inbound events arrive
+### 14.15 Runner starts but no inbound events arrive
 
-After the "running" line appears, check the diagnostics output. If `connected` is `False` or `logged_in` is `False`, the adapter failed to authenticate. Verify the access token is valid for the given user ID on the given homeserver. Then check the troubleshooting items in 13.7 (allowlist, self-message suppression, encryption, room membership, sync task state).
+After the "running" line appears, check the diagnostics output. If `connected` is `False` or `logged_in` is `False`, the adapter failed to authenticate. Verify the access token is valid for the given user ID on the given homeserver. Then check the troubleshooting items in 14.7 (allowlist, self-message suppression, encryption, room membership, sync task state).
 
 
 ## Appendix A: Manual Wiring (Advanced/Developer Reference)
