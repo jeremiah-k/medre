@@ -20,8 +20,11 @@ The adapter supports connection types configured via
     returns ``None`` (scaffolded).
 
 ``"reticulum"``
-    Connects via a locally-running Reticulum instance using the ``lxmf``
-    and ``RNS`` packages.  Requires the ``lxmf`` optional dependency.
+    **Not implemented yet.**  :meth:`start` always raises
+    :class:`~medre.adapters.lxmf.errors.LxmfConnectionError` for
+    non-fake connection types, regardless of whether ``lxmf``/``RNS``
+    are installed.  Production connectivity is deferred to a future
+    tranche.
 
 Lifecycle
 ---------
@@ -132,17 +135,11 @@ class LxmfAdapter(BaseAdapter):
                     "lxmf/RNS not installed; pip install lxmf. "
                     f"connection_type={self._config.connection_type!r}"
                 )
-            # Future: create real LXMRouter / Reticulum transport.
-            # For now, non-fake with HAS_LXMF=True still scaffolds.
-            self._client = None
-
-            # Subscribe to inbound events via LXMRouter callback wiring.
-            try:
-                self._subscribe_events()
-            except Exception:
-                self._unsubscribe_events()
-                self._client = None
-                raise
+            # Production LXMF/Reticulum connectivity is not implemented yet.
+            # Even when the SDK is installed, no real client is created.
+            raise LxmfConnectionError(
+                "production LXMF/Reticulum connectivity is not implemented yet"
+            )
 
         self._started = True
         ctx.logger.info(

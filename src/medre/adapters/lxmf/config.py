@@ -13,11 +13,14 @@ Connection types
 
 ``"reticulum"``
     Connect to a locally-running Reticulum instance via the ``RNS``
-    and ``lxmf`` packages.  Requires both optional dependencies.
+    and ``lxmf`` packages.  Accepted as a valid shape by
+    :meth:`validate`; runtime availability is checked by
+    :class:`~medre.adapters.lxmf.adapter.LxmfAdapter.start`.
 
-All non-fake modes require the ``lxmf`` optional dependency group.
-When unavailable, :meth:`validate` rejects the configuration with a
-clear :class:`LxmfConfigError` message.
+All non-fake modes require the ``lxmf`` optional dependency at runtime.
+:meth:`validate` checks shape only; :class:`~medre.adapters.lxmf.adapter.LxmfAdapter.start`
+raises :class:`~medre.adapters.lxmf.errors.LxmfConnectionError` when the
+SDK is unavailable or production connectivity is not yet implemented.
 """
 from __future__ import annotations
 
@@ -108,15 +111,10 @@ class LxmfConfig:
                 f"got {self.connection_type!r}"
             )
 
-        # Non-fake modes require the LXMF SDK.
-        if self.connection_type != "fake":
-            from medre.adapters.lxmf.compat import HAS_LXMF
-            if not HAS_LXMF:
-                raise LxmfConfigError(
-                    f"connection_type={self.connection_type!r} requires "
-                    f"the lxmf and RNS packages; "
-                    f"install with: pip install lxmf"
-                )
+        # Non-fake connection types are valid shapes.  Runtime availability
+        # (whether lxmf/RNS are installed) is checked by LxmfAdapter.start(),
+        # not by config validation.  Config only validates that the value
+        # is a known connection_type.
 
         # --- default_delivery_method ---
         if self.default_delivery_method not in _ALLOWED_DELIVERY_METHODS:

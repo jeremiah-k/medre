@@ -1,7 +1,9 @@
 """Live LXMF/Reticulum connectivity smoke tests.
 
-These tests connect to a **real** Reticulum/LXMF router and exercise
-MEDRE adapter lifecycle against a live network.
+These tests document the **future** live smoke harness for the MEDRE
+LXMF adapter.  Production LXMF/Reticulum connectivity is intentionally
+not implemented — ``LxmfAdapter.start()`` raises
+``LxmfConnectionError`` for any non-fake connection type.
 
 All tests are **skipped by default** and require explicit opt-in via
 environment variables.
@@ -47,21 +49,19 @@ At minimum, ``LXMF_CONNECTION_TYPE`` and ``LXMF_IDENTITY_PATH`` must
 be set.  If any required variable is missing, every test in this file
 skips with a descriptive reason.
 
-**Known limitations (explicit):**
+**Current status (explicit):**
 
-- **No real LXMF connectivity yet.**  The adapter is scaffolded;
-  non-fake connections raise ``LxmfConnectionError`` when the ``lxmf``
-  SDK is not available.  These tests document the future required
-  environment variables and will be enabled when production LXMF
-  support is implemented.
+- **No real LXMF connectivity yet.**  The MEDRE adapter's non-fake
+  ``start()`` always raises ``LxmfConnectionError`` regardless of
+  whether the ``lxmf`` SDK is installed.  Production connectivity is
+  deferred to a future tranche.
+- The live tests below expect ``LxmfConnectionError`` and skip when
+  it is raised, documenting the future harness structure.
 - **No E2EE.**  LXMF encrypted messages are not supported in tranche 1.
 - **No inbound event subscription wiring.**  ``_subscribe_events()`` is a
   scaffold method that logs but does not wire real LXMRouter callbacks.
-- **Radio / network safety.**  When enabled, tests send a small number
-  of messages.  Ensure the network is not used for critical
-  communications during testing.
 
-**What this proves (when enabled):**
+**What this proves (when production connectivity is implemented):**
 
 - The MEDRE ``LxmfAdapter`` can ``start()`` with a real Reticulum
   instance.
@@ -175,11 +175,13 @@ def _make_context():
 class TestLxmfLiveSmoke:
     """Live LXMF/Reticulum connectivity smoke tests.
 
-    These tests connect to a real Reticulum/LXMF router and verify the
-    adapter lifecycle: start, health_check, and stop.
+    These tests are **doc-only / deferred** until production LXMF
+    connectivity is implemented in the MEDRE adapter.  Currently,
+    ``LxmfAdapter.start()`` raises ``LxmfConnectionError`` for
+    non-fake connection types regardless of SDK availability.
 
-    **NOTE**: Real LXMF connections require the ``lxmf`` and ``RNS``
-    packages.  These tests will skip if the SDK is not installed.
+    When production work begins, these tests will be updated to
+    exercise the real adapter lifecycle: start, health_check, stop.
 
     All tests require LXMF_CONNECTION_TYPE and LXMF_IDENTITY_PATH.
     Run with::
@@ -190,16 +192,15 @@ class TestLxmfLiveSmoke:
     # -- Lifecycle: connect, health, disconnect ----------------------------
 
     async def test_adapter_starts_and_reports_healthy(self):
-        """Start the real adapter and verify health_check reports healthy.
+        """Start the real adapter — currently always raises.
 
-        **Category B — MEDRE adapter lifecycle smoke test.**
+        **Category B — MEDRE adapter lifecycle smoke test (deferred).**
 
-        This validates:
-        - The adapter creates a real LXMF client in ``start()``.
-        - ``health_check()`` returns ``"healthy"`` after start.
-
-        Note: This test will raise LxmfConnectionError until
-        production LXMF support is implemented.
+        Production LXMF/Reticulum connectivity is not yet implemented.
+        ``LxmfAdapter.start()`` raises ``LxmfConnectionError`` for
+        non-fake connection types.  This test documents the future
+        expected behavior: when production support is implemented,
+        start() should succeed and health_check() should report healthy.
         """
         from medre.adapters.lxmf.adapter import LxmfAdapter
         from medre.adapters.lxmf.errors import LxmfConnectionError
@@ -210,6 +211,7 @@ class TestLxmfLiveSmoke:
 
         try:
             await adapter.start(ctx)
+            # If we reach here, production connectivity has been implemented.
             info = await adapter.health_check()
             assert info.health in ("healthy", "unknown"), (
                 f"Expected healthy or unknown, got {info.health!r}"
@@ -225,12 +227,12 @@ class TestLxmfLiveSmoke:
     # -- Documentation tests (always pass) ----------------------------------
 
     async def test_lxmf_sdk_not_yet_connected_note(self):
-        """Document: real LXMF SDK connections are scaffolded.
+        """Document: real LXMF SDK connections are not implemented.
 
-        This test always passes.  It exists to document that the
-        LxmfAdapter raises ``LxmfConnectionError`` for non-fake
-        connection types when the ``lxmf`` SDK is not available.
-        Full production LXMF support is deferred to a future tranche.
+        This test always passes.  It documents that the LxmfAdapter
+        raises ``LxmfConnectionError`` for non-fake connection types
+        regardless of SDK availability.  Full production LXMF support
+        is deferred to a future tranche.
         """
         pass
 
@@ -252,11 +254,11 @@ class TestLxmfLiveSmoke:
         pass
 
     async def test_identity_path_configuration_note(self):
-        """Document: identity_path is validated by LxmfConfig.
+        """Document: identity_path is validated by LxmfConfig (shape only).
 
         This test always passes.  It documents that ``identity_path``
-        must be a non-empty string when provided, and is required
-        for ``reticulum`` connection type in a future production
+        must be a non-empty string when provided.  Config validates
+        shape only; runtime wiring is deferred to production
         implementation.
         """
         pass

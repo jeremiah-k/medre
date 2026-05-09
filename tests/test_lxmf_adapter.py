@@ -15,6 +15,7 @@ from medre.adapters.base import AdapterContext, AdapterDeliveryResult
 from medre.adapters.lxmf.adapter import LxmfAdapter
 from medre.adapters.lxmf.config import LxmfConfig
 from medre.adapters.lxmf.compat import HAS_LXMF
+from medre.adapters.lxmf.errors import LxmfConnectionError
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.adapters.lxmf.errors import LxmfSendError
 from medre.core.events.kinds import EventKind
@@ -282,31 +283,81 @@ class TestLxmfAdapterLifecycle:
 
 
 class TestLxmfAdapterNonFakeMode:
-    """Non-fake connection_type behaviour."""
+    """Non-fake connection_type behaviour — always raises, never healthy."""
 
-    async def test_non_fake_without_sdk_raises_connection_error(
+    async def test_non_fake_reticulum_raises_not_implemented(
         self, make_adapter_context
     ) -> None:
-        """If HAS_LXMF is False, non-fake mode raises LxmfConnectionError."""
-        from medre.adapters.lxmf import errors as lxmf_errors
+        """Non-fake reticulum mode raises not-implemented error.
 
-        config = _make_config(connection_type="fake")  # must validate as fake
+        Even when HAS_LXMF is True, start() must raise because no real
+        LXMF client is created.  This test uses monkeypatch to control
+        HAS_LXMF independently of the local installation.
+        """
+        import medre.adapters.lxmf.adapter as _adapter_mod
+
+        config = _make_config(connection_type="reticulum")
         adapter = LxmfAdapter(config)
-
-        # Patch the config to simulate reticulum mode
-        object.__setattr__(adapter._config, "connection_type", "reticulum")
-
         ctx = make_adapter_context("lxmf-1")
 
-        if not HAS_LXMF:
-            with pytest.raises(lxmf_errors.LxmfConnectionError, match="lxmf/RNS"):
+        original = _adapter_mod.HAS_LXMF
+        try:
+            # Even with HAS_LXMF=True, start must raise not-implemented.
+            _adapter_mod.HAS_LXMF = True
+            with pytest.raises(
+                LxmfConnectionError,
+                match="production LXMF/Reticulum connectivity is not implemented",
+            ):
                 await adapter.start(ctx)
-        else:
-            # SDK installed — start should succeed (scaffolded)
-            await adapter.start(ctx)
+        finally:
+            _adapter_mod.HAS_LXMF = original
+
+        assert adapter._started is False
+
+    async def test_non_fake_without_sdk_raises_dependency_error(
+        self, make_adapter_context
+    ) -> None:
+        """Non-fake mode with HAS_LXMF=False raises missing-SDK error."""
+        import medre.adapters.lxmf.adapter as _adapter_mod
+
+        config = _make_config(connection_type="reticulum")
+        adapter = LxmfAdapter(config)
+        ctx = make_adapter_context("lxmf-1")
+
+        original = _adapter_mod.HAS_LXMF
+        try:
+            _adapter_mod.HAS_LXMF = False
+            with pytest.raises(
+                LxmfConnectionError, match="lxmf/RNS not installed"
+            ):
+                await adapter.start(ctx)
+        finally:
+            _adapter_mod.HAS_LXMF = original
+
+        assert adapter._started is False
+
+    async def test_non_fake_never_reports_healthy(
+        self, make_adapter_context
+    ) -> None:
+        """Non-fake reticulum mode never reaches _started=True."""
+        import medre.adapters.lxmf.adapter as _adapter_mod
+
+        config = _make_config(connection_type="reticulum")
+        adapter = LxmfAdapter(config)
+        ctx = make_adapter_context("lxmf-1")
+
+        for has_lxmf in (True, False):
+            original = _adapter_mod.HAS_LXMF
+            try:
+                _adapter_mod.HAS_LXMF = has_lxmf
+                with pytest.raises(LxmfConnectionError):
+                    await adapter.start(ctx)
+            finally:
+                _adapter_mod.HAS_LXMF = original
+
+            assert adapter._started is False
             info = await adapter.health_check()
-            assert info.health == "healthy"
-            await adapter.stop()
+            assert info.health != "healthy"
 
 
 # ===================================================================
@@ -598,9 +649,10 @@ class TestLxmfCompat:
     def test_has_lxmf_is_bool(self) -> None:
         assert isinstance(HAS_LXMF, bool)
 
-    def test_has_lxmf_false_without_sdk(self) -> None:
-        """HAS_LXMF is False when lxmf is not installed."""
-        # This test will pass in environments without lxmf installed,
-        # which is the expected default CI/test environment.
-        # If lxmf is installed, HAS_LXMF will be True — that's fine too.
-        assert isinstance(HAS_LXMF, bool)
+    def test_has_lxmf_value_consistent_with_import(self) -> None:
+        """HAS_LXMF is True when lxmf imports successfully, False otherwise."""
+        try:
+            import lxmf  # noqa: F401
+            assert HAS_LXMF is True
+        except ImportError:
+            assert HAS_LXMF is False

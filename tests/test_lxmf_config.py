@@ -58,15 +58,19 @@ class TestLxmfConfigValid:
 
 
 class TestLxmfConfigConnectionType:
-    """connection_type validation."""
+    """connection_type validation (shape only)."""
 
-    def test_non_fake_rejected_without_sdk(self) -> None:
-        """Non-fake connection_type rejected when lxmf SDK not installed."""
-        with pytest.raises(LxmfConfigError, match="requires the lxmf"):
-            LxmfConfig(
-                adapter_id="lxmf-1",
-                connection_type="reticulum",
-            ).validate()
+    def test_reticulum_is_valid_shape(self) -> None:
+        """Config accepts 'reticulum' as a valid connection_type shape.
+
+        Shape validation does not check whether the SDK is installed;
+        runtime availability is LxmfAdapter.start()'s responsibility.
+        """
+        config = LxmfConfig(
+            adapter_id="lxmf-1",
+            connection_type="reticulum",
+        )
+        assert config.validate() is config
 
     def test_unknown_connection_type_rejected(self) -> None:
         """Unknown connection_type is rejected with clear error."""

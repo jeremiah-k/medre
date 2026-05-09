@@ -488,7 +488,7 @@ Here is exactly what exists and what does not.
 | Component | File | Status |
 |-----------|------|--------|
 | `LxmfAdapter` | `adapter.py` | Scaffold. `start()` only supports `connection_type="fake"`. `deliver()` returns `None`. |
-| `LxmfConfig` | `config.py` | Functional. `connection_type` is `Literal["fake"]`, validated. `identity_path` is a `str | None` placeholder. |
+| `LxmfConfig` | `config.py` | Functional. `connection_type` accepts `"fake"` and `"reticulum"` as valid shapes. `reticulum` validates at config level (shape only); runtime `start()` raises `LxmfConnectionError` for non-fake modes. `identity_path` is a `str | None` placeholder. |
 | `LxmfCodec` | `codec.py` | Functional against dict-shaped test data. Does not accept `LXMessage` objects. |
 | `LxmfRenderer` | `renderer.py` | Functional. Produces content/title/fields dicts. |
 | `LxmfFieldsHelper` | `fields.py` | Functional. Embeds/extracts MEDRE envelope under `FIELD_CUSTOM_META` (0xFD). |
@@ -499,7 +499,6 @@ Here is exactly what exists and what does not.
 
 | Missing Piece | Impact |
 |---------------|--------|
-| No `compat.py` module | No `HAS_LXMF` flag, no conditional imports of `rns` or `lxmf`. |
 | No real `RNS.Identity` loading | `identity_path` in config is unwired. |
 | No `RNS.Reticulum()` initialization | No Reticulum transport layer. |
 | No `LXMF.LXMRouter()` creation | No LXMF message routing. |
@@ -515,9 +514,10 @@ Here is exactly what exists and what does not.
 
 `LxmfConfig` has fields for `identity_path`, `default_delivery_method`,
 `stamp_cost`, and `display_name`. None of these are wired to real
-Reticulum/LXMF operations. The `connection_type` field is
-`Literal["fake"]` only, meaning the type system itself prevents non-fake
-connections.
+Reticulum/LXMF operations. The `connection_type` field accepts `"fake"`
+and `"reticulum"` as valid shape values. `start()` raises
+`LxmfConnectionError` for `"reticulum"` mode regardless of SDK
+availability — production connectivity is not implemented.
 
 Additional config fields that would be needed for real connectivity:
 
@@ -709,7 +709,7 @@ Key findings that this contract consolidates:
 
 | Task | SDK API Available | Adapter Code Exists | Blocked By |
 |------|------------------|--------------------|-------------| 
-| Identity load/create | `RNS.Identity.from_file()`, `RNS.Identity()` | No | `compat.py`, `identity_path` wiring |
+| Identity load/create | `RNS.Identity.from_file()`, `RNS.Identity()` | No | `identity_path` wiring |
 | Reticulum init | `RNS.Reticulum(configdir)` | No | `reticulum_configdir` config field |
 | Router creation | `LXMF.LXMRouter(storagepath)` | No | `storage_path` config field |
 | Register delivery identity | `router.register_delivery_identity()` | No | Identity + router creation |
