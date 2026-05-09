@@ -283,7 +283,7 @@ The following E2EE-related capabilities are **deferred** and not part of the E2E
 - Room key backup
 - Room key import/export
 - Interactive device verification (emoji/QR)
-- Undecryptable event diagnostic logging
+- Unverified device policy (no admin-facing config exists yet; nio default `ignore_unverified_devices=False` is used; policy decision is deferred to a future tranche)
 
 These will be addressed in a future E2EE implementation tranche. See `docs/contracts/25-matrix-e2ee-readiness.md` for the detailed plan.
 
@@ -319,7 +319,7 @@ Traceback (most recent call last):
   ...
 ```
 
-In E2EE text alpha, encrypted messages that are successfully decrypted also fire `_on_room_message` as `RoomMessageText` — identical to plaintext. No log difference. Messages that fail to decrypt produce `MegolmEvent` which is silently dropped by the callback filter (see section 14.16 for troubleshooting).
+In E2EE text alpha, encrypted messages that are successfully decrypted also fire `_on_room_message` as `RoomMessageText` — identical to plaintext. No log difference. Messages that fail to decrypt produce `MegolmEvent` which is handled by the dedicated `_on_megolm_event` callback: the event is counted, a warning is logged (event_id and room_id only), and the event is not forwarded to the canonical pipeline. The adapter tracks `undecryptable_event_count` and `last_crypto_error` in diagnostics (see section 14.16 for troubleshooting).
 
 ### 9.3 Self-message suppression
 
@@ -413,7 +413,7 @@ This is an honest list. Everything here is real.
 
 10. **Runner is in alpha.** The runner (`python -m medre.runner`) works for testing but has limited error recovery. If a subsystem fails during startup, the runner exits with a traceback rather than attempting partial recovery. There is no watchdog to restart the runner if it crashes.
 
-11. **Plaintext is primary; E2EE is add-on.** Plaintext alpha is the recommended path. E2EE text alpha adds encrypted room support for text only (see section 13). Reactions, edits, media, cross-signing, key backup, and undecryptable event logging remain unsupported.
+11. **Plaintext is primary; E2EE is add-on.** Plaintext alpha is the recommended path. E2EE text alpha adds encrypted room support for text only (see section 13). Reactions, edits, media, cross-signing, key backup, and unverified device policy remain unsupported. Undecryptable event logging is now implemented (counted and logged safely, not forwarded).
 
 
 ## 12. Operational Risks
@@ -457,7 +457,7 @@ The following features are not supported in alpha mode. Do not attempt to use th
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| End-to-end encryption (E2EE) | E2EE text alpha available (section 13) | Encrypted rooms are supported for text messages when installed with `.[matrix-e2e]` and configured with `store_path` + `device_id`. Reactions, edits, media, cross-signing, key backup, and undecryptable event logging remain unsupported. Plaintext rooms work identically in both modes. |
+| End-to-end encryption (E2EE) | E2EE text alpha available (section 13) | Encrypted rooms are supported for text messages when installed with `.[matrix-e2e]` and configured with `store_path` + `device_id`. Reactions, edits, media, cross-signing, key backup, and unverified device policy remain unsupported. Undecryptable event logging is now implemented (counted, logged, not forwarded). Plaintext rooms work identically in both modes. |
 | Reactions | Not supported | The adapter registers callbacks for `RoomMessageText`, `RoomMessageNotice`, and `RoomMessageEmote` only. Reaction events are not processed. |
 | Edits | Not supported | Edited messages appear as new messages. The adapter does not track `m.replace` relations. |
 | Deletes / redactions | Not supported | Redacted messages, if received, are not handled. |
@@ -594,7 +594,7 @@ Check these in order:
    python -c "import nio; print(nio.crypto.ENCRYPTION_ENABLED)"
    ```
    This should print `True`. If `False`, the `[e2e]` extra is not installed. Run `pip install -e ".[matrix-e2e]"`.
-4. **Is the device verified by the sender?** In the E2EE text alpha, the `ignore_unverified_devices` default is `False` (strict). If the bot's device is not verified by the sender's client, outbound encryption will block. As a workaround for alpha, the sender can verify the bot's device in Element, or the adapter can be configured to ignore unverified devices.
+4. **Is the device verified by the sender?** In the E2EE text alpha, the `ignore_unverified_devices` default is `False` (strict). If the bot's device is not verified by the sender's client, outbound encryption will block. As a workaround for alpha, the sender can verify the bot's device in Element. There is no adapter config to ignore unverified devices — unverified device policy is deferred to a future E2EE tranche.
 5. **Was the room key shared?** If the adapter joined the encrypted room before the crypto store was initialized, room keys may not have been distributed to this device. Sending a message from another client into the room after the adapter is running with E2EE should trigger key distribution.
 
 ### 14.17 E2EE: `ImportError` or `ModuleNotFoundError` for `vodozemac`
@@ -706,8 +706,10 @@ If `store_path` is changed or the store is deleted, the adapter creates a new cr
 | Cross-signing | Not supported | Device verification via cross-signing not implemented |
 | Key backup / export / import | Not supported | Not wired |
 | Interactive device verification (emoji/QR) | Not supported | `Sas` class exists but not wired |
-| Undecryptable event logging | Not supported | `MegolmEvent` passthrough silently dropped by callback filter |
+| Unverified device policy | Deferred | No admin-facing config exists; nio default `ignore_unverified_devices=False`; policy decision deferred to future tranche |
 | Redactions / deletes | Not supported | Not handled |
+
+**Note:** Undecryptable event logging was previously unsupported but is now implemented. `MegolmEvent` callbacks count events, log warnings (event_id/room_id only, no session_id), and do not forward to the canonical pipeline. `RoomEncryptionEvent` callbacks set `encrypted_room_seen` and are not forwarded.
 
 
 ## Appendix A: Manual Wiring (Advanced/Developer Reference)

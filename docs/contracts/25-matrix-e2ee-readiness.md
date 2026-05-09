@@ -183,15 +183,23 @@ def restore_login(self, user_id, device_id, access_token):
 ### 3.2 Current adapter callback registration [CONFIRMED]
 
 ```python
+# Primary message callback — receives decrypted text events
 self._client.add_event_callback(
     self._on_room_message,
     (nio.RoomMessageText, nio.RoomMessageNotice, nio.RoomMessageEmote),
 )
+
+# E2EE diagnostic callbacks (registered when crypto is active)
+from nio.events import MegolmEvent
+self._client.add_event_callback(self._on_megolm_event, (MegolmEvent,))
+
+from nio.events import RoomEncryptionEvent
+self._client.add_event_callback(self._on_room_encryption_event, (RoomEncryptionEvent,))
 ```
 
-**[CONFIRMED]**: Only `RoomMessageText`, `RoomMessageNotice`, `RoomMessageEmote` are registered. `MegolmEvent` and `RoomEncryptionEvent` are **not** registered as callback types.
+**[CONFIRMED]**: The adapter registers five callback types across three `add_event_callback` calls: `RoomMessageText`, `RoomMessageNotice`, `RoomMessageEmote` (primary inbound), `MegolmEvent` (undecryptable encrypted events), and `RoomEncryptionEvent` (encryption state changes). The `MegolmEvent` and `RoomEncryptionEvent` callbacks are registered unconditionally alongside the primary callbacks.
 
-**[CONFIRMED from installed package]**: When E2EE is active and decryption succeeds, encrypted messages appear as `RoomMessageText` (or similar) and reach `_on_room_message` normally — no callback change needed for successful decryption. Failed decryptions produce `MegolmEvent` which is silently dropped by the current callback filter. The E2EE text alpha accepts this behavior; diagnostic logging for undecryptable events is deferred (see §14).
+**[CONFIRMED from installed package]**: When E2EE is active and decryption succeeds, encrypted messages appear as `RoomMessageText` (or similar) and reach `_on_room_message` normally — decryption is transparent. Failed decryptions produce `MegolmEvent` which is now handled by the dedicated `_on_megolm_event` callback: the event is counted (`undecryptable_event_count`), the last crypto error is recorded (`last_crypto_error` — contains `event_id` and `room_id` only, no `session_id`), a warning is logged, and the event is **not forwarded** to the canonical event pipeline. `RoomEncryptionEvent` is handled by `_on_room_encryption_event`: it sets `encrypted_room_seen=True` and logs at INFO level; it is **not forwarded** to the canonical event pipeline.
 
 ### 3.3 Event decryption metadata [CONFIRMED]
 
@@ -345,6 +353,17 @@ async def stop(self, timeout: float = 5.0) -> None:
 
 **[CONFIRMED from installed package]**: This shutdown sequence is adequate for E2EE. The crypto store is persisted incrementally by nio during sync iterations. `close()` saves the crypto store. No additional flush step is needed. The adapter's `stop()` correctly handles E2EE shutdown.
 
+### 6.3 E2EE diagnostics privacy [CONFIRMED]
+
+Diagnostics surfaced by the session boundary (`undecryptable_event_count`, `last_crypto_error`, `encrypted_room_seen`) intentionally exclude sensitive crypto material:
+
+- **No `session_id`** is logged or stored in diagnostic fields.
+- **No keys** (sender keys, device keys, Olm/Megolm keys) appear in logs or diagnostics.
+- **No tokens** or access credentials appear in diagnostic output.
+- `last_crypto_error` contains only `event_id`, `room_id`, and error class — never crypto session identifiers.
+
+This ensures that log files, health check output, and diagnostic endpoints do not leak cryptographic secrets.
+
 
 ## 7. Future Session Boundary Design
 
@@ -352,7 +371,7 @@ async def stop(self, timeout: float = 5.0) -> None:
 
 The current `MatrixAdapter` directly owns the `nio.AsyncClient` lifecycle. For E2EE, the adapter must not grow into a crypto session manager. The crypto lifecycle belongs behind a **session boundary** that the adapter owns but delegates to.
 
-**[IN PROGRESS]**: `src/medre/adapters/matrix/session.py` encapsulates the nio client lifecycle for the E2EE text alpha. The session boundary is being introduced alongside the `matrix-e2e` dependency activation. `MatrixConfig` carries an `e2ee_required` field that, when set, instructs the session boundary to refuse startup if `ENCRYPTION_ENABLED` is `False` (i.e., if `mindroom-nio[e2e]` is not installed).
+**[ACTIVE]**: `src/medre/adapters/matrix/session.py` encapsulates the nio client lifecycle for the E2EE text alpha. The session boundary is now in place alongside the `matrix-e2e` dependency activation. `MatrixConfig` carries an `e2ee_required` field that, when set, instructs the session boundary to refuse startup if `ENCRYPTION_ENABLED` is `False` (i.e., if `mindroom-nio[e2e]` is not installed).
 
 | Responsibility | Owner | Status |
 |---|---|---|
@@ -361,7 +380,9 @@ The current `MatrixAdapter` directly owns the `nio.AsyncClient` lifecycle. For E
 | store_path resolution & directory creation | Session | Active |
 | restore_login | Session | Active |
 | sync_forever lifecycle | Session | Active |
-| E2EE health diagnostics | Session | Deferred |
+| E2EE health diagnostics | Session | Active — `undecryptable_event_count`, `last_crypto_error`, `encrypted_room_seen` |
+| MegolmEvent callback (undecryptable events) | Session | Active — counted, logged (event_id/room_id only), not forwarded |
+| RoomEncryptionEvent callback | Session | Active — sets `encrypted_room_seen`, not forwarded |
 | Key export/import | Session (exposed as adapter methods) | Deferred |
 | Unverified device policy | Session (configured at construction) | Deferred |
 | e2ee_required config enforcement | Session (refuse start if E2EE deps missing) | Active |
@@ -429,23 +450,26 @@ The following fields should be introduced only in the E2EE implementation tranch
 
 ## 9. Future Diagnostics
 
-### 9.1 E2EE health indicators [DEFERRED]
+### 9.1 E2EE health indicators [PARTIALLY ACTIVE]
 
-When E2EE is active, the following should be surfaced through the session boundary as structured diagnostic data:
+When E2EE is active, the following are surfaced through the session boundary as structured diagnostic data:
 
-| Indicator | Source | Value |
-|---|---|---|
-| `e2ee_enabled` | `ENCRYPTION_ENABLED` | `bool` |
-| `olm_loaded` | `self._client.olm is not None` | `bool` |
-| `store_loaded` | `self._client.store is not None` | `bool` |
-| `should_upload_keys` | `self._client.should_upload_keys` | `bool` |
-| `should_query_keys` | `self._client.should_query_keys` | `bool` |
-| `should_claim_keys` | `self._client.should_claim_keys` | `bool` |
-| `encrypted_rooms_count` | `len(self._client.encrypted_rooms)` | `int` |
-| `device_count` | `len(self._client.device_store)` | `int` |
-| `olm_account_shared` | `self._client.olm_account_shared` | `bool` |
+| Indicator | Source | Value | Status |
+|---|---|---|---|
+| `e2ee_enabled` | `ENCRYPTION_ENABLED` | `bool` | Deferred |
+| `olm_loaded` | `self._client.olm is not None` | `bool` | Deferred |
+| `store_loaded` | `self._client.store is not None` | `bool` | Deferred |
+| `should_upload_keys` | `self._client.should_upload_keys` | `bool` | Deferred |
+| `should_query_keys` | `self._client.should_query_keys` | `bool` | Deferred |
+| `should_claim_keys` | `self._client.should_claim_keys` | `bool` | Deferred |
+| `encrypted_rooms_count` | `len(self._client.encrypted_rooms)` | `int` | Deferred |
+| `device_count` | `len(self._client.device_store)` | `int` | Deferred |
+| `olm_account_shared` | `self._client.olm_account_shared` | `bool` | Deferred |
+| `undecryptable_event_count` | Session counter | `int` | **Active** |
+| `last_crypto_error` | Session error string | `str or None` | **Active** |
+| `encrypted_room_seen` | Session flag | `bool` | **Active** |
 
-### 9.2 Per-event decryption diagnostics [DEFERRED]
+### 9.2 Per-event decryption diagnostics [PARTIALLY ACTIVE]
 
 | Indicator | Source | Value |
 |---|---|---|
@@ -455,7 +479,9 @@ When E2EE is active, the following should be surfaced through the session bounda
 | `session_id` | `event.session_id` | `str or None` |
 | `was_megolm` | Whether original event was `MegolmEvent` | `bool` |
 
-These flow into `NativeMetadata` on the canonical event, never into core logic.
+Undecryptable `MegolmEvent` callbacks are now counted and logged (see §3.2). The per-event metadata above (`decrypted`, `verified`, `sender_key`, `session_id`, `was_megolm`) remains **[DEFERRED]** for surfacing into `NativeMetadata` — but note that `session_id` will never be included in logs or diagnostics output (see §6.3).
+
+These flow into `NativeMetadata` on the canonical event, never into core logic. **Note:** `session_id` and `sender_key` will never appear in diagnostic logs or health output — only in per-event metadata on the canonical event itself, if/when wired.
 
 
 ## 10. Live / Manual E2EE Harness Plan
@@ -468,9 +494,9 @@ The E2EE text alpha now includes a live harness. See `docs/runbooks/matrix-live-
 2. **Decryption of inbound encrypted messages** in an encrypted test room.
 3. **Encryption of outbound messages** verified by a second Matrix client.
 4. **Crypto state persistence** across adapter restarts (stop → start with same store_path).
-5. **MegolmEvent passthrough** when decryption fails (for diagnostic logging).
-6. **Room encryption detection** via `RoomEncryptionEvent`.
-7. **Unverified device policy** behavior.
+5. **MegolmEvent handling** when decryption fails — counted, logged (event_id/room_id/error class only), not forwarded.
+6. **Room encryption detection** via `RoomEncryptionEvent` — sets `encrypted_room_seen`, not forwarded.
+7. **Unverified device policy** — deferred (no config exists yet; nio default `ignore_unverified_devices=False`).
 
 ### 10.2 Prerequisites [ACTIVE]
 
@@ -513,7 +539,7 @@ Tracks not listed (Track 3, Track 6) were not part of the original audit scope o
 
 ## 13. Risks & Open Questions
 
-1. **[CONFIRMED from installed package]**: `MegolmEvent` passes through to event callbacks when decryption fails — it is not silently dropped by nio. However, the current adapter callback filter only matches `RoomMessageText/Notice/Emote`, so `MegolmEvent` IS dropped by the callback dispatcher. In the E2EE text alpha, this means undecryptable messages are silently lost. Diagnostic logging for `MegolmEvent` passthrough is deferred.
+1. **[CONFIRMED from installed package]**: `MegolmEvent` passes through to event callbacks when decryption fails. The adapter now registers a dedicated `_on_megolm_event` callback that counts the event (`undecryptable_event_count`), records the error class (`last_crypto_error` — `event_id` and `room_id` only, no `session_id`), logs a warning, and does **not** forward the event to the canonical pipeline. Previously these events were silently dropped; they are now safely counted and logged.
 
 2. **[UNKNOWN]**: Cross-signing support in `mindroom-nio`. The `Sas` and `SasState` classes exist for interactive verification, but cross-signing (MSC1756) support is unclear from source inspection alone. Cross-signing is explicitly deferred in the E2EE text alpha.
 
@@ -549,11 +575,11 @@ The following are explicitly **unsupported** in the E2EE text alpha. They are de
 | Cross-signing | Not supported | Device verification via cross-signing not implemented |
 | Key backup | Not supported | `export_keys`/`import_keys` not wired |
 | Interactive device verification (emoji/QR) | Not supported | `Sas` class exists but not wired |
-| Undecryptable event logging | Not supported | `MegolmEvent` passthrough is silently dropped by callback filter |
+| Undecryptable event logging | Implemented | `MegolmEvent` callback counts events, logs warning (event_id/room_id only), not forwarded |
 | Redactions / deletes | Not supported | Not handled |
 | Read receipts | Not supported | Not sent or tracked |
 | Typing notifications | Not supported | Not sent or received |
-| Unverified device policy | Default strict | `ignore_unverified_devices=False`; no admin config |
+| Unverified device policy | Deferred | `ignore_unverified_devices=False` (nio default); no admin-facing config exists yet. Policy decision deferred to future E2EE tranche. |
 
 ### 14.3 Plaintext alpha remains primary
 

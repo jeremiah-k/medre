@@ -252,7 +252,12 @@ After running tests:
 - Reactions, edits, media, attachments.
 - Cross-signing, key backup, key import/export.
 - Interactive device verification (emoji/QR).
-- Undecryptable event logging (`MegolmEvent` passthrough silently dropped).
+- Unverified device policy (no admin-facing config exists; nio default used; deferred to future tranche).
+
+**Implemented in E2EE text alpha:**
+- Undecryptable event handling: `MegolmEvent` callback counts events, logs warning (event_id/room_id only, no session_id), does not forward to canonical pipeline.
+- `RoomEncryptionEvent` callback sets `encrypted_room_seen`, logs at INFO level, does not forward.
+- Diagnostics: `undecryptable_event_count`, `last_crypto_error`, `encrypted_room_seen` — exclude session_id, keys, and tokens.
 
 See the alpha operation runbook (`docs/runbooks/matrix-alpha-operation.md`, sections 8 and 13) and the E2EE readiness contract (`docs/contracts/25-matrix-e2ee-readiness.md`) for full posture details.
 
