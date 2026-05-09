@@ -1,0 +1,357 @@
+"""Fake LXMF adapter for testing.
+
+:class:`FakeLxmfAdapter` simulates an LXMF transport adapter
+without any real Reticulum or LXMF dependency.  It mirrors the real
+:class:`~medre.adapters.lxmf.adapter.LxmfAdapter` and is
+intended solely for use in unit and integration tests.
+
+Capabilities
+------------
+* text messaging with title support
+* metadata fields via LXMF fields dict
+* no replies, reactions, edits, deletes, attachments, or delivery receipts
+* packet classification and codec decoding (via real classifier + codec)
+
+Usage
+-----
+>>> config = LxmfConfig(adapter_id="test_lxmf")
+>>> adapter = FakeLxmfAdapter(config)
+>>> await adapter.start(ctx)
+>>> # Simulate an inbound LXMF text message
+>>> event = adapter.make_text_event("Hello from LXMF!")
+>>> await adapter.simulate_inbound(packet_dict)
+>>> # Deliver an outbound rendered payload
+>>> delivery = await adapter.deliver(result)
+>>> assert adapter.delivered_payloads
+"""
+from __future__ import annotations
+
+import hashlib
+from typing import Any
+
+from medre.adapters.base import (
+    AdapterCapabilities,
+    AdapterContext,
+    AdapterDeliveryResult,
+    AdapterInfo,
+    AdapterRole,
+    BaseAdapter,
+)
+from medre.adapters.lxmf.codec import LxmfCodec
+from medre.adapters.lxmf.config import LxmfConfig
+from medre.adapters.lxmf.errors import LxmfSendError
+from medre.adapters.lxmf.packet_classifier import LxmfPacketClassifier
+from medre.core.events.canonical import CanonicalEvent
+from medre.core.rendering.renderer import RenderingResult
+
+
+class FakeLxmfClient:
+    """Deterministic fake LXMF client for testing outbound delivery.
+
+    Tracks every ``send_text`` call and returns sequential message IDs
+    (SHA-256 hex of a counter) so that tests can assert on deterministic
+    native IDs.
+
+    Attributes
+    ----------
+    sent_packets:
+        List of dicts for each sent packet.
+    sent_count:
+        Number of packets sent.
+    """
+
+    def __init__(self) -> None:
+        self._next_id: int = 1
+        self.sent_packets: list[dict[str, Any]] = []
+        self.sent_count: int = 0
+
+    async def send_text(
+        self,
+        text: str,
+        title: str = "",
+        fields: dict | None = None,
+        destination_hash: str = "",
+    ) -> dict[str, Any]:
+        """Send a text message and return a deterministic message ID.
+
+        Parameters
+        ----------
+        text:
+            The text payload.
+        title:
+            Optional message title.
+        fields:
+            Optional fields dict.
+        destination_hash:
+            Destination address hash.
+
+        Returns
+        -------
+        dict
+            ``{"message_id": <hex string>}`` with a deterministic SHA-256
+            based ID derived from the sequential counter.
+        """
+        counter = self._next_id
+        self._next_id += 1
+        # Generate deterministic hex ID that looks like a real SHA-256 hash
+        raw = f"lxmf-fake-{counter}".encode()
+        message_id = hashlib.sha256(raw).hexdigest()
+
+        self.sent_packets.append({
+            "text": text,
+            "title": title,
+            "fields": fields,
+            "destination_hash": destination_hash,
+            "message_id": message_id,
+            "counter": counter,
+        })
+        self.sent_count += 1
+        return {"message_id": message_id}
+
+
+# Default capabilities for the fake LXMF adapter.
+_FAKE_LXMF_CAPABILITIES = AdapterCapabilities(
+    text=True,
+    title=True,
+    replies="unsupported",
+    reactions="unsupported",
+    edits="unsupported",
+    deletes="unsupported",
+    attachments=False,
+    metadata_fields=True,
+    delivery_receipts=False,
+    store_and_forward=False,
+    direct_messages=True,
+    max_text_bytes=None,
+    max_text_chars=16384,
+)
+
+
+class FakeLxmfAdapter(BaseAdapter):
+    """Simulated LXMF transport adapter for testing.
+
+    **Rendering Boundary**: this adapter consumes :class:`RenderingResult`
+    objects and must **not** contain event-kind-specific formatting logic.
+    All rendering is performed upstream by renderers; the adapter merely
+    stores and delivers the pre-rendered payload.
+
+    Stores every outbound event delivered via :meth:`deliver` and every
+    inbound event published via :meth:`simulate_inbound` in public lists
+    that test code can inspect.
+
+    Parameters
+    ----------
+    config:
+        A :class:`LxmfConfig` instance.  Defaults to a fake config.
+
+    Attributes
+    ----------
+    delivered_payloads:
+        :class:`RenderingResult` payloads stored for test inspection.
+    inbound_events:
+        Events published inbound via :meth:`simulate_inbound`.
+    ctx:
+        The :class:`AdapterContext` injected by :meth:`start`, or
+        ``None`` if the adapter has not been started.
+    """
+
+    adapter_id: str
+    platform: str = "fake_lxmf"
+    role: AdapterRole = AdapterRole.TRANSPORT
+
+    def __init__(
+        self,
+        config: LxmfConfig | None = None,
+    ) -> None:
+        if config is None:
+            config = LxmfConfig(adapter_id="fake_lxmf")
+        self._config = config
+        self.adapter_id = config.adapter_id
+        self.ctx: AdapterContext | None = None
+        self.delivered_payloads: list[RenderingResult] = []
+        self.inbound_events: list[CanonicalEvent] = []
+        self._started: bool = False
+        self._codec = LxmfCodec(config.adapter_id, config)
+        self._classifier = LxmfPacketClassifier(config)
+        self._fake_client = FakeLxmfClient()
+        self._deliver_failure: bool = False
+
+    @property
+    def fake_client(self) -> FakeLxmfClient:
+        """The underlying fake client for test inspection."""
+        return self._fake_client
+
+    def set_deliver_failure(self, fail: bool = True) -> None:
+        """Configure the adapter to raise on the next ``deliver()`` call.
+
+        Useful for testing pipeline error handling.
+        """
+        self._deliver_failure = fail
+
+    # -- Lifecycle ----------------------------------------------------------
+
+    async def start(self, ctx: AdapterContext) -> None:
+        """Store the context and mark the adapter as started."""
+        self.ctx = ctx
+        self._started = True
+        ctx.logger.info("FakeLxmfAdapter %s started", self.adapter_id)
+
+    async def stop(self, timeout: float = 5.0) -> None:
+        """Mark the adapter as stopped."""
+        self._started = False
+        if self.ctx is not None:
+            self.ctx.logger.info(
+                "FakeLxmfAdapter %s stopped", self.adapter_id
+            )
+
+    async def health_check(self) -> AdapterInfo:
+        """Return a healthy :class:`AdapterInfo` snapshot."""
+        return AdapterInfo(
+            adapter_id=self.adapter_id,
+            platform=self.platform,
+            role=self.role,
+            version="0.1.0",
+            capabilities=_FAKE_LXMF_CAPABILITIES,
+            health="healthy" if self._started else "unknown",
+        )
+
+    # -- Outbound delivery --------------------------------------------------
+
+    async def deliver(self, result: RenderingResult) -> AdapterDeliveryResult | None:
+        """Accept an outbound rendered payload for delivery.
+
+        This adapter consumes :class:`RenderingResult` only.  Passing a
+        raw :class:`CanonicalEvent` raises :class:`TypeError`, enforcing
+        the rendering boundary at the adapter level.
+
+        Uses the internal :class:`FakeLxmfClient` to generate
+        deterministic message IDs.
+
+        Parameters
+        ----------
+        result:
+            The rendering result to deliver.
+
+        Returns
+        -------
+        AdapterDeliveryResult
+            Contains the deterministic native_message_id from the fake
+            client.
+
+        Raises
+        ------
+        TypeError
+            If *result* is not a :class:`RenderingResult`.
+        LxmfSendError
+            If ``set_deliver_failure(True)`` was called.
+        """
+        if not isinstance(result, RenderingResult):
+            raise TypeError(
+                f"FakeLxmfAdapter.deliver() accepts RenderingResult only, "
+                f"got {type(result).__name__}. Use simulate_inbound() for "
+                f"the inbound path."
+            )
+
+        if self._deliver_failure:
+            raise LxmfSendError("FakeLxmfAdapter: simulated send failure")
+
+        self.delivered_payloads.append(result)
+
+        text = str(result.payload.get("text", ""))
+        title = str(result.payload.get("title", ""))
+        fields = result.payload.get("fields")
+        dest_hash = str(result.payload.get("destination_hash", ""))
+
+        send_result = await self._fake_client.send_text(
+            text=text,
+            title=title,
+            fields=fields if isinstance(fields, dict) else None,
+            destination_hash=dest_hash,
+        )
+        message_id = send_result["message_id"]
+
+        return AdapterDeliveryResult(
+            native_message_id=message_id,
+            native_channel_id=None,
+        )
+
+    # -- Inbound simulation -------------------------------------------------
+
+    async def simulate_inbound(self, packet: dict[str, Any]) -> None:
+        """Simulate an inbound LXMF message payload.
+
+        Classifies, decodes, and publishes the packet through the same
+        path as a real inbound packet.
+
+        Parameters
+        ----------
+        packet:
+            Raw LXMF message payload dict.
+
+        Raises
+        ------
+        RuntimeError
+            If the adapter has not been started yet.
+        """
+        if self.ctx is None:
+            raise RuntimeError(
+                f"Adapter {self.adapter_id!r} has not been started; "
+                "call start() before simulate_inbound()."
+            )
+
+        classification = self._classifier.classify(packet)
+        if classification["category"] != "text":
+            return
+        if classification["is_ack"]:
+            return
+
+        canonical = self._codec.decode(packet)
+        await self.ctx.publish_inbound(canonical)
+        self.inbound_events.append(canonical)
+
+    # -- Test helpers -------------------------------------------------------
+
+    def make_text_event(
+        self,
+        body: str = "hello",
+        source_hash: str = "ab" * 16,
+        msg_id: str | None = None,
+        title: str = "",
+    ) -> CanonicalEvent:
+        """Create a minimal :class:`CanonicalEvent` from LXMF-like
+        packet data by constructing a fake packet and decoding it.
+
+        Parameters
+        ----------
+        body:
+            Body text for the event payload.
+        source_hash:
+            Sender source_hash hex string.
+        msg_id:
+            Message ID hex string.
+        title:
+            Optional message title.
+
+        Returns
+        -------
+        CanonicalEvent
+            A ready-to-publish canonical event.
+        """
+        packet: dict[str, Any] = {
+            "content": body,
+            "source_hash": source_hash,
+            "destination_hash": "00" * 16,
+            "message_id": msg_id or "ff" * 32,
+            "timestamp": 1700000000.0,
+            "title": title,
+            "fields": {},
+            "signature_validated": True,
+            "has_fields": False,
+        }
+        return self._codec.decode(packet)
+
+    @property
+    def is_started(self) -> bool:
+        """Whether :meth:`start` has been called without a corresponding
+        :meth:`stop`."""
+        return self._started
