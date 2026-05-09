@@ -1,7 +1,7 @@
 # Matrix Adapter Tranche 1: Protocol-Native Boundary Validation
 
-> Contract version: 1
-> Last updated: 2026-05-08
+> Contract version: 2
+> Last updated: 2026-05-09
 
 
 ## Overview
@@ -26,6 +26,22 @@ Matrix capabilities in tranche 1 are limited to text message reception and reply
 - **Deterministic failure injection.** The fake adapter supports controlled failure modes for hardening tests.
 
 
+### Lifecycle Hardening (Tranche 2)
+
+MatrixAdapter lifecycle was hardened for deterministic startup/shutdown:
+
+- **Authentication verification.** After `restore_login`, the adapter checks `AsyncClient.logged_in`. If the client did not authenticate, the adapter closes the connection and raises `MatrixConnectionError`. This prevents silent failures where the adapter appears to start but never connects.
+- **Sync task resilience.** The `sync_forever` task creation is wrapped in `try/except`. If task creation fails (e.g., no running event loop), the adapter cleans up the client and raises `MatrixConnectionError` with the underlying cause.
+- **Idempotent stop.** `stop()` is safe to call multiple times, before `start()`, or after a failed `start()`. All client operations are guarded with `except Exception: pass` to prevent partial-cleanup crashes. The sync task cancellation uses `asyncio.wait_for` with the adapter's timeout to prevent hangs.
+- **Health reporting.** `health_check()` returns `"unknown"` when no client exists, `"healthy"` when the client is logged in, and `"failed"` when the client exists but `logged_in` is false.
+- **Mock-based lifecycle tests.** 16 dedicated tests in `tests/test_matrix_lifecycle.py` exercise all start/stop/health edge cases using mock nio objects. No real Matrix server or nio installation required.
+  - `TestMatrixAdapterStart` (5 tests): successful client creation, event callback registration, missing-nio error, login failure, sync failure.
+  - `TestMatrixAdapterStop` (4 tests): sync task cancellation, double-stop idempotency, stop-before-start, client close.
+  - `TestMatrixAdapterHealthCheck` (4 tests): unknown/healthy/failed states across lifecycle.
+  - `TestMatrixAdapterRestart` (1 test): full start->stop->start cycle.
+  - `TestMatrixAdapterLifecycleEdgeCases` (2 tests): no orphaned tasks, stop after failed start.
+
+
 ## Architecture Boundaries
 
 These boundaries are enforced by design, not by convention. Tests verify them.
@@ -41,6 +57,82 @@ These boundaries are enforced by design, not by convention. Tests verify them.
 - The metadata envelope is secondary. Storage is the system of record.
 - `RoomSendResponse.event_id` from `nio` is the sole source of truth for outbound Matrix native correlation. No synthetic or locally-generated IDs are used as native refs.
 - `FakeMatrixAdapter.deliver()` accepts `RenderingResult`, not raw `CanonicalEvent`. Inbound simulation goes through `simulate_inbound(CanonicalEvent)`.
+
+
+## Fixture Coverage (Tranche 2)
+
+A centralized fixture module was added at `tests/fixtures/matrix_packets.py` providing factory functions for duck-typed nio event and response objects. These factories require no `nio` import and are shared across Matrix test modules.
+
+Available factories:
+
+| Factory | Produces |
+|---------|----------|
+| `make_room_message` | Duck-typed `RoomMessageText` with `.sender`, `.event_id`, `.body`, `.source` |
+| `make_reply_event` | Room message with `m.in_reply_to` in content |
+| `make_self_message` | Room message where `sender` matches the bot user |
+| `make_notice_message` | Duck-typed `RoomMessageNotice` (`msgtype="m.notice"`) |
+| `make_emote_message` | Duck-typed `RoomMessageEmote` (`msgtype="m.emote"`) |
+| `make_medre_envelope_message` | Room message with valid MEDRE envelope |
+| `make_corrupt_envelope_message` | Room message with malformed envelope (string, not dict) |
+| `make_room` | Duck-typed `MatrixRoom` with `.room_id` |
+| `make_room_send_response` | Duck-typed `RoomSendResponse` with `.event_id` |
+| `make_room_send_error` | nio error response stand-in (no `.event_id`, `__str__` returns error message) |
+
+All factories use `SimpleNamespace` or minimal classes. No mocks, no patches, no nio imports. The module style matches existing fixture files (`meshtastic_packets.py`, `lxmf_packets.py`, `meshcore_packets.py`).
+
+
+## Live Test Harness (Tranche 2)
+
+A skipped-by-default live test harness was added at `tests/test_matrix_live.py` for optional real-homeserver validation.
+
+**Default behavior.** Live tests are excluded from the default pytest run via:
+
+.. code-block:: toml
+
+    [tool.pytest.ini_options]
+    markers = [
+        "live: tests that connect to a real Matrix homeserver (skipped by default)",
+    ]
+    addopts = "-m 'not live'"
+
+**Running live tests.** Set the required environment variables and use the `live` marker:
+
+.. code-block:: bash
+
+    export MATRIX_HOMESERVER="https://matrix.example.com"
+    export MATRIX_USER_ID="@bot:example.com"
+    export MATRIX_ACCESS_TOKEN="...your token..."
+    export MATRIX_ROOM_ID="!room:example.com"
+    pip install medre[matrix]
+    pytest tests/test_matrix_live.py -m live -v
+
+If any variable is unset, all live tests skip cleanly with a descriptive message.
+
+**Available tests:**
+
+- `test_connect_and_start` -- connects to the homeserver, verifies `health_check()` returns `"healthy"` and `platform == "matrix"`.
+- `test_send_text_message` -- delivers an `m.text` message via the Matrix adapter, asserts the returned `event_id` starts with `$` (Matrix event ID convention).
+
+**Quick-start with local Synapse:**
+
+.. code-block:: bash
+
+    docker run -d --name synapse -p 8008:8008 \
+      -e SYNAPSE_SERVER_NAME=localhost \
+      -e SYNAPSE_REPORT_STATS=no \
+      matrixdotorg/synapse:latest
+    # Register a bot user and obtain access token
+    docker exec synapse register_new_matrix_user \
+      -u bot -p secret -c /data/homeserver.yaml http://localhost:8008
+    curl -X POST -d '{"type":"m.login.password","user":"bot","password":"secret"}' \
+      http://localhost:8008/_matrix/client/v3/login
+    export MATRIX_HOMESERVER="http://localhost:8008"
+    export MATRIX_USER_ID="@bot:localhost"
+    export MATRIX_ACCESS_TOKEN="<access_token>"
+    export MATRIX_ROOM_ID="!room:localhost"
+    pytest tests/test_matrix_live.py -m live -v
+
+**Known limitations documented in the module docstring:** no E2EE, no reactions/edits/deletes/attachments, no production credential storage, no admin API.
 
 
 ## Operational Safety
@@ -141,6 +233,9 @@ The pipeline owns all receipt and persistence logic. Adapters transport messages
 - **Pipeline integration.** Tests combine `FakeMatrixAdapter` with `SQLiteStorage` to exercise the full decode/store/render/deliver path.
 - **Boundary verification.** Tests assert that core imports don't leak into the adapter package, and that the adapter doesn't import routing or planning modules.
 - **Optional dependency.** `mindroom-nio` is guarded by a `HAS_NIO` compat flag. Core tests pass without it installed.
+- **Lifecycle tests.** `tests/test_matrix_lifecycle.py` covers start/stop/health edge cases with mock nio objects. 16 tests, no real server required.
+- **Centralised fixtures.** `tests/fixtures/matrix_packets.py` provides reusable duck-typed nio event/response factories across all Matrix test modules.
+- **Live test harness.** `tests/test_matrix_live.py` provides optional real-homeserver validation, skipped by default. Run with `pytest -m live`.
 
 
 ## Dependency
@@ -176,3 +271,5 @@ These are explicitly out of scope for tranche 1:
 - Broad plugin ecosystem expansion
 - Live Synapse integration tests. All testing uses `FakeMatrixAdapter` and in-memory storage. No test requires a running Synapse homeserver.
 - Self-message suppression bypass or selective echo. The sender check is unconditional for matched senders. There is no configuration to disable or selectively allow self-echoes.
+- Reconnect logic or automatic recovery from sync disconnection
+- E2EE key management or encrypted room participation
