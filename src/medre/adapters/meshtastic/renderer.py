@@ -5,10 +5,21 @@ Meshtastic-ready content payloads (dicts with ``text``, ``channel_index``,
 and optional ``meshnet_name``).
 
 This renderer is owned by the Meshtastic adapter package and is registered
-with the rendering pipeline.  Renderer selection dispatches when the
-``target_adapter`` starts with ``"meshtastic"`` (convention) **or** is in
-the set of *known_adapters* passed at construction (preferred for
-realistic adapter IDs like ``"local-radio"`` or ``"garage-mesh"``).
+with the rendering pipeline.
+
+The renderer supports three selection strategies, checked in order:
+
+1. **Platform match** — when the rendering pipeline's platform registry
+   is populated, it passes the target adapter's platform (``"meshtastic"``)
+   to ``can_render``.  This is the primary selection path.
+
+2. **Adapter-name prefix** — ``target_adapter.startswith("meshtastic")``
+   serves as a simple convention-based fallback when the platform registry
+   is not populated.
+
+3. **Explicit adapter IDs** — the ``known_adapters`` constructor set allows
+   realistic adapter IDs like ``"local-radio"`` to be matched without
+   requiring a ``"meshtastic"`` name prefix.
 
 **Tranche 1 scope**: text messages only.  Length-limit enforcement is
 noted but not applied; full enforcement is deferred to a later tranche.
@@ -25,28 +36,20 @@ class MeshtasticRenderer:
     Produces content dicts with ``text``, ``channel_index``, and optional
     ``meshnet_name``.
 
-    Renderer selection is **not** based solely on adapter ID prefix.
-    A set of known Meshtastic adapter IDs can be passed at construction
-    time via *known_adapters*.  ``can_render`` matches if the target
-    adapter starts with ``"meshtastic"`` **or** is in the explicit set.
-    This avoids forcing realistic adapter IDs like ``"local-radio"`` or
-    ``"garage-mesh"`` to use an artificial prefix.
-
-    .. todo::
-        Long-term renderer selection should be driven by adapter registry
-        or platform identity, not ad-hoc ``known_adapters`` sets passed
-        to renderer constructors.  Adapter IDs should not need naming
-        conventions.  The current explicit known-adapter registration is
-        a tranche-1 mechanism that should be replaced before adding
-        MeshCore/LXMF support.
-
     Parameters
     ----------
     known_adapters:
         Optional set of adapter IDs that this renderer should handle.
+        Useful for realistic IDs like ``"local-radio"`` that do not
+        start with the ``"meshtastic"`` prefix.
     """
 
     name: str = "meshtastic"
+    """Platform name this renderer handles (used by the rendering pipeline
+    when platform registry is available)."""
+
+    _PLATFORM: str = "meshtastic"
+    """Internal platform identifier for matching via ``target_platform``."""
 
     def __init__(self, known_adapters: set[str] | None = None) -> None:
         self._known_adapters: set[str] = known_adapters or set()
@@ -55,14 +58,21 @@ class MeshtasticRenderer:
     # Capability check
     # ------------------------------------------------------------------
 
-    def can_render(self, event: CanonicalEvent, target_adapter: str) -> bool:
+    def can_render(
+        self,
+        event: CanonicalEvent,
+        target_adapter: str,
+        target_platform: str | None = None,
+    ) -> bool:
         """Return ``True`` when *target_adapter* is a Meshtastic target.
 
-        A target is considered Meshtastic when:
+        Three selection strategies are checked in order (first match wins):
 
-        * its ID starts with ``"meshtastic"`` (convention), **or**
-        * its ID is in the *known_adapters* set passed at construction
-          (preferred for realistic IDs).
+        1. **Platform match** — ``target_platform == "meshtastic"``.
+        2. **Adapter-name prefix** — ``target_adapter`` starts with
+           ``"meshtastic"``.
+        3. **Explicit adapter IDs** — ``target_adapter`` is in the
+           ``known_adapters`` set passed at construction.
 
         Parameters
         ----------
@@ -70,13 +80,20 @@ class MeshtasticRenderer:
             The canonical event to check (not used for discrimination).
         target_adapter:
             Name of the target adapter.
+        target_platform:
+            Platform name of the target adapter.  ``None`` when the
+            pipeline registry is not populated.
 
         Returns
         -------
         bool
             Whether this renderer handles events for the given adapter.
         """
-        return target_adapter.startswith("meshtastic") or target_adapter in self._known_adapters
+        if target_platform == self._PLATFORM:
+            return True
+        if target_adapter.startswith("meshtastic"):
+            return True
+        return target_adapter in self._known_adapters
 
     # ------------------------------------------------------------------
     # Rendering

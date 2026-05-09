@@ -35,8 +35,19 @@ class MatrixRenderer:
     # Capability check
     # ------------------------------------------------------------------
 
-    def can_render(self, event: CanonicalEvent, target_adapter: str) -> bool:
-        """Return ``True`` when *target_adapter* starts with ``"matrix"``.
+    def can_render(
+        self,
+        event: CanonicalEvent,
+        target_adapter: str,
+        target_platform: str | None = None,
+    ) -> bool:
+        """Return ``True`` when *target_adapter* is a Matrix target.
+
+        Selection order (first match wins):
+
+        1. **Platform match** — ``target_platform == "matrix"``.
+        2. **Adapter-name prefix** — ``target_adapter`` starts with
+           ``"matrix"`` (backward compatibility).
 
         Parameters
         ----------
@@ -44,12 +55,17 @@ class MatrixRenderer:
             The canonical event to check (not used for discrimination).
         target_adapter:
             Name of the target adapter.
+        target_platform:
+            Platform name of the target adapter.  ``None`` when the
+            pipeline registry is not populated.
 
         Returns
         -------
         bool
             Whether this renderer handles events for the given adapter.
         """
+        if target_platform == "matrix":
+            return True
         return target_adapter.startswith("matrix")
 
     # ------------------------------------------------------------------

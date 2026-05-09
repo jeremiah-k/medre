@@ -229,10 +229,34 @@ class PipelineRunner:
         """Register pipeline middleware with the event bus.
 
         Call this before any adapter calls :attr:`ingress_handler`.
+
+        On startup the runner populates the rendering pipeline's platform
+        registry from the configured adapters so that renderer selection
+        can use platform identity rather than adapter-name heuristics.
         """
         self._middleware = _PipelineLoggingMiddleware()
         self._config.event_bus.add_middleware(self._middleware, priority=100)
+
+        # Populate the rendering pipeline's platform registry from the
+        # configured adapters so that transport-specific renderers can
+        # match on platform identity instead of adapter-name prefixes
+        # or ad-hoc known-adapters sets.
+        self._populate_renderer_platforms()
+
         self._log.info("PipelineRunner started")
+
+    def _populate_renderer_platforms(self) -> None:
+        """Register each adapter's platform with the rendering pipeline."""
+        platforms: dict[str, str] = {}
+        for adapter_id, adapter in self._config.adapters.items():
+            platform = getattr(adapter, "platform", None)
+            if platform and isinstance(platform, str):
+                platforms[adapter_id] = platform
+        if platforms:
+            self._rendering_pipeline.register_platforms_from(platforms)
+            self._log.debug(
+                "Populated rendering pipeline platform registry: %s", platforms
+            )
 
     async def stop(self) -> None:
         """Remove pipeline middleware from the event bus.
@@ -739,9 +763,17 @@ class PipelineRunner:
             ) from None
 
         # Render the event into a RenderingResult before adapter delivery.
+        # Pass the adapter's platform so renderers can match on platform
+        # identity instead of adapter-name heuristics.
+        target_platform = getattr(adapter, "platform", None)
+        if isinstance(target_platform, str):
+            platform_param: str | None = target_platform
+        else:
+            platform_param = None
         try:
             rendering_result = await self._rendering_pipeline.render(
                 event, adapter_id or "", target.channel,
+                target_platform=platform_param,
             )
         except Exception as exc:
             rendering_error = f"Rendering failed: {type(exc).__name__}: {exc}"

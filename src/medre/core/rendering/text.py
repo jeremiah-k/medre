@@ -33,16 +33,27 @@ class TextRenderer:
     # Capability check
     # ------------------------------------------------------------------
 
-    def can_render(self, event: CanonicalEvent, target_adapter: str) -> bool:
+    def can_render(
+        self,
+        event: CanonicalEvent,
+        target_adapter: str,
+        target_platform: str | None = None,
+    ) -> bool:
         """Return ``True`` for event kinds that have a plain-text representation.
+
+        This renderer is platform-agnostic — it handles events based on
+        event kind, not target adapter identity.  The *target_adapter* and
+        *target_platform* parameters are accepted for protocol compatibility
+        but are not used for discrimination.
 
         Parameters
         ----------
         event:
             The canonical event to check.
         target_adapter:
-            Name of the target adapter (not used for capability
-            discrimination in this renderer).
+            Name of the target adapter (not used for discrimination).
+        target_platform:
+            Platform name (not used for discrimination).
 
         Returns
         -------

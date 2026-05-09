@@ -5,10 +5,31 @@ MeshCore-ready content payloads (dicts with ``text``, ``channel_index``,
 and optional ``meshnet_name``).
 
 This renderer is owned by the MeshCore adapter package and is registered
-with the rendering pipeline.  Renderer selection dispatches when the
-``target_adapter`` starts with ``"meshcore"`` (convention) **or** is in
-the set of *known_adapters* passed at construction (preferred for
-realistic adapter IDs like ``"local-radio"`` or ``"garage-mesh"``).
+with the rendering pipeline.
+
+Three selection strategies are available (checked in order, first match
+wins):
+
+**Platform match**
+
+When the rendering pipeline's platform registry is populated, the pipeline
+passes the target adapter's platform (``"meshcore"``) to ``can_render``.
+The renderer matches on this platform string directly, independent of the
+adapter's instance ID.  Realistic IDs like ``"local-radio"`` work without
+naming conventions.
+
+**Adapter-name prefix**
+
+When ``target_platform`` is ``None``, the renderer checks whether
+``target_adapter.startswith("meshcore")``.  This is useful for adapters
+whose IDs follow the platform naming convention.
+
+**Explicit adapter IDs (``known_adapters``)**
+
+The ``known_adapters`` constructor accepts a set of adapter IDs that this
+renderer should handle regardless of naming convention.  This supports
+realistic IDs like ``"local-radio"`` that do not start with the
+``"meshcore"`` prefix.
 
 **Tranche 1 scope**: text messages only.  Length-limit enforcement is
 noted but not applied; full enforcement is deferred to a later tranche.
@@ -25,27 +46,23 @@ class MeshCoreRenderer:
     Produces content dicts with ``text``, ``channel_index``, and optional
     ``meshnet_name``.
 
-    Renderer selection is **not** based solely on adapter ID prefix.
-    A set of known MeshCore adapter IDs can be passed at construction
-    time via *known_adapters*.  ``can_render`` matches if the target
-    adapter starts with ``"meshcore"`` **or** is in the explicit set.
-    This avoids forcing realistic adapter IDs like ``"local-radio"`` or
-    ``"garage-mesh"`` to use an artificial prefix.
-
-    .. todo::
-        Long-term renderer selection should be driven by adapter registry
-        or platform identity, not ad-hoc ``known_adapters`` sets passed
-        to renderer constructors.  Adapter IDs should not need naming
-        conventions.  The current explicit known-adapter registration is
-        a tranche-1 mechanism.
+    Three selection strategies are supported: platform match, adapter-name
+    prefix, and explicit adapter IDs.  See module docstring for details.
 
     Parameters
     ----------
     known_adapters:
         Optional set of adapter IDs that this renderer should handle.
+        Useful for realistic IDs like ``"local-radio"`` that do not start
+        with the ``"meshcore"`` prefix.
     """
 
     name: str = "meshcore"
+    """Platform name this renderer handles (used by the rendering pipeline
+    when platform registry is available)."""
+
+    _PLATFORM: str = "meshcore"
+    """Internal platform identifier for matching via ``target_platform``."""
 
     def __init__(self, known_adapters: set[str] | None = None) -> None:
         self._known_adapters: set[str] = known_adapters or set()
@@ -54,14 +71,21 @@ class MeshCoreRenderer:
     # Capability check
     # ------------------------------------------------------------------
 
-    def can_render(self, event: CanonicalEvent, target_adapter: str) -> bool:
+    def can_render(
+        self,
+        event: CanonicalEvent,
+        target_adapter: str,
+        target_platform: str | None = None,
+    ) -> bool:
         """Return ``True`` when *target_adapter* is a MeshCore target.
 
-        A target is considered MeshCore when:
+        Three selection strategies are checked in order (first match wins):
 
-        * its ID starts with ``"meshcore"`` (convention), **or**
-        * its ID is in the *known_adapters* set passed at construction
-          (preferred for realistic IDs).
+        1. **Platform match** — ``target_platform == "meshcore"``.
+        2. **Adapter-name prefix** — ``target_adapter`` starts with
+           ``"meshcore"``.
+        3. **Known adapters** — ``target_adapter`` is in the explicit set
+           passed at construction.
 
         Parameters
         ----------
@@ -69,13 +93,23 @@ class MeshCoreRenderer:
             The canonical event to check (not used for discrimination).
         target_adapter:
             Name of the target adapter.
+        target_platform:
+            Platform name of the target adapter.  ``None`` when the
+            pipeline registry is not populated.
 
         Returns
         -------
         bool
             Whether this renderer handles events for the given adapter.
         """
-        return target_adapter.startswith("meshcore") or target_adapter in self._known_adapters
+        # Strategy 1: platform match.
+        if target_platform == self._PLATFORM:
+            return True
+        # Strategy 2: adapter-name prefix.
+        if target_adapter.startswith("meshcore"):
+            return True
+        # Strategy 3: explicit known-adapters set.
+        return target_adapter in self._known_adapters
 
     # ------------------------------------------------------------------
     # Rendering

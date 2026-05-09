@@ -104,3 +104,37 @@ MEDRE doesn't track delivery confirmation in tranche 1. When it does, the abstra
 - Any implicit assumption that `native_message_id` is always a single scalar value. MeshCore's send result bundles `expected_ack` and `suggested_timeout` alongside the timestamp ID. The adapter can extract the timestamp as the ID, but future delivery tracking may need the richer structure.
 
 The short version: MEDRE's core abstractions are solid and genuinely protocol-neutral. The one real leak is in relation semantics, where the model assumes a protocol-level reply reference exists. Making relations capability-gated fixes this without breaking anything for Matrix or Meshtastic.
+
+---
+
+## Current-State Resolution
+
+**Status:** Stabilized in this tranche (Tracks 1, 3, 4)
+**Date:** 2026-05-08
+
+### What was stabilized
+
+The platform identity audit (documented in the companion file `12-adapter-platform-identity.md`) identified three concrete problems with how adapter identity, renderer selection, and cross-transport semantics interacted. All three are now resolved or mitigated.
+
+**Renderer selection uses platform identity.** The `RenderingPipeline` maintains an `adapter_platforms` registry that maps adapter IDs to platform names (e.g., `"local-radio"` to `"meshtastic"`). At render time, the pipeline resolves the platform from the registry and passes it to each renderer's `can_render()` as `target_platform`. Renderers match on the platform string directly, independent of the adapter instance name. This breaks the coupling between adapter naming conventions and renderer dispatch.
+
+**Adapter-name prefixes and known_adapters are now fallbacks only.** The three-tier `can_render()` dispatch (platform match, then prefix match, then known_adapters set) still exists for backward compatibility, but the platform match is always tried first. In production paths where the registry is populated, the prefix and known_adapters fallbacks are never reached. Tests that don't populate the registry still work via the fallback tiers. No existing test broke during this change.
+
+**Transport-family semantic differences are now documented.** Section 6 of the companion audit covers message graph richness, reply semantics, native ref types, actor identity, addressing models, delivery expectations, constrained payloads, and pacing ownership across all three adapter families. The capability-gated relation model for MeshCore is identified as the one real abstraction leak.
+
+### Remaining identity pressure for future tranches
+
+The audit documents four identity categories that are currently conflated into `source_transport_id` and `NativeMetadata.data`:
+
+1. **Transport-local identity** (MXID, node number, pubkey) carried as untyped strings
+2. **Canonical actor identity** via `IdentityResolver`, which works but ties resolution to adapter instances rather than platforms
+3. **Cryptographic identity** (MeshCore Ed25519), which exists in the protocol but MEDRE ignores, leaving all actors as `UNVERIFIED`
+4. **Presentation identity** (display names, avatars), captured at observation time but never updated
+
+These aren't problems today. They're documented as pressure points that will need attention when cross-protocol identity linking or cryptographic verification become requirements.
+
+### Three-transport diversity is sufficient
+
+With Matrix (presentation), Meshtastic (constrained transport), and MeshCore (constrained transport) all implemented, the architecture has enough diversity to validate its protocol-neutral claims. The abstractions that are genuinely protocol-neutral hold across all three. The abstractions that leak (relation semantics, single-scalar native_message_id) are now identified and documented.
+
+Adding a fourth transport (LXMF, MQTT, AX.25) would stress-test the same seams but wouldn't reveal new categories of problems. The three-transport coverage is enough to be confident in the architecture's neutrality bounds.

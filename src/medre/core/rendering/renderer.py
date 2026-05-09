@@ -84,6 +84,15 @@ class Renderer(Protocol):
     A renderer converts a :class:`CanonicalEvent` into a
     :class:`RenderingResult` suitable for a particular adapter.  Renderers
     **must not** mutate the original event.
+
+    **Platform-aware dispatch**
+
+    When ``target_platform`` is provided (via the rendering pipeline's
+    platform registry), renderers should prefer checking it over adapter
+    name heuristics such as ``target_adapter.startswith(...)`` or
+    ``known_adapters`` sets.  The platform string is the authoritative
+    identifier — adapter IDs are routing identifiers and should not be
+    overloaded with platform semantics.
     """
 
     @property
@@ -91,8 +100,25 @@ class Renderer(Protocol):
         """Renderer identifier."""
         ...
 
-    def can_render(self, event: CanonicalEvent, target_adapter: str) -> bool:
-        """Return ``True`` if this renderer can handle *event* for *target_adapter*."""
+    def can_render(
+        self,
+        event: CanonicalEvent,
+        target_adapter: str,
+        target_platform: str | None = None,
+    ) -> bool:
+        """Return ``True`` if this renderer can handle *event* for *target_adapter*.
+
+        Parameters
+        ----------
+        event:
+            The canonical event to check.
+        target_adapter:
+            Name of the target adapter (routing identifier).
+        target_platform:
+            Platform name of the target adapter, or ``None`` if unknown.
+            Renderers should prefer checking this over adapter name
+            heuristics.
+        """
         ...
 
     async def render(
@@ -122,6 +148,18 @@ class RenderingPipeline:
     :meth:`Renderer.can_render`, then delegates to that renderer's
     :meth:`Renderer.render`.
 
+    **Platform registry**
+
+    The pipeline maintains an optional ``adapter_platforms`` mapping from
+        adapter ID to platform name (e.g. ``"local-radio"`` → ``"radio-alpha"``).
+    When populated, the pipeline passes the platform to each renderer's
+    ``can_render()``, enabling platform-aware dispatch without relying on
+    adapter-name prefixes or ad hoc ``known_adapters`` sets.
+
+    Populate the registry via :meth:`register_adapter_platform` or
+    :meth:`register_platforms_from`.  The pipeline runner automatically
+    populates it from adapter metadata on startup.
+
     Raises
     ------
     ValueError
@@ -131,6 +169,7 @@ class RenderingPipeline:
     def __init__(self) -> None:
         self._renderers: list[_PrioritisedRenderer] = []
         self._seq: int = 0
+        self._adapter_platforms: dict[str, str] = {}
 
     def register(self, renderer: Renderer, priority: int = 100) -> None:
         """Register a renderer.
@@ -147,11 +186,48 @@ class RenderingPipeline:
         # Stable sort: priority first, registration order breaks ties.
         self._renderers.sort(key=lambda t: (t[0], t[1]))
 
+    # -- Platform registry --------------------------------------------------
+
+    def register_adapter_platform(self, adapter_id: str, platform: str) -> None:
+        """Register a single adapter's platform.
+
+        Once registered, the pipeline passes the platform string to each
+        renderer's ``can_render()`` so that renderers can match on
+        platform identity rather than adapter-name heuristics.
+
+        Parameters
+        ----------
+        adapter_id:
+            The adapter instance ID (e.g. ``"local-radio"``).
+        platform:
+            The platform name (e.g. ``"radio-alpha"``, ``"radio-bravo"``).
+        """
+        self._adapter_platforms[adapter_id] = platform
+
+    def register_platforms_from(self, platforms: dict[str, str]) -> None:
+        """Register multiple adapter platforms at once.
+
+        Parameters
+        ----------
+        platforms:
+            Mapping of adapter ID to platform name.
+        """
+        self._adapter_platforms.update(platforms)
+
+    def get_platform(self, adapter_id: str) -> str | None:
+        """Return the platform name for *adapter_id*, or ``None`` if
+        not registered."""
+        return self._adapter_platforms.get(adapter_id)
+
+    # -- Rendering ----------------------------------------------------------
+
     async def render(
         self,
         event: CanonicalEvent,
         target_adapter: str,
         target_channel: str | None = None,
+        *,
+        target_platform: str | None = None,
     ) -> RenderingResult:
         """Try renderers in priority order until one can render.
 
@@ -163,6 +239,11 @@ class RenderingPipeline:
             Name of the target adapter.
         target_channel:
             Optional target channel / conversation.
+        target_platform:
+            Optional platform name of the target adapter.  When not
+            provided the pipeline looks up the adapter's platform from
+            its internal registry; if still unknown, ``None`` is passed
+            to renderers.
 
         Returns
         -------
@@ -174,8 +255,11 @@ class RenderingPipeline:
         ValueError
             If no registered renderer can handle the event.
         """
+        # Resolve platform from explicit param or internal registry.
+        platform = target_platform if target_platform is not None else self._adapter_platforms.get(target_adapter)
+
         for _pri, _seq, renderer in self._renderers:
-            if renderer.can_render(event, target_adapter):
+            if renderer.can_render(event, target_adapter, platform):
                 return await renderer.render(event, target_adapter, target_channel)
 
         raise ValueError(

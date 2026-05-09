@@ -1834,7 +1834,7 @@ class TestRendererDowngradeFallback:
 
             name = "failing"
 
-            def can_render(self, event, target_adapter):
+            def can_render(self, event, target_adapter, target_platform=None):
                 return True
 
             async def render(self, event, target_adapter, target_channel=None):
