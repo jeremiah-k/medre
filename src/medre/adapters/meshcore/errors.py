@@ -1,0 +1,45 @@
+"""MeshCore adapter exception hierarchy.
+
+All MeshCore-specific errors inherit from :class:`MeshCoreError` so that
+callers can catch the entire family with a single ``except MeshCoreError``
+clause.
+
+Hierarchy::
+
+    MeshCoreError
+    ├── MeshCoreConnectionError — connection failures
+    ├── MeshCoreSendError       — message send failures
+    ├── MeshCoreConfigError     — invalid configuration (also ValueError)
+    ├── MeshCoreCodecError      — encode / decode failures
+    └── MeshCorePacketError     — malformed or unparseable packets
+"""
+from __future__ import annotations
+
+
+class MeshCoreError(Exception):
+    """Base exception for all MeshCore adapter errors."""
+
+
+class MeshCoreConnectionError(MeshCoreError):
+    """Raised when the adapter cannot connect to a MeshCore node."""
+
+
+class MeshCoreSendError(MeshCoreError):
+    """Raised when a message send operation fails."""
+
+
+class MeshCoreConfigError(MeshCoreError, ValueError):
+    """Raised when the MeshCore configuration is invalid.
+
+    Inherits from both :class:`MeshCoreError` and :class:`ValueError` so
+    that it is caught by either ``except MeshCoreError`` or
+    ``except ValueError``.
+    """
+
+
+class MeshCoreCodecError(MeshCoreError):
+    """Raised when encode or decode operations fail."""
+
+
+class MeshCorePacketError(MeshCoreError):
+    """Raised when a packet is malformed or cannot be parsed."""

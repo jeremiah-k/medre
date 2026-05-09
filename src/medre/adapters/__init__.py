@@ -22,6 +22,8 @@ Re-exported symbols
   ``FakeMatrixAdapter``.
 * From :mod:`~medre.adapters.fake_meshtastic`:
   ``FakeMeshtasticAdapter``.
+* From :mod:`~medre.adapters.fake_meshcore`:
+  ``FakeMeshCoreAdapter``.
 """
 
 from medre.adapters.base import (
@@ -34,6 +36,7 @@ from medre.adapters.base import (
     BaseAdapter,
 )
 from medre.adapters.fake_matrix import FakeMatrixAdapter
+from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
 from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
 from medre.adapters.fake_presentation import (
     FakePresentationAdapter,
@@ -52,6 +55,7 @@ __all__ = [
     "BaseAdapter",
     # fake adapters
     "FakeMatrixAdapter",
+    "FakeMeshCoreAdapter",
     "FakeMeshtasticAdapter",
     "FakePresentationAdapter",
     "FakeTransportAdapter",
