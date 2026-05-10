@@ -108,7 +108,7 @@ Open Element, log in as the bot user, go to Settings, Help and About, and copy t
 
 Do not commit the token. Do not log the token. Do not paste it into chat. Set it as an environment variable and leave it there. The `MatrixConfig.__repr__` method redacts the token in log output, but you are responsible for not leaking it yourself.
 
-> **Note on E2EE.** Alpha authenticates with access tokens over plain HTTP(S). The `.[matrix]` extra installs the base `mindroom-nio` package (no crypto) — this is the recommended plaintext alpha. The `.[matrix-e2e]` extra installs `mindroom-nio[e2e]` with Olm/Megolm crypto libraries — use this for the E2EE text alpha. E2EE text alpha is now active: when installed with `.[matrix-e2e]` and configured with `store_path` and `device_id`, the adapter can operate in encrypted rooms (see section 13). Plaintext rooms work identically in both modes.
+> **Note on E2EE.** Alpha authenticates with access tokens over plain HTTP(S). The `.[matrix]` extra installs the base `mindroom-nio` package (no crypto) — this is the recommended plaintext alpha. The `.[matrix-e2e]` extra installs `mindroom-nio[e2e]` with Olm/Megolm crypto libraries — use this for the E2EE text alpha. E2EE text alpha is now active: when installed with `.[matrix-e2e]` and `encryption_mode` is set to `e2ee_required` or `e2ee_optional`, the adapter operates in encrypted rooms (see section 13). The adapter discovers its device ID via `whoami()` and derives an internal store path automatically — no operator configuration of `device_id` or `store_path` is required. Plaintext rooms work identically in both modes.
 
 
 ## 5. Room Setup
@@ -162,8 +162,6 @@ The runner reads all configuration from environment variables. The three require
 | `MATRIX_ACCESS_TOKEN` | Yes | | `syt_xxxxxxxxxxxxx` | Keep it secret |
 | `MATRIX_ROOM_ALLOWLIST` | No | (all rooms) | `!abc:localhost,!def:localhost` | Comma-separated room IDs. Unset or empty means all rooms are accepted. |
 | `MATRIX_ADAPTER_ID` | No | `matrix-alpha` | `my-adapter` | Adapter identifier used in logging and health checks. |
-| `MATRIX_DEVICE_ID` | No | | `DEVICEABC` | Device ID for the nio client session. |
-| `MATRIX_STORE_PATH` | No | | `/tmp/nio-store` | Filesystem path for the nio crypto/state store directory. |
 | `MATRIX_SYNC_TIMEOUT_MS` | No | `30000` | `60000` | Sync long-poll timeout in milliseconds. |
 | `MEDRE_DB_PATH` | No | `:memory:` | `/tmp/medre.db` | SQLite database path. Defaults to in-memory (lost on shutdown). |
 
@@ -233,35 +231,19 @@ The runner catches SIGINT and SIGTERM, signals the adapter to stop, then stops t
 If you do not see the startup lines above, check the troubleshooting section (section 14) for common configuration and connectivity errors.
 
 
-## 8. Crypto Store and Device Identity Posture
+## 8. Device Identity and Crypto Store (Internal)
 
-The Matrix adapter accepts two optional configuration fields that are critical when E2EE is enabled. In plaintext alpha mode they are safe to omit.
+The Matrix adapter manages device identity and crypto store paths internally. Operators do not configure `device_id` or `store_path`.
 
-### 8.1 Alpha (plaintext): store_path and device_id are optional
+**Device identity.** When the adapter starts with a non-plaintext `encryption_mode`, it calls the Matrix `whoami()` endpoint using the access token to discover the device ID associated with that token. No operator configuration is needed. The device ID is stable as long as the access token was created for the same device.
 
-| Field | Env var | Alpha behavior |
-|-------|---------|----------------|
-| `store_path` | `MATRIX_STORE_PATH` | **Optional.** If unset, nio operates without a persistent crypto store. Plaintext sync and send work normally. No session keys or device data are persisted. |
-| `device_id` | `MATRIX_DEVICE_ID` | **Optional.** If unset, nio may receive a default device ID from the homeserver during login restore. Plaintext operation is unaffected. |
+**Crypto store path.** The adapter derives an internal store path (per-adapter isolation) automatically. On the runtime path this is `{state_dir}/matrix/{adapter_id}/store`; the standalone session uses a temp-directory default. The store persists Olm/Megolm session keys and device keys across restarts.
 
-Plaintext alpha can be run entirely without these fields. The runner (`python -m medre.runner`) does not require them. This is intentional: plaintext alpha has no crypto state to persist.
+**Plaintext mode.** In `plaintext` mode the adapter does not initialise the crypto subsystem. No device ID discovery or store path is needed.
 
-### 8.2 E2EE text alpha: store_path and device_id are required
+**Advanced/internal overrides.** `device_id` and `store_path` exist as fields on `MatrixConfig` for test harnesses and advanced internal use. They are not operator-facing configuration. The `MEDRE_MATRIX_DEVICE_ID` and `MEDRE_MATRIX_STORE_PATH` environment variables exist in the env mapping but are not documented as operator configuration — they are reserved for internal/testing use only.
 
-When operating in encrypted rooms with `.[matrix-e2e]` installed:
-
-- **`store_path` is required.** The nio crypto store persists Olm/Megolm session keys and device keys across restarts in a SQLite database under this path. Without a stable `store_path`, the adapter loses its crypto identity on every restart, making encrypted rooms unusable.
-- **`device_id` is required.** A stable device ID ensures the homeserver and other clients can identify this adapter's device for key verification. Changing the device ID creates a new crypto identity requiring re-verification.
-- **The directory must exist or be creatable.** The adapter will create the `store_path` directory if it does not exist.
-
-Example configuration for E2EE text alpha:
-
-```bash
-export MATRIX_STORE_PATH="/var/lib/medre/nio-store"
-export MATRIX_DEVICE_ID="MEDRE_ALPHA_01"
-```
-
-### 8.3 Docker deployments and E2EE dependencies
+### 8.1 Docker deployments and E2EE dependencies
 
 Plaintext alpha Docker deployments install `mindroom-nio` (no E2EE extras):
 
@@ -277,7 +259,7 @@ pip install -e ".[matrix-e2e]"
 
 The `.[matrix-e2e]` extra installs `mindroom-nio[e2e]`, which adds Olm/Megolm native crypto libraries (`vodozemac`), SQLite store dependencies (`peewee`), and related utilities. Without it, operating in encrypted rooms will fail — nio's `ENCRYPTION_ENABLED` will be `False` and the crypto subsystem will not initialize.
 
-### 8.4 Deferred E2EE capabilities
+### 8.3 Deferred E2EE capabilities
 
 The following E2EE-related capabilities are **deferred** and not part of the E2EE text alpha:
 
@@ -285,16 +267,16 @@ The following E2EE-related capabilities are **deferred** and not part of the E2E
 - Room key backup
 - Room key import/export
 - Interactive device verification (emoji/QR)
-- Unverified device policy: `ignore_unverified_devices` is now an explicit `MatrixConfig` field (default `False`). Live E2EE deployments **must** set `ignore_unverified_devices=True` in config. This is required by the upstream nio client — nio lacks cross-signing support (MSC1756), providing no API for programmatic device verification, so this flag is mandatory for any automated E2EE operation. See `docs/contracts/25-matrix-e2ee-readiness.md` §5.2 for rationale.
+- Unverified device policy: MEDRE internally sets `ignore_unverified_devices=True` for non-plaintext `encryption_mode` values. This is required by the upstream nio client — nio lacks cross-signing support (MSC1756), providing no API for programmatic device verification, so this flag is mandatory for any automated E2EE operation. There is no operator toggle for this. See `docs/contracts/25-matrix-e2ee-readiness.md` §5.2 for rationale.
 
 These will be addressed in a future E2EE implementation tranche. See `docs/contracts/25-matrix-e2ee-readiness.md` for the detailed plan.
 
-### 8.5 Live/manual E2EE test harness
+### 8.4 Live/manual E2EE test harness
 
 The E2EE text alpha includes a live harness for testing encrypted room operation against a real homeserver. See `docs/runbooks/matrix-live-smoke.md` for full instructions. The harness:
 
 - Extends the existing live smoke test pattern.
-- Requires `MATRIX_E2E_ROOM_ID` and `MATRIX_STORE_PATH` in addition to the base live test variables.
+- Requires `MATRIX_E2E_ROOM_ID` in addition to the base live test variables.
 - Validates that the adapter can decrypt inbound and encrypt outbound in an encrypted room.
 - Remains skipped by default, gated by environment variables and the `live` pytest marker.
 
@@ -587,10 +569,10 @@ During the reconnect cycle, the adapter reports `health="degraded"`. On successf
 
 ### 12A.3 Restart behavior and crypto continuity
 
-When the adapter is stopped and restarted with the same `device_id` and `store_path`:
+When the adapter is stopped and restarted with the same access token and store path:
 
 - **Plaintext rooms**: No special consideration. Sync resumes from the homeserver's last position.
-- **E2EE rooms**: `restore_login` loads the crypto store from `store_path`. The Olm machine, device keys, and room keys are restored. Device identity is preserved (same `device_id`). The `crypto_store_loaded` diagnostic field reports `True` when the crypto store was successfully loaded.
+- **E2EE rooms**: `restore_login` loads the crypto store from the internal store path. The Olm machine, device keys, and room keys are restored. Device identity is discovered via `whoami()` and is stable as long as the access token is associated with the same device. The `crypto_store_loaded` diagnostic field reports `True` when the crypto store was successfully loaded.
 
 Crypto continuity is verified during startup: if the store_path directory is empty or missing and E2EE is active, the adapter creates a fresh store (first-run behavior). If the store exists and is valid, existing keys are loaded. The diagnostic `crypto_store_loaded` reflects the result.
 
@@ -626,19 +608,18 @@ For operators running the adapter as a long-lived process (e.g., a persistent bo
 ```bash
 docker run -d --name medre-matrix \
   --restart unless-stopped \
-  -e MATRIX_HOMESERVER=http://homeserver:8008 \
-  -e MATRIX_USER_ID=@bot:server \
-  -e MATRIX_ACCESS_TOKEN=syt_... \
-  -e MATRIX_ROOM_ALLOWLIST=!room:server \
-  -e MATRIX_DEVICE_ID=MEDRE_ALPHA_01 \
-  -e MATRIX_STORE_PATH=/data/nio-store \
-  -v medre-store:/data \
+  -e MEDRE_HOME=/opt/medre \
+  -e MEDRE_MATRIX_HOMESERVER=http://homeserver:8008 \
+  -e MEDRE_MATRIX_USER_ID=@bot:server \
+  -e MEDRE_MATRIX_ACCESS_TOKEN=syt_... \
+  -e MEDRE_MATRIX_ROOM_ALLOWLIST=!room:server \
+  -v medre-data:/opt/medre \
   medre-matrix:latest
 ```
 
 **Key considerations:**
 
-1. **`store_path` persistence.** Mount the `store_path` directory as a Docker volume or bind mount. If the container is recreated without persisting the store, the crypto identity is lost and must be re-established.
+1. **Crypto store persistence.** The adapter derives its store path under the state directory. Mount the `MEDRE_HOME` directory (or the XDG state directory) as a Docker volume or bind mount. If the container is recreated without persisting the state directory, the crypto identity is lost and must be re-established.
 
 2. **Docker restart policy.** Use `--restart unless-stopped` or `--restart on-failure`. The adapter's built-in reconnect handles transient sync failures within a single process lifetime. The Docker restart policy handles process-level crashes (OOM, segfault, runner panic).
 
@@ -664,8 +645,7 @@ docker run -d --name medre-matrix \
   - `MATRIX_USER_ID`: required, not set
   - `MATRIX_ACCESS_TOKEN`: required, not set
   - `MATRIX_ROOM_ID`: required, not set
-  - `MATRIX_DEVICE_ID`: required for E2EE, not set
-  - `MATRIX_STORE_PATH`: required for E2EE, not set
+  - `MATRIX_ENCRYPTION_MODE`: optional, defaults to `plaintext`
 - **Hardware/Network:** Not available (no Matrix homeserver accessible)
 - **Failures/Notes:** Live validation has not been performed in this environment. Alpha operation requires a real Matrix homeserver with the environment variables configured. Without these, all live tests skip automatically. See the smoke test runbook (`docs/runbooks/matrix-live-smoke.md`) for detailed setup and environment variable instructions.
 
@@ -676,7 +656,7 @@ The following features are not supported in alpha mode. Do not attempt to use th
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| End-to-end encryption (E2EE) | E2EE text alpha available (section 13) | Encrypted rooms are supported for text messages when installed with `.[matrix-e2e]` and configured with `store_path` + `device_id`. Reactions, edits, media, cross-signing, key backup, and unverified device policy remain unsupported. Undecryptable event logging is now implemented (counted, logged, not forwarded). Plaintext rooms work identically in both modes. |
+| End-to-end encryption (E2EE) | E2EE text alpha available (section 13) | Encrypted rooms are supported for text messages when installed with `.[matrix-e2e]` and `encryption_mode` is set to `e2ee_required` or `e2ee_optional`. Device ID is discovered via `whoami()` and store path is derived internally. Reactions, edits, media, cross-signing, key backup, and unverified device policy remain unsupported. Undecryptable event logging is now implemented (counted, logged, not forwarded). Plaintext rooms work identically in both modes. |
 | Reactions | Not supported | The adapter registers callbacks for `RoomMessageText`, `RoomMessageNotice`, and `RoomMessageEmote` only. Reaction events are not processed. |
 | Edits | Not supported | Edited messages appear as new messages. The adapter does not track `m.replace` relations. |
 | Deletes / redactions | Not supported | Redacted messages, if received, are not handled. |
@@ -743,7 +723,7 @@ Check these things, in order:
 
 1. Is the room ID in the allowlist? If `room_allowlist` is set and the room is not in it, messages are silently dropped.
 2. Is someone other than the bot sending messages? The adapter suppresses self-messages.
-3. Is the room encrypted? If running plaintext alpha (`.[matrix]`), encrypted room messages cannot be decoded. Switch to E2EE text alpha (`.[matrix-e2e]`) with `store_path` and `device_id` configured (see section 13).
+3. Is the room encrypted? If running plaintext alpha (`.[matrix]`), encrypted room messages cannot be decoded. Switch to E2EE text alpha (`.[matrix-e2e]`) with `encryption_mode` set to `e2ee_required` or `e2ee_optional` (see section 13). The adapter derives device ID and store path automatically.
 4. Is the bot actually joined to the room? Check via Element or the Matrix membership API.
 5. Is the sync task still running? Call `health_check()`. If it returns `"failed"`, the sync loop crashed.
 
@@ -806,15 +786,14 @@ After the "running" line appears, check the diagnostics output. If `connected` i
 
 Check these in order:
 
-1. **Is `MATRIX_STORE_PATH` set?** Without `store_path`, nio cannot persist or load the crypto store. The adapter will sync encrypted rooms but `MegolmEvent` will not be decrypted. Set `MATRIX_STORE_PATH` to a writable directory and restart.
-2. **Is `MATRIX_DEVICE_ID` set?** A stable device ID is required for crypto store loading. Without it, `load_store()` is skipped and no Olm machine is created. Set `MATRIX_DEVICE_ID` to a stable identifier and restart.
-3. **Is `mindroom-nio[e2e]` actually installed?** Verify with:
+1. **Is `encryption_mode` set?** The adapter defaults to `plaintext`. Set `MATRIX_ENCRYPTION_MODE=e2ee_required` (or `e2ee_optional`) to enable E2EE.
+2. **Is `mindroom-nio[e2e]` actually installed?** Verify with:
    ```bash
    python -c "import nio; print(nio.crypto.ENCRYPTION_ENABLED)"
    ```
    This should print `True`. If `False`, the `[e2e]` extra is not installed. Run `pip install -e ".[matrix-e2e]"`.
-4. **Is the device verified by the sender?** In the E2EE text alpha, `ignore_unverified_devices=True` is **required**, not optional. If this is not set in the adapter config, outbound encryption will block with `OlmUnverifiedDeviceError` when unverified devices exist in the room. Live testing confirmed this failure: encrypted-room join succeeded, but two outbound send attempts failed with `OlmUnverifiedDeviceError` because `ignore_unverified_devices` was `False` (the nio strict default). The resolution is to set `ignore_unverified_devices=True`. This is **not a MEDRE design choice** — nio does not support cross-signing (MSC1756) and provides no API for programmatic device verification, making this flag mandatory for every nio-based automated E2EE client.
-5. **Was the room key shared?** If the adapter joined the encrypted room before the crypto store was initialized, room keys may not have been distributed to this device. Sending a message from another client into the room after the adapter is running with E2EE should trigger key distribution.
+3. **Is the device verified by the sender?** MEDRE internally passes `ignore_unverified_devices=True` to nio's `room_send` when `encryption_mode` is not `"plaintext"`. This is **not a MEDRE design choice** — nio does not support cross-signing (MSC1756) and provides no API for programmatic device verification, making this flag mandatory for every nio-based automated E2EE client. This is applied automatically and is not an operator toggle.
+4. **Was the room key shared?** If the adapter joined the encrypted room before the crypto store was initialized, room keys may not have been distributed to this device. Sending a message from another client into the room after the adapter is running with E2EE should trigger key distribution.
 
 ### 14.17 E2EE: `ImportError` or `ModuleNotFoundError` for `vodozemac`
 
@@ -870,10 +849,9 @@ Mitigation: monitor rooms for duplicates during network instability. There is no
 
 The crypto store was not loaded on startup. Check:
 
-1. **Is `MATRIX_STORE_PATH` set and does the directory exist?** The adapter creates the directory if missing, but if the path is invalid (e.g., a file instead of a directory), loading fails.
-2. **Is `MATRIX_DEVICE_ID` set?** Crypto store loading requires a stable device ID.
-3. **Is the store directory empty?** On first run, the store is created but `crypto_store_loaded` reflects whether an existing store was loaded. A fresh store creation is not an error.
-4. **File permissions.** The adapter needs read/write access to the `store_path` directory.
+1. **Is the state directory writable?** The adapter derives its store path under the state directory. Ensure the directory exists and is writable.
+2. **Is the store directory empty?** On first run, the store is created but `crypto_store_loaded` reflects whether an existing store was loaded. A fresh store creation is not an error.
+3. **File permissions.** The adapter needs read/write access to the store path directory.
 
 
 ## 13. E2EE Text Alpha
@@ -908,30 +886,30 @@ Encrypted rooms must be created via a Matrix client (Element, etc.) or the Matri
 
 ### 13.3 Configuration
 
-In addition to the standard alpha environment variables, E2EE text alpha requires:
+In addition to the standard alpha environment variables, E2EE text alpha requires setting the encryption mode:
 
 ```bash
-export MATRIX_STORE_PATH="/path/to/nio-store"   # writable directory for crypto store
-export MATRIX_DEVICE_ID="MEDRE_ALPHA_01"         # stable device identifier
+export MATRIX_ENCRYPTION_MODE="e2ee_required"    # or "e2ee_optional"
 export MATRIX_ROOM_ALLOWLIST="!encrypted:localhost"  # include the encrypted room
 ```
 
-The `store_path` directory will be created if it does not exist. Use a persistent path (not `/tmp`) for the crypto store — losing the store means losing the crypto identity.
+The adapter discovers its device ID via `whoami()` and derives an internal store path automatically. No operator configuration of `device_id` or `store_path` is needed.
 
-### 13.4 Stable device_id guidance
+### 13.4 Device identity (automatic)
 
-- Choose a device ID and keep it stable across restarts. Example: `MEDRE_ALPHA_01`.
-- Do not change the device ID after first run. Changing it creates a new crypto identity.
-- The device ID is used to load the crypto store on `restore_login`.
-- If you must change the device ID, delete the old store directory first and accept that you will need to re-verify.
+- The adapter discovers its device ID via the Matrix `whoami()` endpoint on startup.
+- The device ID is stable as long as the access token is associated with the same device.
+- No operator configuration is required. The `device_id` field on `MatrixConfig` is reserved for test harnesses and internal use.
+- If the access token is regenerated (e.g. re-login), a new device ID may be associated and the adapter will discover it automatically.
 
 ### 13.5 First-run expectations
 
 On first run with E2EE enabled:
 
-1. The adapter creates the nio client with `encryption_enabled=True` (automatic when `ENCRYPTION_ENABLED` is `True`).
-2. `restore_login` creates a new crypto store in `store_path` (no existing store found).
-3. The first `sync_forever` iteration uploads device keys (identity keys + one-time keys) to the homeserver. This registers the device.
+1. The adapter discovers its device ID via `whoami()` using the access token.
+2. The adapter creates the nio client with `encryption_enabled=True` (nio's internal `ClientConfig` flag, automatic when `ENCRYPTION_ENABLED` is `True` at the nio library level). MEDRE triggers this by setting `encryption_mode` to a non-plaintext value.
+3. `restore_login` creates a new crypto store in the internal store path (no existing store found).
+4. The first `sync_forever` iteration uploads device keys (identity keys + one-time keys) to the homeserver. This registers the device.
 4. Subsequent sync iterations handle key query, key claim, and group session sharing automatically.
 5. The adapter's device appears as a new device on the bot's Matrix account. Other users in encrypted rooms will see an unverified device.
 
@@ -939,10 +917,11 @@ For the sender's encrypted messages to be decryptable by the adapter, the sender
 
 ### 13.6 Restart expectations
 
-On subsequent runs with the same `store_path` and `device_id`:
+On subsequent runs with the same access token and state directory:
 
-1. `restore_login` loads the existing crypto store from `store_path`.
-2. `logged_in=True` on success.
+1. The adapter discovers its device ID via `whoami()`.
+2. `restore_login` loads the existing crypto store from the internal store path.
+3. `logged_in=True` on success.
 3. The Olm machine and all previously received room keys are restored.
 4. `sync_forever` resumes from the last sync position.
 5. Device verification state is preserved.
@@ -969,7 +948,7 @@ If `store_path` is changed or the store is deleted, the adapter creates a new cr
 | Cross-signing | Not supported | nio does not implement cross-signing (MSC1756); device verification via cross-signing not available |
 | Key backup / export / import | Not supported | Not wired |
 | Interactive device verification (emoji/QR) | Not supported | `Sas` class exists but not wired |
-| Unverified device policy | Required by upstream nio | `ignore_unverified_devices` is an explicit `MatrixConfig` field (default `False`). Live E2EE deployments **must** set it to `True` — this is required by nio due to its lack of cross-signing support (MSC1756). See contract 25 §5.2. |
+| Unverified device policy | Required by upstream nio | MEDRE internally passes `ignore_unverified_devices=True` to nio's `room_send` when `encryption_mode` is not `"plaintext"`. This is required by nio due to its lack of cross-signing support (MSC1756). No operator toggle. See contract 25 §5.2. |
 | Redactions / deletes | Not supported | Not handled |
 
 **Note:** Undecryptable event logging was previously unsupported but is now implemented. `MegolmEvent` callbacks count events, log warnings (event_id/room_id only, no session_id), and do not forward to the canonical pipeline. `RoomEncryptionEvent` callbacks set `encrypted_room_seen` and are not forwarded.

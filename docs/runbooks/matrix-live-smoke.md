@@ -43,10 +43,10 @@ What live smoke does **not** prove:
 | `MATRIX_USER_ID`         | `@bot:localhost`              | Fully-qualified Matrix user ID       |
 | `MATRIX_ACCESS_TOKEN`    | `syt_xxxxxxxxxxxxx`           | Access token for the bot account     |
 | `MATRIX_ROOM_ID`         | `!abc123:localhost`           | Room ID to send test messages to     |
-| `MATRIX_DEVICE_ID`       | `DEVICEABC`                   | Stable device ID (required for E2EE harness) |
-| `MATRIX_STORE_PATH`      | `/tmp/nio-store`              | Crypto store directory (required for E2EE harness) |
+| `MATRIX_DEVICE_ID`       | `DEVICEABC`                   | Device ID (live E2EE harness only; normal operation derives via `whoami()`) |
+| `MATRIX_STORE_PATH`      | `/tmp/nio-store`              | Crypto store directory (live E2EE harness only; normal operation derives internally) |
 
-If any of the first four variables is unset, all live tests skip with a descriptive message. E2EE-specific tests additionally require `MATRIX_DEVICE_ID` and `MATRIX_STORE_PATH` and an encrypted room.
+If any of the first four variables is unset, all live tests skip with a descriptive message. E2EE-specific tests additionally require `MATRIX_DEVICE_ID` and `MATRIX_STORE_PATH` and an encrypted room. Note: the live test harness uses explicit `device_id`/`store_path` for isolation; normal MEDRE operation discovers and derives these automatically.
 
 
 ## Local Homeserver Setup

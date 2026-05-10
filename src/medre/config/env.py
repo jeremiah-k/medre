@@ -232,6 +232,8 @@ _ENV_FIELD_MAP: dict[str, str] = {
     "MEDRE_MATRIX_USER_ID": "matrix_user_id",
     "MEDRE_MATRIX_ACCESS_TOKEN": "matrix_access_token",
     "MEDRE_MATRIX_ROOM_ALLOWLIST": "matrix_room_allowlist",
+    # Internal/test only — not operator-facing.  The adapter discovers
+    # device_id via whoami() and derives store_path internally.
     "MEDRE_MATRIX_DEVICE_ID": "matrix_device_id",
     "MEDRE_MATRIX_STORE_PATH": "matrix_store_path",
     "MEDRE_MATRIX_ENCRYPTION_MODE": "matrix_encryption_mode",

@@ -92,13 +92,12 @@ the `adapter_id` unless overridden by the `adapter_id` field.
 ```toml
 [adapters.matrix.main]
 enabled = true
+adapter_kind = "real"                     # real (default) or fake
 adapter_id = "main"                           # optional, defaults to instance name
 homeserver = "https://matrix.example.com"
 user_id = "@bot:example.com"
 access_token = "syt_secret_token_here"
-device_id = "MEDREBOT"
 room_allowlist = ["!room:example.com"]
-store_path = "{state}/matrix/main/store"
 sync_timeout_ms = 30000
 encryption_mode = "plaintext"          # plaintext, e2ee_required, e2ee_optional
 ```
@@ -106,17 +105,22 @@ encryption_mode = "plaintext"          # plaintext, e2ee_required, e2ee_optional
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `enabled` | bool | `true` | Whether this adapter instance is active. |
+| `adapter_kind` | string | `"real"` | `"real"` builds the live adapter; `"fake"` builds a simulated adapter without optional SDK imports. |
 | `adapter_id` | string | instance name | Unique identifier. Defaults to the TOML table key. |
 | `homeserver` | string | *(required)* | Matrix homeserver URL. Must start with `http://` or `https://`. |
 | `user_id` | string | *(required)* | Fully-qualified Matrix user ID (e.g. `@user:matrix.org`). |
 | `access_token` | string | `""` | Access token for authentication. **Treat as a secret.** |
-| `device_id` | string | `None` | Device ID for the client session. |
 | `room_allowlist` | list of string | `None` | Room IDs to accept. `None` means all rooms. |
 | `metadata_embedding_mode` | string | `"safe"` | How metadata is embedded in messages. |
-| `store_path` | string | `None` | Path to the nio crypto store. Supports [path placeholders](#path-placeholders). Required for E2EE. |
 | `sync_timeout_ms` | int | `30000` | Long-polling sync timeout in milliseconds. |
-| `encryption_mode` | string | `"plaintext"` | Encryption policy: `plaintext`, `e2ee_required`, or `e2ee_optional`. E2EE modes handle device verification internally. |
+| `encryption_mode` | string | `"plaintext"` | Encryption policy: `plaintext`, `e2ee_required`, or `e2ee_optional`. E2EE modes handle device verification and crypto store internally. |
 | `require_encrypted_rooms` | bool | `false` | When `true`, only operate in rooms with encryption enabled. Invalid with `encryption_mode="plaintext"`. |
+
+**Note:** `device_id` and `store_path` are not operator-facing configuration.
+MEDRE derives the device ID from `whoami()` on session start and uses an
+internal store path under the resolved state directory (`{state}/matrix/{adapter_id}/store`).
+These fields exist on `MatrixConfig` for internal use but should not appear in
+operator TOML files.
 
 You can define multiple Matrix instances:
 
@@ -139,6 +143,7 @@ access_token = "syt_..."
 ```toml
 [adapters.meshtastic.radio]
 enabled = false
+adapter_kind = "real"                     # real (default) or fake
 adapter_id = "radio"
 connection_type = "serial"          # fake, tcp, serial, ble
 serial_port = "/dev/ttyACM0"
@@ -156,6 +161,7 @@ sync_timeout_ms = 30000
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `enabled` | bool | `true` | Whether this adapter instance is active. |
+| `adapter_kind` | string | `"real"` | `"real"` builds the live adapter; `"fake"` builds a simulated adapter without optional SDK imports. |
 | `adapter_id` | string | instance name | Unique identifier. |
 | `connection_type` | string | `"fake"` | Connection mode: `fake`, `tcp`, `serial`, or `ble`. |
 | `host` | string | `None` | Hostname or IP for TCP connections. Required when `connection_type="tcp"`. |
@@ -174,6 +180,7 @@ sync_timeout_ms = 30000
 ```toml
 [adapters.meshcore.radio]
 enabled = false
+adapter_kind = "real"                     # real (default) or fake
 adapter_id = "radio"
 connection_type = "serial"          # fake, tcp, serial, ble
 serial_port = "/dev/ttyUSB0"
@@ -194,6 +201,7 @@ node_config = {}
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `enabled` | bool | `true` | Whether this adapter instance is active. |
+| `adapter_kind` | string | `"real"` | `"real"` builds the live adapter; `"fake"` builds a simulated adapter without optional SDK imports. |
 | `adapter_id` | string | instance name | Unique identifier. |
 | `connection_type` | string | `"fake"` | Connection mode: `fake`, `tcp`, `serial`, or `ble`. |
 | `host` | string | `None` | Hostname or IP for TCP connections. Required when `connection_type="tcp"`. |
@@ -215,6 +223,7 @@ node_config = {}
 ```toml
 [adapters.lxmf.local]
 enabled = false
+adapter_kind = "real"                     # real (default) or fake
 adapter_id = "local"
 connection_type = "reticulum"       # fake, reticulum
 display_name = "MEDRE"
@@ -230,6 +239,7 @@ identity_path = "{state}/lxmf/identity"
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `enabled` | bool | `true` | Whether this adapter instance is active. |
+| `adapter_kind` | string | `"real"` | `"real"` builds the live adapter; `"fake"` builds a simulated adapter without optional SDK imports. |
 | `adapter_id` | string | instance name | Unique identifier. |
 | `connection_type` | string | `"fake"` | Connection mode: `fake` or `reticulum`. |
 | `display_name` | string | `""` | Display name for LXMF announces. |
@@ -328,9 +338,18 @@ Unrecognised placeholders cause a `MedrePathsError` at startup.
 
 ## Environment Variable Overrides
 
-Environment variables override TOML values. They always win. When adapter env
-vars are set, they create or update an adapter instance keyed as `"env"` in the
-corresponding adapter-type dictionary.
+Environment variables override TOML values. They always win.
+
+Adapter env vars target a specific adapter instance via target resolution:
+
+1. **`MEDRE_<TRANSPORT>_ADAPTER_ID` is set** — targets the named adapter.
+   Overrides its fields if it exists in the config; creates it if not.
+2. **Exactly one adapter of that transport configured** — targets it
+   automatically (no `ADAPTER_ID` needed).
+3. **No adapters of that transport configured** — creates a new default
+   adapter sourced entirely from env vars.
+4. **Multiple adapters and no `ADAPTER_ID` specified** — raises
+   `ConfigValidationError`. You must specify which adapter to target.
 
 Boolean env vars accept: `1`, `true`, `yes` (truthy) and `0`, `false`, `no`
 (falsy). List env vars are comma-separated.
@@ -346,50 +365,50 @@ Boolean env vars accept: `1`, `true`, `yes` (truthy) and `0`, `false`, `no`
 
 ### Matrix
 
-| Variable | Type | Maps to | Default |
+| Variable | Type | Target field | Default |
 |----------|------|---------|---------|
-| `MEDRE_MATRIX_ENABLED` | bool | `adapters.matrix["env"].enabled` | `true` |
-| `MEDRE_MATRIX_ADAPTER_ID` | string | `adapters.matrix["env"].adapter_id` | `"env"` |
-| `MEDRE_MATRIX_HOMESERVER` | string | `adapters.matrix["env"].homeserver` | *(required)* |
-| `MEDRE_MATRIX_USER_ID` | string | `adapters.matrix["env"].user_id` | *(required)* |
-| `MEDRE_MATRIX_ACCESS_TOKEN` | string | `adapters.matrix["env"].access_token` | `""` |
-| `MEDRE_MATRIX_ROOM_ALLOWLIST` | comma-separated list | `adapters.matrix["env"].room_allowlist` | `None` (all rooms) |
-| `MEDRE_MATRIX_DEVICE_ID` | string | `adapters.matrix["env"].device_id` | `None` |
-| `MEDRE_MATRIX_STORE_PATH` | string | `adapters.matrix["env"].store_path` | `None` |
-| `MEDRE_MATRIX_ENCRYPTION_MODE` | string | `adapters.matrix["env"].encryption_mode` | `"plaintext"` |
+| `MEDRE_MATRIX_ENABLED` | bool | `enabled` | `true` |
+| `MEDRE_MATRIX_ADAPTER_ID` | string | Target adapter selection | *(auto)* |
+| `MEDRE_MATRIX_HOMESERVER` | string | `homeserver` | *(required)* |
+| `MEDRE_MATRIX_USER_ID` | string | `user_id` | *(required)* |
+| `MEDRE_MATRIX_ACCESS_TOKEN` | string | `access_token` | `""` |
+| `MEDRE_MATRIX_ROOM_ALLOWLIST` | comma-separated list | `room_allowlist` | `None` (all rooms) |
+| `MEDRE_MATRIX_DEVICE_ID` | string | `device_id` | `None` (**internal/test only** — derived via `whoami()`) |
+| `MEDRE_MATRIX_STORE_PATH` | string | `store_path` | `None` (**internal/test only** — derived under state dir) |
+| `MEDRE_MATRIX_ENCRYPTION_MODE` | string | `encryption_mode` | `"plaintext"` |
 
 ### Meshtastic
 
-| Variable | Type | Maps to | Default |
+| Variable | Type | Target field | Default |
 |----------|------|---------|---------|
-| `MEDRE_MESHTASTIC_ENABLED` | bool | `adapters.meshtastic["env"].enabled` | `true` |
-| `MEDRE_MESHTASTIC_ADAPTER_ID` | string | `adapters.meshtastic["env"].adapter_id` | `"env"` |
-| `MEDRE_MESHTASTIC_CONNECTION_TYPE` | string | `adapters.meshtastic["env"].connection_type` | `"fake"` |
-| `MEDRE_MESHTASTIC_SERIAL_PORT` | string | `adapters.meshtastic["env"].serial_port` | `None` |
-| `MEDRE_MESHTASTIC_HOST` | string | `adapters.meshtastic["env"].host` | `None` |
-| `MEDRE_MESHTASTIC_PORT` | int | `adapters.meshtastic["env"].port` | `None` |
+| `MEDRE_MESHTASTIC_ENABLED` | bool | `enabled` | `true` |
+| `MEDRE_MESHTASTIC_ADAPTER_ID` | string | Target adapter selection | *(auto)* |
+| `MEDRE_MESHTASTIC_CONNECTION_TYPE` | string | `connection_type` | `"fake"` |
+| `MEDRE_MESHTASTIC_SERIAL_PORT` | string | `serial_port` | `None` |
+| `MEDRE_MESHTASTIC_HOST` | string | `host` | `None` |
+| `MEDRE_MESHTASTIC_PORT` | int | `port` | `None` |
 
 ### MeshCore
 
-| Variable | Type | Maps to | Default |
+| Variable | Type | Target field | Default |
 |----------|------|---------|---------|
-| `MEDRE_MESHCORE_ENABLED` | bool | `adapters.meshcore["env"].enabled` | `true` |
-| `MEDRE_MESHCORE_ADAPTER_ID` | string | `adapters.meshcore["env"].adapter_id` | `"env"` |
-| `MEDRE_MESHCORE_CONNECTION_TYPE` | string | `adapters.meshcore["env"].connection_type` | `"fake"` |
-| `MEDRE_MESHCORE_SERIAL_PORT` | string | `adapters.meshcore["env"].serial_port` | `None` |
-| `MEDRE_MESHCORE_HOST` | string | `adapters.meshcore["env"].host` | `None` |
-| `MEDRE_MESHCORE_PORT` | int | `adapters.meshcore["env"].port` | `None` |
-| `MEDRE_MESHCORE_BLE_ADDRESS` | string | `adapters.meshcore["env"].ble_address` | `None` |
+| `MEDRE_MESHCORE_ENABLED` | bool | `enabled` | `true` |
+| `MEDRE_MESHCORE_ADAPTER_ID` | string | Target adapter selection | *(auto)* |
+| `MEDRE_MESHCORE_CONNECTION_TYPE` | string | `connection_type` | `"fake"` |
+| `MEDRE_MESHCORE_SERIAL_PORT` | string | `serial_port` | `None` |
+| `MEDRE_MESHCORE_HOST` | string | `host` | `None` |
+| `MEDRE_MESHCORE_PORT` | int | `port` | `None` |
+| `MEDRE_MESHCORE_BLE_ADDRESS` | string | `ble_address` | `None` |
 
 ### LXMF
 
-| Variable | Type | Maps to | Default |
+| Variable | Type | Target field | Default |
 |----------|------|---------|---------|
-| `MEDRE_LXMF_ENABLED` | bool | `adapters.lxmf["env"].enabled` | `true` |
-| `MEDRE_LXMF_ADAPTER_ID` | string | `adapters.lxmf["env"].adapter_id` | `"env"` |
-| `MEDRE_LXMF_CONNECTION_TYPE` | string | `adapters.lxmf["env"].connection_type` | `"fake"` |
-| `MEDRE_LXMF_IDENTITY_PATH` | string | `adapters.lxmf["env"].identity_path` | `None` |
-| `MEDRE_LXMF_DISPLAY_NAME` | string | `adapters.lxmf["env"].display_name` | `""` |
+| `MEDRE_LXMF_ENABLED` | bool | `enabled` | `true` |
+| `MEDRE_LXMF_ADAPTER_ID` | string | Target adapter selection | *(auto)* |
+| `MEDRE_LXMF_CONNECTION_TYPE` | string | `connection_type` | `"fake"` |
+| `MEDRE_LXMF_IDENTITY_PATH` | string | `identity_path` | `None` |
+| `MEDRE_LXMF_DISPLAY_NAME` | string | `display_name` | `""` |
 | `MEDRE_LXMF_DESTINATION_HASH` | string | *(reserved)* | `None` |
 
 

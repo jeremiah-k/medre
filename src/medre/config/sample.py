@@ -34,8 +34,10 @@ user_id = "@bot:example.com"
 # Prefer using MEDRE_MATRIX_ACCESS_TOKEN env var over embedding tokens
 access_token = ""
 room_allowlist = ["!room:example.com"]
-device_id = "MEDREBOT"
-store_path = "{state}/matrix/main/store"
+# device_id and store_path are derived internally (whoami + state dir).
+# They should NOT be set by operators. Reserved for test harnesses.
+# device_id = "MEDREBOT"                    # internal/test only
+# store_path = "{state}/matrix/main/store"  # internal/test only
 encryption_mode = "plaintext"
 # When using E2EE:
 # encryption_mode = "e2ee_required"

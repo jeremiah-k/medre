@@ -22,8 +22,8 @@ This runbook provides guidance for handling secret material (access tokens, priv
 | Secret | Env var | Handling |
 |--------|---------|----------|
 | Access token | `MATRIX_ACCESS_TOKEN` | Read from env var only. Never logged. Never committed. |
-| Device ID | `MATRIX_DEVICE_ID` | Not secret, but should be stable for E2EE crypto store continuity. |
-| Store path | `MATRIX_STORE_PATH` | Not secret, but the crypto store directory contains sensitive key material. Exclude from git. |
+
+**Device ID and store path:** MEDRE derives the device ID automatically via `whoami()` and uses an internal store path. These are not operator-configured. The crypto store directory contains sensitive key material and should be excluded from version control.
 
 **Built-in protection:** `MatrixConfig.__repr__()` redacts the access token to a 3-character preview (`syt_…`) to prevent accidental credential leakage in logs and debug output. No code change is needed — this is already implemented.
 

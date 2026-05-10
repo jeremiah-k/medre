@@ -89,7 +89,7 @@ environment, results, caveats, reconnect observations, and limitations.
 | **Outbound send attempt 2** | ❌ Failed with `OlmUnverifiedDeviceError` |
 | **Root cause** | `ignore_unverified_devices` was `False` (nio strict default). The bot's device was not verified by other room members, so nio refused to share the Megolm session key with unverified devices. |
 | **Implication** | Encrypted-room **join** and **detection** work. Outbound encrypted send was blocked by nio's unverified-device policy. |
-| **Fix applied** | Adapter `room_send(..., ignore_unverified_devices=True)` — required by upstream nio (no cross-signing support). See `docs/contracts/25-matrix-e2ee-readiness.md` §5.2 for rationale. |
+| **Fix applied** | MEDRE now internally sets `ignore_unverified_devices=True` when `encryption_mode` is not `"plaintext"` — required by upstream nio (no cross-signing support). No operator toggle needed. See `docs/contracts/25-matrix-e2ee-readiness.md` §5.2 for rationale. |
 
 #### 1.3.2 Post-fix Re-test (E2EE live suite)
 
@@ -107,8 +107,8 @@ environment, results, caveats, reconnect observations, and limitations.
 | **Previously failing `test_send_encrypted_text`** | ✅ Passed post-fix |
 | **Previously failing `test_restart_send_encrypted`** | ✅ Passed post-fix |
 | **Crypto store loaded** | ✅ |
-| **Encrypted send → event_id** | ✅ Outbound encrypted send now succeeds with `ignore_unverified_devices=True` |
-| **Caveats** | This is not a security downgrade — `ignore_unverified_devices=True` is required by the upstream nio client (no cross-signing support, MSC1756). The Olm/Megolm stack initialized correctly, keys were uploaded, and the room was recognized as encrypted throughout. Device verification via cross-signing is an upstream nio gap, not a MEDRE deferral. |
+| **Encrypted send → event_id** | ✅ Outbound encrypted send succeeds — MEDRE passes `ignore_unverified_devices=True` for non-plaintext modes |
+| **Caveats** | This is not a security downgrade — `ignore_unverified_devices=True` is required by the upstream nio client (no cross-signing support, MSC1756). MEDRE applies this automatically based on `encryption_mode`. Device verification via cross-signing is an upstream nio gap, not a MEDRE deferral. |
 
 ### 1.4 Soak Test Evidence
 

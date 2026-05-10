@@ -217,41 +217,53 @@ class TestMatrixConfigSecretSafety:
 
 
 # ===================================================================
-# ignore_unverified_devices field
+# encryption_mode field
 # ===================================================================
 
 
-class TestMatrixConfigIgnoreUnverifiedDevices:
-    """ignore_unverified_devices field defaults and explicit values."""
+class TestMatrixConfigEncryptionMode:
+    """encryption_mode field defaults and validation."""
 
-    def test_default_is_false(self) -> None:
-        """Default value for ignore_unverified_devices is False."""
+    def test_default_is_plaintext(self) -> None:
+        """Default encryption_mode is 'plaintext'."""
         config = MatrixConfig(
             adapter_id="matrix-1",
             homeserver="https://matrix.example.com",
             user_id="@bot:example.com",
             access_token="s3cret",
         )
-        assert config.ignore_unverified_devices is False
+        assert config.encryption_mode == "plaintext"
 
-    def test_explicit_true(self) -> None:
-        """Explicitly setting ignore_unverified_devices=True."""
+    def test_explicit_e2ee_required(self) -> None:
+        """Explicitly setting encryption_mode='e2ee_required'."""
         config = MatrixConfig(
             adapter_id="matrix-1",
             homeserver="https://matrix.example.com",
             user_id="@bot:example.com",
             access_token="s3cret",
-            ignore_unverified_devices=True,
+            encryption_mode="e2ee_required",
         )
-        assert config.ignore_unverified_devices is True
+        assert config.encryption_mode == "e2ee_required"
 
-    def test_explicit_false(self) -> None:
-        """Explicitly setting ignore_unverified_devices=False."""
+    def test_explicit_e2ee_optional(self) -> None:
+        """Explicitly setting encryption_mode='e2ee_optional'."""
         config = MatrixConfig(
             adapter_id="matrix-1",
             homeserver="https://matrix.example.com",
             user_id="@bot:example.com",
             access_token="s3cret",
-            ignore_unverified_devices=False,
+            encryption_mode="e2ee_optional",
         )
-        assert config.ignore_unverified_devices is False
+        assert config.encryption_mode == "e2ee_optional"
+
+    def test_invalid_mode_raises(self) -> None:
+        """Invalid encryption_mode raises."""
+        config = MatrixConfig(
+            adapter_id="matrix-1",
+            homeserver="https://matrix.example.com",
+            user_id="@bot:example.com",
+            access_token="s3cret",
+            encryption_mode="invalid",
+        )
+        with pytest.raises(MatrixConfigError, match="encryption_mode"):
+            config.validate()

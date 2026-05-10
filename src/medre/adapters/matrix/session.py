@@ -5,18 +5,24 @@ login restoration, event-callback registration, sync task management, and
 graceful teardown.  The adapter delegates all client ownership to this
 session object.
 
-E2EE support: when ``HAS_E2EE`` is ``True`` and ``store_path``/``device_id``
-are configured, the session enables crypto via nio's built-in encryption.
-Decrypted inbound text events pass through the normal message callback;
-undecryptable encrypted events are counted and logged but not forwarded.
+E2EE support: when ``HAS_E2EE`` is ``True`` the session enables crypto
+via nio's built-in encryption.  When ``device_id`` is not explicitly
+configured the session discovers it via ``whoami()`` after setting the
+access token.  When ``store_path`` is not configured the session derives
+an internal default under a temp directory.  Operators do not need to
+set either field.  Decrypted inbound text events pass through the normal
+message callback; undecryptable encrypted events are counted and logged
+but not forwarded.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
 import random
+import tempfile
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Literal
 
 from medre.adapters.matrix import compat as _compat_mod
@@ -35,6 +41,20 @@ _MAX_RECONNECT_ATTEMPTS: int = 10
 _BACKOFF_BASE: float = 1.0
 _BACKOFF_CAP: float = 60.0
 _BACKOFF_JITTER_FRACTION: float = 0.25
+
+# Default store-path template used when config.store_path is not set.
+# Each adapter gets an isolated directory under the system temp dir.
+_DEFAULT_STORE_DIR_TEMPLATE = "medre-matrix-store"
+
+
+def _default_store_path(adapter_id: str) -> str:
+    """Derive an internal crypto-store path for *adapter_id*.
+
+    Returns ``{tempdir}/medre-matrix-store/{adapter_id}`` ensuring
+    per-adapter isolation.  The caller is responsible for creating
+    the directory.
+    """
+    return str(Path(tempfile.gettempdir()) / _DEFAULT_STORE_DIR_TEMPLATE / adapter_id)
 
 
 @dataclass(frozen=True)
@@ -240,11 +260,11 @@ class MatrixSession:
         E2EE startup depends on ``encryption_mode``:
 
         * ``plaintext`` — standard client, no crypto.
-        * ``e2ee_required`` — asserts ``HAS_E2EE``, ``store_path``,
-          ``device_id`` and enables encryption.  Raises on any missing
-          prerequisite.
-        * ``e2ee_optional`` — enables crypto when deps/store/device are
-          present; falls back to plaintext otherwise.
+        * ``e2ee_required`` — asserts ``HAS_E2EE`` and enables encryption.
+          ``store_path`` defaults to an internal temp directory;
+          ``device_id`` is discovered via ``whoami()`` when not set.
+        * ``e2ee_optional`` — enables crypto when deps are present;
+          falls back to plaintext otherwise.
 
         Raises
         ------
@@ -315,10 +335,15 @@ class MatrixSession:
     async def _start_e2ee_required(self) -> None:
         """E2EE-required startup.
 
-        Pre-conditions (already validated by config but re-checked):
-        * ``HAS_E2EE`` is ``True``
-        * ``store_path`` is set
-        * ``device_id`` is set
+        Pre-conditions:
+        * ``HAS_E2EE`` is ``True`` (checked)
+        * ``store_path`` and ``device_id`` are derived internally when
+          not explicitly configured.
+
+        When ``store_path`` is not set, an internal default is derived
+        under the system temp directory.  When ``device_id`` is not set
+        the session discovers it via ``whoami()`` after establishing the
+        access token context.
 
         Enables crypto via ``nio.AsyncClient(encryption_enabled=True)``.
         """
@@ -327,16 +352,17 @@ class MatrixSession:
                 "mindroom-nio[e2e] not installed; "
                 "e2ee_required mode requires crypto dependencies"
             )
-        if not self._config.store_path:
-            raise MatrixConnectionError(
-                "e2ee_required mode requires a store_path"
-            )
-        if not self._config.device_id:
-            raise MatrixConnectionError(
-                "e2ee_required mode requires a device_id"
-            )
 
         import nio
+
+        # Resolve store_path — use configured value or derive internal default.
+        store_path = (
+            self._config.store_path
+            or _default_store_path(self._config.adapter_id)
+        )
+
+        # Ensure the store directory exists.
+        Path(store_path).mkdir(parents=True, exist_ok=True)
 
         try:
             client_config: Any = nio.ClientConfig(encryption_enabled=True)
@@ -345,16 +371,23 @@ class MatrixSession:
                 f"Failed to configure E2EE: {exc}"
             ) from exc
 
+        # device_id may be None initially — we discover it via whoami().
+        device_id = self._config.device_id
         self._client = nio.AsyncClient(
             homeserver=self._config.homeserver,
             user=self._config.user_id,
-            device_id=self._config.device_id,
-            store_path=self._config.store_path,
+            device_id=device_id,
+            store_path=store_path,
             config=client_config,
         )
+
+        # Discover device_id via whoami() if not known.
+        if not device_id:
+            device_id = await self._discover_device_id()
+
         self._client.restore_login(
             user_id=self._config.user_id,
-            device_id=self._config.device_id,
+            device_id=device_id,
             access_token=self._config.access_token,
         )
 
@@ -378,15 +411,11 @@ class MatrixSession:
     async def _start_e2ee_optional(self) -> None:
         """E2EE-optional startup.
 
-        If ``HAS_E2EE`` is ``True`` and ``store_path``/``device_id`` are
-        configured, attempt crypto setup.  On failure, log a warning and
-        fall back to plaintext with ``crypto_enabled=False``.
+        If ``HAS_E2EE`` is ``True``, attempt crypto setup (deriving
+        store_path/device_id internally as needed).  On failure, log a
+        warning and fall back to plaintext with ``crypto_enabled=False``.
         """
-        can_attempt_crypto = (
-            _compat_mod.HAS_E2EE
-            and self._config.store_path is not None
-            and self._config.device_id is not None
-        )
+        can_attempt_crypto = _compat_mod.HAS_E2EE
 
         if can_attempt_crypto:
             try:
@@ -410,6 +439,38 @@ class MatrixSession:
 
         # Plaintext fallback
         await self._start_plaintext()
+
+    async def _discover_device_id(self) -> str:
+        """Discover the device ID via the Matrix ``whoami`` endpoint.
+
+        The client must already be constructed with ``user_id`` and
+        ``access_token`` set so that ``whoami()`` succeeds.  Returns
+        the discovered ``device_id`` string.
+
+        Raises :class:`MatrixConnectionError` on failure.
+        """
+        if self._client is None:
+            raise MatrixConnectionError(
+                "cannot discover device_id: client not initialised"
+            )
+        # Set the access token so whoami() can authenticate.
+        self._client.access_token = self._config.access_token
+        try:
+            resp = await self._client.whoami()
+        except Exception as exc:
+            raise MatrixConnectionError(
+                f"whoami() failed during device_id discovery: {exc}"
+            ) from exc
+        device_id = getattr(resp, "device_id", None)
+        if not device_id:
+            raise MatrixConnectionError(
+                "whoami() did not return a device_id — the access token "
+                "may not be associated with a device"
+            )
+        self._logger.info(
+            "Discovered device_id via whoami(): %s", device_id,
+        )
+        return str(device_id)
 
     async def _finalize_start(self) -> None:
         """Common post-client-creation steps: validate login, register

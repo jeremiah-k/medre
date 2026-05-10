@@ -107,8 +107,8 @@ pip install -e ".[matrix-e2e]"
    - Pre-built wheels exist for: Linux x86_64, macOS x86_64/ARM, Windows x86_64.
    - Alpine Linux: requires `apk add musl-dev gcc cargo`.
    - ARM (Raspberry Pi): may require compilation from source.
-2. **Crypto store is SQLite.** Requires a writable filesystem path. The path is configured via `MATRIX_STORE_PATH` env var.
-3. **Device ID must be stable** across restarts. Changing the device ID creates a new crypto identity and invalidates previous sessions.
+2. **Crypto store is SQLite.** The adapter derives an internal store path automatically — no operator configuration needed.
+3. **Device ID is discovered automatically** via `whoami()` on startup — no operator configuration needed.
 4. **First-run key upload** takes several seconds as the client uploads identity keys and one-time pre-keys.
 
 ### 3.3 Meshtastic
@@ -221,7 +221,7 @@ PYTHONPATH=src pytest tests/test_meshtastic_live.py -m live -v
 | Transport | Required Env Vars |
 |-----------|-------------------|
 | Matrix | `MATRIX_HOMESERVER`, `MATRIX_USER_ID`, `MATRIX_ACCESS_TOKEN`, `MATRIX_ROOM_ID` |
-| Matrix E2EE | All Matrix vars + `MATRIX_DEVICE_ID`, `MATRIX_STORE_PATH` |
+| Matrix E2EE | All Matrix vars + `MATRIX_ENCRYPTION_MODE=e2ee_required` |
 | Meshtastic | `MESHTASTIC_CONNECTION_TYPE`, `MESHTASTIC_HOST` (for TCP) |
 | MeshCore | `MESHCORE_CONNECTION_TYPE`, `MESHCORE_HOST` (for TCP) |
 | LXMF | `LXMF_CONNECTION_TYPE`, `LXMF_IDENTITY_PATH` |

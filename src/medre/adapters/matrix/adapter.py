@@ -229,6 +229,20 @@ class MatrixAdapter(BaseAdapter):
         if self.ctx is not None:
             self.ctx.logger.info("MatrixAdapter %s stopped", self.adapter_id)
 
+    def _should_ignore_unverified_devices(self) -> bool:
+        """Determine whether to pass ``ignore_unverified_devices=True`` to nio.
+
+        MEDRE internally sets this to ``True`` when E2EE is active (i.e.
+        ``encryption_mode`` is not ``"plaintext"``).  This is required by the
+        upstream nio client, which lacks cross-signing support (MSC1756) and
+        provides no API for programmatic device verification.  For plaintext
+        mode the flag is ``False`` (nio strict default).
+
+        This is **not** an operator-configurable toggle — it is an internal
+        nio workaround.
+        """
+        return self._config.encryption_mode != "plaintext"
+
     async def health_check(self) -> AdapterInfo:
         """Return a snapshot of the adapter's current health.
 
@@ -380,7 +394,7 @@ class MatrixAdapter(BaseAdapter):
                     room_id=room_id,
                     message_type="m.room.message",
                     content=content,
-                    ignore_unverified_devices=self._config.ignore_unverified_devices,
+                    ignore_unverified_devices=self._should_ignore_unverified_devices(),
                 )
 
                 # Check for nio error responses

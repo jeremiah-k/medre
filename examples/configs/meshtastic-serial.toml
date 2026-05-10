@@ -12,8 +12,8 @@ level = "INFO"
 format = "text"
 
 [storage]
-backend = "filesystem"
-path = "{state}/store"
+backend = "sqlite"
+path = "{state}/medre.sqlite"
 
 [adapters.meshtastic.radio]
 enabled = true

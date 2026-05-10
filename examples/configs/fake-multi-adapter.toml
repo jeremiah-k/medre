@@ -8,6 +8,10 @@
 #   - CI/CD pipeline testing
 #   - Integration test baselines
 #   - Rapid iteration on message routing logic
+#
+# adapter_kind = "fake" builds Fake*Adapter instances without importing
+# optional live SDKs (mindroom-nio, meshtastic, etc.). Works in a core/dev
+# install.
 
 [runtime]
 name = "fake-multi-dev"
@@ -18,12 +22,12 @@ level = "DEBUG"
 format = "text"
 
 [storage]
-backend = "filesystem"
-path = "/tmp/medre-dev/store"
+backend = "memory"
 
 # --- Matrix (fake) ---
 [adapters.matrix.fake_matrix]
 enabled = true
+adapter_kind = "fake"
 homeserver = "https://fake.local"
 user_id = "@dev-bot:fake.local"
 access_token = "fake_token_for_dev"
@@ -33,16 +37,19 @@ encryption_mode = "plaintext"
 # --- Meshtastic (fake) ---
 [adapters.meshtastic.fake_meshtastic]
 enabled = true
+adapter_kind = "fake"
 connection_type = "fake"
 meshnet_name = "dev-radio"
 
 # --- MeshCore (fake) ---
 [adapters.meshcore.fake_meshcore]
 enabled = true
+adapter_kind = "fake"
 connection_type = "fake"
 
 # --- LXMF (fake) ---
 [adapters.lxmf.fake_lxmf]
 enabled = true
+adapter_kind = "fake"
 connection_type = "fake"
 display_name = "MEDRE Dev LXMF"

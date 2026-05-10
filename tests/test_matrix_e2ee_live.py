@@ -61,7 +61,6 @@ def _live_config(**overrides: Any):
         "device_id": os.environ["MATRIX_DEVICE_ID"],
         "store_path": os.environ["MATRIX_STORE_PATH"],
         "encryption_mode": "e2ee_required",
-        "ignore_unverified_devices": True,
     }
     defaults.update(overrides)
     return MatrixConfig(**defaults)

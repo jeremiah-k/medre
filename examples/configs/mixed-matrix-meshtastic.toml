@@ -15,8 +15,8 @@ level = "INFO"
 format = "json"
 
 [storage]
-backend = "filesystem"
-path = "{state}/store"
+backend = "sqlite"
+path = "{state}/medre.sqlite"
 
 # --- Matrix transport ---
 [adapters.matrix.main]

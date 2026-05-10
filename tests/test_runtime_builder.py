@@ -378,6 +378,33 @@ class TestBuilderErrorCases:
         with pytest.raises(RuntimeConfigError, match="Unknown transport type"):
             builder._build_single_adapter("unknown_transport", "test_id", MagicMock())
 
+    def test_real_adapter_construction_error_wrapped(self, tmp_paths: MedrePaths) -> None:
+        """Real adapter construction exception is wrapped in RuntimeConfigError."""
+        cfg = _make_fake_matrix_config()
+        rt = MatrixRuntimeConfig(
+            adapter_id="fail_adapter",
+            enabled=True,
+            adapter_kind="real",
+            config=cfg,
+        )
+        config = RuntimeConfig(
+            adapters=AdapterConfigSet(matrix={"fail": rt}),
+        )
+        builder = RuntimeBuilder(config, tmp_paths)
+
+        # Patch _ADAPTER_BUILDERS to inject a factory that raises
+        from medre.runtime.builder import _AdapterFactory
+        failing_factory = MagicMock(spec=_AdapterFactory)
+        failing_factory.build.side_effect = ImportError("no module")
+        import medre.runtime.builder as builder_mod
+        original = builder_mod._ADAPTER_BUILDERS["matrix"]
+        builder_mod._ADAPTER_BUILDERS["matrix"] = failing_factory
+        try:
+            with pytest.raises(RuntimeConfigError, match="Failed to build adapter"):
+                builder._build_single_adapter("matrix", "fail_adapter", rt)
+        finally:
+            builder_mod._ADAPTER_BUILDERS["matrix"] = original
+
     def test_adapter_with_none_config_skipped(self, tmp_paths: MedrePaths) -> None:
         """Adapter with config=None raises RuntimeConfigError."""
         rt = MatrixRuntimeConfig(adapter_id="no_cfg", enabled=True, config=None)
@@ -387,3 +414,163 @@ class TestBuilderErrorCases:
         builder = RuntimeBuilder(config, tmp_paths)
         with pytest.raises(RuntimeConfigError, match="no config"):
             builder._build_single_adapter("matrix", "no_cfg", rt)
+
+
+# ---------------------------------------------------------------------------
+# adapter_kind = "fake" builder dispatch
+# ---------------------------------------------------------------------------
+
+
+class TestAdapterKindFake:
+    """adapter_kind='fake' builds Fake*Adapter without optional SDKs."""
+
+    def test_fake_matrix_builds_without_nio(self, tmp_paths: MedrePaths) -> None:
+        """Fake Matrix adapter builds even without mindroom-nio."""
+        rt = MatrixRuntimeConfig(
+            adapter_id="fake_matrix",
+            enabled=True,
+            adapter_kind="fake",
+            config=_make_fake_matrix_config(),
+        )
+        config = RuntimeConfig(
+            adapters=AdapterConfigSet(matrix={"fake_matrix": rt}),
+        )
+        builder = RuntimeBuilder(config, tmp_paths)
+        adapters: dict[str, BaseAdapter] = {}
+        builder._build_adapters(adapters)
+        assert "fake_matrix" in adapters
+        assert adapters["fake_matrix"].platform == "matrix"
+
+    def test_fake_meshtastic_builds(self, tmp_paths: MedrePaths) -> None:
+        """Fake Meshtastic adapter builds without meshtastic SDK."""
+        rt = MeshtasticRuntimeConfig(
+            adapter_id="fake_mesh",
+            enabled=True,
+            adapter_kind="fake",
+            config=_make_fake_meshtastic_config(),
+        )
+        config = RuntimeConfig(
+            adapters=AdapterConfigSet(meshtastic={"fake_mesh": rt}),
+        )
+        builder = RuntimeBuilder(config, tmp_paths)
+        adapters: dict[str, BaseAdapter] = {}
+        builder._build_adapters(adapters)
+        assert "fake_mesh" in adapters
+        assert adapters["fake_mesh"].platform == "meshtastic"
+
+    def test_fake_meshcore_builds(self, tmp_paths: MedrePaths) -> None:
+        """Fake MeshCore adapter builds without meshcore SDK."""
+        rt = MeshCoreRuntimeConfig(
+            adapter_id="fake_core",
+            enabled=True,
+            adapter_kind="fake",
+            config=_make_fake_meshcore_config(),
+        )
+        config = RuntimeConfig(
+            adapters=AdapterConfigSet(meshcore={"fake_core": rt}),
+        )
+        builder = RuntimeBuilder(config, tmp_paths)
+        adapters: dict[str, BaseAdapter] = {}
+        builder._build_adapters(adapters)
+        assert "fake_core" in adapters
+        assert adapters["fake_core"].platform == "meshcore"
+
+    def test_fake_lxmf_builds(self, tmp_paths: MedrePaths) -> None:
+        """Fake LXMF adapter builds without Reticulum."""
+        rt = LxmfRuntimeConfig(
+            adapter_id="fake_lxmf",
+            enabled=True,
+            adapter_kind="fake",
+            config=_make_fake_lxmf_config(),
+        )
+        config = RuntimeConfig(
+            adapters=AdapterConfigSet(lxmf={"fake_lxmf": rt}),
+        )
+        builder = RuntimeBuilder(config, tmp_paths)
+        adapters: dict[str, BaseAdapter] = {}
+        builder._build_adapters(adapters)
+        assert "fake_lxmf" in adapters
+        assert adapters["fake_lxmf"].platform == "lxmf"
+
+    def test_fake_unknown_transport_raises(self, tmp_paths: MedrePaths) -> None:
+        """Fake adapter for unknown transport raises RuntimeConfigError."""
+        rt = MatrixRuntimeConfig(
+            adapter_id="bad",
+            enabled=True,
+            adapter_kind="fake",
+            config=_make_fake_matrix_config(),
+        )
+        config = RuntimeConfig(
+            adapters=AdapterConfigSet(matrix={"bad": rt}),
+        )
+        builder = RuntimeBuilder(config, tmp_paths)
+        with pytest.raises(RuntimeConfigError, match="Unknown transport type"):
+            builder._build_single_adapter("nonexistent", "bad", rt)
+
+    def test_fake_multi_adapter_all_build(self, tmp_paths: MedrePaths) -> None:
+        """All four fake adapters build together."""
+        config = RuntimeConfig(
+            runtime=RuntimeOptions(name="fake-multi-test"),
+            storage=StorageConfig(backend="memory"),
+            adapters=AdapterConfigSet(
+                matrix={"fm": MatrixRuntimeConfig(
+                    adapter_id="fm", enabled=True, adapter_kind="fake",
+                    config=_make_fake_matrix_config(),
+                )},
+                meshtastic={"ft": MeshtasticRuntimeConfig(
+                    adapter_id="ft", enabled=True, adapter_kind="fake",
+                    config=_make_fake_meshtastic_config(),
+                )},
+                meshcore={"fc": MeshCoreRuntimeConfig(
+                    adapter_id="fc", enabled=True, adapter_kind="fake",
+                    config=_make_fake_meshcore_config(),
+                )},
+                lxmf={"fl": LxmfRuntimeConfig(
+                    adapter_id="fl", enabled=True, adapter_kind="fake",
+                    config=_make_fake_lxmf_config(),
+                )},
+            ),
+        )
+        builder = RuntimeBuilder(config, tmp_paths)
+        app = builder.build()
+        assert len(app.adapters) == 4
+        platforms = {a.platform for a in app.adapters.values()}
+        assert platforms == {"matrix", "meshtastic", "meshcore", "lxmf"}
+
+
+# ---------------------------------------------------------------------------
+# adapter_kind validation
+# ---------------------------------------------------------------------------
+
+
+class TestAdapterKindValidation:
+    """adapter_kind must be 'real' or 'fake'."""
+
+    def test_invalid_adapter_kind_raises(self) -> None:
+        from medre.config.errors import ConfigValidationError
+        with pytest.raises(ConfigValidationError, match="adapter_kind"):
+            MatrixRuntimeConfig.from_toml_dict("test", {
+                "enabled": True,
+                "adapter_kind": "invalid",
+                "homeserver": "https://matrix.test",
+                "user_id": "@bot:test",
+                "access_token": "tok",
+            })
+
+    def test_default_adapter_kind_is_real(self) -> None:
+        rt = MatrixRuntimeConfig(
+            adapter_id="test",
+            enabled=True,
+            config=_make_fake_matrix_config(),
+        )
+        assert rt.adapter_kind == "real"
+
+    def test_fake_adapter_kind_accepted(self) -> None:
+        rt = MatrixRuntimeConfig.from_toml_dict("test", {
+            "enabled": True,
+            "adapter_kind": "fake",
+            "homeserver": "https://matrix.test",
+            "user_id": "@bot:test",
+            "access_token": "tok",
+        })
+        assert rt.adapter_kind == "fake"

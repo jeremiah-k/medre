@@ -31,7 +31,10 @@ class MatrixConfig:
     user_id:
         Fully-qualified Matrix user ID (must start with ``"@"``).
     device_id:
-        Optional device ID for the client session.
+        **Internal** — not operator-facing.  The adapter session
+        discovers the device ID via ``whoami()`` on login when needed.
+        Only set this when the caller already knows the device ID
+        (e.g. live test harnesses).
     access_token:
         Access token for authentication.
     room_allowlist:
@@ -40,7 +43,10 @@ class MatrixConfig:
     metadata_embedding_mode:
         How metadata is embedded in messages.  Defaults to ``"safe"``.
     store_path:
-        Optional filesystem path for the nio store directory.
+        **Internal** — not operator-facing.  The runtime derives a
+        default store path under the resolved state directory
+        (``{state}/matrix/{adapter_id}/store``).  Only set this for
+        test harnesses that need explicit control.
     sync_timeout_ms:
         Timeout in milliseconds for long-polling sync requests.
     encryption_mode:
@@ -49,11 +55,6 @@ class MatrixConfig:
     require_encrypted_rooms:
         When ``True``, the adapter should only operate in encrypted
         rooms.  Invalid with ``encryption_mode="plaintext"``.
-    ignore_unverified_devices:
-        When ``True``, nio's ``room_send`` will share Megolm session
-        keys with unverified devices.  Defaults to ``False`` (strict
-        nio default).  Live E2EE deployments that lack cross-signing
-        may set this to ``True`` explicitly.
     """
 
     adapter_id: str
@@ -67,7 +68,6 @@ class MatrixConfig:
     sync_timeout_ms: int = 30000
     encryption_mode: str = "plaintext"
     require_encrypted_rooms: bool = False
-    ignore_unverified_devices: bool = False
 
     def validate(self) -> Self:
         """Validate the configuration and return *self* for chaining.
@@ -112,14 +112,8 @@ class MatrixConfig:
             )
 
         if self.encryption_mode == "e2ee_required":
-            if not self.store_path:
-                raise MatrixConfigError(
-                    "e2ee_required mode requires a stable store_path"
-                )
-            if not self.device_id:
-                raise MatrixConfigError(
-                    "e2ee_required mode requires a device_id"
-                )
+            pass  # device_id and store_path are derived internally
+            # by the adapter session (whoami() + state dir convention).
 
         if self.require_encrypted_rooms and self.encryption_mode == "plaintext":
             raise MatrixConfigError(

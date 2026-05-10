@@ -590,10 +590,10 @@ class TestMatrixDeliveryNioResponseHardening:
 
 
 class TestMatrixDeliveryIgnoreUnverifiedDevices:
-    """room_send receives ignore_unverified_devices from config."""
+    """room_send receives ignore_unverified_devices based on encryption_mode."""
 
-    async def test_default_config_passes_false(self) -> None:
-        """Default config passes ignore_unverified_devices=False."""
+    async def test_plaintext_mode_passes_false(self) -> None:
+        """Plaintext mode (default) passes ignore_unverified_devices=False."""
         config = _make_matrix_config()
         adapter = MatrixAdapter(config)
 
@@ -615,9 +615,11 @@ class TestMatrixDeliveryIgnoreUnverifiedDevices:
         call_kwargs = mock_client.room_send.call_args
         assert call_kwargs.kwargs.get("ignore_unverified_devices") is False
 
-    async def test_explicit_true_passes_true(self) -> None:
-        """Config with ignore_unverified_devices=True passes True."""
-        config = _make_matrix_config(ignore_unverified_devices=True)
+    async def test_e2ee_mode_passes_true(self) -> None:
+        """E2EE mode passes ignore_unverified_devices=True internally."""
+        config = _make_matrix_config(
+            encryption_mode="e2ee_required",
+        )
         adapter = MatrixAdapter(config)
 
         class _FakeResponse:

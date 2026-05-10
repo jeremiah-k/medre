@@ -461,12 +461,12 @@ The following invariants must hold before, during, and after E2EE integration:
 
 The following fields should be introduced only in a future E2EE hardening tranche, not before:
 
-- `encryption_enabled` (or similar toggle)
+- ~~`encryption_enabled` (or similar toggle)~~ — **Superseded**: MEDRE uses `encryption_mode: "plaintext" | "e2ee_required" | "e2ee_optional"` on `MatrixConfig`, which replaces the old boolean toggle.
 - `pickle_key` / key passphrase
 - `store_sync_tokens`
 - Custom store class override
 
-**Note**: `ignore_unverified_devices` was previously in this list. It has been removed because the policy is now decided: `True` is required by the upstream nio client due to its lack of cross-signing support (see §5.2). This is not a MEDRE preference — it is the current reality for all nio-based E2EE clients. An admin-facing config toggle to control this setting may be added in a future tranche.
+**Note**: `ignore_unverified_devices` is no longer a public config field. MEDRE internally passes `ignore_unverified_devices=True` to nio's `room_send` when `encryption_mode` is not `"plaintext"`, because nio lacks cross-signing support (MSC1756). This is an internal nio workaround, not an operator toggle.
 
 **[DEFERRED]**: Adding these now would be speculative. They belong in the implementation PR, not this readiness document.
 

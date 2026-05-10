@@ -18,6 +18,7 @@ from medre.adapters.matrix.config import MatrixConfig
 from medre.adapters.meshtastic.config import MeshtasticConfig
 from medre.adapters.meshcore.config import MeshCoreConfig
 from medre.adapters.lxmf.config import LxmfConfig
+from medre.config.errors import ConfigValidationError
 
 
 # ---------------------------------------------------------------------------
@@ -25,7 +26,7 @@ from medre.adapters.lxmf.config import LxmfConfig
 # ---------------------------------------------------------------------------
 
 # Fields consumed by the runtime wrapper (not forwarded to adapter configs).
-_WRAPPER_FIELD_NAMES: frozenset[str] = frozenset({"enabled", "adapter_id"})
+_WRAPPER_FIELD_NAMES: frozenset[str] = frozenset({"enabled", "adapter_id", "adapter_kind"})
 
 
 def _coerce_adapter_kwargs(
@@ -134,6 +135,7 @@ class MatrixRuntimeConfig:
 
     adapter_id: str
     enabled: bool = True
+    adapter_kind: str = "real"
     config: MatrixConfig | None = None
 
     @classmethod
@@ -151,10 +153,15 @@ class MatrixRuntimeConfig:
         data = dict(data)
         enabled: bool = data.pop("enabled", True)
         adapter_id: str = data.pop("adapter_id", instance_name)
+        adapter_kind: str = data.pop("adapter_kind", "real")
+        if adapter_kind not in ("real", "fake"):
+            raise ConfigValidationError(
+                f"adapter_kind must be 'real' or 'fake', got {adapter_kind!r}"
+            )
         adapter_kwargs = _coerce_adapter_kwargs(MatrixConfig, data)
         adapter_kwargs.setdefault("adapter_id", adapter_id)
         config = MatrixConfig(**adapter_kwargs).validate()
-        return cls(adapter_id=adapter_id, enabled=enabled, config=config)
+        return cls(adapter_id=adapter_id, enabled=enabled, adapter_kind=adapter_kind, config=config)
 
 
 @dataclass(frozen=True)
@@ -163,6 +170,7 @@ class MeshtasticRuntimeConfig:
 
     adapter_id: str
     enabled: bool = True
+    adapter_kind: str = "real"
     config: MeshtasticConfig | None = None
 
     @classmethod
@@ -171,10 +179,15 @@ class MeshtasticRuntimeConfig:
         data = dict(data)
         enabled: bool = data.pop("enabled", True)
         adapter_id: str = data.pop("adapter_id", instance_name)
+        adapter_kind: str = data.pop("adapter_kind", "real")
+        if adapter_kind not in ("real", "fake"):
+            raise ConfigValidationError(
+                f"adapter_kind must be 'real' or 'fake', got {adapter_kind!r}"
+            )
         adapter_kwargs = _coerce_adapter_kwargs(MeshtasticConfig, data)
         adapter_kwargs.setdefault("adapter_id", adapter_id)
         config = MeshtasticConfig(**adapter_kwargs).validate()
-        return cls(adapter_id=adapter_id, enabled=enabled, config=config)
+        return cls(adapter_id=adapter_id, enabled=enabled, adapter_kind=adapter_kind, config=config)
 
 
 @dataclass(frozen=True)
@@ -183,6 +196,7 @@ class MeshCoreRuntimeConfig:
 
     adapter_id: str
     enabled: bool = True
+    adapter_kind: str = "real"
     config: MeshCoreConfig | None = None
 
     @classmethod
@@ -191,10 +205,15 @@ class MeshCoreRuntimeConfig:
         data = dict(data)
         enabled: bool = data.pop("enabled", True)
         adapter_id: str = data.pop("adapter_id", instance_name)
+        adapter_kind: str = data.pop("adapter_kind", "real")
+        if adapter_kind not in ("real", "fake"):
+            raise ConfigValidationError(
+                f"adapter_kind must be 'real' or 'fake', got {adapter_kind!r}"
+            )
         adapter_kwargs = _coerce_adapter_kwargs(MeshCoreConfig, data)
         adapter_kwargs.setdefault("adapter_id", adapter_id)
         config = MeshCoreConfig(**adapter_kwargs).validate()
-        return cls(adapter_id=adapter_id, enabled=enabled, config=config)
+        return cls(adapter_id=adapter_id, enabled=enabled, adapter_kind=adapter_kind, config=config)
 
 
 @dataclass(frozen=True)
@@ -203,6 +222,7 @@ class LxmfRuntimeConfig:
 
     adapter_id: str
     enabled: bool = True
+    adapter_kind: str = "real"
     config: LxmfConfig | None = None
 
     @classmethod
@@ -211,15 +231,30 @@ class LxmfRuntimeConfig:
         data = dict(data)
         enabled: bool = data.pop("enabled", True)
         adapter_id: str = data.pop("adapter_id", instance_name)
+        adapter_kind: str = data.pop("adapter_kind", "real")
+        if adapter_kind not in ("real", "fake"):
+            raise ConfigValidationError(
+                f"adapter_kind must be 'real' or 'fake', got {adapter_kind!r}"
+            )
         adapter_kwargs = _coerce_adapter_kwargs(LxmfConfig, data)
         adapter_kwargs.setdefault("adapter_id", adapter_id)
         config = LxmfConfig(**adapter_kwargs).validate()
-        return cls(adapter_id=adapter_id, enabled=enabled, config=config)
+        return cls(adapter_id=adapter_id, enabled=enabled, adapter_kind=adapter_kind, config=config)
 
 
 # ---------------------------------------------------------------------------
 # Adapter collection
 # ---------------------------------------------------------------------------
+
+# Union of all runtime config wrappers — used by AdapterConfigSet methods
+# and consumed by the runtime builder and app to access .enabled, .config,
+# .adapter_kind without an ``object`` typed return.
+AdapterRuntimeConfig = (
+    MatrixRuntimeConfig
+    | MeshtasticRuntimeConfig
+    | MeshCoreRuntimeConfig
+    | LxmfRuntimeConfig
+)
 
 
 @dataclass(frozen=True)
@@ -235,18 +270,18 @@ class AdapterConfigSet:
     meshcore: dict[str, MeshCoreRuntimeConfig] = field(default_factory=dict)
     lxmf: dict[str, LxmfRuntimeConfig] = field(default_factory=dict)
 
-    def all_enabled(self) -> list[tuple[str, object]]:
+    def all_enabled(self) -> list[tuple[str, AdapterRuntimeConfig]]:
         """Return ``(adapter_id, config)`` for all enabled adapters."""
-        result: list[tuple[str, object]] = []
+        result: list[tuple[str, AdapterRuntimeConfig]] = []
         for group in (self.matrix, self.meshtastic, self.meshcore, self.lxmf):
             for _name, rtc in group.items():
                 if rtc.enabled:
                     result.append((rtc.adapter_id, rtc))
         return result
 
-    def all_configs(self) -> list[tuple[str, str, object]]:
+    def all_configs(self) -> list[tuple[str, str, AdapterRuntimeConfig]]:
         """Return ``(transport_type, adapter_id, config)`` for all adapters."""
-        result: list[tuple[str, str, object]] = []
+        result: list[tuple[str, str, AdapterRuntimeConfig]] = []
         for transport, group in (
             ("matrix", self.matrix),
             ("meshtastic", self.meshtastic),

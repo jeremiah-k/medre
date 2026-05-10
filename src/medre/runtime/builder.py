@@ -145,6 +145,31 @@ _ADAPTER_BUILDERS: dict[str, _AdapterFactory] = {
 }
 
 
+def _build_fake_adapter(transport: str, adapter_id: str) -> BaseAdapter:
+    """Construct a fake adapter for the given transport.
+
+    Fake adapters are always importable from core — they do not depend on
+    optional live SDKs.  This function raises :class:`RuntimeConfigError`
+    if *transport* is not recognised.
+    """
+    if transport == "matrix":
+        from medre.adapters.fake_matrix import FakeMatrixAdapter
+        return FakeMatrixAdapter(adapter_id=adapter_id)
+    if transport == "meshtastic":
+        from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
+        return FakeMeshtasticAdapter()
+    if transport == "meshcore":
+        from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
+        return FakeMeshCoreAdapter()
+    if transport == "lxmf":
+        from medre.adapters.fake_lxmf import FakeLxmfAdapter
+        return FakeLxmfAdapter()
+    raise RuntimeConfigError(
+        f"Unknown transport type {transport!r} for fake adapter "
+        f"{adapter_id!r}. Known types: {', '.join(sorted(_ADAPTER_BUILDERS))}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # RuntimeBuilder
 # ---------------------------------------------------------------------------
@@ -296,6 +321,13 @@ class RuntimeBuilder:
         cannot be built (unknown transport, missing config, or missing
         optional dependencies).
         """
+        adapter_kind = getattr(rtc, "adapter_kind", "real")
+
+        # --- Fake adapter path (no optional SDK imports) ---
+        if adapter_kind == "fake":
+            return _build_fake_adapter(transport, adapter_id)
+
+        # --- Real adapter path ---
         factory = _ADAPTER_BUILDERS.get(transport)
         if factory is None:
             raise RuntimeConfigError(
@@ -310,7 +342,12 @@ class RuntimeBuilder:
                 f"Adapter {adapter_id!r} ({transport}) is enabled but has no config"
             )
 
-        adapter = factory.build(config)
+        try:
+            adapter = factory.build(config)
+        except Exception as exc:
+            raise RuntimeConfigError(
+                f"Failed to build adapter {adapter_id!r} ({transport}): {exc}"
+            ) from exc
         if adapter is None:
             raise RuntimeConfigError(
                 f"Adapter {adapter_id!r} ({transport}) is enabled but could "

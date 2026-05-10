@@ -1906,7 +1906,7 @@ access_token = "syt_..."
 room_allowlist = ["!room:example.com"]
 device_id = "MEDREBOT"
 store_path = "{state}/matrix/<name>/store"
-encryption_enabled = false
+encryption_mode = "plaintext"
 
 [adapters.meshtastic.<name>]
 enabled = false
@@ -1949,7 +1949,7 @@ Core overrides:
 - `MEDRE_LOG_LEVEL` → `config.logging.level`
 
 Adapter overrides map to a virtual `"env"` adapter instance within each transport type:
-- **Matrix**: `MEDRE_MATRIX_HOMESERVER`, `MEDRE_MATRIX_USER_ID`, `MEDRE_MATRIX_ACCESS_TOKEN`, `MEDRE_MATRIX_DEVICE_ID`, `MEDRE_MATRIX_STORE_PATH`, `MEDRE_MATRIX_ENCRYPTION_ENABLED`, `MEDRE_MATRIX_ROOM_ALLOWLIST`
+- **Matrix**: `MEDRE_MATRIX_HOMESERVER`, `MEDRE_MATRIX_USER_ID`, `MEDRE_MATRIX_ACCESS_TOKEN`, `MEDRE_MATRIX_ENCRYPTION_MODE`, `MEDRE_MATRIX_ROOM_ALLOWLIST` (`MEDRE_MATRIX_DEVICE_ID` and `MEDRE_MATRIX_STORE_PATH` exist in the env mapping but are internal/test-only — the adapter discovers `device_id` via `whoami()` and derives `store_path` internally)
 - **Meshtastic**: `MEDRE_MESHTASTIC_CONNECTION_TYPE`, `MEDRE_MESHTASTIC_SERIAL_PORT`, `MEDRE_MESHTASTIC_HOST`, `MEDRE_MESHTASTIC_PORT`
 - **MeshCore**: `MEDRE_MESHCORE_CONNECTION_TYPE`, `MEDRE_MESHCORE_SERIAL_PORT`, `MEDRE_MESHCORE_HOST`, `MEDRE_MESHCORE_PORT`, `MEDRE_MESHCORE_BLE_ADDRESS`
 - **LXMF**: `MEDRE_LXMF_CONNECTION_TYPE`, `MEDRE_LXMF_IDENTITY_PATH`, `MEDRE_LXMF_DISPLAY_NAME`, `MEDRE_LXMF_DESTINATION_HASH`
@@ -2029,7 +2029,7 @@ Example TOML files in `examples/configs/`:
 
 ### Encryption Model
 
-At the TOML config level, Matrix encryption is controlled by a single `encryption_enabled: bool` field. When `true`, MEDRE internally configures `encryption_mode = "e2ee_required"` and `ignore_unverified_devices = True` on the underlying `MatrixConfig`. This is an upstream nio client limitation — cross-signing is not yet supported, so all automated E2EE requires the unverified devices flag.
+At the TOML config level, Matrix encryption is controlled by `encryption_mode: "plaintext" | "e2ee_required" | "e2ee_optional"` (default `"plaintext"`). When set to a non-plaintext mode, MEDRE internally passes `ignore_unverified_devices=True` to nio's `room_send`. This is an upstream nio client limitation — nio lacks cross-signing support (MSC1756), providing no API for programmatic device verification, so this flag is mandatory for any automated E2EE operation. This is **not** an operator-configurable toggle; it is an internal nio workaround applied automatically based on `encryption_mode`.
 
 ### Configuration Error Hierarchy
 
