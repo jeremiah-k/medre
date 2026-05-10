@@ -1,7 +1,7 @@
 # MeshCore Live Smoke Test Runbook
 
-> Last updated: 2026-05-09
-> Status: **Live harness exists. Real mode requires `meshcore` package and a live MeshCore node.**
+> Last updated: 2026-05-10
+> Status: **NOT EXECUTED — requires MeshCore radio hardware. No MeshCore node connected to this machine. `meshcore` SDK is installable from PyPI but live testing impossible without hardware.**
 > See: `docs/contracts/19-meshcore-connectivity-readiness.md`
 > Scope: `tests/test_meshcore_live.py`
 
@@ -387,26 +387,27 @@ After running tests:
 ### Test Results
 
 - **File:** `tests/test_meshcore_live.py`
-- **Last run:** **NOT EXECUTED**
-- **Executor:** **NOT EXECUTED**
-- **Command:** `pytest tests/test_meshcore_live.py -m live -v`
-- **MEDRE commit:** **NOT EXECUTED**
-- **Python version:** **NOT EXECUTED**
-- **meshcore version:** **NOT EXECUTED**
-- **Connection type:** **NOT EXECUTED** (TCP/serial/BLE)
-- **Node hardware:** **NOT EXECUTED**
-- **Environment:** **NOT EXECUTED**
-- **Result:** **NOT EXECUTED**
-- **Passed / Failed / Skipped:** **NOT EXECUTED**
-- **Adapter start:** **NOT EXECUTED**
-- **Health check → healthy:** **NOT EXECUTED**
-- **Send text → success:** **NOT EXECUTED**
-- **Inbound callback received:** **NOT EXECUTED**
-- **Diagnostics snapshot:** **NOT EXECUTED**
-- **Stop → clean teardown:** **NOT EXECUTED**
-- **Reconnect observations:** **NOT EXECUTED**
-- **Caveats observed:** **NOT EXECUTED**
-- **Failures/Notes:** Live smoke tests have not been executed against real MeshCore hardware. Without the required environment variables and a connected MeshCore node, all live tests skip automatically. To run: connect a MeshCore node via TCP or serial, set `MESHCORE_CONNECTION_TYPE` and the corresponding connection variable, then execute the command.
+- **Last run:** 2026-05-10
+- **Executor:** jeremiah@meshnet-framework
+- **Command:** N/A — hardware not available
+- **MEDRE commit:** `0e8179e`
+- **Python version:** 3.12.3
+- **meshcore version:** not installed (no hardware to validate against)
+- **Connection type:** N/A
+- **Node hardware:** **NOT PRESENT**
+- **Environment:** Linux, USB devices checked via `lsusb` and `dmesg`
+- **Result:** **NOT EXECUTED — requires MeshCore hardware**
+- **Passed / Failed / Skipped:** N/A
+- **Adapter start:** NOT EXECUTED
+- **Health check → healthy:** NOT EXECUTED
+- **Send text → success:** NOT EXECUTED
+- **Inbound callback received:** NOT EXECUTED
+- **Diagnostics snapshot:** NOT EXECUTED
+- **Stop → clean teardown:** NOT EXECUTED
+- **Reconnect observations:** NOT EXECUTED
+- **Caveats observed:** N/A
+- **Blocker:** No MeshCore radio hardware connected to this machine. USB devices present: FIDO2 key, Logitech Unifying Receiver, Lenovo mouse, Dell keyboard, Areson wireless receiver, Lite-On camera, QinHeng CH340 USB-to-serial adapter (`/dev/ttyACM0`), C-Media USB audio, eMeet webcam. None of these are MeshCore nodes. The `meshcore` package is installable from PyPI (v2.3.7, pure Python with `bleak`, `pyserial-asyncio-fast`, `pycayennelpp` deps), but without actual MeshCore hardware to connect to, live testing is impossible.
+- **Failures/Notes:** Live smoke tests require a MeshCore radio node connected via TCP, serial, or BLE. No MeshCore hardware is available in this environment. The `meshcore` SDK can be installed (`pip install meshcore`) and would import successfully, but all live tests would skip or fail without a connected node. Do not install the SDK without hardware — it serves no validation purpose.
 
 
 ## Explicit Scope Exclusions

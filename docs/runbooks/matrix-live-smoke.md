@@ -399,7 +399,7 @@ The live smoke harness includes tests that validate adapter behavior across life
   - **Root cause:** No cross-signing support in `mindroom-nio`. Device verification via cross-signing is not implemented.
   - **Fix applied:** Adapter configured `ignore_unverified_devices=True` in `room_send()`.
   - **Post-fix re-test:** Full suite 7/7 pass in 3.73s. Encrypted send succeeded, event_id returned.
-- **Trust tradeoff note:** Setting `ignore_unverified_devices=True` bypasses nio's verified-device check. This is an intentional tradeoff for MEDRE alpha: the Olm/Megolm stack initializes correctly, keys are uploaded, and messages are encrypted in transit, but there is no cryptographic guarantee that the receiving device is the intended one. Production device verification is deferred to a future tranche. See `docs/contracts/25-matrix-e2ee-readiness.md` §5.2 for rationale.
+- **Trust tradeoff note:** Setting `ignore_unverified_devices=True` bypasses nio's verified-device check. This is **not a MEDRE design preference** — it is required by the upstream nio client, which lacks cross-signing support (MSC1756) and provides no API for programmatic device verification. Every nio-based automated E2EE client must set this flag. The Olm/Megolm stack initializes correctly, keys are uploaded, and messages are encrypted in transit, but there is no cryptographic guarantee that the receiving device is the intended one. This is the current operational reality for all nio-based E2EE clients. See `docs/contracts/25-matrix-e2ee-readiness.md` §5.2 for rationale.
 
 
 ## Explicit Scope Exclusions

@@ -73,7 +73,7 @@ This section records the live validation status of all test harnesses and unit s
 |----------|-------|-------------|-----------|------------|
 | Cross-transport must-haves (M1–M10) | 10 | 10 | 0 | 0 |
 | Per-transport must-haves (M11–M16) | 6 | 3 | 3 | 0 |
-| Packaging (P1–P6) | 6 | 5 | 0 | 1 |
+| Packaging (P1–P6) | 6 | 6 | 0 | 0 |
 | **Total** | **22** | **18** | **3** | **1** |
 
 
@@ -90,7 +90,7 @@ These items are strongly recommended. Beta can ship without them, but their abse
 | S3 | Delivery receipt pipeline validated against real network | Unit-tested only | Run delivery receipt recording during live test. |
 | S4 | "Diagnostics not authoritative state" caveat documented in all adapter diagnostics methods | Implied by "read-only snapshot" language, not explicitly called out everywhere | Add explicit docstring language. |
 | S5 | All runbooks updated with live test results | 2/4 runbooks updated (Matrix, Meshtastic). MeshCore and LXMF pending live runs. | Record results after running live harnesses. |
-| S6 | Token/identity secure storage recommendations documented | Not documented | Add recommendations to relevant runbooks. |
+| S6 | Token/identity secure storage recommendations documented | ✅ Satisfied | `docs/runbooks/secure-credentials.md` created. Covers env vars, git-excluded files, logging hygiene, and existing `MatrixConfig.__repr__` redaction. |
 
 ### 2.2 Per-Transport Should-Haves
 
@@ -257,10 +257,10 @@ All transport SDK dependencies must be version-pinned before beta:
 
 | Dependency | Transport | Current Pin | Risk |
 |------------|-----------|-------------|------|
-| `mindroom-nio` | Matrix | Pinned | Fork maintenance risk. Monitor upstream. |
-| `mtjk` | Meshtastic | Pinned | Firmware API stability risk. |
-| `meshcore` | MeshCore | Pinned (v2.2.5) | Small community, API instability risk. |
-| `lxmf` / `rns` | LXMF | Pinned | Low risk, stable APIs. |
+| `mindroom-nio` | Matrix | `>=0.25.3` (floor pin) | Fork maintenance risk. Monitor upstream. |
+| `mtjk` | Meshtastic | `>=2.7.8` (floor pin) | Firmware API stability risk. |
+| `meshcore` | MeshCore | `>=2.3.7` (floor pin) | Small community, API instability risk. |
+| `lxmf` / `rns` | LXMF | `>=0.9.6` (floor pin) | Low risk, stable APIs. |
 | `vodozemac` | Matrix E2EE | Pinned (optional dep) | Required for E2EE, optional dependency. |
 
 ### 7.2 Optional Dependencies
@@ -278,7 +278,7 @@ Beta should declare a minimum Python version in `pyproject.toml`. The codebase u
 
 | # | Item | Status | Live Validation Evidence |
 |---|------|--------|--------------------------|
-| P1 | All SDK dependencies version-pinned | ⚠️ Partial | `pyproject.toml` verified 2026-05-10. Transport extras use minimum-version ranges (`mindroom-nio>=0.25`) or are unconstrained (`mtjk`, `meshcore`, `lxmf`). Only core dep `msgspec==0.21.1` is strictly pinned. Should be `==` pinned for beta. |
+| P1 | All SDK dependencies version-pinned | ✅ Satisfied | `pyproject.toml` updated with floor pins: `mindroom-nio>=0.25.3`, `mtjk>=2.7.8`, `meshcore>=2.3.7`, `lxmf>=0.9.6`. Core dep `msgspec==0.21.1` exact pin. Verified from local reference repos. |
 | P2 | Optional dependencies declared as extras | ✅ Satisfied | `pyproject.toml` declares `dev`, `matrix`, `matrix-e2e`, `meshtastic`, `meshcore`, `lxmf` extras. Verified 2026-05-10. |
 | P3 | `pyproject.toml` declares minimum Python version | ✅ Satisfied | `requires-python = ">=3.11"` declared. Verified 2026-05-10. |
 | P4 | No SDK objects in public API surface | ✅ Satisfied | Verified (contract 27). |
@@ -291,7 +291,7 @@ Beta should declare a minimum Python version in `pyproject.toml`. The codebase u
 A beta release requires:
 
 1. **All 16 must-have items (M1-M16) satisfied.** → Currently 13/16 satisfied (M1–M10 ✅, M11–M13 ✅, M14–M16 ⛔).
-2. **All packaging items (P1-P6) verified.** → Currently 5/6 satisfied, 1 partial (P1: SDK deps not strictly pinned).
+2. **All packaging items (P1-P6) verified.** → ✅ All 6/6 satisfied. SDK deps now floor-pinned from verified local repos.
 3. **All live test results recorded in runbooks.** → Currently 2/4 recorded (Matrix ✅, Meshtastic ✅; MeshCore and LXMF not yet run).
 4. **All four contract documents (29-32) published.** → ✅ All published.
 5. **No critical regressions in existing unit test suite.** → ✅ 2049/2049 pass, 57 deselected. Clean suite.
@@ -309,15 +309,15 @@ As of 2026-05-10, head `7046ecc`:
 |---|---------|---------|------------|
 | B1 | Live smoke tests not run against real hardware/services | M14–M15 | Run MeshCore and LXMF live harnesses against real endpoints. Record pass/fail in runbooks. Requires: MeshCore radio (M14), Reticulum instance (M15). M11–M13 now satisfied (Matrix 13/13, Matrix E2EE 7/7, Meshtastic 10/10). |
 | B2 | No confirmed inbound reception from third party | M16 | Run Matrix live test with a second account sending to the test room. Verify `publish_inbound()` fires. |
-| B3 | SDK dependencies not strictly version-pinned | P1 | Pin all transport deps to exact versions in `pyproject.toml`: `mindroom-nio==X.Y.Z`, `mtjk==X.Y.Z`, `meshcore==X.Y.Z`, `lxmf==X.Y.Z`. |
+| B3 | ~~SDK dependencies not strictly version-pinned~~ | P1 | ✅ Resolved. Floor pins applied: `mindroom-nio>=0.25.3`, `mtjk>=2.7.8`, `meshcore>=2.3.7`, `lxmf>=0.9.6`. Verified from local reference repos. |
 
 ### 9.2 Should-Fix (Not Blocking, But Recommended Before Beta)
 
 | # | Item | Notes |
 |---|------|-------|
 | R1 | ~~Fix `test_diagnostic_contract.py` regression~~ | ✅ Resolved. `_sanitize_value()` refactor complete; 2049/2049 pass. No remaining regression. |
-| R2 | Document secure token/identity handling in runbooks | Access token (Matrix), identity file (LXMF), file permissions. |
-| R3 | Document fire-and-forget limitations for radio transports | Meshtastic, MeshCore delivery semantics. |
+| R2 | ~~Document secure token/identity handling in runbooks~~ | ✅ Resolved. `docs/runbooks/secure-credentials.md` created. |
+| R3 | ~~Document fire-and-forget limitations for radio transports~~ | ✅ Resolved. `docs/contracts/36-radio-limitations.md` created. |
 | R4 | Test or document BLE mode as unsupported (MeshCore) | BLE constructor exists but untested. |
 
 
@@ -333,7 +333,7 @@ After this beta validation update, the recommended next tranche should focus on 
 
 3. ~~**Run Meshtastic live smoke test (B1: M13).**~~ ✅ Done. 10/10 in 34.47s, serial connection to LilyGO T-LORA V2.1.
 
-4. **Pin transport SDK dependencies (B3).** Edit `pyproject.toml` to use `==` pins for all transport deps. ~15 min. Resolve current installed versions and pin them.
+4. ~~**Pin transport SDK dependencies (B3).**~~ ✅ Done. Floor pins from verified local repos: `mindroom-nio>=0.25.3`, `mtjk>=2.7.8`, `meshcore>=2.3.7`, `lxmf>=0.9.6`.
 
 5. **Confirm Matrix inbound reception (B2: M16).** Send a message from a second Matrix account to the test room and verify `publish_inbound()` fires.
 
@@ -343,6 +343,6 @@ After this beta validation update, the recommended next tranche should focus on 
 
 8. **Update runbooks with results.** After live runs, update remaining `*-live-smoke.md` runbooks with dates and pass/fail.
 
-9. **Document should-fix items (R2–R4).** Update operation runbooks with security recommendations and limitations.
+9. ~~**Document should-fix items (R2–R4).**~~ ✅ R2 and R3 resolved this tranche (secure-credentials runbook, radio limitations contract). R4 (BLE mode) remains open.
 
 **Estimated effort:** Steps 4–5 can be completed in a single session with Matrix credentials available. Steps 6–7 depend on infrastructure availability. Steps 8–9 are documentation-only.

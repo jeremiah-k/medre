@@ -32,9 +32,9 @@ except ImportError:
     rns_module = None
 
 try:
-    import lxmf  # noqa: F401
+    import LXMF  # noqa: F401
 
-    lxmf_module = lxmf
+    lxmf_module = LXMF
 except ImportError:
     lxmf_module = None
 

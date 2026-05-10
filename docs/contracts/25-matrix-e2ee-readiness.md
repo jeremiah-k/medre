@@ -318,13 +318,15 @@ When `self.olm` exists and `room.encrypted` is `True`:
 
 The `ignore_unverified_devices` parameter in both `room_send` and `share_group_session` controls whether unverified devices receive keys. Nio's default is `False` (strict — will block if unverified devices exist).
 
-**Operational policy (corrected):** `ignore_unverified_devices=True` is the intended and required operational posture for MEDRE's alpha. This is necessary because:
+**Operational policy (upstream limitation):** `ignore_unverified_devices=True` is **required by the upstream nio client** for any automated or bot-operated Matrix E2EE. This is not a MEDRE design preference or alpha convenience — it is a hard constraint imposed by nio's lack of cross-signing support (MSC1756). The nio client provides no API for programmatic device verification, and without cross-signing there is no practical way for a bot to verify devices out-of-band. Every nio-based client that operates in encrypted rooms without pre-verified devices must set this flag. This applies until either nio implements cross-signing or MEDRE adopts an alternative verification path.
+
+Specifically:
 
 1. **No cross-signing support.** `mindroom-nio` does not implement cross-signing (MSC1756). Device verification via cross-signing is not available.
 2. **Behavior constrained by nio.** The E2EE behavior is entirely constrained by what nio supports. Since nio lacks cross-signing, requiring manual per-device verification is impractical for automated bot operation.
 3. **Live evidence confirms the block.** Encrypted-room follow-up testing confirmed that outbound sends fail with `OlmUnverifiedDeviceError` when `ignore_unverified_devices=False` and devices are not manually verified. The room was joined and confirmed encrypted, but two send attempts both failed at the device-verification gate.
 
-Setting `ignore_unverified_devices=True` is not a security downgrade for MEDRE's alpha use case — it is the only viable posture given nio's limitations. Production E2EE hardening (including proper device verification flows) is deferred to a future tranche when either nio gains cross-signing support or MEDRE implements an alternative verification path.
+Setting `ignore_unverified_devices=True` does not weaken the Olm/Megolm encryption itself — messages remain encrypted in transit. The tradeoff is that there is no cryptographic guarantee that the receiving device is the intended one, because the trust-on-first-use device verification that cross-signing would provide is absent. This is the current operational reality for all nio-based E2EE clients, not a MEDRE-specific shortcut.
 
 
 ## 6. Shutdown & Close Requirements
@@ -464,7 +466,7 @@ The following fields should be introduced only in a future E2EE hardening tranch
 - `store_sync_tokens`
 - Custom store class override
 
-**Note**: `ignore_unverified_devices` was previously in this list. It has been removed because the policy is now decided: `True` is the intended operational posture (see §5.2). An admin-facing config toggle to control this setting may be added in a future tranche.
+**Note**: `ignore_unverified_devices` was previously in this list. It has been removed because the policy is now decided: `True` is required by the upstream nio client due to its lack of cross-signing support (see §5.2). This is not a MEDRE preference — it is the current reality for all nio-based E2EE clients. An admin-facing config toggle to control this setting may be added in a future tranche.
 
 **[DEFERRED]**: Adding these now would be speculative. They belong in the implementation PR, not this readiness document.
 
@@ -533,7 +535,7 @@ The E2EE text alpha now includes a live harness. See `docs/runbooks/matrix-live-
 4. **Crypto state persistence** across adapter restarts (stop → start with same store_path).
 5. **MegolmEvent handling** when decryption fails — counted, logged (event_id/room_id/error class only), not forwarded.
 6. **Room encryption detection** via `RoomEncryptionEvent` — sets `encrypted_room_seen`, not forwarded.
-7. **Unverified device policy** — active policy: `ignore_unverified_devices=True` is the intended/required operational posture. No admin-facing config toggle exists yet, but the policy decision has been made (see §5.2). Nio's default of `False` causes `OlmUnverifiedDeviceError` in encrypted rooms.
+7. **Unverified device policy** — required by upstream nio: `ignore_unverified_devices=True` is not a MEDRE preference but a hard requirement imposed by nio's lack of cross-signing support (MSC1756). Nio provides no API for programmatic device verification, making this flag mandatory for any automated E2EE client. No admin-facing config toggle exists yet (see §5.2).
 
 ### 10.2 Prerequisites [ACTIVE]
 

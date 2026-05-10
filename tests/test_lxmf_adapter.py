@@ -663,9 +663,9 @@ class TestLxmfCompat:
         assert isinstance(HAS_LXMF, bool)
 
     def test_has_lxmf_value_consistent_with_import(self) -> None:
-        """HAS_LXMF is True when lxmf imports successfully, False otherwise."""
+        """HAS_LXMF is True when LXMF imports successfully, False otherwise."""
         try:
-            import lxmf  # noqa: F401
+            import LXMF  # noqa: F401
             assert HAS_LXMF is True
         except ImportError:
             assert HAS_LXMF is False

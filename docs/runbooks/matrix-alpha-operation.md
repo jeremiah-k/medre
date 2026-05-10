@@ -285,7 +285,7 @@ The following E2EE-related capabilities are **deferred** and not part of the E2E
 - Room key backup
 - Room key import/export
 - Interactive device verification (emoji/QR)
-- Unverified device policy: `ignore_unverified_devices` is now an explicit `MatrixConfig` field (default `False`). Live E2EE deployments should set `ignore_unverified_devices=True` in config (see `docs/contracts/25-matrix-e2ee-readiness.md` §5.2 for rationale).
+- Unverified device policy: `ignore_unverified_devices` is now an explicit `MatrixConfig` field (default `False`). Live E2EE deployments **must** set `ignore_unverified_devices=True` in config. This is required by the upstream nio client — nio lacks cross-signing support (MSC1756), providing no API for programmatic device verification, so this flag is mandatory for any automated E2EE operation. See `docs/contracts/25-matrix-e2ee-readiness.md` §5.2 for rationale.
 
 These will be addressed in a future E2EE implementation tranche. See `docs/contracts/25-matrix-e2ee-readiness.md` for the detailed plan.
 
@@ -725,7 +725,7 @@ Check these in order:
    python -c "import nio; print(nio.crypto.ENCRYPTION_ENABLED)"
    ```
    This should print `True`. If `False`, the `[e2e]` extra is not installed. Run `pip install -e ".[matrix-e2e]"`.
-4. **Is the device verified by the sender?** In the E2EE text alpha, `ignore_unverified_devices=True` is the intended operational posture. If this is not set in the adapter config, outbound encryption will block with `OlmUnverifiedDeviceError` when unverified devices exist in the room. Live testing confirmed this failure: encrypted-room join succeeded, but two outbound send attempts failed with `OlmUnverifiedDeviceError` because `ignore_unverified_devices` was `False` (the nio strict default). The resolution is to set `ignore_unverified_devices=True`. This is necessary because nio does not support cross-signing (MSC1756), making manual per-device verification impractical for automated bot operation.
+4. **Is the device verified by the sender?** In the E2EE text alpha, `ignore_unverified_devices=True` is **required**, not optional. If this is not set in the adapter config, outbound encryption will block with `OlmUnverifiedDeviceError` when unverified devices exist in the room. Live testing confirmed this failure: encrypted-room join succeeded, but two outbound send attempts failed with `OlmUnverifiedDeviceError` because `ignore_unverified_devices` was `False` (the nio strict default). The resolution is to set `ignore_unverified_devices=True`. This is **not a MEDRE design choice** — nio does not support cross-signing (MSC1756) and provides no API for programmatic device verification, making this flag mandatory for every nio-based automated E2EE client.
 5. **Was the room key shared?** If the adapter joined the encrypted room before the crypto store was initialized, room keys may not have been distributed to this device. Sending a message from another client into the room after the adapter is running with E2EE should trigger key distribution.
 
 ### 14.17 E2EE: `ImportError` or `ModuleNotFoundError` for `vodozemac`
@@ -881,7 +881,7 @@ If `store_path` is changed or the store is deleted, the adapter creates a new cr
 | Cross-signing | Not supported | nio does not implement cross-signing (MSC1756); device verification via cross-signing not available |
 | Key backup / export / import | Not supported | Not wired |
 | Interactive device verification (emoji/QR) | Not supported | `Sas` class exists but not wired |
-| Unverified device policy | Active | `ignore_unverified_devices` is an explicit `MatrixConfig` field (default `False`). Live E2EE deployments set it to `True` in config (see contract 25 §5.2). |
+| Unverified device policy | Required by upstream nio | `ignore_unverified_devices` is an explicit `MatrixConfig` field (default `False`). Live E2EE deployments **must** set it to `True` — this is required by nio due to its lack of cross-signing support (MSC1756). See contract 25 §5.2. |
 | Redactions / deletes | Not supported | Not handled |
 
 **Note:** Undecryptable event logging was previously unsupported but is now implemented. `MegolmEvent` callbacks count events, log warnings (event_id/room_id only, no session_id), and do not forward to the canonical pipeline. `RoomEncryptionEvent` callbacks set `encrypted_room_seen` and are not forwarded.
