@@ -4,6 +4,9 @@ version = "0.1.0"
 description = "Modular event communications runtime"
 readme = "README.md"
 requires-python = ">=3.11"
+# GOVERNANCE-PENDING: Currently MIT. Under review for GPLv3-or-later or
+# LGPLv3-or-later. Do not flip until governance direction finalizes per
+# contract 42. Missing LICENSE file is a known gap (contract 45 §3).
 license = "MIT"
 classifiers = [
     "Development Status :: 3 - Alpha",

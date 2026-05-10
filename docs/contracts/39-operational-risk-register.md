@@ -403,7 +403,49 @@ but does not protect against discovered vulnerabilities in the pinned version.
 | **Source** | Contract 25 §5.2 |
 
 
-## 6. Reconnect Risks
+## 6. Governance Risks
+
+### G1: License under review, not final
+
+| Field | Value |
+|-------|-------|
+| **Category** | Governance |
+| **Risk** | The project declares MIT in `pyproject.toml` but is evaluating GPL-3.0-or-later and LGPL-3.0-or-later as alternatives. MIT no longer clearly matches the Meshtastic ecosystem, where upstream SDKs and firmware use GPL or LGPL. No decision has been made. If the license changes, downstream consumers may face different obligations. The evaluation is documented in contract 42 §5 and the README license section. |
+| **Severity** | Medium |
+| **Likelihood** | Medium — a license change is plausible given the dependency landscape |
+| **Mitigation** | No code change needed. Governance review in progress. README and pyproject.toml honestly document the uncertainty. |
+| **Residual exposure** | Consumers who build on medre today do so under MIT but should expect potential relicensing. |
+| **Ownership** | Project maintainer owns the license decision. |
+| **Source** | Contract 42 §5, pyproject.toml GOVERNANCE-PENDING comment |
+
+### G2: Reticulum license ambiguity
+
+| Field | Value |
+|-------|-------|
+| **Category** | Governance |
+| **Risk** | The LXMF adapter depends on Reticulum, which uses a non-OSI-approved license (the Reticulum License). Even if medre selects MIT, GPL, or LGPL for its own code, the Reticulum dependency introduces a license that downstream consumers must evaluate independently. medre's license choice does not resolve the upstream question for anyone using the LXMF transport. This ambiguity is unresolved. |
+| **Severity** | Medium |
+| **Likelihood** | High — the ambiguity exists regardless of medre's own license choice |
+| **Mitigation** | LXMF is an optional dependency. README documents the ambiguity. Risk register records it here. |
+| **Residual exposure** | Full for downstream consumers who redistribute or commercialize with the LXMF transport enabled. |
+| **Ownership** | Reticulum authors own their license. medre documents the dependency. Downstream consumers own their own compliance review. |
+| **Source** | Contract 34 §4.6, README §License |
+
+### G3: Missing LICENSE file
+
+| Field | Value |
+|-------|-------|
+| **Category** | Governance |
+| **Risk** | No top-level `LICENSE` file exists. The license is declared in `pyproject.toml` metadata but is not present as a standalone file. This is a packaging gap that may cause issues for package indices, automated license scanning tools, and contributors who expect a standard repository layout. |
+| **Severity** | Low |
+| **Likelihood** | High — the file simply does not exist |
+| **Mitigation** | Creating a LICENSE file is straightforward once the license selection is final. Tracked in contract 45 §3. |
+| **Residual exposure** | Low — metadata declaration is sufficient for current stage, but the gap is real |
+| **Ownership** | Project maintainer owns the packaging gap. |
+| **Source** | Contract 45 §3, Contract 38 §6.3 |
+
+
+## 7. Reconnect Risks
 
 ### R1: Sync task leak on stop timeout (Matrix)
 
@@ -458,7 +500,7 @@ but does not protect against discovered vulnerabilities in the pinned version.
 | **Source** | Contract 35 §3.2 |
 
 
-## 7. Delivery Uncertainty Risks
+## 8. Delivery Uncertainty Risks
 
 ### U1: Duplicate messages from retries
 
@@ -513,7 +555,7 @@ but does not protect against discovered vulnerabilities in the pinned version.
 | **Source** | Contract 36 |
 
 
-## 8. Queue Growth Risks
+## 9. Queue Growth Risks
 
 ### Q1: Outbound queue growth during disconnection
 
@@ -542,7 +584,7 @@ but does not protect against discovered vulnerabilities in the pinned version.
 | **Source** | Contract 29 |
 
 
-## 9. Long-Running Runtime Risks
+## 10. Long-Running Runtime Risks
 
 ### LR1: Memory growth from accumulated state
 
@@ -584,7 +626,7 @@ but does not protect against discovered vulnerabilities in the pinned version.
 | **Source** | Contract 35 §3 |
 
 
-## 10. Maintenance Risks
+## 11. Maintenance Risks
 
 ### M1: Fork tracking burden
 
@@ -665,7 +707,7 @@ but does not protect against discovered vulnerabilities in the pinned version.
 | **Source** | Contract 38 §8.1 |
 
 
-## 11. Upstream Risks
+## 12. Upstream Risks
 
 ### UP1: Meshtastic protobuf schema changes
 
@@ -707,7 +749,7 @@ but does not protect against discovered vulnerabilities in the pinned version.
 | **Source** | Contract 37 §7.3 |
 
 
-## 12. Risk Summary
+## 13. Risk Summary
 
 | ID | Category | Risk | Severity | Likelihood | Mitigated? |
 |----|----------|------|----------|------------|------------|
@@ -738,6 +780,9 @@ but does not protect against discovered vulnerabilities in the pinned version.
 | E3 | E2EE | E2EE scope confusion | Low | Medium | Documented |
 | E4 | E2EE | E2EE key material not exportable | Medium | Low | Documented |
 | E5 | E2EE | E2EE operational complexity | Low | Medium | Documented |
+| G1 | Governance | License under review, not final | Medium | Medium | Documented |
+| G2 | Governance | Reticulum license ambiguity | Medium | High | Documented |
+| G3 | Governance | Missing LICENSE file | Low | High | Tracked |
 | R1 | Reconnect | Sync task leak on stop timeout | Low | Low | Guarded |
 | R2 | Reconnect | Reconnect without live validation | Medium | Medium | Bounded |
 | R3 | Reconnect | Missed messages during disconnect | Medium | Medium | None (inherent) |
@@ -787,10 +832,13 @@ These risks require sustained operation evidence that does not exist. They are
 tracked in contract 38 §2.3 and are blocked on soak testing. Until soak
 evidence exists, these remain "we don't know" risks.
 
-**Total risks: 48** | **High: 6** | **Medium: 29** | **Low: 13**
+**Total risks: 51** | **High: 6** | **Medium: 31** | **Low: 14**
 
 The risk profile is what you would expect for a pre-beta multi-transport
 messaging library with two unvalidated radio transports, two community-maintained
-fork dependencies, and no sustained operation evidence. The honest assessment is
-that beta testers are assuming real operational risk, particularly on MeshCore
-and LXMF transports that have never touched real hardware.
+fork dependencies, no sustained operation evidence, and an open license governance
+question. The honest assessment is that beta testers are assuming real operational
+risk, particularly on MeshCore and LXMF transports that have never touched real
+hardware. The license question (G1, G2) adds governance risk on top of the
+operational risks: the project may relicense, and the Reticulum dependency
+introduces license terms that medre cannot control.

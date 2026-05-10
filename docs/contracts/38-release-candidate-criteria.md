@@ -247,6 +247,15 @@ If live evidence cannot be obtained for MeshCore or LXMF before the RC window:
 
 Option 1 is acceptable. Option 2 is preferable. Option 3 is conservative.
 
+### 4.6 Transport parity honesty
+
+No document may imply that all four transports have equivalent maturity. Matrix
+and Meshtastic are live-validated (beta-candidate). MeshCore and LXMF are
+unit-tested only (alpha-operational). This is not a parity gap to close through
+documentation wording. It is a maturity difference that reflects actual evidence.
+The transport table in the README must show this distinction clearly, and no
+release notes or contract may describe all four transports as equally validated.
+
 
 ## 5. Documentation State Requirements
 
@@ -271,6 +280,7 @@ No document in the repository may claim:
 - E2EE support beyond Matrix text in encrypted rooms.
 - Support for reactions, media, attachments, or rich messages.
 - Deployment, scaling, or operational support.
+- That the license selection is final or settled.
 
 ### 5.3 README accuracy check
 
@@ -283,6 +293,7 @@ Before RC, verify README against this checklist:
 - [ ] E2EE scope is stated accurately (Matrix text only).
 - [ ] Installation commands work from a clean virtualenv.
 - [ ] No hype language ("production-ready", "enterprise", "scalable", "robust").
+- [ ] License section honestly describes governance status (under review, not final).
 
 
 ## 6. Dependency and Reproducibility Requirements
@@ -339,7 +350,7 @@ ignored.
 | `version` | `0.1.0` | Must be bumped for RC (e.g. `0.2.0rc1`) |
 | `description` | Present | ✅ |
 | `readme` | `README.md` | ✅ |
-| `license` | `MIT` | ✅ |
+| `license` | `MIT` | ⚠️ MIT declared; under governance review. GPL-3.0-or-later and LGPL-3.0-or-later under evaluation. See contract 42 §5, README §License. Final selection is deferred (contract 32 D17). |
 | `classifiers` | Present | ✅ |
 | `requires-python` | `>=3.11` | ✅ |
 | `authors` | **Missing** | ⛔ Must add before RC |
@@ -359,7 +370,8 @@ Development Status classifier should be updated to `4 - Beta` at RC time.
 | RC2 | All four transports have live evidence OR scope is explicit | 2 transports pending |
 | RC3 | Full unit suite passes from clean install | ✅ 2127/2127 |
 | RC4 | README accurate | ✅ (this tranche) |
-| RC5 | pyproject.toml metadata complete | Authors + URLs pending |
+| RC4a | License governance consistently documented across README, risk register, contracts | ✅ (Track 7) |
+| RC5 | pyproject.toml metadata complete | Authors + URLs pending; license governance noted |
 | RC6 | No contradictory claims | Audit needed at RC time |
 | RC7 | Third-party inbound confirmed for at least one transport | ⛔ (Matrix M16) |
 | RC8 | Clean install reproducibility verified | Verify at RC time |
@@ -367,8 +379,9 @@ Development Status classifier should be updated to `4 - Beta` at RC time.
 | RC10 | Release notes drafted | Pending |
 
 **Current assessment: Not ready for RC.** Three must-have blockers (M14, M15,
-M16) and two metadata gaps (authors, URLs) remain. The honest path is to
-resolve these or scope the RC accordingly.
+M16) and two metadata gaps (authors, URLs) remain. License governance is now
+consistently documented (README, risk register, contracts) but not resolved.
+The honest path is to resolve blockers or scope the RC accordingly.
 
 
 ## 8. Architecture Scope and Risk Ownership

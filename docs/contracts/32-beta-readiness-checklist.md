@@ -92,7 +92,16 @@ These items are strongly recommended. Beta can ship without them, but their abse
 | S5 | All runbooks updated with live test results | 2/4 runbooks updated (Matrix, Meshtastic). MeshCore and LXMF pending live runs. | Record results after running live harnesses. |
 | S6 | Token/identity secure storage recommendations documented | ✅ Satisfied | `docs/runbooks/secure-credentials.md` created. Covers env vars, git-excluded files, logging hygiene, and existing `MatrixConfig.__repr__` redaction. |
 
-### 2.2 Per-Transport Should-Haves
+### 2.2 Governance Should-Haves
+
+| # | Item | Current Status | Gap |
+|---|------|---------------|-----|
+| S6a | README license section describes current posture honestly | ✅ Satisfied | README updated to note MIT is under review, GPL/LGPL under evaluation, Reticulum license ambiguity. See Track 7. |
+| S6b | License governance status reflected in pyproject.toml | ✅ Satisfied | `GOVERNANCE-PENDING` comment documents the review. Not a metadata flip. |
+| S6c | License governance risk recorded in risk register | ✅ Satisfied | Contract 39 updated with governance risk entries (G1, G2, G3). See Track 7. |
+| S6d | Toolkit/runtime dual-role documented consistently across contracts | ✅ Satisfied | README §Philosophy, contract 38 §8.1, contract 39 §9 all describe the dual-role distinction. |
+
+### 2.3 Per-Transport Should-Haves
 
 | # | Transport | Item | Current Status | Gap |
 |---|-----------|------|---------------|-----|
@@ -125,6 +134,9 @@ These items are out of scope for beta. They are recorded here to prevent scope c
 | D14 | Receipt deduplication during replay | Phase 1 limitation | See `phase-1-limitations.md`. |
 | D15 | CI pipeline running live tests | Infrastructure | Live tests require hardware/secrets. |
 | D16 | Cross-signed device trust (Matrix) | Complex E2EE feature | Not required for beta. |
+| D17 | Final license selection (MIT vs GPL-3.0-or-later vs LGPL-3.0-or-later) | Governance decision pending | Evaluation in progress. Not blocking beta. Honest status documented in README and contract 42. |
+| D18 | Top-level LICENSE file | Packaging task, depends on license selection | Tracked in contract 45 §3. |
+| D19 | CLA or DCO policy | Not needed until external contributions arrive | Trigger: first external PR. See contract 42 §5.5. |
 
 
 ## 4. Per-Transport Beta Blockers
@@ -306,8 +318,9 @@ A beta release requires:
 3. **All live test results recorded in runbooks.** → Currently 2/4 recorded (Matrix ✅, Meshtastic ✅; MeshCore and LXMF not yet run).
 4. **All four contract documents (29-32) published.** → ✅ All published.
 5. **No critical regressions in existing unit test suite.** → ✅ 2127/2127 pass, 61 deselected. Clean suite.
+6. **License governance status honestly documented.** → ✅ README updated, risk register updated, pyproject.toml comment in place. Final selection deferred (D17).
 
-Should-have items (S1-S11) are strongly recommended. If any remain unsatisfied at beta, they must be documented as known limitations in the release notes.
+Should-have items (S1-S11) are strongly recommended. If any remain unsatisfied at beta, they must be documented as known limitations in the release notes. Governance should-haves (S6a-S6d) are satisfied.
 
 
 ## 9. Remaining Beta Blockers (Consolidated)
@@ -330,6 +343,7 @@ As of 2026-05-10, head `7046ecc`:
 | R2 | ~~Document secure token/identity handling in runbooks~~ | ✅ Resolved. `docs/runbooks/secure-credentials.md` created. |
 | R3 | ~~Document fire-and-forget limitations for radio transports~~ | ✅ Resolved. `docs/contracts/36-radio-limitations.md` created. |
 | R4 | Test or document BLE mode as unsupported (MeshCore) | BLE constructor exists but untested. |
+| R5 | ~~Update public docs for license governance consistency~~ | ✅ Resolved (Track 7). README, risk register, RC criteria, and this checklist now consistently describe license posture. Final selection deferred (D17). |
 
 
 ## 10. Next Recommended Tranche
