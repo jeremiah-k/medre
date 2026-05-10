@@ -113,6 +113,9 @@ class MedreApp:
         """
         _logger.info("Starting MEDRE runtime %s", self.config.runtime.name)
 
+        # 0. Create required directories.
+        self._ensure_dirs()
+
         # 1. Initialise storage.
         if self.storage is not None:
             try:
@@ -217,11 +220,42 @@ class MedreApp:
 
         _logger.info("MEDRE runtime %s stopped", self.config.runtime.name)
 
-    async def wait_for_shutdown(self) -> None:
-        """Wait until the shutdown signal is set."""
-        await self.shutdown_event.wait()
+    async def wait_for_shutdown(self, timeout: float | None = None) -> None:
+        """Wait until the shutdown signal is set.
+
+        Parameters
+        ----------
+        timeout:
+            Optional timeout in seconds. If set, raises asyncio.TimeoutError
+            when the timeout is reached without the shutdown event being set.
+        """
+        if timeout is not None:
+            await asyncio.wait_for(self.shutdown_event.wait(), timeout=timeout)
+        else:
+            await self.shutdown_event.wait()
 
     # -- Helpers -----------------------------------------------------------------
+
+    def _ensure_dirs(self) -> None:
+        """Create required runtime directories.
+
+        Pure path resolution does NOT create directories (see medre.config.paths).
+        This is where the runtime creates the directories it needs.
+        """
+        dirs_to_create = [
+            self.paths.state_dir,
+            self.paths.data_dir,
+            self.paths.cache_dir,
+            self.paths.log_dir,
+        ]
+        # SQLite parent directory (database_path.parent may not exist)
+        dirs_to_create.append(self.paths.database_path.parent)
+        # Matrix store parent if storage will use it
+        if self.storage is not None:
+            dirs_to_create.append(self.paths.matrix_store_path.parent)
+
+        for d in dirs_to_create:
+            d.mkdir(parents=True, exist_ok=True)
 
     def _make_publish_inbound(self) -> Any:
         """Return a publish_inbound callable wired to the pipeline runner.

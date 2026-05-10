@@ -134,7 +134,6 @@ class MatrixRuntimeConfig:
 
     adapter_id: str
     enabled: bool = True
-    encryption_enabled: bool = False
     config: MatrixConfig | None = None
 
     @classmethod
@@ -143,25 +142,19 @@ class MatrixRuntimeConfig:
 
         *instance_name* is the key under ``[adapters.matrix]`` and becomes
         ``adapter_id`` unless the table explicitly provides one.
+
+        Encryption settings (``encryption_mode``, ``ignore_unverified_devices``,
+        ``require_encrypted_rooms``) are set directly in the TOML table and
+        pass through to :class:`MatrixConfig` via
+        :func:`_coerce_adapter_kwargs`.
         """
         data = dict(data)
         enabled: bool = data.pop("enabled", True)
         adapter_id: str = data.pop("adapter_id", instance_name)
-        encryption_enabled: bool = data.pop("encryption_enabled", False)
         adapter_kwargs = _coerce_adapter_kwargs(MatrixConfig, data)
         adapter_kwargs.setdefault("adapter_id", adapter_id)
-        if encryption_enabled:
-            adapter_kwargs["encryption_mode"] = "e2ee_required"
-            adapter_kwargs["ignore_unverified_devices"] = True
-        else:
-            adapter_kwargs.setdefault("encryption_mode", "plaintext")
         config = MatrixConfig(**adapter_kwargs).validate()
-        return cls(
-            adapter_id=adapter_id,
-            enabled=enabled,
-            encryption_enabled=encryption_enabled,
-            config=config,
-        )
+        return cls(adapter_id=adapter_id, enabled=enabled, config=config)
 
 
 @dataclass(frozen=True)

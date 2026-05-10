@@ -35,8 +35,9 @@ from medre.config.model import (
     MeshCoreRuntimeConfig,
     MeshtasticRuntimeConfig,
     RuntimeConfig,
+    StorageConfig,
 )
-from medre.config.paths import MedrePaths
+from medre.config.paths import MedrePaths, MedrePathsError
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.events.bus import EventBus
 from medre.core.observability.metrics import Diagnostician
@@ -191,9 +192,8 @@ class RuntimeBuilder:
         # 4. FallbackResolver
         fallback_resolver = FallbackResolver()
 
-        # 5. SQLiteStorage
-        db_path = str(self._paths.database_path)
-        storage = SQLiteStorage(db_path)
+        # 5. Storage — honour StorageConfig.backend and optional path
+        storage = self._build_storage()
 
         # 6. Diagnostician
         diagnostician = Diagnostician()
@@ -238,58 +238,82 @@ class RuntimeBuilder:
             shutdown_event=shutdown_event,
         )
 
+    # -- Storage construction ----------------------------------------------------
+
+    def _build_storage(self) -> SQLiteStorage:
+        """Construct storage based on :class:`StorageConfig`.
+
+        The builder does **not** create directories — that responsibility
+        belongs to :meth:`MedreApp.start`.
+        """
+        storage_config: StorageConfig = self._config.storage
+
+        if storage_config.backend == "sqlite":
+            if storage_config.path:
+                try:
+                    db_path = str(self._paths.expand_placeholder(storage_config.path))
+                except MedrePathsError as exc:
+                    raise RuntimeConfigError(
+                        f"Invalid storage path {storage_config.path!r}: {exc}"
+                    ) from exc
+            else:
+                db_path = str(self._paths.database_path)
+            return SQLiteStorage(db_path)
+
+        if storage_config.backend == "memory":
+            return SQLiteStorage(":memory:")
+
+        raise RuntimeConfigError(
+            f"Unsupported storage backend {storage_config.backend!r}. "
+            f"Supported: sqlite, memory"
+        )
+
     # -- Adapter construction ----------------------------------------------------
 
     def _build_adapters(self, adapters: dict[str, BaseAdapter]) -> None:
-        """Populate *adapters* from the enabled adapter configs."""
+        """Populate *adapters* from the enabled adapter configs.
+
+        Disabled adapters are silently skipped.  Enabled adapters that
+        cannot be built raise :class:`RuntimeConfigError`.
+        """
         for transport, adapter_id, rtc in self._config.adapters.all_configs():
             if not rtc.enabled:
                 _logger.debug("Adapter %r (%s) is disabled — skipping", adapter_id, transport)
                 continue
 
-            adapter = self._build_single_adapter(transport, adapter_id, rtc)
-            if adapter is not None:
-                adapters[adapter_id] = adapter
-                _logger.info(
-                    "Constructed adapter %r (%s)", adapter_id, transport
-                )
+            adapters[adapter_id] = self._build_single_adapter(transport, adapter_id, rtc)
+            _logger.info("Constructed adapter %r (%s)", adapter_id, transport)
 
     def _build_single_adapter(
         self,
         transport: str,
         adapter_id: str,
         rtc: Any,
-    ) -> BaseAdapter | None:
-        """Construct a single adapter from its runtime config.
+    ) -> BaseAdapter:
+        """Construct a single enabled adapter.
 
-        Handles missing optional dependencies gracefully by returning
-        ``None`` and logging a warning.
+        Raises :class:`RuntimeConfigError` if the adapter is enabled but
+        cannot be built (unknown transport, missing config, or missing
+        optional dependencies).
         """
         factory = _ADAPTER_BUILDERS.get(transport)
         if factory is None:
-            _logger.warning(
-                "Unknown transport type %r for adapter %r — skipping",
-                transport,
-                adapter_id,
+            raise RuntimeConfigError(
+                f"Unknown transport type {transport!r} for adapter "
+                f"{adapter_id!r}. "
+                f"Known types: {', '.join(sorted(_ADAPTER_BUILDERS))}"
             )
-            return None
 
         config = rtc.config
         if config is None:
-            _logger.warning(
-                "Adapter %r (%s) has no config — skipping",
-                adapter_id,
-                transport,
+            raise RuntimeConfigError(
+                f"Adapter {adapter_id!r} ({transport}) is enabled but has no config"
             )
-            return None
 
-        try:
-            return factory.build(config)
-        except Exception as exc:
-            _logger.error(
-                "Failed to construct adapter %r (%s): %s",
-                adapter_id,
-                transport,
-                exc,
+        adapter = factory.build(config)
+        if adapter is None:
+            raise RuntimeConfigError(
+                f"Adapter {adapter_id!r} ({transport}) is enabled but could "
+                f"not be built (missing optional dependencies)"
             )
-            return None
+        return adapter

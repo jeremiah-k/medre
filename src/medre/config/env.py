@@ -6,9 +6,10 @@ TOML.  The original config is **never mutated**; a new frozen instance is
 returned.
 
 Environment variables always win over TOML values.  Adapter-specific env vars
-map to a single adapter instance keyed as ``"env"`` in each adapter-type dict.
-If the TOML already defined an ``"env"`` instance its fields are overridden
-individually; otherwise a fresh adapter config is created.
+are resolved to the correct adapter instance via target resolution: if
+``MEDRE_<TRANSPORT>_ADAPTER_ID`` is set, that adapter is targeted; if only one
+adapter of that transport type exists it is targeted automatically; if none
+exist a new adapter is created.
 
 Quick reference
 ---------------
@@ -17,28 +18,28 @@ Core:
 * ``MEDRE_DB_PATH``   → ``config.storage.path``
 * ``MEDRE_LOG_LEVEL`` → ``config.logging.level``
 
-Matrix adapter (``adapters.matrix["env"]``):
+Matrix adapter:
 
 * ``MEDRE_MATRIX_ENABLED``, ``MEDRE_MATRIX_ADAPTER_ID``,
   ``MEDRE_MATRIX_HOMESERVER``, ``MEDRE_MATRIX_USER_ID``,
   ``MEDRE_MATRIX_ACCESS_TOKEN``, ``MEDRE_MATRIX_ROOM_ALLOWLIST``,
   ``MEDRE_MATRIX_DEVICE_ID``, ``MEDRE_MATRIX_STORE_PATH``,
-  ``MEDRE_MATRIX_ENCRYPTION_ENABLED``
+  ``MEDRE_MATRIX_ENCRYPTION_MODE``, ``MEDRE_MATRIX_IGNORE_UNVERIFIED_DEVICES``
 
-Meshtastic adapter (``adapters.meshtastic["env"]``):
+Meshtastic adapter:
 
 * ``MEDRE_MESHTASTIC_ENABLED``, ``MEDRE_MESHTASTIC_ADAPTER_ID``,
   ``MEDRE_MESHTASTIC_CONNECTION_TYPE``, ``MEDRE_MESHTASTIC_SERIAL_PORT``,
   ``MEDRE_MESHTASTIC_HOST``, ``MEDRE_MESHTASTIC_PORT``
 
-MeshCore adapter (``adapters.meshcore["env"]``):
+MeshCore adapter:
 
 * ``MEDRE_MESHCORE_ENABLED``, ``MEDRE_MESHCORE_ADAPTER_ID``,
   ``MEDRE_MESHCORE_CONNECTION_TYPE``, ``MEDRE_MESHCORE_SERIAL_PORT``,
   ``MEDRE_MESHCORE_HOST``, ``MEDRE_MESHCORE_PORT``,
   ``MEDRE_MESHCORE_BLE_ADDRESS``
 
-LXMF adapter (``adapters.lxmf["env"]``):
+LXMF adapter:
 
 * ``MEDRE_LXMF_ENABLED``, ``MEDRE_LXMF_ADAPTER_ID``,
   ``MEDRE_LXMF_CONNECTION_TYPE``, ``MEDRE_LXMF_IDENTITY_PATH``,
@@ -90,7 +91,8 @@ MATRIX_ENV_NAMES: frozenset[str] = frozenset({
     "MEDRE_MATRIX_ROOM_ALLOWLIST",
     "MEDRE_MATRIX_DEVICE_ID",
     "MEDRE_MATRIX_STORE_PATH",
-    "MEDRE_MATRIX_ENCRYPTION_ENABLED",
+    "MEDRE_MATRIX_ENCRYPTION_MODE",
+    "MEDRE_MATRIX_IGNORE_UNVERIFIED_DEVICES",
 })
 
 MESHTASTIC_ENV_NAMES: frozenset[str] = frozenset({
@@ -128,9 +130,6 @@ ALL_RECOGNIZED_ENV_NAMES: frozenset[str] = frozenset(
     | MESHCORE_ENV_NAMES
     | LXMF_ENV_NAMES
 )
-
-# Key used inside adapter dicts for the env-sourced adapter instance.
-_ENV_ADAPTER_KEY: str = "env"
 
 # ---------------------------------------------------------------------------
 # Type-coercion helpers
@@ -236,7 +235,8 @@ _ENV_FIELD_MAP: dict[str, str] = {
     "MEDRE_MATRIX_ROOM_ALLOWLIST": "matrix_room_allowlist",
     "MEDRE_MATRIX_DEVICE_ID": "matrix_device_id",
     "MEDRE_MATRIX_STORE_PATH": "matrix_store_path",
-    "MEDRE_MATRIX_ENCRYPTION_ENABLED": "matrix_encryption_enabled",
+    "MEDRE_MATRIX_ENCRYPTION_MODE": "matrix_encryption_mode",
+    "MEDRE_MATRIX_IGNORE_UNVERIFIED_DEVICES": "matrix_ignore_unverified_devices",
     # Meshtastic
     "MEDRE_MESHTASTIC_ENABLED": "meshtastic_enabled",
     "MEDRE_MESHTASTIC_ADAPTER_ID": "meshtastic_adapter_id",
@@ -265,7 +265,8 @@ _ENV_FIELD_MAP: dict[str, str] = {
 _MATRIX_ENV_FIELDS: tuple[str, ...] = (
     "matrix_enabled", "matrix_adapter_id", "matrix_homeserver",
     "matrix_user_id", "matrix_access_token", "matrix_room_allowlist",
-    "matrix_device_id", "matrix_store_path", "matrix_encryption_enabled",
+    "matrix_device_id", "matrix_store_path", "matrix_encryption_mode",
+    "matrix_ignore_unverified_devices",
 )
 _MESHTASTIC_ENV_FIELDS: tuple[str, ...] = (
     "meshtastic_enabled", "meshtastic_adapter_id",
@@ -286,6 +287,7 @@ _LXMF_ENV_FIELDS: tuple[str, ...] = (
 _MATRIX_CONFIG_ENV_FIELDS: tuple[str, ...] = (
     "matrix_homeserver", "matrix_user_id", "matrix_access_token",
     "matrix_room_allowlist", "matrix_device_id", "matrix_store_path",
+    "matrix_encryption_mode", "matrix_ignore_unverified_devices",
 )
 _MESHTASTIC_CONFIG_ENV_FIELDS: tuple[str, ...] = (
     "meshtastic_connection_type", "meshtastic_serial_port",
@@ -331,7 +333,8 @@ class MedreEnvConfig:
     matrix_room_allowlist: str | None = None
     matrix_device_id: str | None = None
     matrix_store_path: str | None = None
-    matrix_encryption_enabled: str | None = None
+    matrix_encryption_mode: str | None = None
+    matrix_ignore_unverified_devices: str | None = None
 
     # -- Meshtastic --
     meshtastic_enabled: str | None = None
@@ -446,6 +449,7 @@ def _get_existing_config_kwargs(
 def _build_matrix_config(
     existing: MatrixRuntimeConfig | None,
     env: MedreEnvConfig,
+    target_adapter_id: str,
 ) -> MatrixConfig | None:
     """Build a :class:`MatrixConfig` from existing + env overrides.
 
@@ -466,7 +470,7 @@ def _build_matrix_config(
     # Determine adapter_id
     adapter_id = env.matrix_adapter_id
     if adapter_id is None:
-        adapter_id = kwargs.get("adapter_id", _ENV_ADAPTER_KEY)
+        adapter_id = kwargs.get("adapter_id", target_adapter_id)
     kwargs["adapter_id"] = adapter_id
 
     # Apply env overrides
@@ -482,17 +486,13 @@ def _build_matrix_config(
         kwargs["store_path"] = env.matrix_store_path
     if env.matrix_room_allowlist is not None:
         kwargs["room_allowlist"] = _coerce_set(env.matrix_room_allowlist)
-    if env.matrix_encryption_enabled is not None:
-        enabled = _coerce_bool(
-            env.matrix_encryption_enabled,
-            "MEDRE_MATRIX_ENCRYPTION_ENABLED",
+    if env.matrix_encryption_mode is not None:
+        kwargs["encryption_mode"] = env.matrix_encryption_mode
+    if env.matrix_ignore_unverified_devices is not None:
+        kwargs["ignore_unverified_devices"] = _coerce_bool(
+            env.matrix_ignore_unverified_devices,
+            "MEDRE_MATRIX_IGNORE_UNVERIFIED_DEVICES",
         )
-        if enabled:
-            kwargs["encryption_mode"] = "e2ee_required"
-            kwargs["ignore_unverified_devices"] = True
-        else:
-            kwargs["encryption_mode"] = "plaintext"
-            kwargs["ignore_unverified_devices"] = False
 
     # Ensure required fields have at least placeholder values
     kwargs.setdefault("homeserver", "")
@@ -504,27 +504,22 @@ def _build_matrix_config(
 def _build_matrix_runtime(
     existing: MatrixRuntimeConfig | None,
     env: MedreEnvConfig,
+    target_adapter_id: str,
 ) -> MatrixRuntimeConfig:
     """Build a :class:`MatrixRuntimeConfig` from existing + env overrides."""
     adapter_id = (
         env.matrix_adapter_id
-        or (existing.adapter_id if existing else _ENV_ADAPTER_KEY)
+        or (existing.adapter_id if existing else target_adapter_id)
     )
     enabled = (
         _coerce_bool(env.matrix_enabled, "MEDRE_MATRIX_ENABLED")
         if env.matrix_enabled is not None
         else (existing.enabled if existing else True)
     )
-    config = _build_matrix_config(existing, env)
-    encryption_enabled = (
-        _coerce_bool(env.matrix_encryption_enabled, "MEDRE_MATRIX_ENCRYPTION_ENABLED")
-        if env.matrix_encryption_enabled is not None
-        else (existing.encryption_enabled if existing else False)
-    )
+    config = _build_matrix_config(existing, env, target_adapter_id)
     return MatrixRuntimeConfig(
         adapter_id=adapter_id,
         enabled=enabled,
-        encryption_enabled=encryption_enabled,
         config=config,
     )
 
@@ -532,6 +527,7 @@ def _build_matrix_runtime(
 def _build_meshtastic_config(
     existing: MeshtasticRuntimeConfig | None,
     env: MedreEnvConfig,
+    target_adapter_id: str,
 ) -> MeshtasticConfig | None:
     """Build a :class:`MeshtasticConfig` from existing + env overrides."""
     has_env_fields = any(
@@ -548,7 +544,7 @@ def _build_meshtastic_config(
 
     adapter_id = env.meshtastic_adapter_id
     if adapter_id is None:
-        adapter_id = kwargs.get("adapter_id", _ENV_ADAPTER_KEY)
+        adapter_id = kwargs.get("adapter_id", target_adapter_id)
     kwargs["adapter_id"] = adapter_id
 
     if env.meshtastic_connection_type is not None:
@@ -566,24 +562,26 @@ def _build_meshtastic_config(
 def _build_meshtastic_runtime(
     existing: MeshtasticRuntimeConfig | None,
     env: MedreEnvConfig,
+    target_adapter_id: str,
 ) -> MeshtasticRuntimeConfig:
     """Build a :class:`MeshtasticRuntimeConfig` from existing + env overrides."""
     adapter_id = (
         env.meshtastic_adapter_id
-        or (existing.adapter_id if existing else _ENV_ADAPTER_KEY)
+        or (existing.adapter_id if existing else target_adapter_id)
     )
     enabled = (
         _coerce_bool(env.meshtastic_enabled, "MEDRE_MESHTASTIC_ENABLED")
         if env.meshtastic_enabled is not None
         else (existing.enabled if existing else True)
     )
-    config = _build_meshtastic_config(existing, env)
+    config = _build_meshtastic_config(existing, env, target_adapter_id)
     return MeshtasticRuntimeConfig(adapter_id=adapter_id, enabled=enabled, config=config)
 
 
 def _build_meshcore_config(
     existing: MeshCoreRuntimeConfig | None,
     env: MedreEnvConfig,
+    target_adapter_id: str,
 ) -> MeshCoreConfig | None:
     """Build a :class:`MeshCoreConfig` from existing + env overrides."""
     has_env_fields = any(
@@ -600,7 +598,7 @@ def _build_meshcore_config(
 
     adapter_id = env.meshcore_adapter_id
     if adapter_id is None:
-        adapter_id = kwargs.get("adapter_id", _ENV_ADAPTER_KEY)
+        adapter_id = kwargs.get("adapter_id", target_adapter_id)
     kwargs["adapter_id"] = adapter_id
 
     if env.meshcore_connection_type is not None:
@@ -620,24 +618,26 @@ def _build_meshcore_config(
 def _build_meshcore_runtime(
     existing: MeshCoreRuntimeConfig | None,
     env: MedreEnvConfig,
+    target_adapter_id: str,
 ) -> MeshCoreRuntimeConfig:
     """Build a :class:`MeshCoreRuntimeConfig` from existing + env overrides."""
     adapter_id = (
         env.meshcore_adapter_id
-        or (existing.adapter_id if existing else _ENV_ADAPTER_KEY)
+        or (existing.adapter_id if existing else target_adapter_id)
     )
     enabled = (
         _coerce_bool(env.meshcore_enabled, "MEDRE_MESHCORE_ENABLED")
         if env.meshcore_enabled is not None
         else (existing.enabled if existing else True)
     )
-    config = _build_meshcore_config(existing, env)
+    config = _build_meshcore_config(existing, env, target_adapter_id)
     return MeshCoreRuntimeConfig(adapter_id=adapter_id, enabled=enabled, config=config)
 
 
 def _build_lxmf_config(
     existing: LxmfRuntimeConfig | None,
     env: MedreEnvConfig,
+    target_adapter_id: str,
 ) -> LxmfConfig | None:
     """Build a :class:`LxmfConfig` from existing + env overrides."""
     has_env_fields = any(
@@ -654,7 +654,7 @@ def _build_lxmf_config(
 
     adapter_id = env.lxmf_adapter_id
     if adapter_id is None:
-        adapter_id = kwargs.get("adapter_id", _ENV_ADAPTER_KEY)
+        adapter_id = kwargs.get("adapter_id", target_adapter_id)
     kwargs["adapter_id"] = adapter_id
 
     if env.lxmf_connection_type is not None:
@@ -672,19 +672,75 @@ def _build_lxmf_config(
 def _build_lxmf_runtime(
     existing: LxmfRuntimeConfig | None,
     env: MedreEnvConfig,
+    target_adapter_id: str,
 ) -> LxmfRuntimeConfig:
     """Build a :class:`LxmfRuntimeConfig` from existing + env overrides."""
     adapter_id = (
         env.lxmf_adapter_id
-        or (existing.adapter_id if existing else _ENV_ADAPTER_KEY)
+        or (existing.adapter_id if existing else target_adapter_id)
     )
     enabled = (
         _coerce_bool(env.lxmf_enabled, "MEDRE_LXMF_ENABLED")
         if env.lxmf_enabled is not None
         else (existing.enabled if existing else True)
     )
-    config = _build_lxmf_config(existing, env)
+    config = _build_lxmf_config(existing, env, target_adapter_id)
     return LxmfRuntimeConfig(adapter_id=adapter_id, enabled=enabled, config=config)
+
+
+# ---------------------------------------------------------------------------
+# Env-override target resolution
+# ---------------------------------------------------------------------------
+
+
+def _resolve_env_adapter_target(
+    transport_name: str,
+    adapters_dict: dict[str, Any],
+    env: MedreEnvConfig,
+    adapter_id_field: str,
+) -> tuple[str, Any | None]:
+    """Resolve which adapter to override with env vars.
+
+    Returns ``(target_key, existing_config)`` where *target_key* is the
+    dict key to write the built runtime config into and *existing_config*
+    is the current value at that key (or ``None``).
+
+    Policy
+    ------
+    1. ``MEDRE_<TRANSPORT>_ADAPTER_ID`` is set → target that adapter.
+       If it already exists, override it; otherwise create new.
+    2. Exactly one adapter configured → target it regardless of name.
+    3. No adapters configured → create a new adapter with the env-supplied
+       adapter_id (or ``"default"`` as fallback).
+    4. Multiple adapters configured and no ``ADAPTER_ID`` specified →
+       raise :class:`ConfigValidationError`.
+    """
+    env_adapter_id: str | None = getattr(env, adapter_id_field)
+
+    # Case 1: explicit target via env var
+    if env_adapter_id is not None:
+        existing = adapters_dict.get(env_adapter_id)
+        return (env_adapter_id, existing)
+
+    n = len(adapters_dict)
+
+    # Case 2: exactly one adapter — target it
+    if n == 1:
+        key = next(iter(adapters_dict))
+        return (key, adapters_dict[key])
+
+    # Case 3: no adapters — create new
+    if n == 0:
+        return ("default", None)
+
+    # Case 4: ambiguous — multiple adapters, no target specified
+    keys = ", ".join(sorted(adapters_dict.keys()))
+    env_var = f"MEDRE_{transport_name.upper()}_ADAPTER_ID"
+    raise ConfigValidationError(
+        f"Multiple {transport_name} adapters configured ({keys}) but "
+        f"{env_var} is not set.  Set it to specify which adapter to "
+        f"override with environment variables."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -731,7 +787,7 @@ def apply_env_overrides(
         new_storage = dataclasses.replace(config.storage, path=env.db_path)
 
     # ------------------------------------------------------------------
-    # Adapter overrides
+    # Adapter overrides — use target resolution to find the right adapter
     # ------------------------------------------------------------------
     matrix_dict = dict(config.adapters.matrix)
     meshtastic_dict = dict(config.adapters.meshtastic)
@@ -739,24 +795,36 @@ def apply_env_overrides(
     lxmf_dict = dict(config.adapters.lxmf)
 
     if env._any_matrix_set():
-        existing_matrix = matrix_dict.get(_ENV_ADAPTER_KEY)
-        matrix_dict[_ENV_ADAPTER_KEY] = _build_matrix_runtime(existing_matrix, env)
+        target_key, existing = _resolve_env_adapter_target(
+            "matrix", matrix_dict, env, "matrix_adapter_id",
+        )
+        matrix_dict[target_key] = _build_matrix_runtime(
+            existing, env, target_key,
+        )
 
     if env._any_meshtastic_set():
-        existing_meshtastic = meshtastic_dict.get(_ENV_ADAPTER_KEY)
-        meshtastic_dict[_ENV_ADAPTER_KEY] = _build_meshtastic_runtime(
-            existing_meshtastic, env,
+        target_key, existing = _resolve_env_adapter_target(
+            "meshtastic", meshtastic_dict, env, "meshtastic_adapter_id",
+        )
+        meshtastic_dict[target_key] = _build_meshtastic_runtime(
+            existing, env, target_key,
         )
 
     if env._any_meshcore_set():
-        existing_meshcore = meshcore_dict.get(_ENV_ADAPTER_KEY)
-        meshcore_dict[_ENV_ADAPTER_KEY] = _build_meshcore_runtime(
-            existing_meshcore, env,
+        target_key, existing = _resolve_env_adapter_target(
+            "meshcore", meshcore_dict, env, "meshcore_adapter_id",
+        )
+        meshcore_dict[target_key] = _build_meshcore_runtime(
+            existing, env, target_key,
         )
 
     if env._any_lxmf_set():
-        existing_lxmf = lxmf_dict.get(_ENV_ADAPTER_KEY)
-        lxmf_dict[_ENV_ADAPTER_KEY] = _build_lxmf_runtime(existing_lxmf, env)
+        target_key, existing = _resolve_env_adapter_target(
+            "lxmf", lxmf_dict, env, "lxmf_adapter_id",
+        )
+        lxmf_dict[target_key] = _build_lxmf_runtime(
+            existing, env, target_key,
+        )
 
     new_adapters = dataclasses.replace(
         config.adapters,

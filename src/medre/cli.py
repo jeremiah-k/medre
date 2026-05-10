@@ -14,6 +14,7 @@ at the bottom of this file.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import importlib.metadata
 import logging
 import signal
@@ -114,7 +115,10 @@ async def _run(config_path: str | None) -> None:
 
     try:
         while not shutdown_requested:
-            await app.wait_for_shutdown(timeout=1.0)
+            try:
+                await asyncio.wait_for(app.wait_for_shutdown(), timeout=1.0)
+            except asyncio.TimeoutError:
+                pass  # expected — poll loop
     except KeyboardInterrupt:
         logger.info("KeyboardInterrupt — shutting down")
     finally:

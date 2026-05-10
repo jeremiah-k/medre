@@ -1,7 +1,7 @@
 """Config-driven MEDRE runner.
 
-Replaces the legacy Matrix-only env-reader.  Bootstraps the full runtime
-stack from a TOML configuration file with MEDRE_ environment overrides.
+Bootstraps the full runtime stack from a TOML configuration file with
+MEDRE_ environment overrides.
 
 Usage::
 

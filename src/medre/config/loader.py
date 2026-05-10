@@ -259,8 +259,10 @@ def _expand_paths_in_dict(d: dict, paths: MedrePaths) -> dict:
         if isinstance(v, str) and "{" in v:
             try:
                 result[k] = str(paths.expand_placeholder(v))
-            except MedrePathsError:
-                result[k] = v  # leave as-is if not a valid placeholder
+            except MedrePathsError as exc:
+                raise ConfigFileError(
+                    f"Invalid path placeholder in config field {k!r}: {exc}"
+                ) from exc
         elif isinstance(v, dict):
             result[k] = _expand_paths_in_dict(v, paths)
         elif isinstance(v, list):
