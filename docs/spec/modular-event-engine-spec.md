@@ -1783,7 +1783,9 @@ This single document serves as the initial specification. As the project matures
 
 ## 26. Behavioral Lessons from MMRelay
 
-This section captures operational findings from the existing MMRelay project that informed this specification. These are lessons learned, not compatibility requirements.
+This section captures operational findings from the existing MMRelay (meshtastic-matrix-relay) project that informed this specification. These are lessons learned, not compatibility requirements.
+
+**mmrelay is a practical behavioral reference** for Matrix client workflows and E2EE handling patterns. It is a working Meshtastic-to-Matrix bridge that demonstrates real-world nio usage, login flows, encrypted-room handling, and error recovery. It should be consulted for behavioral guidance on how a real Matrix bridge operates. However, it should NOT be copied architecturally or line-for-line — MEDRE's architecture (canonical events, adapter isolation, pipeline stages, independent queues) remains authoritative. The lessons below specifically highlight where mmrelay's architecture diverged from MEDRE's design principles.
 
 ### 26.1 Tightly Coupled Core
 

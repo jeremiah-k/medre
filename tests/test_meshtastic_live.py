@@ -310,7 +310,7 @@ class TestMeshtasticLiveSmoke:
             await asyncio.get_event_loop().run_in_executor(
                 None, lambda: iface.waitForConfig()
             )
-            assert iface.isConnected(), "Interface should be connected"
+            assert iface.isConnected.is_set(), "Interface should be connected"
         finally:
             await asyncio.get_event_loop().run_in_executor(None, iface.close)
 
@@ -416,7 +416,7 @@ class TestMeshtasticLiveSmoke:
             await asyncio.get_event_loop().run_in_executor(
                 None, lambda: iface.waitForConfig()
             )
-            assert iface.isConnected()
+            assert iface.isConnected.is_set()
 
             ts = int(time.time())
             text = f"MEDRE live smoke test (ts={ts}) - safe to ignore"
@@ -460,7 +460,7 @@ class TestMeshtasticLiveSmoke:
             await asyncio.get_event_loop().run_in_executor(
                 None, lambda: iface.waitForConfig()
             )
-            assert iface.isConnected()
+            assert iface.isConnected.is_set()
 
             ts = int(time.time())
             data = f"MEDRE live data test (ts={ts}) - safe to ignore".encode("utf-8")
@@ -508,14 +508,14 @@ class TestMeshtasticLiveSmoke:
         iface = _connect_interface(config)
         received_packets: list[dict] = []
 
-        def _on_receive(packet, interface):
+        def _on_receive(packet, interface=None):
             received_packets.append(packet)
 
         try:
             await asyncio.get_event_loop().run_in_executor(
                 None, lambda: iface.waitForConfig()
             )
-            assert iface.isConnected()
+            assert iface.isConnected.is_set()
 
             pub.subscribe(_on_receive, "meshtastic.receive")
 

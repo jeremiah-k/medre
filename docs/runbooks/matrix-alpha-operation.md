@@ -1,6 +1,6 @@
 # Matrix Alpha Operation Runbook
 
-> Last updated: 2026-05-09
+> Last updated: 2026-05-10
 > Scope: Real Matrix Operation Alpha (Track 7)
 > Status: Alpha. Not production. Not hardened. Not complete. Plaintext is the primary alpha path. E2EE text alpha is available as an add-on for encrypted rooms (see section 13).
 
@@ -9,6 +9,8 @@ This runbook describes how to run MEDRE against a real Matrix homeserver in alph
 Everything in this document is conservative. If something has not been tested against a real homeserver and confirmed working, this document says so. If something is known to be broken or missing, this document says that too.
 
 **Plaintext alpha** is the primary path. **E2EE text alpha** is an add-on that enables encrypted room operation for text messages only. See section 13 for E2EE setup and section 14 for troubleshooting encrypted rooms.
+
+**mmrelay (meshtastic-matrix-relay)** should be used as a practical behavioral reference for Matrix client workflows and E2EE handling patterns. It is a working Meshtastic-to-Matrix bridge that demonstrates real-world nio usage. However, it should NOT be copied architecturally or line-for-line — MEDRE's architecture (canonical events, adapter isolation, pipeline stages) remains authoritative. See `docs/spec/modular-event-engine-spec.md` §26 for the full set of architectural lessons from mmrelay.
 
 
 ## 1. Purpose
@@ -283,7 +285,7 @@ The following E2EE-related capabilities are **deferred** and not part of the E2E
 - Room key backup
 - Room key import/export
 - Interactive device verification (emoji/QR)
-- Unverified device policy (no admin-facing config exists yet; nio default `ignore_unverified_devices=False` is used; policy decision is deferred to a future tranche)
+- Unverified device policy: `ignore_unverified_devices=True` is the intended/required operational posture for MEDRE's alpha (see `docs/contracts/25-matrix-e2ee-readiness.md` §5.2 for rationale). An admin-facing config toggle to control this setting does not yet exist.
 
 These will be addressed in a future E2EE implementation tranche. See `docs/contracts/25-matrix-e2ee-readiness.md` for the detailed plan.
 
@@ -723,7 +725,7 @@ Check these in order:
    python -c "import nio; print(nio.crypto.ENCRYPTION_ENABLED)"
    ```
    This should print `True`. If `False`, the `[e2e]` extra is not installed. Run `pip install -e ".[matrix-e2e]"`.
-4. **Is the device verified by the sender?** In the E2EE text alpha, the `ignore_unverified_devices` default is `False` (strict). If the bot's device is not verified by the sender's client, outbound encryption will block. As a workaround for alpha, the sender can verify the bot's device in Element. There is no adapter config to ignore unverified devices — unverified device policy is deferred to a future E2EE tranche.
+4. **Is the device verified by the sender?** In the E2EE text alpha, `ignore_unverified_devices=True` is the intended operational posture. If this is not set in the adapter config, outbound encryption will block with `OlmUnverifiedDeviceError` when unverified devices exist in the room. Live testing confirmed this failure: encrypted-room join succeeded, but two outbound send attempts failed with `OlmUnverifiedDeviceError` because `ignore_unverified_devices` was `False` (the nio strict default). The resolution is to set `ignore_unverified_devices=True`. This is necessary because nio does not support cross-signing (MSC1756), making manual per-device verification impractical for automated bot operation.
 5. **Was the room key shared?** If the adapter joined the encrypted room before the crypto store was initialized, room keys may not have been distributed to this device. Sending a message from another client into the room after the adapter is running with E2EE should trigger key distribution.
 
 ### 14.17 E2EE: `ImportError` or `ModuleNotFoundError` for `vodozemac`
@@ -876,10 +878,10 @@ If `store_path` is changed or the store is deleted, the adapter creates a new cr
 | Reactions (`m.annotation`) | Not supported | No callback registered |
 | Edits (`m.replace`) | Not supported | Edited messages appear as new messages |
 | Media / attachments | Not supported | Text only |
-| Cross-signing | Not supported | Device verification via cross-signing not implemented |
+| Cross-signing | Not supported | nio does not implement cross-signing (MSC1756); device verification via cross-signing not available |
 | Key backup / export / import | Not supported | Not wired |
 | Interactive device verification (emoji/QR) | Not supported | `Sas` class exists but not wired |
-| Unverified device policy | Deferred | No admin-facing config exists; nio default `ignore_unverified_devices=False`; policy decision deferred to future tranche |
+| Unverified device policy | Active | `ignore_unverified_devices=True` is the intended/required operational posture (see contract 25 §5.2). Nio default of `False` causes `OlmUnverifiedDeviceError` in encrypted rooms. No admin-facing config toggle yet. |
 | Redactions / deletes | Not supported | Not handled |
 
 **Note:** Undecryptable event logging was previously unsupported but is now implemented. `MegolmEvent` callbacks count events, log warnings (event_id/room_id only, no session_id), and do not forward to the canonical pipeline. `RoomEncryptionEvent` callbacks set `encrypted_room_seen` and are not forwarded.

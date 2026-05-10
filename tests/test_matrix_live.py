@@ -495,19 +495,14 @@ class TestMatrixLiveSmoke:
                 args = call.args
                 if args:
                     event = args[0]
-                    # Check native refs for our sent event_id
-                    native_refs = (
-                        event.metadata.native_refs
-                        if hasattr(event, "metadata") and event.metadata
-                        else ()
-                    )
-                    for ref in native_refs:
-                        if hasattr(ref, "native_message_id"):
-                            assert ref.native_message_id != event_id_sent, (
-                                f"Self-echo leaked through: event with native "
-                                f"message id {event_id_sent!r} was published "
-                                f"inbound"
-                            )
+                    # Check source_native_ref for our sent event_id
+                    src_ref = getattr(event, "source_native_ref", None)
+                    if src_ref is not None:
+                        assert src_ref.native_message_id != event_id_sent, (
+                            f"Self-echo leaked through: event with native "
+                            f"message id {event_id_sent!r} was published "
+                            f"inbound"
+                        )
                     # Check payload body doesn't match our test message
                     if hasattr(event, "payload") and isinstance(event.payload, dict):
                         assert event.payload.get("text") != body_text, (
@@ -891,18 +886,9 @@ class TestMatrixLiveSmoke:
                     if not args:
                         continue
                     event = args[0]
-                    # Verify this is not a self-message (shouldn't happen
-                    # due to suppression, but defensive).
-                    sender = None
-                    native_refs = (
-                        event.metadata.native_refs
-                        if hasattr(event, "metadata") and event.metadata
-                        else ()
-                    )
-                    for ref in native_refs:
-                        if hasattr(ref, "native_sender_id"):
-                            sender = ref.native_sender_id
-                            break
+                    # Sender is stored as source_transport_id on the
+                    # canonical event (set by MatrixCodec.decode).
+                    sender = getattr(event, "source_transport_id", None)
                     if sender == MATRIX_USER_ID:
                         continue
 
@@ -928,16 +914,9 @@ class TestMatrixLiveSmoke:
 
             # Validate sender if MATRIX_INBOUND_SENDER was specified.
             if inbound_sender:
-                matched_sender = None
-                native_refs = (
-                    found_event.metadata.native_refs
-                    if hasattr(found_event, "metadata") and found_event.metadata
-                    else ()
+                matched_sender = getattr(
+                    found_event, "source_transport_id", None
                 )
-                for ref in native_refs:
-                    if hasattr(ref, "native_sender_id"):
-                        matched_sender = ref.native_sender_id
-                        break
                 assert matched_sender == inbound_sender, (
                     f"Expected sender {inbound_sender!r}, "
                     f"got {matched_sender!r}"

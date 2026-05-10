@@ -36,7 +36,7 @@ These items are blocking. Beta cannot ship without them.
 | # | Transport | Item | Current Status | Live Validation Evidence | Gap |
 |---|-----------|------|---------------|--------------------------|-----|
 | M11 | Matrix | Live smoke test run against real homeserver | ⛔ Blocked | Harness exists (`test_matrix_live.py`, ~934 lines). Tests lifecycle, health, send/receive, diagnostics, session. Not run: requires `MATRIX_HOMESERVER`, `MATRIX_USER_ID`, `MATRIX_ACCESS_TOKEN`, `MATRIX_ROOM_ID` env vars. | Needs hardware/credentials. Run and record results in runbook. |
-| M12 | Matrix | E2EE live smoke test run | ⛔ Blocked | Harness exists (`test_matrix_e2ee_live.py`). Tests E2EE send/receive with olm/megolm. Not run: requires all Matrix vars + `MATRIX_DEVICE_ID`, `MATRIX_STORE_PATH`. | Needs hardware/credentials. Run and record. |
+| M12 | Matrix | E2EE live smoke test run | ✅ Satisfied | `test_matrix_e2ee_live.py -m live`: 7 passed / 0 failed / 0 skipped in 3.73s against encrypted room `!rnmyZMhUoraPwZUDPP:matrix.org`. Initial run hit `OlmUnverifiedDeviceError` (2 tests); adapter fix (`ignore_unverified_devices=True`) applied; re-test passed full suite. See `docs/runbooks/operational-evidence.md` §1.3. | None. |
 | M13 | Meshtastic | Live smoke test run against real radio | ⛔ Blocked | Harness exists (`test_meshtastic_live.py`). Tests lifecycle, health, send, diagnostics. Not run: requires `MESHTASTIC_CONNECTION_TYPE`, `MESHTASTIC_HOST`. | Needs physical radio hardware. Run and record. |
 | M14 | MeshCore | Live smoke test run against real radio | ⛔ Blocked | Harness exists (`test_meshcore_live.py`). Tests lifecycle, health, send, diagnostics. Not run: requires `MESHCORE_CONNECTION_TYPE`, `MESHCORE_HOST`. | Needs physical radio hardware. Run and record. |
 | M15 | LXMF | Live smoke test run against real Reticulum | ⛔ Blocked | Harness exists (`test_lxmf_live.py`). Tests lifecycle, health, send, receive, diagnostics, delivery state progression. Not run: requires `LXMF_CONNECTION_TYPE`, `LXMF_IDENTITY_PATH`. | Needs Reticulum instance. Run and record. |
@@ -62,7 +62,7 @@ This section records the live validation status of all test harnesses and unit s
 | Harness | File | Tests | Markers | Skip Guard | Run Status |
 |---------|------|-------|---------|------------|------------|
 | Matrix live | `test_matrix_live.py` | Lifecycle, health, send, receive, diagnostics, session | `pytest.mark.live`, `@require_live` | `MATRIX_HOMESERVER`, `MATRIX_USER_ID`, `MATRIX_ACCESS_TOKEN`, `MATRIX_ROOM_ID` | ⛔ Not run |
-| Matrix E2EE | `test_matrix_e2ee_live.py` | E2EE send/receive (olm/megolm) | `pytest.mark.live`, `@require_live` | All Matrix vars + `MATRIX_DEVICE_ID`, `MATRIX_STORE_PATH` | ⛔ Not run |
+| Matrix E2EE | `test_matrix_e2ee_live.py` | E2EE send/receive (olm/megolm) | `pytest.mark.live`, `@require_live` | All Matrix vars + `MATRIX_DEVICE_ID`, `MATRIX_STORE_PATH` | ✅ 7 passed / 0 failed / 0 skipped (3.73s). Room `!rnmyZMhUoraPwZUDPP:matrix.org`. Pre-fix: 2 tests failed (`OlmUnverifiedDeviceError`). Post-fix: all pass. |
 | Meshtastic live | `test_meshtastic_live.py` | Lifecycle, health, send, diagnostics | `pytest.mark.live`, `@require_live` | `MESHTASTIC_CONNECTION_TYPE`, `MESHTASTIC_HOST` | ⛔ Not run |
 | MeshCore live | `test_meshcore_live.py` | Lifecycle, health, send, diagnostics | `pytest.mark.live`, `@require_live` | `MESHCORE_CONNECTION_TYPE`, `MESHCORE_HOST` | ⛔ Not run |
 | LXMF live | `test_lxmf_live.py` | Lifecycle, health, send, receive, diagnostics, delivery state | `pytest.mark.live`, `@require_live` | `LXMF_CONNECTION_TYPE`, `LXMF_IDENTITY_PATH` | ⛔ Not run |
@@ -72,9 +72,9 @@ This section records the live validation status of all test harnesses and unit s
 | Category | Total | ✅ Satisfied | ⛔ Blocked | ⚠️ Partial |
 |----------|-------|-------------|-----------|------------|
 | Cross-transport must-haves (M1–M10) | 10 | 10 | 0 | 0 |
-| Per-transport must-haves (M11–M16) | 6 | 0 | 6 | 0 |
+| Per-transport must-haves (M11–M16) | 6 | 1 | 5 | 0 |
 | Packaging (P1–P6) | 6 | 5 | 0 | 1 |
-| **Total** | **22** | **15** | **6** | **1** |
+| **Total** | **22** | **16** | **5** | **1** |
 
 
 ## 2. Should-Have Before Beta
@@ -134,7 +134,7 @@ These items are out of scope for beta. They are recorded here to prevent scope c
 | Blocker | Severity | Resolution | Status |
 |---------|----------|------------|--------|
 | Live harness not recorded against real homeserver | Must | Run `test_matrix_live.py` and record results. | ⛔ Not run. Requires env vars. |
-| E2EE live harness not recorded | Must | Run `test_matrix_e2ee_live.py` and record results. | ⛔ Not run. Requires env vars. |
+| E2EE live harness not recorded | Must | Run `test_matrix_e2ee_live.py` and record results. | ✅ Recorded. 7/7 pass after `ignore_unverified_devices=True` fix. See `docs/runbooks/operational-evidence.md` §1.3. |
 | No confirmed inbound from third party | Must | Add inbound reception test. Send from a second account, verify `publish_inbound()` fires. | ⛔ Not confirmed. |
 | Access token is plain string in config | Should | Document secure handling recommendations. No code change needed. | Unresolved. |
 | `mindroom-nio` fork maintenance risk | Should | Pin version, document dependency. | Unresolved. |

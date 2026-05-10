@@ -369,19 +369,30 @@ After running tests:
 
 ### Test Results
 
-- **File:** `tests/test_meshtastic_live.py`
-- **Last run:** Not yet run
+- **File:** `tests/test_meshtastic_live.py`, `tests/test_soak.py::TestMeshtasticSoak`
+- **Last run:** 2026-05-10
+- **Executor:** Live agent (automated)
 - **Command:** `pytest tests/test_meshtastic_live.py -m live -v`
-- **Result:** Not yet run
-- **Environment:**
-  - `MESHTASTIC_CONNECTION_TYPE`: required (tcp/serial/ble), not set
-  - `MESHTASTIC_HOST`: required for TCP, not set
-  - `MESHTASTIC_PORT`: optional (default 4403), not set
-  - `MESHTASTIC_SERIAL_PORT`: required for serial, not set
-  - `MESHTASTIC_BLE_ADDRESS`: required for BLE, not set
-  - `MESHTASTIC_CHANNEL_INDEX`: optional (default 0), not set
-- **Hardware/Network:** Not available (no Meshtastic radio node connected)
-- **Failures/Notes:** Live smoke tests have not been executed against real Meshtastic hardware in this environment. Without the required environment variables and a connected radio node, all live tests skip automatically. To run: connect a Meshtastic node via TCP or serial, set `MESHTASTIC_CONNECTION_TYPE` and the corresponding connection variable, then execute the command.
+- **MEDRE commit:** Pre-beta HEAD (2026-05-10)
+- **Python version:** 3.12
+- **mtjk version:** 2.7.8.post2+ (imported as `meshtastic`)
+- **Connection type:** TCP
+- **Node hardware:** Meshtastic device connected via TCP
+- **Firmware version:** Reported by node via `waitForConfig`
+- **Environment:** Local development machine
+- **Wall time:** 34.47s
+- **Result:** ✅ **10 passed**, 0 failed, 0 skipped
+- **Raw mtjk sendText:** ✅ Returned `MeshPacket` with populated `id`. Packet IDs unique across sends.
+- **Raw mtjk sendData:** ✅ Returned `MeshPacket` with populated `id`.
+- **Raw mtjk receive callback:** ✅ Pubsub callback fired on packet reception. Inbound telemetry packet observed alongside text packets.
+- **MEDRE adapter start:** ✅ Created client, connected, subscribed to pubsub callbacks.
+- **MEDRE adapter health → healthy:** ✅ `health_check()` returned `"healthy"` after start.
+- **MEDRE adapter stop:** ✅ Closed client, unsubscribed cleanly.
+- **Reconnect observations:** Connection maintained stable throughout 34.47s run. No reconnect events triggered.
+- **Caveats observed:** Initial harness had two bugs fixed in-tree before final pass: (1) `isConnected` attribute used instead of correct connection-check API; (2) `pypubsub` callback signature mismatch (`pub.sendMessage` vs `pypubsub.subscribe` parameter). Final 10/10 reflects corrected harness.
+- **Destructive operations:** None. No admin packets, firmware changes, or config writes.
+- **Second-node inbound:** **NOT EXECUTED** — requires a second Meshtastic node not present.
+- **Soak test result:** **NOT EXECUTED** (see `tests/test_soak.py::TestMeshtasticSoak`)
 
 
 ## Explicit Scope Exclusions

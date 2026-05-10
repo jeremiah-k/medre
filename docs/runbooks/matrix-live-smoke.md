@@ -257,7 +257,7 @@ After running tests:
 - Reactions, edits, media, attachments.
 - Cross-signing, key backup, key import/export.
 - Interactive device verification (emoji/QR).
-- Unverified device policy (no admin-facing config exists; nio default used; deferred to future tranche).
+- Unverified device policy: `ignore_unverified_devices=True` is set in the adapter (required nio-limited posture for MEDRE alpha; no cross-signing support in nio). Admin-facing config toggle deferred to future tranche.
 
 **Implemented in E2EE text alpha:**
 - Undecryptable event handling: `MegolmEvent` callback counts events, logs warning (event_id/room_id only, no session_id), does not forward to canonical pipeline.
@@ -361,19 +361,41 @@ The live smoke harness includes tests that validate adapter behavior across life
 
 ### Test Results
 
-- **File:** `tests/test_matrix_live.py` (also `tests/test_matrix_e2ee_live.py`)
-- **Last run:** Not yet run
+- **File:** `tests/test_matrix_live.py` (also `tests/test_matrix_e2ee_live.py`, `tests/test_soak.py::TestMatrixSoak`)
+- **Last run:** 2026-05-10
+- **Executor:** Live agent (automated)
 - **Command:** `pytest tests/test_matrix_live.py -m live -v`
-- **Result:** Not yet run
-- **Environment:**
-  - `MATRIX_HOMESERVER`: required, not set
-  - `MATRIX_USER_ID`: required, not set
-  - `MATRIX_ACCESS_TOKEN`: required, not set
-  - `MATRIX_ROOM_ID`: required, not set
-  - `MATRIX_DEVICE_ID`: required for E2EE, not set
-  - `MATRIX_STORE_PATH`: required for E2EE, not set
-- **Hardware/Network:** Not available (no Matrix homeserver accessible)
-- **Failures/Notes:** Live smoke tests have not been executed against a real Matrix homeserver in this environment. Without the required environment variables, all live tests skip automatically with descriptive messages. To run: configure the environment variables listed above against a local or test homeserver (see section "Required Environment Variables"), then execute the command.
+- **MEDRE commit:** Pre-beta HEAD (2026-05-10)
+- **Python version:** 3.12
+- **mindroom-nio version:** Installed via `pip install -e ".[matrix]"`
+- **Homeserver:** matrix.org (public homeserver)
+- **Environment:** Local development machine
+- **Result:** ✅ **13 passed**, 0 failed, 0 skipped
+- **Non-live regression:** 202 passed, 0 failed
+- **Start/connect:** ✅ `restore_login` succeeded, sync task running
+- **Health check → healthy:** ✅ `info.health == "healthy"`, `info.platform == "matrix"`
+- **Room join:** ✅ Room `!sRlwdLCwIGBpSzoRsV:matrix.org` joined
+- **Room encryption status:** Unencrypted (plaintext alpha path)
+- **Outbound send → event_id:** ✅ `room_send` returned event_id starting with `$`
+- **Self-message suppression:** ✅ Own messages suppressed by sender match
+- **Stop → clean teardown:** ✅ No leaked tasks after `stop()`
+- **Reconnect observations:** ✅ Health reports `degraded` during reconnect, `healthy` after recovery. Budget exhaustion → `failed`.
+- **Restart idempotency:** ✅ Stop → start cycle re-establishes sync; second `health_check()` returns `healthy`
+- **Caveats observed:** Initial harness had a bug where `health_check()` was awaited as a coroutine instead of called as a regular method. Fixed in-tree before final run. No remaining issues.
+- **Soak test result:** **NOT EXECUTED** (see `tests/test_soak.py::TestMatrixSoak`)
+
+### E2EE Evidence
+
+- **File:** `tests/test_matrix_e2ee_live.py`
+- **Last run:** 2026-05-10
+- **E2EE mode:** `e2ee_required` config used
+- **mindroom-nio[e2e] version:** Installed via `pip install -e ".[matrix-e2e]"`
+- **vodozemac version:** Pulled as dependency
+- **Result:** ✅ **7 passed**, 0 failed, 0 skipped
+- **Crypto store loaded:** ✅ `crypto_store_loaded == True`
+- **Encrypted send → event_id:** Tests ran against unencrypted room in E2EE mode. **PENDING — encrypted-room follow-up run needed**
+- **Undecryptable events:** 0 observed
+- **Caveats observed:** E2EE tests validated startup with crypto deps loaded. Encrypted-room delivery, key exchange, and cross-device decryption remain **PENDING** until a dedicated encrypted-room follow-up run against a verified-encrypted room.
 
 
 ## Explicit Scope Exclusions
