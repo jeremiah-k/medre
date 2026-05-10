@@ -2,10 +2,10 @@
 
 **Status: Pre-beta. Not production-ready. Not suitable for real workloads.**
 
-medre is a Python library for routing text messages across heterogeneous mesh
-and messaging transports. It provides a canonical event model, per-transport
-adapter boundaries, and a pipeline that moves events through codec → renderer →
-session → adapter with structured diagnostics at every stage.
+medre routes text messages across heterogeneous mesh and messaging transports.
+It provides a canonical event model, per-transport adapter boundaries, and a
+pipeline that moves events through codec → renderer → session → adapter with
+structured diagnostics at every stage.
 
 medre is pre-beta and ships as importable Python components. The project is
 building toward an operational runtime that owns its own process lifecycle, but
