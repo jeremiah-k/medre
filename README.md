@@ -2,37 +2,42 @@
 
 **Status: Pre-beta. Not production-ready. Not suitable for real workloads.**
 
-medre routes text messages across heterogeneous mesh and messaging transports.
-It provides a canonical event model, per-transport adapter boundaries, and a
-pipeline that moves events through codec → renderer → session → adapter with
-structured diagnostics at every stage.
+medre is a modular event routing toolkit with an optional runtime direction.
+It ships as importable Python components you wire into your own code, with a
+canonical event model, per-transport adapter boundaries, and a pipeline that
+moves events through codec → renderer → session → adapter. The same architecture
+is designed to eventually serve as a standalone runtime that owns its own process
+lifecycle, but that runtime does not exist yet.
 
-medre is pre-beta and ships as importable Python components. The project is
-building toward an operational runtime that owns its own process lifecycle, but
-today you wire adapters into your own code. No server, API endpoint, or
-deployment model is provided yet.
+Today: import the pieces you need. The event contracts, adapters, codecs,
+renderers, and session types all work as library components in any async Python
+application. No server, API endpoint, or deployment model is provided.
 
 
-## What medre actually does
+## Architecture layers
 
-- Defines a frozen, schema-versioned `CanonicalEvent` (msgspec Struct) as the
-  single unit of data flow through the pipeline.
-- Provides four transport adapters — Matrix, Meshtastic, MeshCore, LXMF — each
-  with its own codec, renderer, session, config, error types, and compat guard.
-- Each adapter owns its own transport lifecycle: start, stop, deliver,
-  health\_check, diagnostics. No external component touches the transport
-  connection.
-- Fake adapters for all four transports allow full pipeline testing without
-  network access, radio hardware, or SDK installation.
-- Structured diagnostics at every adapter boundary. Read-only snapshots. No
-  secrets leak. No SDK objects cross the boundary.
-- Delivery result contract: every `deliver()` returns an
-  `AdapterDeliveryResult` recording what actually happened (success/failure,
-  native message ID, retry count, timestamp).
-- Session boundary contract: each session owns task lifecycle, retry budgets,
-  reconnect policy, and resource cleanup. No cross-session coordination.
-- Event bus, rendering pipeline, routing/planning layer, storage, and identity
-  modules in `medre.core.*`.
+**Contracts and core** (`medre.core.*`). A frozen, schema-versioned
+`CanonicalEvent` (msgspec Struct) is the single unit of data flow. Event bus,
+rendering pipeline, routing/planning layer, storage, and identity modules live
+here. These are importable library components with no transport dependencies.
+
+**Transport adapters.** Four adapters (Matrix, Meshtastic, MeshCore, LXMF),
+each with its own codec, renderer, session, config, error types, and compat
+guard. Each adapter owns its transport lifecycle entirely: start, stop, deliver,
+health check, diagnostics. No external component touches the transport
+connection. Every `deliver()` returns an `AdapterDeliveryResult` recording what
+happened. Each session owns its own task lifecycle, retry budgets, reconnect
+policy, and cleanup. No cross-session coordination.
+
+**Runtime orchestration (directional).** The architecture anticipates a
+standalone runtime, but that runtime does not ship yet. Today the pipeline
+stages, adapter boundaries, and event contracts are designed so transport code
+is isolated and the core is transport-agnostic. This is the shape of a runtime,
+not a working one.
+
+**External composition.** Consumers import adapters, wire them into their own
+async applications, and manage process lifecycle themselves. This is the
+operational mode today.
 
 
 ## Supported transports
@@ -44,7 +49,11 @@ deployment model is provided yet.
 | **MeshCore** | MeshCore radio nodes via `meshcore_py` | No | Alpha-operational |
 | **LXMF** | Reticulum / LXMF mesh via `lxmf` + `rns` | No | Alpha-operational |
 
-Per-transport maturity definitions and live test evidence:
+Beta-candidate means the adapter has passed a live smoke test against a real
+endpoint. Alpha-operational means the adapter passes its full unit and fake
+pipeline test suite but has not been exercised against real hardware or a live
+network through medre. These are meaningfully different maturity levels, not
+just labels. Per-transport maturity definitions and live test evidence:
 [docs/contracts/37-transport-maturity-classification.md](docs/contracts/37-transport-maturity-classification.md).
 
 **Live-validated means smoke-tested once against a real endpoint.** It does not
@@ -67,7 +76,7 @@ If a dependency is missing, the adapter's compat module reports
 `HAS_<SDK> = False` and the adapter cannot be instantiated.
 
 
-## Matrix encrypted rooms
+## Matrix encrypted-room support
 
 The Matrix adapter supports sending and receiving text messages in encrypted
 Matrix rooms. Encryption is handled entirely by the Matrix client layer via
@@ -128,11 +137,14 @@ These are not bugs. They are honest boundaries of what medre covers today.
 
 ## Philosophy
 
-**Runtime-shaped.** medre is designed as an event routing runtime, not a
-protocol library. The canonical event model, pipeline stages, and adapter
-boundaries exist so that transport-specific code is isolated and the core is
-transport-agnostic. The architecture anticipates a standalone runtime, even
-though today it ships as importable components.
+**Dual-role architecture.** medre is both an importable toolkit and an aspiring
+runtime. The contracts, adapters, codecs, and sessions all work as library
+components today. The same architecture is shaped to serve as a standalone
+event routing runtime when that layer exists. Neither role is provisional. The
+canonical event model, pipeline stages, and adapter boundaries exist so that
+transport-specific code is isolated and the core is transport-agnostic, whether
+you import two adapters into your own process or (eventually) hand process
+lifecycle to medre itself.
 
 **Transport-owned adapters.** Each adapter owns its transport lifecycle from
 start to stop. The runtime does not open connections, schedule retries across

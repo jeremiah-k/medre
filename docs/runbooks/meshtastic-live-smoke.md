@@ -78,11 +78,11 @@ pip install mtjk
 - **Optional:** Core MEDRE tests pass without `mtjk`.  Only live smoke
   tests require it.
 
-Additional dependency:
+All Meshtastic dependencies (including `PyPubSub` for callbacks) are pulled
+automatically by the `[meshtastic]` extra:
 
 ```bash
-# pubsub is required by mtjk's callback mechanism
-pip install pubsub
+pip install -e ".[meshtastic]"
 ```
 
 

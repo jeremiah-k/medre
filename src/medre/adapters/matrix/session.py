@@ -571,6 +571,7 @@ class MatrixSession:
                         self._reconnect_attempts,
                     )
                 self._reconnect_attempts = 0
+                self._last_reconnect_error = None
                 self._last_successful_sync = time.monotonic()
                 return
             except asyncio.CancelledError:
@@ -660,6 +661,8 @@ class MatrixSession:
 
         self._closed = True
         self._reconnecting = False
+        # Track 3 — reset reconnect counter so diagnostics are truthful after stop
+        self._reconnect_attempts = 0
 
     # -- Diagnostics ----------------------------------------------------------
 

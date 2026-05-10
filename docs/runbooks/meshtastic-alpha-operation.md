@@ -32,7 +32,7 @@ This runbook complements `docs/runbooks/meshtastic-live-smoke.md`. The smoke tes
 |------------|---------|
 | Meshtastic node | A real Meshtastic radio node (e.g. LilyGO T-Beam, Heltec v3, RAK WisBlock) accessible via TCP or serial |
 | Python | 3.11 or later |
-| Package install | Core MEDRE: `pip install -e .` (no extra required for fake mode). Real connectivity: `pip install mtjk pubsub` |
+| Package install | Core MEDRE: `pip install -e .` (no extra required for fake mode). Real connectivity: `pip install -e ".[meshtastic]"` |
 | Network access (TCP) | Your machine can reach the node's IP address on port 4403 |
 | Serial access | USB cable connecting the node; user must be in `dialout` group on Linux |
 | Radio channel | A channel index (default 0) not used for critical or emergency communications |
@@ -253,7 +253,7 @@ asyncio.run(main())
 For quick validation, use the live smoke tests:
 
 ```bash
-pip install mtjk pubsub
+pip install -e ".[meshtastic]"
 
 export MESHTASTIC_CONNECTION_TYPE="tcp"
 export MESHTASTIC_HOST="meshtastic.local"
@@ -724,10 +724,10 @@ You passed a `CanonicalEvent` or raw dict to `deliver()` instead of a `Rendering
 
 ### 15.9 `ImportError: No module named 'pubsub'`
 
-The `pubsub` package is required for the `mtjk` callback mechanism:
+The `PyPubSub` package is required for the `mtjk` callback mechanism. It should be pulled automatically by `pip install -e ".[meshtastic]"`. If it's missing:
 
 ```bash
-pip install pubsub
+pip install PyPubSub
 ```
 
 ### 15.10 Live smoke tests all SKIP

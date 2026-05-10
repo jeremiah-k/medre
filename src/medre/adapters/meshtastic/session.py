@@ -257,6 +257,8 @@ class MeshtasticSession:
         # Signal stop to prevent reconnect loops
         self._stop_requested = True
         self._reconnecting = False
+        # Track 3 — reset reconnect counter so diagnostics are truthful after stop
+        self._reconnect_attempts = 0
 
         # Cancel reconnect task if running
         if self._reconnect_task is not None:

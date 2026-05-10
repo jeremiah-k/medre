@@ -560,6 +560,8 @@ class LxmfSession:
         self._diag.connected = False
         self._diag.router_running = False
         self._diag.reconnecting = False
+        # Track 3 — reset reconnect counter so diagnostics are truthful after stop
+        self._diag.reconnect_attempts = 0
         self._started = False
         self._logger.info(
             "LxmfSession %s stopped", self._adapter_id
@@ -759,7 +761,15 @@ class LxmfSession:
         self._diag.reconnect_attempts = 0
 
     def _teardown_sdk(self) -> None:
-        """Release all SDK objects in reverse order."""
+        """Release all SDK objects in reverse order.
+
+        Also clears the ``connected`` / ``router_running`` diagnostics
+        flags so that snapshots taken during reconnect are truthful.
+        """
+        # Mark SDK objects as gone before releasing them.
+        self._diag.connected = False
+        self._diag.router_running = False
+
         # Router → Identity → Reticulum
         self._router = None
         self._identity = None
@@ -1241,6 +1251,7 @@ class LxmfSession:
                         "LxmfSession %s: reconnected successfully",
                         self._adapter_id,
                     )
+                    self._diag.reconnect_attempts = 0
                     self._diag.reconnecting = False
                     return
                 except Exception as exc:

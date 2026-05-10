@@ -155,8 +155,10 @@ proposed.
 - **Distribution name ≠ import name.** `pip install mtjk` installs a package
   imported as `meshtastic`. This is intentional (fork maintains import
   compatibility with upstream).
-- Requires `pubsub` package for callback mechanism (`pip install pubsub`).
-  This is a separate install, not pulled automatically by `mtjk`.
+- **PyPubSub is declared in the `[meshtastic]` extra.** `pip install -e
+  ".[meshtastic]"` pulls `PyPubSub>=4.0` (distribution: `PyPubSub`, import:
+  `pubsub`) automatically. This was not the case previously; the prior
+  packaging agent omitted it, requiring manual `pip install pubsub`.
 - Pulls in `protobuf` as a dependency for message serialization.
 - No compilation required; pure Python with protobuf-generated stubs.
 

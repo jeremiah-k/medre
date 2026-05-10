@@ -415,6 +415,7 @@ class MeshtasticAdapter(BaseAdapter):
             "queue_pending": self._queue.pending_count,
             "queue_total_sent": self._queue.total_sent,
             "queue_total_failed": self._queue.total_failed,
+            "queue_total_dropped": self._queue.total_dropped,
             "background_tasks": len(self._background_tasks),
         }
 

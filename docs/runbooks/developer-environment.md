@@ -120,20 +120,19 @@ pip install -e ".[meshtastic]"
 | Dependency | Version | Notes |
 |------------|---------|-------|
 | `mtjk` | `>=2.7.8` | Fork of Meshtastic Python SDK. Installs as `meshtastic`. |
-| `pubsub` | (manual) | Callback mechanism. **Must install separately:** `pip install pubsub` |
+| `PyPubSub` | `>=4.0` | Callback mechanism (pulled by `[meshtastic]` extra). Installs as `pubsub`. |
 | `protobuf` | (transitive) | Message serialization |
 
 **Meshtastic-specific caveats:**
 
 1. **Distribution name ≠ import name.** `pip install mtjk` installs as `import meshtastic`. This is intentional (fork maintains import compatibility).
-2. **`pubsub` is not pulled automatically.** You must install it separately: `pip install pubsub`. Without it, live connections will fail with `ListenerMismatchError`.
-3. **Serial access requires permissions.** On Linux:
+2. **Serial access requires permissions.** On Linux:
    ```bash
    sudo usermod -aG dialout $USER
    # Log out and back in for group change to take effect
    ```
-4. **Radio firmware matters.** The library assumes a specific protobuf schema. Firmware version mismatches may cause deserialization errors. Tested with firmware 2.7.19.
-5. **TCP mode is synchronous** in the SDK. MEDRE wraps calls in `asyncio.to_thread()`. TCP mode requires a networked Meshtastic node.
+3. **Radio firmware matters.** The library assumes a specific protobuf schema. Firmware version mismatches may cause deserialization errors. Tested with firmware 2.7.19.
+4. **TCP mode is synchronous** in the SDK. MEDRE wraps calls in `asyncio.to_thread()`. TCP mode requires a networked Meshtastic node.
 
 ### 3.4 MeshCore
 
@@ -263,7 +262,6 @@ For a full development environment with all transports:
 
 ```bash
 pip install -e ".[dev,matrix,matrix-e2e,meshtastic,meshcore,lxmf]"
-pip install pubsub  # Meshtastic callback dependency (not auto-pulled)
 ```
 
 For minimal environment (core only):
@@ -279,7 +277,7 @@ pip install -e ".[dev]"
 |-------|-------|------------|
 | `ModuleNotFoundError: No module named 'nio'` | Matrix SDK not installed | `pip install -e ".[matrix]"` |
 | `ModuleNotFoundError: No module named 'meshtastic'` | Meshtastic SDK not installed | `pip install -e ".[meshtastic]"` |
-| `ListenerMismatchError` | Missing `pubsub` package | `pip install pubsub` |
+| `ListenerMismatchError` | Missing `pubsub` package | `pip install -e ".[meshtastic]"` (includes PyPubSub) |
 | `Permission denied: /dev/ttyACM0` | Serial permissions | `sudo usermod -aG dialout $USER`, then re-login |
 | `OlmUnverifiedDeviceError` | Matrix E2EE strict device check | MEDRE handles this via `ignore_unverified_devices=True`. If you see it, the adapter fix was not applied. |
 | `vodozemac` build failure | No Rust toolchain | Install Rust: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |

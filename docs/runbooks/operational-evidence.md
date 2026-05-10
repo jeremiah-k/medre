@@ -2,9 +2,10 @@
 
 > Last updated: 2026-05-10
 > Status: Partially populated. Matrix plaintext 13-pass, E2EE harness 7-pass,
-> encrypted-room follow-up 7-pass (post-fix), Meshtastic serial live 10-pass
-> after two harness fixes. MeshCore, LXMF,
-> and soak tests remain **NOT EXECUTED** until respective agents report.
+> encrypted-room follow-up 7-pass (post-fix), Track 2 inbound test harness
+> complete (deterministic 27/27 pass, live execution operator-dependent).
+> Meshtastic serial live 10-pass after two harness fixes.
+> MeshCore, LXMF, and soak tests remain **NOT EXECUTED**.
 > Related: `docs/contracts/32-beta-readiness-checklist.md`, section 1.3.2.
 
 This document is the consolidated operational evidence record for each validated
@@ -124,13 +125,69 @@ environment, results, caveats, reconnect observations, and limitations.
 
 ### 1.5 Matrix Known Limitations (confirmed from source and live testing)
 
-- No inbound message reception verified against a real homeserver.
-- E2EE text alpha: encrypted-room join works. Initial outbound encrypted send failed with `OlmUnverifiedDeviceError` (2 tests); root cause was nio's strict `ignore_unverified_devices=False` default blocking key sharing with unverified devices. Fix: adapter set `ignore_unverified_devices=True`. Post-fix re-test: encrypted-room full suite passed 7/7 in 3.73s (see §1.3). This is required by upstream nio (no cross-signing support, MSC1756) — every nio-based automated E2EE client must set this flag.
+- **Third-party inbound: test harness exists, live execution operator-dependent.** The live test `test_inbound_message_received` in `tests/test_matrix_live.py` validates the full third-party inbound path (nio sync → `_on_room_message` → codec decode → `publish_inbound()` → canonical event shape → diagnostics counters). It is gated by `MATRIX_INBOUND_SENDER` and a 30-second window. Deterministic unit tests cover the same logic paths without live connectivity (see §1.6). Live execution requires a second Matrix user sending a message during the test window — this has not yet been executed against a real homeserver.
+- E2EE text alpha: encrypted-room join works. Initial outbound encrypted send failed with `OlmUnverifiedDeviceError` (2 tests); root cause was nio's strict `ignore_unverified_devices=False` default blocking key sharing with unverified devices. Fix: adapter set `ignore_unverified_devices=True`. Post-fix re-test: encrypted-room full suite passed 7/7 in 3.73s (see §1.3). This is required by upstream nio (no cross-signing support, MSC1756) — every nio-based automated E2EE client must set this flag. **E2EE is Matrix client encrypted-room support only — not generic cross-transport E2EE.**
 - No E2EE reactions, edits, deletes, or attachments.
 - No cross-signing support in `mindroom-nio`. Device verification via cross-signing is not implemented.
 - Access token is a plain string in config (no secure storage or rotation).
 - `mindroom-nio` is a fork; maintenance status relative to upstream is unverified.
 - Sync loop error handling is untested under real network conditions.
+
+### 1.6 Track 2 — Third-party Inbound Validation Status
+
+#### 1.6.1 What has been validated (deterministic)
+
+| Aspect | Validation | Evidence |
+|--------|-----------|----------|
+| `publish_inbound()` called for third-party sender | ✅ Unit tested | `TestThirdPartyInboundCanonicalEventShape` (8 tests) in `tests/test_matrix_adapter.py` |
+| `source_transport_id` is sender MXID (not bot) | ✅ Unit tested | `test_third_party_event_has_sender_as_transport_id` |
+| `source_channel_id` is Matrix room ID | ✅ Unit tested | `test_third_party_event_has_room_as_channel_id` |
+| `source_native_ref` carries Matrix event_id | ✅ Unit tested | `test_third_party_event_has_source_native_ref` |
+| `event_kind == "message.created"` | ✅ Unit tested | `test_third_party_event_kind_is_message_created` |
+| Payload contains body and msgtype | ✅ Unit tested | `test_third_party_event_has_correct_payload` |
+| Self-loop suppression (sender == bot) | ✅ Unit tested | `TestSelfMessageSuppression` (3 tests) |
+| MEDRE-origin envelope suppression | ✅ Unit tested | `TestMEDREOriginLoopSuppression` (4 tests) |
+| Room allowlist filtering | ✅ Unit tested | `TestRoomAllowlist` (4 tests) |
+| Inbound diagnostics counters | ✅ Unit tested | `TestInboundDiagnosticsCounters` (8 tests) |
+| Diagnostics dict exposure | ✅ Unit tested | `test_diagnostics_exposes_inbound_counters` |
+
+#### 1.6.2 What requires operator-dependent live validation
+
+| Aspect | Status | Blocker |
+|--------|--------|---------|
+| nio sync delivers third-party event to `_on_room_message` | ⏳ Not executed | Requires second Matrix account sending to test room during 30 s window |
+| Live self-echo suppression (send → sync → suppress) | ⏳ Partially tested | `test_live_send_and_receive` validates self-echo doesn't leak, but full round-trip timing is environment-dependent |
+| Inbound diagnostics counters on live server | ⏳ Not executed | Requires live third-party inbound event |
+| Encrypted-room inbound from third party | ⏳ Not executed | Requires second account in encrypted room with crypto store |
+
+#### 1.6.3 Live third-party inbound test procedure
+
+```bash
+# 1. Set core Matrix env vars (same as smoke tests)
+export MATRIX_HOMESERVER="http://localhost:8008"
+export MATRIX_USER_ID="@bot:localhost"
+export MATRIX_ACCESS_TOKEN="syt_..."
+export MATRIX_ROOM_ID="!test:localhost"
+
+# 2. Set the expected inbound sender (optional but recommended)
+export MATRIX_INBOUND_SENDER="@alice:localhost"
+
+# 3. Run the inbound test
+pytest tests/test_matrix_live.py::TestMatrixLiveSmoke::test_inbound_message_received -m live -v
+
+# 4. While the test is waiting (30 s window), send a message from
+#    the second account (@alice:localhost) into MATRIX_ROOM_ID.
+
+# 5. Expected: test passes, confirming publish_inbound() fires with
+#    correct CanonicalEvent shape and diagnostics counters.
+#    If no second account sends a message, test xfails (acceptable).
+```
+
+#### 1.6.4 Blockers for live execution
+
+1. **Second Matrix account**: The test requires a different Matrix user to send a message to the test room. A single bot account cannot produce a third-party inbound event (self-messages are suppressed).
+2. **Manual coordination**: The sender must send during the 30-second test window. No automated sender harness exists.
+3. **No shared second account credentials in repository**: Credentials are operator-specific and must not be stored in the repo.
 
 
 ## 2. Meshtastic Operational Evidence

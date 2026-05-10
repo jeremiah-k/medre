@@ -2,7 +2,7 @@
 
 > Last updated: 2026-05-10
 > Track: Beta Release Hygiene (Track 7)
-> Status: Audit report with findings and actions taken.
+> Status: Audit report with findings and actions taken. Updated with packaging/reproducibility audit findings.
 
 This document records the release hygiene audit performed on MEDRE at head
 `7046ecc` (2026-05-10). It covers pyproject metadata, README accuracy, stale
@@ -31,7 +31,9 @@ test markers, and live-test exclusion guarantees.
 
 - **Added `readme = "README.md"`** — pip now displays README content.
 - **Added `license = "MIT"`** — declares license for downstream tooling.
-- **Added `classifiers`** — Development Status (Alpha), Intended Audience, License, Python versions, Topic, Typing.
+- **Added `classifiers`** — Development Status (Alpha), Intended Audience, Python versions, Topic, Typing.
+- **Removed `License :: OSI Approved :: MIT License` classifier** — PEP 639 (enforced by setuptools >= 80.x) rejects license classifiers when `license` is declared as a SPDX expression. Having both causes `pip install -e .` to fail with `InvalidConfigError` on setuptools >= 80.
+- **Added `PyPubSub>=4.0` to `[meshtastic]` extra** — The `mtjk` distribution does not declare `pubsub` as a dependency, but it is required at runtime for callback-based packet reception. Previously, users had to install it manually (`pip install pubsub`). Now `pip install -e ".[meshtastic]"` pulls it automatically.
 - **Did NOT add `urls` or `authors`** — these require project decisions (repo URL, author identity). Not fabricated.
 
 ### 1.3 Not Fixable (Requires Project Decision)
@@ -234,6 +236,8 @@ Total live tests: ~57 (matches the "57 deselected" count from unit suite runs).
 | F1 | Missing `readme`, `license`, `classifiers` in pyproject.toml | Added `readme = "README.md"`, `license = "MIT"`, and classifiers. |
 | F2 | Stale `meshnet_framework.egg-info/` directory | Removed. Contained wrong package name, wrong dependency versions, wrong source paths. |
 | F3 | "Version-pinned" language in contract 32 ambiguous about strategy | Updated section 7.1 to explicitly state floor-pin strategy. |
+| F8 | `License :: OSI Approved :: MIT License` classifier + `license = "MIT"` causes build failure on setuptools >= 80 (PEP 639) | Removed the license classifier. The `license = "MIT"` SPDX expression is sufficient. |
+| F9 | `PyPubSub` (import `pubsub`) missing from `[meshtastic]` extra — runtime failure on real hardware without manual install | Added `PyPubSub>=4.0` to the meshtastic extra in pyproject.toml. Updated developer-environment.md and contract 34. |
 
 ### 7.2 Reported but Not Fixed (Requires Project Decision)
 
@@ -252,6 +256,54 @@ Total live tests: ~57 (matches the "57 deselected" count from unit suite runs).
 | C2 | No SDK imports in `medre.core` | Clean. Only imports from `medre.adapters.base` (MEDRE types). |
 | C3 | No SDK imports in `medre.__init__` or `medre.runner` | Clean. No third-party imports. |
 | C4 | Live test exclusion guaranteed | Clean. `addopts = "-m 'not live'"` in pyproject.toml. Module-level markers on all live files. |
-| C5 | Extras definitions complete and correct | Clean. 6 extras: dev, matrix, matrix-e2e, meshtastic, meshcore, lxmf. |
+| C5 | Extras definitions complete and correct | Clean. 6 extras: dev, matrix, matrix-e2e, meshtastic (includes PyPubSub), meshcore, lxmf. |
 | C6 | No contradictory operational claims | Clean. Contracts accurately distinguish recorded vs. unrecorded evidence. |
 | C7 | No `meshnet_framework` references in source code | Clean. All source uses `medre` namespace. |
+
+
+## 8. Packaging / Reproducibility Audit
+
+> Updated 2026-05-10 by packaging/reproducibility track (Track 7 retry).
+
+### 8.1 Dependency Pinning Strategy
+
+| Layer | Strategy | Rationale |
+|-------|----------|-----------|
+| **Core** (`msgspec`) | Exact pin: `==0.21.1` | msgspec Struct schema versioning ties core data model to exact wire format. Any version change risks silent decode failures. |
+| **Dev** (`pytest`, `pytest-asyncio`) | Floor pin: `>=X.Y` | Dev tools don't affect production behavior. Range allows CI flexibility. |
+| **Transport SDKs** | Floor pin: `>=X.Y.Z` | Per project policy (contract 32 §7.1, contract 34 §7). SDKs are optional and only loaded when explicitly requested. Floor pins allow downstream consumers to get compatible newer versions without MEDRE releasing a patch. |
+| **Build** (`setuptools`) | Floor pin: `>=68` | Standard practice. |
+
+**Assessment:** The pinning strategy is intentional and well-documented. No changes needed. The exact core pin protects wire format stability; floor pins for optional SDKs allow forward-compatible installs.
+
+### 8.2 Dependency Drift Risk
+
+| Risk | Assessment | Mitigation |
+|------|-----------|------------|
+| `msgspec` major bump breaking decode | Low — exact pin prevents auto-upgrade. | Pin is `==0.21.1`. Requires explicit change. |
+| Transport SDK API breaks in newer versions | Medium — floor pins allow `pip install` to pull newer, possibly incompatible SDK. | SDK compat guards (`HAS_*` flags) catch import failures. Adapter unit tests use mocks; live tests are gated. Acceptable risk for optional deps. |
+| Transitive dependency conflicts | Low — only one required dep (`msgspec`). All transport deps are isolated to their extras. | No shared transitive deps across extras (verified: matrix pulls aiohttp, meshtastic pulls protobuf/bleak, meshcore pulls bleak/pyserial-asyncio-fast, lxmf pulls rns/cryptography). Only overlap: `pycryptodome` appears in both matrix and meshcore transitive trees. |
+| setuptools 80+ breaking changes | **Occurred.** PEP 639 enforcement rejected the license classifier. | Fixed by removing the classifier. setuptools pin is `>=68` — no floor pin on max version. Acceptable for a pre-beta library. |
+
+### 8.3 Install Failure Modes
+
+| Extra | Failure Mode | Likelihood | User Experience |
+|-------|-------------|------------|-----------------|
+| Core (`pip install -e .`) | setuptools 80+ PEP 639 error | **Was high** on modern pip | Fixed (license classifier removed). Now installs cleanly. |
+| `matrix-e2e` | `vodozemac` compilation on Alpine/ARM | Medium | Requires Rust toolchain. Pre-built wheels for common platforms. |
+| `meshtastic` | Missing `pubsub` callback module | **Was certain** on real hardware | Fixed (PyPubSub added to extra). Previously required manual install. |
+| `lxmf` | `cryptography` compilation | Low-Medium | Binary wheels available for common platforms. `rnspure` fallback exists. |
+| `meshcore` | `bleak` BLE stack on headless | Low | BLE not required for serial/TCP modes. |
+
+### 8.4 Missing Infrastructure (Pre-Beta)
+
+| Item | Status | Priority |
+|------|--------|----------|
+| **No lock file** (`uv.lock`, `requirements.txt`) | Acceptable for a library. Lock files are for applications. | N/A |
+| **No CHANGELOG** | Not present. Should exist before beta release. | Should-have |
+| **No `[project.urls]` or `[project.authors]`** | Requires project decisions. | Must-have before PyPI publish |
+| **No CI matrix testing** (multiple Python versions) | Not audited (out of scope). | Should-have before beta |
+
+### 8.5 README Install Guidance
+
+The README now includes installation instructions with maturity tiers. The developer-environment runbook provides complete setup guidance. The `pubsub` manual-install instruction has been removed from the runbook since `PyPubSub` is now pulled by the `[meshtastic]` extra.

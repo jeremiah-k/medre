@@ -124,6 +124,15 @@ Risk ratings use the following scale:
 
 ## 2. Dependency Risks
 
+Dependencies are a concentrated risk surface. medre depends on two community
+forks (mindroom-nio, mtjk), a small-community SDK (meshcore_py), and a
+non-standard-licensed framework (Reticulum). None of these are equivalent to
+depending on, say, `requests` or `numpy`. The upstream fragility is real: if any
+fork stops tracking upstream, or any small SDK makes a breaking change, the
+corresponding medre adapter breaks. The mitigation is version pinning and small
+API surface. The residual exposure is that pinning freezes the working version
+but does not protect against discovered vulnerabilities in the pinned version.
+
 ### D1: mindroom-nio fork maintenance
 
 | Field | Value |
@@ -188,6 +197,32 @@ Risk ratings use the following scale:
 | **Residual exposure** | Downstream consumers must review the license themselves. |
 | **Ownership** | Reticulum authors own the license. medre documents the dependency. |
 | **Source** | Contract 34 §4.6 |
+
+### D6: Transitive dependency fragility (Matrix)
+
+| Field | Value |
+|-------|-------|
+| **Category** | Dependency |
+| **Risk** | `mindroom-nio` pulls in a deep transitive dependency chain (aiohttp, peewee, vodozemac, h11, h2, etc.). Any transitive dependency with a security vulnerability or breaking change affects the Matrix adapter. The attack surface is larger than the direct dependency suggests. |
+| **Severity** | Medium |
+| **Likelihood** | Low — most transitive deps are mature, well-maintained projects |
+| **Mitigation** | Version pins propagate through nio. `pip audit` should be run before releases. |
+| **Residual exposure** | Ongoing — transitive deps are outside medre's control |
+| **Ownership** | mindroom-nio owns its dependency tree. medre owns the decision to depend on nio. |
+| **Source** | Contract 34 §4.1 |
+
+### D7: Fork abandonment scenario
+
+| Field | Value |
+|-------|-------|
+| **Category** | Dependency |
+| **Risk** | If `mindroom-nio` or `mtjk` stops being maintained, medre must either find a replacement SDK, take over fork maintenance, or deprecate the affected transport. None of these are trivial. Fork abandonment is not hypothetical. The original `matrix-nio` upstream had maintenance gaps before the fork was created. |
+| **Severity** | High |
+| **Likelihood** | Low — both forks are currently active |
+| **Mitigation** | Small adapter API surface reduces coupling. Adapter pattern means the transport can be swapped if an alternative SDK appears. |
+| **Residual exposure** | Full — if a fork dies, the transport is blocked until a replacement is found |
+| **Ownership** | Project owns the fork dependency decision and its consequences. |
+| **Source** | Contract 34 §4.1, §4.2 |
 
 
 ## 3. Operational Risks
@@ -341,6 +376,32 @@ Risk ratings use the following scale:
 | **Ownership** | medre owns E2EE for Matrix. Radio protocols own their own encryption. User owns understanding of the difference. |
 | **Source** | Contract 25, Contract 36 |
 
+### E4: E2EE key material not exportable
+
+| Field | Value |
+|-------|-------|
+| **Category** | E2EE |
+| **Risk** | Matrix E2EE keys are stored in nio's crypto store (SQLite). There is no export or backup mechanism exposed by medre. If the operator needs to migrate to a new device or reinstall, the crypto store must be copied manually at the file level. nio does not provide a key export API that medre wraps. |
+| **Severity** | Medium |
+| **Likelihood** | Low — most beta users will not need migration |
+| **Mitigation** | Crypto store path is configurable. Operator can back up the store file. |
+| **Residual exposure** | Full — if the store is lost without backup, historical encrypted messages become unreadable |
+| **Ownership** | Operator owns backup hygiene. nio owns the store format. medre exposes the store path. |
+| **Source** | Contract 25 |
+
+### E5: E2EE operational complexity for automated agents
+
+| Field | Value |
+|-------|-------|
+| **Category** | E2EE |
+| **Risk** | Running an E2EE-capable Matrix bot requires managing a crypto store, device verification policy, and `ignore_unverified_devices` as a deliberate trade-off. This is more complex than plaintext Matrix operation. Operators who enable E2EE without understanding the implications may encounter confusing errors (encryption failures, unverified device warnings) that appear to be bugs but are actually correct behavior under the security model. |
+| **Severity** | Low |
+| **Likelihood** | Medium — E2EE setup is the most common friction point for new Matrix bot operators |
+| **Mitigation** | Documented in contract 25 and secure-credentials.md. E2EE is a separate install extra (`.[matrix-e2e]`). |
+| **Residual exposure** | Medium — documentation can reduce but not eliminate operational confusion |
+| **Ownership** | medre owns documentation. Operator owns E2EE configuration decisions. |
+| **Source** | Contract 25 §5.2 |
+
 
 ## 6. Reconnect Risks
 
@@ -369,6 +430,32 @@ Risk ratings use the following scale:
 | **Residual exposure** | Medium until live failure testing |
 | **Ownership** | medre owns reconnect logic. |
 | **Source** | Contract 32 S1, Contract 35 |
+
+### R3: Missed messages during disconnect
+
+| Field | Value |
+|-------|-------|
+| **Category** | Reconnect |
+| **Risk** | When an adapter disconnects and reconnects, messages sent during the disconnect window are lost for radio transports. Meshtastic and MeshCore have no server-side message queue. Matrix has server-side history, but the sync gap depends on nio's catch-up behavior, which has not been validated under real disconnect conditions. |
+| **Severity** | Medium |
+| **Likelihood** | Medium — any real deployment will experience disconnects |
+| **Mitigation** | Matrix: nio sync may recover messages. Radio: no mitigation possible within medre. Consumer must handle gaps. |
+| **Residual exposure** | Full for radio transports. Medium for Matrix (unvalidated). |
+| **Ownership** | Transport protocol owns delivery guarantees. medre owns reconnection. Consumer owns gap detection. |
+| **Source** | Contract 35, Contract 36 |
+
+### R4: Radio hardware cold-start reconnect delays
+
+| Field | Value |
+|-------|-------|
+| **Category** | Reconnect |
+| **Risk** | Radio hardware (Meshtastic, MeshCore) may require hardware-level reconnection on serial/USB disconnect. BLE disconnections require re-pairing in some firmware versions. Serial port re-enumeration after USB disconnect can take seconds to minutes. medre's reconnect retry budget (3 attempts, exponential backoff) may exhaust before the hardware is ready. |
+| **Severity** | Medium |
+| **Likelihood** | Medium — depends on hardware, cable quality, and USB controller |
+| **Mitigation** | Reconnect delays are bounded but may be insufficient. Operator can increase retry count via config if needed. |
+| **Residual exposure** | Medium — hardware-dependent, not fully in medre's control |
+| **Ownership** | Hardware/firmware owns physical reconnection. medre owns retry logic. Operator owns cable and USB setup. |
+| **Source** | Contract 35 §3.2 |
 
 
 ## 7. Delivery Uncertainty Risks
@@ -412,8 +499,92 @@ Risk ratings use the following scale:
 | **Ownership** | LXMRouter owns delivery. medre owns the adapter. |
 | **Source** | Contract 36 §2.3 |
 
+### U4: Message ordering not guaranteed (radio transports)
 
-## 8. Maintenance Risks
+| Field | Value |
+|-------|-------|
+| **Category** | Delivery uncertainty |
+| **Risk** | Radio mesh protocols may deliver messages out of order. Multi-hop routing, hop timing, and propagation node scheduling can cause message N to arrive after message N+1. mesre's `deliver()` is stateless per call and does not sequence messages. Consumers that depend on message ordering will see incorrect behavior. |
+| **Severity** | Medium |
+| **Likelihood** | Medium — common under multi-hop conditions, rare in single-hop |
+| **Mitigation** | Fire-and-forget model documented. Consumer owns sequencing if needed. |
+| **Residual exposure** | Full — inherent to radio mesh protocols |
+| **Ownership** | Radio protocols. Consumer owns ordering logic. |
+| **Source** | Contract 36 |
+
+
+## 8. Queue Growth Risks
+
+### Q1: Outbound queue growth during disconnection
+
+| Field | Value |
+|-------|-------|
+| **Category** | Queue growth |
+| **Risk** | If a transport disconnects while the consumer continues to call `deliver()`, messages accumulate in the adapter's internal state or the consumer's queue. Radio adapters (Meshtastic, MeshCore) have no outbound queue. Matrix has a send queue within nio but its behavior under sustained disconnection is untested. For radio transports, every `deliver()` call during disconnection will fail immediately (no queuing). For Matrix, nio may buffer, but the buffer bounds are unknown. |
+| **Severity** | Medium |
+| **Likelihood** | Medium — any sustained disconnect causes this |
+| **Mitigation** | Radio adapters fail fast on disconnection (no buffering). Matrix buffering behavior is nio's responsibility. Consumer should implement their own backpressure or retry queue. |
+| **Residual exposure** | Full — medre does not provide a cross-transport queuing layer |
+| **Ownership** | Consumer owns backpressure and retry. medre reports success/failure per call. |
+| **Source** | Contract 35, Contract 36 |
+
+### Q2: Inbound callback backlog
+
+| Field | Value |
+|-------|-------|
+| **Category** | Queue growth |
+| **Risk** | If inbound messages arrive faster than the consumer's callback processes them, a backlog develops. mesre's callback mechanism is synchronous per transport. If the consumer's callback blocks, it blocks the transport's receive loop. For Matrix, this blocks the nio sync loop. For radio transports, it blocks the serial read loop. A slow consumer can cause message loss or transport instability. |
+| **Severity** | Medium |
+| **Likelihood** | Low — requires the consumer to do significant work in the callback |
+| **Mitigation** | Consumer should keep callbacks fast and offload work to a queue or thread. This is documented in the adapter contract. |
+| **Residual exposure** | Full — medre does not impose async callback dispatch |
+| **Ownership** | Consumer owns callback performance. medre owns the callback invocation. |
+| **Source** | Contract 29 |
+
+
+## 9. Long-Running Runtime Risks
+
+### LR1: Memory growth from accumulated state
+
+| Field | Value |
+|-------|-------|
+| **Category** | Runtime |
+| **Risk** | Long-running sessions may accumulate state: callback references, session metadata, diagnostic history, nio sync state. No transport session has been run for more than a few minutes. Memory behavior over hours or days is unknown. The Matrix session is the most likely candidate for unbounded growth due to nio's sync state and crypto store accumulation. |
+| **Severity** | Medium |
+| **Likelihood** | Medium — will matter for any long-running deployment |
+| **Mitigation** | None validated. Memory profiling is deferred to soak testing (contract 38 §2.3). |
+| **Residual exposure** | Full — no long-run evidence exists |
+| **Ownership** | medre owns session state. Consumer owns monitoring. |
+| **Source** | Contract 38 §2.3 |
+
+### LR2: File descriptor and connection leaks
+
+| Field | Value |
+|-------|-------|
+| **Category** | Runtime |
+| **Risk** | Matrix maintains an HTTP connection pool via aiohttp. Serial transports hold open file descriptors. If `stop()` does not fully clean up (see R1), or if the consumer restarts sessions repeatedly without full cleanup, file descriptors and connections may accumulate. This is most likely for Matrix (aiohttp connector lifecycle) and serial-based radio transports (serial port handle lifetime). |
+| **Severity** | Medium |
+| **Likelihood** | Low — requires specific stop/restart patterns |
+| **Mitigation** | `stop()` attempts cleanup with timeout. `_stop_requested` guard. Not validated under repeated restart cycles. |
+| **Residual exposure** | Medium until soak testing |
+| **Ownership** | medre owns cleanup logic. SDK owns resource lifecycle. Consumer owns restart patterns. |
+| **Source** | Contract 35 §3.1 |
+
+### LR3: Thread and task accumulation across restart cycles
+
+| Field | Value |
+|-------|-------|
+| **Category** | Runtime |
+| **Risk** | Matrix uses asyncio tasks for the sync loop. Meshtastic uses a background thread. If a session is stopped and restarted repeatedly, tasks or threads from previous sessions may not be fully collected. The `_stop_requested` flag prevents reconnect loops, but orphaned tasks or threads from incomplete shutdowns could accumulate. This risk is theoretical but plausible for automated deployment managers that restart services. |
+| **Severity** | Low |
+| **Likelihood** | Low — requires repeated stop/start cycles with incomplete cleanup |
+| **Mitigation** | Stop logic includes task cancellation and thread join. Not validated under repeated restart. |
+| **Residual exposure** | Low — theoretical, but would cause gradual degradation |
+| **Ownership** | medre owns stop logic. Consumer owns restart patterns. |
+| **Source** | Contract 35 §3 |
+
+
+## 10. Maintenance Risks
 
 ### M1: Fork tracking burden
 
@@ -454,8 +625,47 @@ Risk ratings use the following scale:
 | **Ownership** | medre owns the test suite. |
 | **Source** | Contract 37 §6.2 |
 
+### M4: Cross-transport maintenance asymmetry
 
-## 9. Upstream Risks
+| Field | Value |
+|-------|-------|
+| **Category** | Maintenance |
+| **Risk** | Transports mature at different rates. Matrix has 102 session test functions and live evidence. MeshCore has 18 and none. Maintaining all four transports at a consistent quality level requires disproportionate effort on the less-mature transports. If maintenance effort is spread evenly, Matrix regresses. If Matrix gets priority attention, the others fall further behind. |
+| **Severity** | Medium |
+| **Likelihood** | Medium — this is the current state, not a prediction |
+| **Mitigation** | Explicit maturity tiers in contract 37 set different expectations per transport. The asymmetry is documented, not hidden. |
+| **Residual exposure** | Ongoing — the four transports are not equivalent and will not reach parity simultaneously |
+| **Ownership** | Project owns resource allocation across transports. |
+| **Source** | Contract 37 |
+
+### M5: Documentation drift across transport contracts
+
+| Field | Value |
+|-------|-------|
+| **Category** | Maintenance |
+| **Risk** | Transport behavior is documented across multiple contracts (33, 34, 35, 36, 37) and runbooks. As transports change, keeping all documentation consistent is a maintenance burden. Inconsistency between, say, the maturity classification in contract 37 and the limitations in contract 36 would confuse consumers. |
+| **Severity** | Low |
+| **Likelihood** | Medium — documentation drift is a common maintenance failure |
+| **Mitigation** | Contract cross-references are explicit. Changes to one contract should trigger review of referenced contracts. |
+| **Residual exposure** | Medium — process control, not automated |
+| **Ownership** | Project owns documentation consistency. |
+| **Source** | Contracts 33, 34, 35, 36, 37 |
+
+### M6: Toolkit vs. framework maintenance burden
+
+| Field | Value |
+|-------|-------|
+| **Category** | Maintenance |
+| **Risk** | medre serves as both an importable toolkit (adapters, configs, results) and an optional runtime framework (sessions, reconnect, lifecycle). The framework layer is where most operational risk lives (reconnect, queue growth, long-running state). Maintaining the framework layer to a standard where it is safe for unattended operation is a significantly larger commitment than maintaining the toolkit layer. If the framework becomes a maintenance burden that exceeds its value, it may need to be extracted or deprecated. |
+| **Severity** | Low |
+| **Likelihood** | Low — current scope is manageable |
+| **Mitigation** | Framework layer is optional. Consumers can use the toolkit directly and manage their own lifecycle. This architectural choice keeps the maintenance ceiling bounded. |
+| **Residual exposure** | Low — the exit strategy (use toolkit only) exists |
+| **Ownership** | Project owns the architecture decision. |
+| **Source** | Contract 38 §8.1 |
+
+
+## 11. Upstream Risks
 
 ### UP1: Meshtastic protobuf schema changes
 
@@ -497,7 +707,7 @@ Risk ratings use the following scale:
 | **Source** | Contract 37 §7.3 |
 
 
-## 10. Risk Summary
+## 12. Risk Summary
 
 | ID | Category | Risk | Severity | Likelihood | Mitigated? |
 |----|----------|------|----------|------------|------------|
@@ -513,6 +723,8 @@ Risk ratings use the following scale:
 | D3 | Dependency | meshcore_py SDK maturity | Medium | Medium | Pinned |
 | D4 | Dependency | vodozemac Rust install friction | Medium | Low | Optional |
 | D5 | Dependency | Reticulum non-standard license | Low | Low | Documented |
+| D6 | Dependency | Transitive dependency fragility (Matrix) | Medium | Low | Audit |
+| D7 | Dependency | Fork abandonment scenario | High | Low | Adapter pattern |
 | O1 | Operational | No sustained throughput evidence | Medium | Medium | Deferred |
 | O2 | Operational | No reconnect resilience evidence | Medium | High | Deferred |
 | O3 | Operational | Matrix access token storage | Medium | Low | Documented |
@@ -524,14 +736,27 @@ Risk ratings use the following scale:
 | E1 | E2EE | No cross-signed device trust | Medium | Low | Documented |
 | E2 | E2EE | Crypto store continuity | Medium | Low | Documented |
 | E3 | E2EE | E2EE scope confusion | Low | Medium | Documented |
+| E4 | E2EE | E2EE key material not exportable | Medium | Low | Documented |
+| E5 | E2EE | E2EE operational complexity | Low | Medium | Documented |
 | R1 | Reconnect | Sync task leak on stop timeout | Low | Low | Guarded |
 | R2 | Reconnect | Reconnect without live validation | Medium | Medium | Bounded |
+| R3 | Reconnect | Missed messages during disconnect | Medium | Medium | None (inherent) |
+| R4 | Reconnect | Radio hardware cold-start delays | Medium | Medium | Configurable |
 | U1 | Delivery | Duplicate messages from retries | Medium | Medium | Documented |
 | U2 | Delivery | Multi-hop delivery latency | Medium | High | Documented |
 | U3 | Delivery | LXMF propagated message delay | Medium | Low | Unvalidated |
+| U4 | Delivery | Message ordering not guaranteed | Medium | Medium | Documented |
+| Q1 | Queue | Outbound queue growth during disconnect | Medium | Medium | Fail-fast |
+| Q2 | Queue | Inbound callback backlog | Medium | Low | Documented |
+| LR1 | Runtime | Memory growth from accumulated state | Medium | Medium | Deferred |
+| LR2 | Runtime | File descriptor/connection leaks | Medium | Low | Partial cleanup |
+| LR3 | Runtime | Thread/task accumulation on restart | Low | Low | Partial cleanup |
 | M1 | Maintenance | Fork tracking burden | Medium | Medium | Pinned |
 | M2 | Maintenance | MeshCore SDK API instability | Medium | Medium | Pinned |
 | M3 | Maintenance | Test coverage gaps (MeshCore) | Low | Low | Identified |
+| M4 | Maintenance | Cross-transport maintenance asymmetry | Medium | Medium | Documented |
+| M5 | Maintenance | Documentation drift across contracts | Low | Medium | Cross-references |
+| M6 | Maintenance | Toolkit vs. framework burden | Low | Low | Optional framework |
 | UP1 | Upstream | Meshtastic protobuf changes | Medium | Low | Pinned |
 | UP2 | Upstream | Matrix spec changes | Low | Low | Pinned |
 | UP3 | Upstream | Reticulum daemon stability | Medium | Medium | Unvalidated |
@@ -542,8 +767,30 @@ All four share the same root cause: lack of live validation evidence. The
 primary risk reduction action is running live harnesses against real endpoints
 and recording the results.
 
-**Inherent (unfixable) risks: 3** (T4, T5, U2)
+**High-severity risks with structural mitigation: 2** (D1, D7)
+
+D1 (mindroom-nio fork maintenance) and D7 (fork abandonment scenario) are
+high-severity because the consequences of fork abandonment are severe. The
+mitigation is architectural (adapter pattern, small API surface), not
+operational. These risks persist as long as medre depends on forks.
+
+**Inherent (unfixable) risks: 4** (T4, T5, U2, U4)
 
 These are properties of radio protocols, not defects. They are documented,
 accepted, and will never be "resolved." Consumer education is the only
-mitigation.
+mitigation. U4 (message ordering) joins the existing three because ordering
+guarantees are fundamentally incompatible with mesh routing.
+
+**Deferred-to-soak risks: 3** (O1, LR1, O2)
+
+These risks require sustained operation evidence that does not exist. They are
+tracked in contract 38 §2.3 and are blocked on soak testing. Until soak
+evidence exists, these remain "we don't know" risks.
+
+**Total risks: 48** | **High: 6** | **Medium: 29** | **Low: 13**
+
+The risk profile is what you would expect for a pre-beta multi-transport
+messaging library with two unvalidated radio transports, two community-maintained
+fork dependencies, and no sustained operation evidence. The honest assessment is
+that beta testers are assuming real operational risk, particularly on MeshCore
+and LXMF transports that have never touched real hardware.

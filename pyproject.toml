@@ -8,7 +8,6 @@ license = "MIT"
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -32,8 +31,11 @@ matrix-e2e = [
 ]
 # mtjk (Meshtastic fork) — ships as distribution "mtjk", imported as "meshtastic".
 # Version 2.7.8 verified from local reference repo / pip show.
+# PyPubSub is required by mtjk for callback-based packet reception but is not
+# declared as a dependency by the mtjk distribution. Included here explicitly.
 meshtastic = [
     "mtjk>=2.7.8",
+    "PyPubSub>=4.0",
 ]
 # meshcore v2.3.7 — verified from /home/jeremiah/dev/meshcore/meshcore_py/pyproject.toml.
 # Transitive deps: bleak, pyserial-asyncio-fast, pycayennelpp, pycryptodome.

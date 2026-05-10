@@ -37,6 +37,28 @@ A release candidate must satisfy all of the following:
 
 These are non-negotiable. If any one is false, there is no RC.
 
+### 1.1 Blocker severity definitions
+
+All blockers in this document use the following severity taxonomy. These are not
+suggestions. They are gates that must be satisfied or explicitly acknowledged.
+
+| Severity | Meaning | RC Implication |
+|----------|---------|----------------|
+| **Must** | Required for RC. Absence prevents tagging. | No RC without resolution. |
+| **Should** | Expected for RC. Absence requires documented rationale in release notes. | RC can ship, but the gap is a known limitation. |
+| **Deferred** | Intentionally post-RC. Acknowledged in risk register. | No action at RC. Track in contract 39. |
+
+The distinction matters. A "Must" item is a hard gate: the RC tag does not go
+out until it is resolved. A "Should" item is a soft gate: the RC tag can go out
+with the item listed as a known limitation in the release notes, provided the
+limitation is also recorded in the operational risk register (contract 39).
+"Deferred" items are explicitly out of scope for RC and must have an entry in
+the risk register explaining the deferral rationale.
+
+A "Should" that cannot be documented honestly should be promoted to "Must." If
+the known limitation cannot be stated clearly, the gap is a blocker, not an
+advisory.
+
 
 ## 2. Operational Evidence Requirements
 
@@ -66,10 +88,56 @@ Each transport must have recorded evidence in
 **RC gate:** Either all transports have live evidence, or transports without it
 are explicitly excluded from the RC scope with documented rationale.
 
+### 2.2.1 Evidence quality thresholds
+
+Recorded evidence must meet the following quality bar to count as "live
+validated." Evidence that does not meet these thresholds is treated as missing
+evidence.
+
+**Lifecycle evidence** must include: adapter start command, clean stop with no
+lingering tasks or exceptions, and confirmation that the adapter enters
+`AdapterState.STOPPED`.
+
+**Send evidence** must include: at least one message sent through the adapter's
+`deliver()` method, a returned `AdapterDeliveryResult` with `success=True`, and
+confirmation that `success=True` reflects actual transport acknowledgment (not
+just "we queued it internally"). For radio transports where only local handoff
+is confirmable, the evidence must explicitly state that `success` means local
+radio acceptance, not end-to-end delivery.
+
+**Receive evidence** must include: at least one inbound message observed through
+the adapter's callback mechanism, with the message content matching what was
+sent.
+
+**Diagnostics evidence** must include: a `diagnostics()` call that returns
+structured data with no secrets leaked, no SDK objects exposed, and transport
+state reported.
+
+Partial evidence (e.g., lifecycle works but send fails) does not count as live
+validated. The evidence must be complete for the declared scope. If a transport
+can start but cannot send, the honest status is "partial lifecycle, not
+live-validated."
+
+### 2.2.2 Evidence recording requirements
+
+Each evidence entry in `docs/runbooks/operational-evidence.md` must include:
+
+- Date and time of the test run.
+- Python version and OS.
+- Transport SDK version (e.g., `mtjk==2.7.8`, `mindroom-nio==0.25.3`).
+- Hardware or service endpoint details (without secrets).
+- The command that was run.
+- The output or summary of results.
+- Any deviations from expected behavior.
+
+Evidence that lacks these fields is informal, not recorded. It may be useful
+for development but does not satisfy the RC gate.
+
 ### 2.3 Soak Evidence
 
 Soak testing is not required for RC but is required for any subsequent stable
-release. The following soak criteria are recorded here for completeness:
+release. The following soak criteria are recorded here for completeness and to
+set expectations for what "stable" actually demands.
 
 | Criterion | Description | Required For |
 |-----------|-------------|--------------|
@@ -77,9 +145,30 @@ release. The following soak criteria are recorded here for completeness:
 | Reconnect resilience | Adapter recovers from intentional network disconnection | Stable |
 | Memory stability | No unbounded growth over 1-hour run | Stable |
 | Session restart | Stop + start produces clean state, no stale callbacks | Stable |
+| Queue drainage | Outbound queue drains after reconnect without message loss or duplication | Stable |
+| Long-run diagnostics | Diagnostics remain accurate after 1-hour continuous operation | Stable |
 
 RC does not require soak evidence. RC requires acknowledgment that soak
 evidence does not yet exist.
+
+#### 2.3.1 Soak reproducibility
+
+When soak testing is performed for stable release:
+
+1. The test must be runnable from the repository without manual setup beyond
+   what is described in the developer environment runbook.
+2. The test must produce deterministic pass/fail output (not "seemed fine").
+3. The test must log memory usage at regular intervals, not just at start/end.
+4. The test must be re-runnable. A soak test that cannot be reproduced by
+   another developer does not count as evidence.
+
+#### 2.3.2 RC acknowledgment
+
+Any RC release notes must include a statement of the form:
+
+> Soak testing has not been performed. Sustained throughput, memory stability
+> under load, and reconnect resilience under real network conditions are
+> unknown. Do not use this RC for workloads requiring sustained reliability.
 
 
 ## 3. Live Validation Gate
@@ -209,7 +298,7 @@ Before RC, verify README against this checklist:
 
 ### 6.2 Clean install reproducibility
 
-Before RC:
+Before RC, the following clean-room verification must pass:
 
 1. `python -m venv /tmp/medre-rc-test && source /tmp/medre-rc-test/bin/activate`
 2. `pip install -e ".[dev]"`
@@ -217,6 +306,30 @@ Before RC:
 4. Repeat with each transport extra: `pip install -e ".[matrix]"`, run matrix
    unit tests, etc.
 5. Verify no import errors for any installed extra.
+
+#### 6.2.1 Reproducibility requirements
+
+| Requirement | Detail |
+|------------|--------|
+| Python version | Must pass on Python 3.11+. Tested on the version listed in pyproject.toml `requires-python`. |
+| OS | Must pass on at least one Linux distribution. macOS and Windows are not blocked but also not verified. |
+| Dependency resolution | `pip install` must resolve without version conflicts. If dependency resolution fails, it is an RC blocker. |
+| Clean venv | Verification must start from an empty virtualenv, not a developer's working environment. |
+| No pre-built state | No `__pycache__`, `.pyc`, or build artifacts may exist before the test. Use `git clean -fdx` or equivalent. |
+
+#### 6.2.2 Dependency reproducibility caveats
+
+medre does not use a lock file. Dependency versions are pinned with floor
+constraints (`>=`). This means:
+
+- Exact dependency resolution may vary between RC and a later install.
+- Binary wheel availability for `vodozemac` depends on platform.
+- Fork dependencies (`mindroom-nio`, `mtjk`) are sourced from PyPI
+  alternatives, not standard package indices.
+
+For RC, this is acceptable. For stable, a lock file or hash-pinned requirements
+file should be considered. The absence of a lock file at RC is documented, not
+ignored.
 
 ### 6.3 pyproject.toml completeness
 
@@ -256,3 +369,42 @@ Development Status classifier should be updated to `4 - Beta` at RC time.
 **Current assessment: Not ready for RC.** Three must-have blockers (M14, M15,
 M16) and two metadata gaps (authors, URLs) remain. The honest path is to
 resolve these or scope the RC accordingly.
+
+
+## 8. Architecture Scope and Risk Ownership
+
+### 8.1 MEDRE as toolkit and optional runtime
+
+MEDRE serves two roles: an importable toolkit (adapters, configs, results that
+consumers use directly) and an optional runtime framework (session management,
+reconnect logic, lifecycle coordination). These are not equivalent commitments.
+
+The **toolkit** layer (adapters, configs, result types) is the stable contract.
+Consumers who import individual adapters and manage their own lifecycle bear
+their own operational risk. The adapter API is the commitment.
+
+The **runtime framework** layer (sessions, reconnect, queue management) is
+convenience code. It works in unit tests against mocks. It has not been
+validated under sustained operation or real failure conditions. Consumers who
+use the session framework inherit the operational risks documented in contract
+39, sections O1, O2, R1, R2, LR1 through LR3, and Q1.
+
+RC does not require the runtime framework to be production-grade. RC requires
+that the distinction between toolkit and framework is documented so consumers
+can make informed choices.
+
+### 8.2 Risk ownership at RC
+
+| Layer | Owned by | RC responsibility |
+|-------|----------|-------------------|
+| Adapter API contract | medre | Must be stable, tested, documented |
+| Transport behavior | Upstream SDK/radio protocol | Documented as known limitation |
+| Session lifecycle | medre (framework layer) | Unit-tested, soak-deferred |
+| Credential management | Operator | Documented requirements |
+| Reconnect resilience | medre (framework layer) | Mock-tested, live-deferred |
+| Sustained throughput | Unknown | Soak-deferred, acknowledged |
+
+This table says something specific: medre commits to the adapter API being
+honest and tested. medre does not commit to the runtime framework being
+reliable under sustained load. That commitment requires soak evidence that does
+not exist yet.

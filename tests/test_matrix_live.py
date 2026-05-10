@@ -865,7 +865,7 @@ class TestMatrixLiveSmoke:
 
         publish_mock = AsyncMock()
         ctx = AdapterContext(
-            adapter_id="matrix-live-inbound",
+            adapter_id="matrix-live-smoke",
             event_bus=None,
             publish_inbound=publish_mock,
             logger=logging.getLogger("test.matrix-live.inbound"),
