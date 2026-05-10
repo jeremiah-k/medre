@@ -36,10 +36,16 @@ from medre.adapters.lxmf.errors import (
     LxmfError,
     LxmfPacketError,
     LxmfSendError,
+    LxmfSessionError,
 )
 from medre.adapters.lxmf.fields import LxmfFieldsHelper
 from medre.adapters.lxmf.packet_classifier import LxmfPacketClassifier
 from medre.adapters.lxmf.renderer import LxmfRenderer
+from medre.adapters.lxmf.session import (
+    LxmfDeliveryState,
+    LxmfSession,
+    LxmfSessionDiagnostics,
+)
 
 __all__ = [
     "HAS_LXMF",
@@ -49,10 +55,14 @@ __all__ = [
     "LxmfConfig",
     "LxmfConfigError",
     "LxmfConnectionError",
+    "LxmfDeliveryState",
     "LxmfError",
     "LxmfFieldsHelper",
     "LxmfPacketClassifier",
     "LxmfPacketError",
     "LxmfRenderer",
     "LxmfSendError",
+    "LxmfSession",
+    "LxmfSessionDiagnostics",
+    "LxmfSessionError",
 ]

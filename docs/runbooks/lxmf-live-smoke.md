@@ -1,51 +1,58 @@
 # LXMF Live Smoke Test Runbook
 
-> Last updated: 2026-05-09
-> Status: **Reference only. No live harness exists yet.**
+> Last updated: 2026-05-10
+> Status: **Live harness exists. Real mode requires `lxmf`/`RNS` packages and a live Reticulum instance.**
 > See: `docs/contracts/20-lxmf-connectivity-readiness.md`
+> Alpha operation runbook: `docs/runbooks/lxmf-alpha-operation.md`
+> Metadata normalization audit: `docs/contracts/26-metadata-normalization-audit.md`
 
 This runbook describes how to test LXMF/Reticulum connectivity against
-a real Reticulum network when a live smoke harness is eventually built.
-It documents the SDK's connection methods, required environment
-variables, and expected behaviors so that when someone sits down with
-Reticulum networking, they have a verified procedure to follow.
+a real Reticulum network. It documents the SDK's connection methods,
+required environment variables, and expected behaviors so that when
+someone sits down with Reticulum networking, they have a verified
+procedure to follow.
 
-**This is not a test you can run today.** The MEDRE adapter has no real
-Reticulum or LXMF client code. The adapter's `start()` raises
-`LxmfConnectionError` for any non-fake connection type. This runbook
-exists to document the SDK's connectivity interface so the eventual
-harness can be built without re-researching the SDK.
+The MEDRE adapter has session-backed real Reticulum/LXMF support via
+`LxmfSession`. When `connection_type="reticulum"` and the `lxmf`/`RNS`
+packages are installed, the adapter initializes a real Reticulum
+instance, loads an identity, creates an LXMRouter, and registers
+delivery callbacks. Without a live Reticulum network present, real-mode
+tests skip with `pytest.skip()`. Fake-mode tests run unconditionally.
 
-**Production LXMF/Reticulum support remains deferred.**
+**Production LXMF/Reticulum deployment readiness is not claimed.**
+This is alpha operation requiring installed/configured SDK and live
+environment.
 
 
 ## Purpose
 
-When built, the LXMF live smoke harness would validate:
+The live smoke harness in `tests/test_lxmf_live.py` validates:
 
 - The `lxmf` and `rns` packages install and import correctly.
 - A `RNS.Reticulum` instance initializes with a valid config directory.
 - An `RNS.Identity` can be created and persisted to disk.
 - An `LXMF.LXMRouter` can be created with a valid storage path.
-- `router.register_delivery_identity()` returns a valid `RNS.Destination`.
-- `router.announce()` broadcasts presence on the network.
 - `router.register_delivery_callback()` receives incoming messages.
 - `router.handle_outbound()` sends a message that arrives at a
   destination.
-- The full lifecycle (init, announce, send, receive, shutdown) works
-  cleanly.
+- The full adapter lifecycle (start, health, deliver, stop, restart)
+  works cleanly via `LxmfSession`.
+- Idempotent start/stop, double-start, double-stop, and rapid cycles
+  are stable.
+- The inbound pipeline (`simulate_inbound` → codec → `publish_inbound`)
+  works end to end.
 
-### What live smoke would NOT prove
+### What live smoke does NOT prove
 
-- Full MEDRE adapter integration with real LXMF traffic (adapter has
-  no real client code).
-- Inbound message reception from a separate Reticulum instance
-  (requires a second process).
-- Propagation node store-and-forward.
+- Synchronous delivery confirmation. Outbound returns `OUTBOUND` state,
+  not `DELIVERED`. Actual delivery is asynchronous via LXMF callbacks.
+- Inbound message reception from a separate, independent Reticulum
+  instance (requires a second process not available in this harness).
+- Propagation node store-and-forward across independent peers.
 - Multi-hop mesh delivery across heterogeneous transports.
 - Resource transfer for large messages (attachments, images).
 - Ticket-based reply correlation.
-- Reconnection handling under real network conditions.
+- Reconnection handling under real network failure conditions.
 - Compatibility with all Reticulum transport interface types.
 - Production deployment readiness.
 
@@ -71,7 +78,7 @@ pip install lxmf rns
   Reticulum (uses internal pure-Python crypto primitives, slower and
   less audited).
 - **Optional:** Core MEDRE tests pass without `lxmf` or `rns`. Only
-  live smoke tests would require them.
+  live smoke tests require them.
 - **LXMF pulls in Reticulum:** `pip install lxmf` installs `rns` as a
   dependency. You do not need to install both separately.
 - **Author:** Mark Qvist. Both packages share the same author and
@@ -213,38 +220,33 @@ directories with TCP interfaces pointing at each other.
 
 ## Required Environment Variables
 
-When the live smoke harness is built, these environment variables would
-configure it:
+The live smoke tests use these environment variables:
 
 | Variable | Required | Example | Description |
 |----------|----------|---------|-------------|
+| `LXMF_CONNECTION_TYPE` | Yes | `reticulum` | Must be `"reticulum"`. Any other value causes tests to skip. |
 | `LXMF_IDENTITY_PATH` | Yes | `/tmp/lxmf_test_identity` | Path to Reticulum identity file. Created on first run if missing. |
 | `LXMF_DISPLAY_NAME` | No | `MEDRE Smoke Test` | Display name for LXMF announces. Defaults to empty string. |
-| `LXMF_STORAGE_PATH` | Yes | `/tmp/lxmf_test_storage` | Path for LXMF router storage directory. Created if missing. |
-| `LXMF_PROPAGATION_NODE` | No | (32-hex-char hash) | Destination hash of propagation node for store-and-forward. Optional. |
-| `LXMF_RNS_CONFIG` | No | `/tmp/reticulum_test` | Custom Reticulum config directory. Defaults to system default. |
-| `LXMF_TEST_DESTINATION` | Conditional | (32-hex-char hash) | Identity hash of the test recipient. Required for send tests. |
+| `LXMF_DESTINATION_HASH` | No | (32-hex-char hash) | Destination hexhash for outbound send tests. |
 
-If any required variable is unset, tests should skip with a descriptive
-message, matching the pattern used by Matrix and Meshtastic live smoke
-harnesses.
+At minimum, `LXMF_CONNECTION_TYPE` and `LXMF_IDENTITY_PATH` must
+be set. If any required variable is missing, every test in the file
+skips with a descriptive reason.
 
 
-## How to Run Manual/Live Tests (Future)
-
-When the harness is built:
+## How to Run Live Tests
 
 ```bash
 # Install dependencies
 pip install lxmf rns
 
 # Set environment variables
+export LXMF_CONNECTION_TYPE="reticulum"
 export LXMF_IDENTITY_PATH="/tmp/lxmf_test_identity"
-export LXMF_STORAGE_PATH="/tmp/lxmf_test_storage"
 export LXMF_DISPLAY_NAME="MEDRE Smoke Test"
-# export LXMF_TEST_DESTINATION="6b3362bd2c1dbf87b66a85f79a8d8c75"
+# export LXMF_DESTINATION_HASH="6b3362bd2c1dbf87b66a85f79a8d8c75"
 
-# Run live tests only (hypothetical)
+# Run live tests only
 pytest tests/test_lxmf_live.py -m live -v
 
 # Run all tests EXCEPT live (default behavior)
@@ -254,9 +256,9 @@ pytest
 pytest -m ""
 ```
 
-### Manual SDK Smoke Test (Do This Now)
+### Manual SDK Smoke Test
 
-Even without a harness, you can verify the SDK manually:
+You can also verify the SDK manually outside the test harness:
 
 ```python
 #!/usr/bin/env python3
@@ -341,32 +343,37 @@ message construction. It does not send anything over a real network
 (unless Reticulum has active interfaces).
 
 
-## What It Proves / Does Not Prove
+## What the MEDRE Adapter Proves / Does Not Prove
 
-### Proves
+### Proves (via the test harness)
 
-- `lxmf` and `rns` install correctly and import without errors.
-- `RNS.Identity` creates, saves, and loads correctly.
-- `RNS.Reticulum()` initializes without errors.
-- `LXMF.LXMRouter()` creates with a valid storage path.
-- `router.register_delivery_identity()` returns a valid destination.
-- `router.announce()` executes without error.
-- `LXMF.LXMessage` constructs with valid parameters.
-- `router.exit_handler()` runs cleanly.
-- The full lifecycle (init, create, announce, shutdown) works in a
-  single process.
+- `LxmfConfig` validates identity_path shape and rejects empty strings.
+- `LxmfAdapter.start()` succeeds in fake mode without SDK.
+- `LxmfAdapter.start()` succeeds in reticulum mode when SDK and
+  identity are available.
+- `health_check()` returns `"healthy"` after start, `"unknown"` before
+  start and after stop.
+- `LxmfAdapter.stop()` is idempotent and does not raise on a
+  never-started adapter.
+- `deliver()` raises `TypeError` for non-`RenderingResult` input.
+- `deliver()` returns `AdapterDeliveryResult` with `delivery_state`
+  `"outbound"` (honest pending, not delivered).
+- `simulate_inbound()` publishes a canonical event via
+  `publish_inbound`.
+- Start → stop → start → stop restart cycle works without state leaks.
+- Double-start and double-stop are idempotent.
+- Rapid start/stop cycles (5 iterations) are stable.
 
 ### Does Not Prove
 
-- Messages actually traverse a real Reticulum network.
-- Delivery callbacks fire for inbound messages from another peer.
-- Path discovery works across real transport interfaces.
-- Propagation node sync works.
+- Messages actually traverse a real Reticulum network to a remote peer.
+- Delivery callbacks fire for inbound messages from an independent
+  second process.
+- Path discovery works across real multi-hop transport interfaces.
+- Propagation node sync works across independent peers.
 - Resource transfer for large messages works.
 - Stamp validation and generation works at scale.
-- The MEDRE adapter integrates correctly with real LXMF traffic.
-- Multi-hop routing works.
-- Reconnection after transport failure works.
+- Reconnection recovers correctly under real network failure.
 - Multiple LXMRouter instances in the same process work (they probably
   don't, since Reticulum is a singleton).
 - Performance under load.
@@ -440,16 +447,16 @@ For smoke testing, `AutoInterface` (LAN) or `TCPClientInterface`
 ## Explicit Scope Exclusions
 
 The following are explicitly **out of scope** for the live smoke
-harness and the LXMF adapter tranche 1:
+harness and the LXMF adapter alpha:
 
-- Production LXMF/Reticulum connectivity in the MEDRE adapter
-- Propagation node store-and-forward
+- Production LXMF/Reticulum deployment readiness
+- Propagation node store-and-forward across independent peers
 - Resource transfer for large messages (attachments, images)
 - Ticket-based reply correlation
 - Multi-hop mesh delivery testing
 - Multiple transport interface testing
 - BLE, serial, LoRa hardware testing
-- Reconnection or connection loss recovery
+- Reconnection under real network failure conditions
 - LXST (LXMF Streaming Transport)
 - Production deployment instructions
 - Integration with Sideband, MeshChat, Nomad Network, or other LXMF

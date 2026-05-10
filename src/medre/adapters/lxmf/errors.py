@@ -43,3 +43,7 @@ class LxmfCodecError(LxmfError):
 
 class LxmfPacketError(LxmfError):
     """Raised when a packet is malformed or cannot be parsed."""
+
+
+class LxmfSessionError(LxmfError):
+    """Raised when the LXMF session lifecycle encounters an error."""

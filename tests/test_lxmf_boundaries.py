@@ -30,6 +30,7 @@ from medre.adapters.lxmf.config import LxmfConfig
 from medre.adapters.lxmf.codec import LxmfCodec
 from medre.adapters.lxmf.renderer import LxmfRenderer
 from medre.adapters.lxmf.adapter import LxmfAdapter
+from medre.adapters.lxmf.errors import LxmfSendError
 from medre.adapters.lxmf.packet_classifier import LxmfPacketClassifier
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.rendering.renderer import RenderingResult
@@ -477,17 +478,23 @@ class TestLxmfOutboundNativeRefs:
         assert delivery.native_channel_id is None
 
     async def test_real_adapter_returns_none_in_tranche1(self) -> None:
-        """Real LxmfAdapter.deliver() returns None (scaffolded)."""
-        config = LxmfConfig(adapter_id="lxmf-1")
+        """Real LxmfAdapter.deliver() now returns AdapterDeliveryResult via session.
+
+        With session integration, deliver() delegates to LxmfSession.send_text()
+        which requires the session to be started first.  In fake mode, the
+        adapter must be started to deliver.
+        """
+        config = LxmfConfig(adapter_id="lxmf-1", connection_type="fake")
         adapter = LxmfAdapter(config)
+        # Without start, deliver raises because session is not connected.
         result = RenderingResult(
             event_id="evt-1",
             target_adapter="lxmf-1",
             target_channel=None,
             payload={"content": "test", "title": "", "fields": {}},
         )
-        delivery = await adapter.deliver(result)
-        assert delivery is None
+        with pytest.raises(LxmfSendError, match="not connected"):
+            await adapter.deliver(result)
 
 
 # ===================================================================

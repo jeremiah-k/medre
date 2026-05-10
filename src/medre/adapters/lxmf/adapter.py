@@ -20,21 +20,25 @@ The adapter supports connection types configured via
     returns ``None`` (scaffolded).
 
 ``"reticulum"``
-    **Not implemented yet.**  :meth:`start` always raises
-    :class:`~medre.adapters.lxmf.errors.LxmfConnectionError` for
-    non-fake connection types, regardless of whether ``lxmf``/``RNS``
-    are installed.  Production connectivity is deferred to a future
-    tranche.
+    Connects to a locally-running Reticulum instance via the ``RNS``
+    and ``lxmf`` packages.  Requires ``lxmf`` optional dependency at
+    runtime.  Lifecycle is owned by
+    :class:`~medre.adapters.lxmf.session.LxmfSession`.
 
 Lifecycle
 ---------
 :meth:`start` and :meth:`stop` are idempotent — calling them multiple
 times is safe.  The adapter tracks background :class:`asyncio.Task`
 instances spawned by inbound packet callbacks and drains them on stop.
+
+The adapter delegates all SDK interaction to its owned
+:class:`~medre.adapters.lxmf.session.LxmfSession` instance.  The
+session owns raw transport; the adapter owns semantic conversion.
 """
 from __future__ import annotations
 
 import asyncio
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -53,8 +57,10 @@ from medre.adapters.lxmf.compat import HAS_LXMF
 from medre.adapters.lxmf.config import LxmfConfig
 from medre.adapters.lxmf.errors import (
     LxmfConnectionError,
+    LxmfSendError,
 )
 from medre.adapters.lxmf.packet_classifier import LxmfPacketClassifier
+from medre.adapters.lxmf.session import LxmfSession
 from medre.core.rendering.renderer import RenderingResult
 
 # Capabilities for the LXMF transport adapter.
@@ -86,6 +92,9 @@ class LxmfAdapter(BaseAdapter):
     them as canonical events.  Outbound rendered payloads are enqueued
     for paced delivery.
 
+    All SDK interaction is delegated to the owned
+    :class:`~medre.adapters.lxmf.session.LxmfSession` instance.
+
     Parameters
     ----------
     config:
@@ -101,7 +110,11 @@ class LxmfAdapter(BaseAdapter):
         self._config = config
         self.adapter_id = config.adapter_id
         self._capabilities = _LXMF_CAPABILITIES
-        self._client: Any = None
+        self._session = LxmfSession(
+            config=config,
+            adapter_id=config.adapter_id,
+            platform=self.platform,
+        )
         self._codec = LxmfCodec(config.adapter_id, config)
         self._classifier = LxmfPacketClassifier(config)
         self.ctx: AdapterContext | None = None
@@ -124,26 +137,30 @@ class LxmfAdapter(BaseAdapter):
         ------
         LxmfConnectionError
             If ``lxmf`` / ``RNS`` are not installed and connection_type
-            is not ``"fake"``.
+            is not ``"fake"``, or if the session cannot connect.
         """
         if self._started:
             return
 
         self.ctx = ctx
 
-        if self._config.connection_type == "fake":
-            self._client = None
-        else:
+        if self._config.connection_type != "fake":
             if not HAS_LXMF:
                 raise LxmfConnectionError(
                     "lxmf/RNS not installed; pip install lxmf. "
                     f"connection_type={self._config.connection_type!r}"
                 )
-            # Production LXMF/Reticulum connectivity is not implemented yet.
-            # Even when the SDK is installed, no real client is created.
-            raise LxmfConnectionError(
-                "production LXMF/Reticulum connectivity is not implemented yet"
+
+        try:
+            await self._session.start(
+                message_callback=self._on_packet,
             )
+        except LxmfConnectionError:
+            raise
+        except Exception as exc:
+            raise LxmfConnectionError(
+                f"LXMF session failed to start: {exc}"
+            ) from exc
 
         self._started = True
         ctx.logger.info(
@@ -169,18 +186,9 @@ class LxmfAdapter(BaseAdapter):
         # Cancel all tracked background tasks and drain them.
         await self._drain_background_tasks(timeout)
 
-        # Unsubscribe event callbacks.
-        self._unsubscribe_events()
+        # Stop the session (which tears down SDK objects).
+        await self._session.stop(timeout=timeout)
 
-        if self._client is not None:
-            try:
-                close_fn = getattr(self._client, "close", None)
-                if close_fn is not None:
-                    close_fn()
-            except Exception:
-                pass
-
-        self._client = None
         self._started = False
         if self.ctx is not None:
             self.ctx.logger.info(
@@ -198,7 +206,7 @@ class LxmfAdapter(BaseAdapter):
         """
         if self._started:
             health = "healthy"
-        elif self._client is not None and not self._started:
+        elif self._session.connected and not self._started:
             health = "failed"
         else:
             health = "unknown"
@@ -210,42 +218,6 @@ class LxmfAdapter(BaseAdapter):
             capabilities=self._capabilities,
             health=health,
         )
-
-    # -- Event subscription scaffold ----------------------------------------
-
-    def _subscribe_events(self) -> None:
-        """Subscribe to LXMRouter inbound message callbacks.
-
-        Scaffold: wires ``lxmf`` / ``RNS`` callbacks when a real
-        LXMRouter is available.  Currently logs intent only; actual
-        callback registration deferred to production implementation.
-
-        Raises
-        ------
-        LxmfConnectionError
-            If callback registration fails.
-        """
-        if self.ctx is not None:
-            self.ctx.logger.debug(
-                "LxmfAdapter %s: _subscribe_events scaffold called",
-                self.adapter_id,
-            )
-        # Future: register LXMRouter message callback
-        # router = lxmf.LXMRouter(identity=...)
-        # router.register_delivery_callback(self._on_lxmf_message)
-
-    def _unsubscribe_events(self) -> None:
-        """Unsubscribe from LXMRouter inbound message callbacks.
-
-        Scaffold: tears down ``lxmf`` / ``RNS`` callbacks.  Currently
-        logs intent only.  Failures are logged but not raised.
-        """
-        if self.ctx is not None:
-            self.ctx.logger.debug(
-                "LxmfAdapter %s: _unsubscribe_events scaffold called",
-                self.adapter_id,
-            )
-        # Future: unregister LXMRouter message callback
 
     # -- Background task management -----------------------------------------
 
@@ -280,7 +252,11 @@ class LxmfAdapter(BaseAdapter):
         dict already rendered by
         :class:`~medre.adapters.lxmf.renderer.LxmfRenderer`.
 
-        In tranche 1 this is scaffolded — returns ``None``.
+        In fake mode, returns an :class:`AdapterDeliveryResult` with a
+        deterministic native_message_id and pending delivery state.
+
+        In real mode, sends via the session's LXMF router and returns
+        an honest result with the LXMF message hash and delivery state.
 
         Parameters
         ----------
@@ -290,12 +266,14 @@ class LxmfAdapter(BaseAdapter):
         Returns
         -------
         AdapterDeliveryResult | None
-            ``None`` in tranche 1 (scaffolded).
+            Delivery result with native message ID and state metadata.
 
         Raises
         ------
         TypeError
             If *result* is not a :class:`RenderingResult`.
+        LxmfSendError
+            If the send fails permanently.
         """
         if not isinstance(result, RenderingResult):
             raise TypeError(
@@ -304,20 +282,57 @@ class LxmfAdapter(BaseAdapter):
                 f"the inbound path."
             )
 
-        return None
+        payload = result.payload
+        if not isinstance(payload, dict):
+            return None
+
+        content = payload.get("content", "")
+        title = payload.get("title", "")
+        destination_hash = payload.get("destination_hash", "")
+        delivery_method = payload.get("delivery_method")
+        fields = payload.get("fields")
+
+        if not content and not title:
+            return None
+
+        native_id, delivery_state = await self._session.send_text(
+            destination_hash=str(destination_hash),
+            content=str(content),
+            title=str(title),
+            delivery_method=(
+                str(delivery_method) if delivery_method else None
+            ),
+            fields=fields if isinstance(fields, dict) else None,
+        )
+
+        return AdapterDeliveryResult(
+            native_message_id=native_id,
+            native_channel_id=None,
+            metadata=MappingProxyType({
+                "lxmf": {
+                    "delivery_state": delivery_state.value,
+                    "delivery_method": (
+                        delivery_method
+                        if isinstance(delivery_method, str)
+                        else self._config.default_delivery_method
+                    ),
+                },
+            }),
+        )
 
     # -- Inbound callback ---------------------------------------------------
 
     def _on_packet(self, packet: dict[str, Any]) -> None:
         """Process an inbound LXMF message payload.
 
-        Classifies the packet, decodes it via the codec, and publishes
-        the resulting canonical event inbound.
+        Receives normalised message dicts from the session (never raw
+        LXMF/RNS objects).  Classifies the packet, decodes it via the
+        codec, and publishes the resulting canonical event inbound.
 
         Parameters
         ----------
         packet:
-            Raw LXMF message payload dict.
+            Normalised LXMF message payload dict.
         """
         if self.ctx is None:
             return
@@ -380,7 +395,7 @@ class LxmfAdapter(BaseAdapter):
         if self.ctx is None:
             raise RuntimeError(
                 f"Adapter {self.adapter_id!r} has not been started; "
-                "call start() before simulate_inbound()."
+                f"call start() before simulate_inbound()"
             )
 
         classification = self._classifier.classify(packet)
@@ -403,3 +418,10 @@ class LxmfAdapter(BaseAdapter):
             The codec instance.
         """
         return self._codec
+
+    # -- Session access -----------------------------------------------------
+
+    @property
+    def session(self) -> LxmfSession:
+        """The owned :class:`~medre.adapters.lxmf.session.LxmfSession`."""
+        return self._session

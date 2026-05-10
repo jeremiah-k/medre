@@ -235,12 +235,19 @@ class TestLxmfAdapterLifecycle:
         info = await adapter.health_check()
         assert info.health == "unknown"
 
-    async def test_deliver_returns_none_in_tranche1(self) -> None:
+    async def test_deliver_returns_none_in_tranche1(self, make_adapter_context) -> None:
         config = _make_config(connection_type="fake")
         adapter = LxmfAdapter(config)
+        ctx = make_adapter_context("lxmf-1")
+        await adapter.start(ctx)
         result = _make_rendering_result()
         delivery = await adapter.deliver(result)
-        assert delivery is None
+        # In fake mode via session, deliver now returns an AdapterDeliveryResult
+        # with pending state (not None).
+        assert delivery is not None
+        assert isinstance(delivery, AdapterDeliveryResult)
+        assert delivery.native_message_id is not None
+        await adapter.stop()
 
     async def test_deliver_rejects_canonical_event(self) -> None:
         config = _make_config(connection_type="fake")
@@ -285,14 +292,13 @@ class TestLxmfAdapterLifecycle:
 class TestLxmfAdapterNonFakeMode:
     """Non-fake connection_type behaviour — always raises, never healthy."""
 
-    async def test_non_fake_reticulum_raises_not_implemented(
+    async def test_non_fake_reticulum_raises_without_sdk(
         self, make_adapter_context
     ) -> None:
-        """Non-fake reticulum mode raises not-implemented error.
+        """Non-fake reticulum mode raises when SDK is not available.
 
-        Even when HAS_LXMF is True, start() must raise because no real
-        LXMF client is created.  This test uses monkeypatch to control
-        HAS_LXMF independently of the local installation.
+        When HAS_LXMF is False, start() must raise a clear
+        LxmfConnectionError.
         """
         import medre.adapters.lxmf.adapter as _adapter_mod
 
@@ -302,12 +308,8 @@ class TestLxmfAdapterNonFakeMode:
 
         original = _adapter_mod.HAS_LXMF
         try:
-            # Even with HAS_LXMF=True, start must raise not-implemented.
-            _adapter_mod.HAS_LXMF = True
-            with pytest.raises(
-                LxmfConnectionError,
-                match="production LXMF/Reticulum connectivity is not implemented",
-            ):
+            _adapter_mod.HAS_LXMF = False
+            with pytest.raises(LxmfConnectionError):
                 await adapter.start(ctx)
         finally:
             _adapter_mod.HAS_LXMF = original
@@ -656,3 +658,89 @@ class TestLxmfCompat:
             assert HAS_LXMF is True
         except ImportError:
             assert HAS_LXMF is False
+
+
+# ===================================================================
+# Session integration
+# ===================================================================
+
+
+class TestLxmfAdapterSessionIntegration:
+    """Adapter delegates to session for lifecycle and delivery."""
+
+    async def test_adapter_exposes_session(self) -> None:
+        config = _make_config(connection_type="fake")
+        adapter = LxmfAdapter(config)
+        from medre.adapters.lxmf.session import LxmfSession
+        assert isinstance(adapter.session, LxmfSession)
+
+    async def test_start_stop_delegates_to_session(
+        self, make_adapter_context
+    ) -> None:
+        config = _make_config(connection_type="fake")
+        adapter = LxmfAdapter(config)
+        ctx = make_adapter_context("lxmf-1")
+        await adapter.start(ctx)
+        assert adapter.session.connected is True
+        await adapter.stop()
+        assert adapter.session.connected is False
+
+    async def test_repeated_start_stop_via_adapter(
+        self, make_adapter_context
+    ) -> None:
+        """Repeated start/stop through the adapter is safe."""
+        config = _make_config(connection_type="fake")
+        adapter = LxmfAdapter(config)
+        ctx = make_adapter_context("lxmf-1")
+        for _ in range(3):
+            await adapter.start(ctx)
+            assert adapter._started is True
+            assert adapter.session.connected is True
+            await adapter.stop()
+            assert adapter._started is False
+            assert adapter.session.connected is False
+
+    async def test_deliver_returns_delivery_state_metadata(
+        self, make_adapter_context
+    ) -> None:
+        config = _make_config(connection_type="fake")
+        adapter = LxmfAdapter(config)
+        ctx = make_adapter_context("lxmf-1")
+        await adapter.start(ctx)
+        result = _make_rendering_result()
+        delivery = await adapter.deliver(result)
+        assert delivery is not None
+        assert "lxmf" in delivery.metadata
+        assert "delivery_state" in delivery.metadata["lxmf"]
+        assert delivery.metadata["lxmf"]["delivery_state"] == "outbound"
+        await adapter.stop()
+
+    async def test_inbound_via_session_callback(
+        self, make_adapter_context, inbound_collector
+    ) -> None:
+        config = _make_config(connection_type="fake")
+        adapter = LxmfAdapter(config)
+        ctx = make_adapter_context("lxmf-1")
+        await adapter.start(ctx)
+
+        packet = _make_text_packet(content="via session")
+        adapter._on_packet(packet)
+
+        await asyncio.sleep(0.05)
+
+        assert len(inbound_collector.events) == 1
+        assert inbound_collector.events[0].payload["body"] == "via session"
+        await adapter.stop()
+
+    async def test_session_diagnostics_accessible(
+        self, make_adapter_context
+    ) -> None:
+        config = _make_config(connection_type="fake")
+        adapter = LxmfAdapter(config)
+        ctx = make_adapter_context("lxmf-1")
+        await adapter.start(ctx)
+
+        diag = adapter.session.diagnostics()
+        assert diag.connected is True
+        assert diag.mode == "fake"
+        await adapter.stop()
