@@ -1,0 +1,24 @@
+# MEDRE Example: Meshtastic via Serial
+#
+# Single Meshtastic adapter connected over USB-serial. This is the most
+# common setup for a dedicated Meshtastic node attached to the host.
+
+[runtime]
+name = "meshtastic-serial"
+shutdown_timeout_seconds = 30
+
+[logging]
+level = "INFO"
+format = "text"
+
+[storage]
+backend = "filesystem"
+path = "{state}/store"
+
+[adapters.meshtastic.radio]
+enabled = true
+connection_type = "serial"
+serial_port = "/dev/ttyACM0"
+
+# Human-readable name used in log messages and mesh announcements
+meshnet_name = "medre-node"

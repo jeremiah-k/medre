@@ -1,0 +1,35 @@
+# MEDRE Example: Mixed Matrix + Meshtastic Bridge
+#
+# Production-style config bridging a Matrix room to a Meshtastic radio node.
+# Messages received on one transport are forwarded to the other.
+#
+# Adapter "main"  — Matrix (plaintext, real homeserver)
+# Adapter "radio" — Meshtastic (USB-serial radio)
+
+[runtime]
+name = "matrix-mesh-bridge"
+shutdown_timeout_seconds = 30
+
+[logging]
+level = "INFO"
+format = "json"
+
+[storage]
+backend = "filesystem"
+path = "{state}/store"
+
+# --- Matrix transport ---
+[adapters.matrix.main]
+enabled = true
+homeserver = "https://matrix.example.com"
+user_id = "@mesh-bridge:example.com"
+access_token = "syt_example_token_replace_me"
+room_allowlist = ["!bridge-room:example.com"]
+encryption_mode = "plaintext"
+
+# --- Meshtastic transport ---
+[adapters.meshtastic.radio]
+enabled = true
+connection_type = "serial"
+serial_port = "/dev/ttyACM0"
+meshnet_name = "bridge-radio"

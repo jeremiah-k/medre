@@ -204,6 +204,27 @@ For full environment setup, see
 [docs/runbooks/developer-environment.md](docs/runbooks/developer-environment.md).
 
 
+## Configuration
+
+MEDRE uses TOML configuration files with XDG-compatible defaults and
+environment variable overrides. See the
+[Configuration Runbook](docs/runbooks/configuration.md) for complete
+documentation.
+
+Quick start:
+
+```bash
+# Generate a sample config
+medre config sample > ~/.config/medre/config.toml
+
+# Edit the config file, then run
+medre run
+
+# Check configuration
+medre config check
+```
+
+
 ## Live testing
 
 Live tests connect to real transport endpoints. They are **off by default** and
@@ -259,6 +280,7 @@ The beta readiness checklist tracks what must be true before beta:
 | Path | Content |
 |------|---------|
 | [`docs/runbooks/developer-environment.md`](docs/runbooks/developer-environment.md) | Setup guide, tested versions, transport-specific install |
+| [`docs/runbooks/configuration.md`](docs/runbooks/configuration.md) | Configuration reference: TOML schema, env vars, paths, Docker |
 | [`docs/runbooks/operational-evidence.md`](docs/runbooks/operational-evidence.md) | Live test results per transport |
 | [`docs/runbooks/secure-credentials.md`](docs/runbooks/secure-credentials.md) | Credential handling recommendations |
 | [`docs/contracts/`](docs/contracts/) | Design contracts, audit reports, maturity assessments |

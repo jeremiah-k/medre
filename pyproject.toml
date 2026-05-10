@@ -51,6 +51,9 @@ lxmf = [
     "lxmf>=0.9.6",
 ]
 
+[project.scripts]
+medre = "medre.cli:main"
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
