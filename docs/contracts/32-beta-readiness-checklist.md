@@ -5,7 +5,7 @@
 > Track: 9 (Transport Capability Contracts)
 > Supersedes: Nothing. Consolidates beta criteria from contract 28 sections 4, 5, 6.
 > Status: Checklist. Defines what must be true before beta release.
-> Head: 1bfb6d1
+> Head: 7046ecc
 
 This document is the beta readiness checklist for the MEDRE framework. It defines three tiers: must-have before beta, should-have before beta, and explicitly deferred. It records per-transport beta blockers, live-test requirements, docs/runbook requirements, and packaging/dependency requirements.
 
@@ -20,7 +20,7 @@ These items are blocking. Beta cannot ship without them.
 
 | # | Item | Current Status | Live Validation Evidence | Gap |
 |---|------|---------------|--------------------------|-----|
-| M1 | All four adapters pass unit test suite | ✅ Satisfied | Unit run 2026-05-10: 2042/2043 pass (1 non-adapter regression in `test_diagnostic_contract.py`). All adapter-specific tests pass. | 1 regression: `TestUnsafeValueSanitization::test_exception_converted_to_string` stores `<ValueError>` instead of `"boom"`. Not an adapter test; does not block beta but should be fixed. |
+| M1 | All four adapters pass unit test suite | ✅ Satisfied | Unit run 2026-05-10: 2049/2049 pass, 57 deselected. `compileall` clean. All adapter-specific tests pass. | None. |
 | M2 | All four adapters have live test harness files | ✅ Satisfied | Harnesses confirmed: `test_matrix_live.py`, `test_meshtastic_live.py`, `test_meshcore_live.py`, `test_lxmf_live.py`. All use `pytest.mark.live` and `@require_live` skip guards. | Harnesses exist but have not been run against real endpoints. See section 1.3.2 for live run status. |
 | M3 | All four adapters have fake mode implementations | ✅ Satisfied | Confirmed: `FakeMatrixAdapter` (`fake_matrix.py`), `FakeMeshtasticAdapter` (`fake_meshtastic.py`), `FakeMeshCoreAdapter` (`fake_meshcore.py`), `FakeLxmfAdapter` (`fake_lxmf.py`). | None. |
 | M4 | Diagnostics contract documented (contract 29) | ✅ Satisfied | File exists with substantial content. Verified 2026-05-10. | None. |
@@ -43,7 +43,9 @@ These items are blocking. Beta cannot ship without them.
 | M16 | Matrix | Inbound reception confirmed from live test | ⛔ Blocked | `test_matrix_live.py` includes inbound reception test but has not been run against a real homeserver. No third-party inbound confirmation recorded. | Add inbound reception test. Send from a second account, verify `publish_inbound()` fires. |
 
 
-### 1.3 Live Validation Summary (Evidence as of 2026-05-10, head `1bfb6d1`)
+### 1.3 Live Validation Summary (Evidence as of 2026-05-10, head `7046ecc`)
+
+> **Review scope note:** Commit `9c93e05` (`chore(tooling): add trunk configuration and linting setup`) is an intentional unrelated/tooling change that adds Trunk linting config (`.trunk/trunk.yaml`, `.trunk/configs/.markdownlint.yaml`). It does not affect runtime behavior, test outcomes, or adapter code. It is excluded from this beta readiness review.
 
 This section records the live validation status of all test harnesses and unit suites.
 
@@ -51,7 +53,7 @@ This section records the live validation status of all test harnesses and unit s
 
 | Suite | Run Date | Result | Details |
 |-------|----------|--------|---------|
-| Full unit suite (non-live) | 2026-05-10 | ⚠️ 2042/2043 pass | 1 regression in `test_diagnostic_contract.py::TestUnsafeValueSanitization::test_exception_converted_to_string`. Exception message stores `<ValueError>` instead of `"boom"`. Not an adapter regression. |
+| Full unit suite (non-live) | 2026-05-10 | ✅ 2049 passed, 57 deselected | All tests pass. `python -m compileall -q src tests` clean. `PYTHONPATH=src pytest -q`: 2049 passed, 57 deselected. |
 | `test_delivery.py` | 2026-05-10 | ✅ 65/65 pass | Delivery receipt pipeline fully unit-tested. |
 | Live tests (56 tests across 5 files) | Not run | ⏭️ Skipped | All live tests deselected (require hardware/credentials). |
 
@@ -292,14 +294,14 @@ A beta release requires:
 2. **All packaging items (P1-P6) verified.** → Currently 5/6 satisfied, 1 partial (P1: SDK deps not strictly pinned).
 3. **All live test results recorded in runbooks.** → Currently 0/4 recorded.
 4. **All four contract documents (29-32) published.** → ✅ All published.
-5. **No critical regressions in existing unit test suite.** → ⚠️ 1 non-adapter regression in `test_diagnostic_contract.py` (exception string conversion).
+5. **No critical regressions in existing unit test suite.** → ✅ 2049/2049 pass, 57 deselected. Clean suite.
 
 Should-have items (S1-S11) are strongly recommended. If any remain unsatisfied at beta, they must be documented as known limitations in the release notes.
 
 
 ## 9. Remaining Beta Blockers (Consolidated)
 
-As of 2026-05-10, head `1bfb6d1`:
+As of 2026-05-10, head `7046ecc`:
 
 ### 9.1 Must-Fix (Blocking Beta)
 
@@ -313,7 +315,7 @@ As of 2026-05-10, head `1bfb6d1`:
 
 | # | Item | Notes |
 |---|------|-------|
-| R1 | Fix `test_diagnostic_contract.py` regression | Exception message stores `<ValueError>` instead of `"boom"`. Non-adapter; fix in diagnostic sanitization code. |
+| R1 | ~~Fix `test_diagnostic_contract.py` regression~~ | ✅ Resolved. `_sanitize_value()` refactor complete; 2049/2049 pass. No remaining regression. |
 | R2 | Document secure token/identity handling in runbooks | Access token (Matrix), identity file (LXMF), file permissions. |
 | R3 | Document fire-and-forget limitations for radio transports | Meshtastic, MeshCore delivery semantics. |
 | R4 | Test or document BLE mode as unsupported (MeshCore) | BLE constructor exists but untested. |
@@ -325,7 +327,7 @@ After this beta validation update, the recommended next tranche should focus on 
 
 ### Tranche Priority Order
 
-1. **Fix the diagnostic contract regression (R1).** Quick fix, restores clean test suite. ~15 min.
+1. ~~**Fix the diagnostic contract regression (R1).**~~ ✅ Done. Resolved in `_sanitize_value()` refactor. 2049/2049 pass.
 
 2. **Pin transport SDK dependencies (B3).** Edit `pyproject.toml` to use `==` pins for all transport deps. ~15 min. Resolve current installed versions and pin them.
 
