@@ -214,3 +214,44 @@ class TestMatrixConfigSecretSafety:
         r = repr(config)
         assert "matrix.example.com" in r
         assert "@bot:example.com" in r
+
+
+# ===================================================================
+# ignore_unverified_devices field
+# ===================================================================
+
+
+class TestMatrixConfigIgnoreUnverifiedDevices:
+    """ignore_unverified_devices field defaults and explicit values."""
+
+    def test_default_is_false(self) -> None:
+        """Default value for ignore_unverified_devices is False."""
+        config = MatrixConfig(
+            adapter_id="matrix-1",
+            homeserver="https://matrix.example.com",
+            user_id="@bot:example.com",
+            access_token="s3cret",
+        )
+        assert config.ignore_unverified_devices is False
+
+    def test_explicit_true(self) -> None:
+        """Explicitly setting ignore_unverified_devices=True."""
+        config = MatrixConfig(
+            adapter_id="matrix-1",
+            homeserver="https://matrix.example.com",
+            user_id="@bot:example.com",
+            access_token="s3cret",
+            ignore_unverified_devices=True,
+        )
+        assert config.ignore_unverified_devices is True
+
+    def test_explicit_false(self) -> None:
+        """Explicitly setting ignore_unverified_devices=False."""
+        config = MatrixConfig(
+            adapter_id="matrix-1",
+            homeserver="https://matrix.example.com",
+            user_id="@bot:example.com",
+            access_token="s3cret",
+            ignore_unverified_devices=False,
+        )
+        assert config.ignore_unverified_devices is False

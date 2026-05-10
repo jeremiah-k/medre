@@ -49,6 +49,11 @@ class MatrixConfig:
     require_encrypted_rooms:
         When ``True``, the adapter should only operate in encrypted
         rooms.  Invalid with ``encryption_mode="plaintext"``.
+    ignore_unverified_devices:
+        When ``True``, nio's ``room_send`` will share Megolm session
+        keys with unverified devices.  Defaults to ``False`` (strict
+        nio default).  Live E2EE deployments that lack cross-signing
+        may set this to ``True`` explicitly.
     """
 
     adapter_id: str
@@ -62,6 +67,7 @@ class MatrixConfig:
     sync_timeout_ms: int = 30000
     encryption_mode: str = "plaintext"
     require_encrypted_rooms: bool = False
+    ignore_unverified_devices: bool = False
 
     def validate(self) -> Self:
         """Validate the configuration and return *self* for chaining.

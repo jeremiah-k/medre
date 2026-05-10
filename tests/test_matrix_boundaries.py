@@ -587,3 +587,53 @@ class TestMatrixDeliveryNioResponseHardening:
         # Must raise, not silently return a bad native ref
         with pytest.raises(MatrixSendError):
             await adapter.deliver(result)
+
+
+class TestMatrixDeliveryIgnoreUnverifiedDevices:
+    """room_send receives ignore_unverified_devices from config."""
+
+    async def test_default_config_passes_false(self) -> None:
+        """Default config passes ignore_unverified_devices=False."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+
+        class _FakeResponse:
+            event_id = "$evt-iud-default"
+
+        mock_client = MagicMock()
+        mock_client.room_send = AsyncMock(return_value=_FakeResponse())
+        adapter._client = mock_client
+
+        result = RenderingResult(
+            event_id="evt-iud-default",
+            target_adapter="matrix-1",
+            target_channel="!room:server",
+            payload={"msgtype": "m.text", "body": "hello"},
+        )
+        await adapter.deliver(result)
+
+        call_kwargs = mock_client.room_send.call_args
+        assert call_kwargs.kwargs.get("ignore_unverified_devices") is False
+
+    async def test_explicit_true_passes_true(self) -> None:
+        """Config with ignore_unverified_devices=True passes True."""
+        config = _make_matrix_config(ignore_unverified_devices=True)
+        adapter = MatrixAdapter(config)
+
+        class _FakeResponse:
+            event_id = "$evt-iud-true"
+
+        mock_client = MagicMock()
+        mock_client.room_send = AsyncMock(return_value=_FakeResponse())
+        adapter._client = mock_client
+
+        result = RenderingResult(
+            event_id="evt-iud-true",
+            target_adapter="matrix-1",
+            target_channel="!room:server",
+            payload={"msgtype": "m.text", "body": "hello"},
+        )
+        await adapter.deliver(result)
+
+        call_kwargs = mock_client.room_send.call_args
+        assert call_kwargs.kwargs.get("ignore_unverified_devices") is True

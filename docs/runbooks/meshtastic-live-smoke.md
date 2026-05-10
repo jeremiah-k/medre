@@ -1,6 +1,6 @@
 # Meshtastic Live Smoke Test Runbook
 
-> Last updated: 2026-05-09
+> Last updated: 2026-05-10
 > Scope: `tests/test_meshtastic_live.py`
 
 This runbook describes how to run the Meshtastic live smoke tests against
@@ -376,9 +376,11 @@ After running tests:
 - **MEDRE commit:** Pre-beta HEAD (2026-05-10)
 - **Python version:** 3.12
 - **mtjk version:** 2.7.8.post2+ (imported as `meshtastic`)
-- **Connection type:** TCP
-- **Node hardware:** Meshtastic device connected via TCP
-- **Firmware version:** Reported by node via `waitForConfig`
+- **Connection type:** Serial
+- **Node hardware:** LilyGO T-LORA V2.1, node `!25d6e474`
+- **Serial port:** `/dev/ttyACM0`
+- **Firmware version:** 2.7.19
+- **Channel:** Test (PRIMARY, LONG_FAST)
 - **Environment:** Local development machine
 - **Wall time:** 34.47s
 - **Result:** ✅ **10 passed**, 0 failed, 0 skipped
@@ -389,7 +391,7 @@ After running tests:
 - **MEDRE adapter health → healthy:** ✅ `health_check()` returned `"healthy"` after start.
 - **MEDRE adapter stop:** ✅ Closed client, unsubscribed cleanly.
 - **Reconnect observations:** Connection maintained stable throughout 34.47s run. No reconnect events triggered.
-- **Caveats observed:** Initial harness had two bugs fixed in-tree before final pass: (1) `isConnected` attribute used instead of correct connection-check API; (2) `pypubsub` callback signature mismatch (`pub.sendMessage` vs `pypubsub.subscribe` parameter). Final 10/10 reflects corrected harness.
+- **Caveats observed:** Initial harness had two bugs fixed in-tree before final pass: (1) `isConnected` TypeError — attribute used instead of correct connection-check API; (2) `pypubsub` ListenerMismatchError — callback signature mismatch (`pub.sendMessage` vs `pypubsub.subscribe` parameter). Final 10/10 reflects corrected harness.
 - **Destructive operations:** None. No admin packets, firmware changes, or config writes.
 - **Second-node inbound:** **NOT EXECUTED** — requires a second Meshtastic node not present.
 - **Soak test result:** **NOT EXECUTED** (see `tests/test_soak.py::TestMeshtasticSoak`)

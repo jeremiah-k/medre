@@ -1,6 +1,6 @@
 # Matrix Live Smoke Test Runbook
 
-> Last updated: 2026-05-09
+> Last updated: 2026-05-10
 > Scope: `tests/test_matrix_live.py`
 
 This runbook describes how to run the Matrix live smoke tests against a
@@ -257,7 +257,7 @@ After running tests:
 - Reactions, edits, media, attachments.
 - Cross-signing, key backup, key import/export.
 - Interactive device verification (emoji/QR).
-- Unverified device policy: `ignore_unverified_devices=True` is set in the adapter (required nio-limited posture for MEDRE alpha; no cross-signing support in nio). Admin-facing config toggle deferred to future tranche.
+- Unverified device policy: `ignore_unverified_devices` is now an explicit `MatrixConfig` field (default `False`). Live E2EE tests set `ignore_unverified_devices=True` in config.
 
 **Implemented in E2EE text alpha:**
 - Undecryptable event handling: `MegolmEvent` callback counts events, logs warning (event_id/room_id only, no session_id), does not forward to canonical pipeline.
@@ -393,9 +393,13 @@ The live smoke harness includes tests that validate adapter behavior across life
 - **vodozemac version:** Pulled as dependency
 - **Result:** ✅ **7 passed**, 0 failed, 0 skipped
 - **Crypto store loaded:** ✅ `crypto_store_loaded == True`
-- **Encrypted send → event_id:** Tests ran against unencrypted room in E2EE mode. **PENDING — encrypted-room follow-up run needed**
-- **Undecryptable events:** 0 observed
-- **Caveats observed:** E2EE tests validated startup with crypto deps loaded. Encrypted-room delivery, key exchange, and cross-device decryption remain **PENDING** until a dedicated encrypted-room follow-up run against a verified-encrypted room.
+- **Baseline (unencrypted room in E2EE mode):** Tests validated startup with crypto deps loaded. `crypto_store_loaded == True`. No undecryptable events.
+- **Encrypted-room follow-up (room `!rnmyZMhUoraPwZUDPP:matrix.org`):**
+  - **Pre-fix:** 2 tests failed with `OlmUnverifiedDeviceError`. nio's strict default (`ignore_unverified_devices=False`) blocked Megolm session key sharing because the bot's device was not verified by other room members.
+  - **Root cause:** No cross-signing support in `mindroom-nio`. Device verification via cross-signing is not implemented.
+  - **Fix applied:** Adapter configured `ignore_unverified_devices=True` in `room_send()`.
+  - **Post-fix re-test:** Full suite 7/7 pass in 3.73s. Encrypted send succeeded, event_id returned.
+- **Trust tradeoff note:** Setting `ignore_unverified_devices=True` bypasses nio's verified-device check. This is an intentional tradeoff for MEDRE alpha: the Olm/Megolm stack initializes correctly, keys are uploaded, and messages are encrypted in transit, but there is no cryptographic guarantee that the receiving device is the intended one. Production device verification is deferred to a future tranche. See `docs/contracts/25-matrix-e2ee-readiness.md` §5.2 for rationale.
 
 
 ## Explicit Scope Exclusions

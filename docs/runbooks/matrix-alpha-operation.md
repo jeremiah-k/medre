@@ -285,7 +285,7 @@ The following E2EE-related capabilities are **deferred** and not part of the E2E
 - Room key backup
 - Room key import/export
 - Interactive device verification (emoji/QR)
-- Unverified device policy: `ignore_unverified_devices=True` is the intended/required operational posture for MEDRE's alpha (see `docs/contracts/25-matrix-e2ee-readiness.md` §5.2 for rationale). An admin-facing config toggle to control this setting does not yet exist.
+- Unverified device policy: `ignore_unverified_devices` is now an explicit `MatrixConfig` field (default `False`). Live E2EE deployments should set `ignore_unverified_devices=True` in config (see `docs/contracts/25-matrix-e2ee-readiness.md` §5.2 for rationale).
 
 These will be addressed in a future E2EE implementation tranche. See `docs/contracts/25-matrix-e2ee-readiness.md` for the detailed plan.
 
@@ -881,7 +881,7 @@ If `store_path` is changed or the store is deleted, the adapter creates a new cr
 | Cross-signing | Not supported | nio does not implement cross-signing (MSC1756); device verification via cross-signing not available |
 | Key backup / export / import | Not supported | Not wired |
 | Interactive device verification (emoji/QR) | Not supported | `Sas` class exists but not wired |
-| Unverified device policy | Active | `ignore_unverified_devices=True` is the intended/required operational posture (see contract 25 §5.2). Nio default of `False` causes `OlmUnverifiedDeviceError` in encrypted rooms. No admin-facing config toggle yet. |
+| Unverified device policy | Active | `ignore_unverified_devices` is an explicit `MatrixConfig` field (default `False`). Live E2EE deployments set it to `True` in config (see contract 25 §5.2). |
 | Redactions / deletes | Not supported | Not handled |
 
 **Note:** Undecryptable event logging was previously unsupported but is now implemented. `MegolmEvent` callbacks count events, log warnings (event_id/room_id only, no session_id), and do not forward to the canonical pipeline. `RoomEncryptionEvent` callbacks set `encrypted_room_seen` and are not forwarded.

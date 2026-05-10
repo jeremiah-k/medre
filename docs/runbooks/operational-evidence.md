@@ -125,7 +125,7 @@ environment, results, caveats, reconnect observations, and limitations.
 ### 1.5 Matrix Known Limitations (confirmed from source and live testing)
 
 - No inbound message reception verified against a real homeserver.
-- E2EE text alpha: encrypted-room join works, but outbound encrypted send fails with `OlmUnverifiedDeviceError` until `ignore_unverified_devices=True` is applied. No successful encrypted delivery has been achieved yet.
+- E2EE text alpha: encrypted-room join works. Initial outbound encrypted send failed with `OlmUnverifiedDeviceError` (2 tests); root cause was nio's strict `ignore_unverified_devices=False` default blocking key sharing with unverified devices. Fix: adapter set `ignore_unverified_devices=True`. Post-fix re-test: encrypted-room full suite passed 7/7 in 3.73s (see §1.3). This is the required nio-limited operational posture for MEDRE alpha — production device verification is deferred to a future tranche.
 - No E2EE reactions, edits, deletes, or attachments.
 - No cross-signing support in `mindroom-nio`. Device verification via cross-signing is not implemented.
 - Access token is a plain string in config (no secure storage or rotation).
@@ -142,9 +142,10 @@ environment, results, caveats, reconnect observations, and limitations.
 | **Test file** | `tests/test_meshtastic_live.py` |
 | **Last execution date** | 2026-05-10 |
 | **Executor** | Live agent (automated) |
-| **Connection type** | Serial (direct USB connection to Meshtastic device) |
-| **Node hardware** | Meshtastic device connected via serial/USB |
-| **Firmware version** | Firmware version reported by node (observed via `waitForConfig`) |
+| **Connection type** | Serial (direct USB connection to `/dev/ttyACM0`) |
+| **Node hardware** | LilyGO T-LORA V2.1, node `!25d6e474` |
+| **Firmware version** | 2.7.19 |
+| **Channel** | Test (PRIMARY, LONG_FAST) |
 | **mtjk version** | 2.7.8.post2+ (imported as `meshtastic`) |
 | **MEDRE commit** | Pre-beta HEAD (2026-05-10) |
 | **Python version** | 3.12 |
@@ -159,7 +160,7 @@ environment, results, caveats, reconnect observations, and limitations.
 | **MEDRE adapter start** | ✅ Adapter created client via `_create_client()`, connected and subscribed. |
 | **MEDRE adapter health → healthy** | ✅ `health_check()` returned `"healthy"` after start. |
 | **MEDRE adapter stop** | ✅ `stop()` closed client, unsubscribed cleanly. |
-| **Caveats observed** | Initial harness had two bugs fixed in-tree before final run: (1) `isConnected` attribute used instead of correct API; (2) `pypubsub` callback signature mismatch (`pub.sendMessage` vs `pypubsub.subscribe`). Both fixed. Final 10/10 pass reflects corrected harness. |
+| **Caveats observed** | Initial harness had two bugs fixed in-tree before final run: (1) `isConnected` TypeError — attribute used instead of correct API; (2) `pypubsub` ListenerMismatchError — callback signature mismatch (`pub.sendMessage` vs `pypubsub.subscribe`). Both fixed. Final 10/10 pass reflects corrected harness. |
 | **Reconnect observations** | Not explicitly tested in this run. Session maintained stable connection throughout 34.47s execution. |
 | **Destructive operations** | None performed. No admin packets, no firmware changes, no config writes. |
 | **Second-node inbound** | **NOT EXECUTED** — requires a second Meshtastic node not present in this run. |
@@ -177,7 +178,7 @@ environment, results, caveats, reconnect observations, and limitations.
 | **Session health throughout** | **NOT EXECUTED** |
 | **Caveats observed** | **NOT EXECUTED** |
 
-### 2.3 Meshtastic Known Limitations (confirmed from source)
+### 2.3 Meshtastic Known Limitations (confirmed from source and live testing)
 
 - No full MEDRE adapter `send_one` integration with real hardware.
 - No inbound message reception from a second node.
@@ -186,6 +187,7 @@ environment, results, caveats, reconnect observations, and limitations.
 - No telemetry, position, nodeinfo, or admin packet processing.
 - BLE connectivity documented but not exercised.
 - `mtjk` is a fork; distribution name is `mtjk`, import name is `meshtastic`.
+- No factory reset, no ham mode, no channel deletion performed during testing.
 
 
 ## 3. MeshCore Operational Evidence

@@ -365,7 +365,7 @@ class MatrixAdapter(BaseAdapter):
                     room_id=room_id,
                     message_type="m.room.message",
                     content=content,
-                    ignore_unverified_devices=True,
+                    ignore_unverified_devices=self._config.ignore_unverified_devices,
                 )
 
                 # Check for nio error responses
