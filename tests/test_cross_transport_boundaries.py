@@ -720,3 +720,477 @@ class TestCodecBoundary:
             assert not hasattr(codec, method), (
                 f"{cls_name} must not have a {method} method"
             )
+
+
+# ===================================================================
+# Boundary 7: Diagnostic contract import boundary
+# ===================================================================
+
+_DIAGNOSTIC_CONTRACT_MODULES = [
+    "medre.core.runtime.diagnostics",
+    "medre.core.runtime.health",
+    "medre.core.runtime.capabilities",
+    # Placeholder for future dedicated diagnostic_contract module:
+    # "medre.core.runtime.diagnostic_contract",
+]
+"""Modules that form the diagnostic contract layer."""
+
+
+class TestDiagnosticContractBoundary:
+    """Diagnostic contract modules must not import concrete adapters.
+
+    Diagnostic contract modules (diagnostics, health, capabilities) provide
+    pure projections of adapter metadata into JSON-safe types.  They may
+    import from ``medre.adapters.base`` (protocol/base types like
+    ``AdapterInfo``, ``AdapterCapabilities``) but must never import concrete
+    adapter packages or transport SDKs.
+    """
+
+    @pytest.fixture(params=_DIAGNOSTIC_CONTRACT_MODULES)
+    def diag_module(self, request):
+        mod = _load_module(request.param)
+        if mod is None:
+            pytest.skip(f"{request.param} not importable (may not exist yet)")
+        return mod
+
+    def test_diagnostic_contract_does_not_import_concrete_adapters(
+        self, diag_module,
+    ) -> None:
+        """Diagnostic contract source must not import concrete adapter packages."""
+        source = _read_module_source(diag_module)
+        for line in _import_lines(source):
+            for prefix in _CONCRETE_ADAPTER_PREFIXES:
+                assert prefix not in line, (
+                    f"{diag_module.__name__} imports concrete adapter "
+                    f"in: {line!r}"
+                )
+
+    def test_diagnostic_contract_does_not_import_transport_sdks(
+        self, diag_module,
+    ) -> None:
+        """Diagnostic contract source must not import transport SDK packages."""
+        source = _read_module_source(diag_module)
+        for line in _import_lines(source):
+            for sdk in _SDK_PACKAGES:
+                assert not (
+                    line.startswith(f"import {sdk}")
+                    or line.startswith(f"from {sdk}")
+                ), (
+                    f"{diag_module.__name__} imports SDK {sdk!r} in: {line!r}"
+                )
+
+    def test_diagnostic_contract_does_not_import_nio(
+        self, diag_module,
+    ) -> None:
+        """Diagnostic contract source must not import the nio Matrix SDK."""
+        source = _read_module_source(diag_module)
+        for line in _import_lines(source):
+            assert "nio" not in line.lower() or "medre" in line, (
+                f"{diag_module.__name__} imports nio in: {line!r}"
+            )
+
+    def test_diagnostic_contract_does_not_import_pipeline(
+        self, diag_module,
+    ) -> None:
+        """Diagnostic contract source must not import pipeline internals."""
+        source = _read_module_source(diag_module)
+        for line in _import_lines(source):
+            assert "pipeline" not in line, (
+                f"{diag_module.__name__} imports pipeline in: {line!r}"
+            )
+
+    def test_diagnostic_contract_does_not_import_router(
+        self, diag_module,
+    ) -> None:
+        """Diagnostic contract source must not import router internals."""
+        source = _read_module_source(diag_module)
+        for line in _import_lines(source):
+            assert (
+                "medre.core.routing.router" not in line
+                and "medre.routing" not in line
+            ), (
+                f"{diag_module.__name__} imports router in: {line!r}"
+            )
+
+    def test_diagnostic_contract_does_not_import_storage(
+        self, diag_module,
+    ) -> None:
+        """Diagnostic contract source must not import storage internals."""
+        source = _read_module_source(diag_module)
+        for line in _import_lines(source):
+            assert "medre.core.storage" not in line, (
+                f"{diag_module.__name__} imports storage in: {line!r}"
+            )
+
+
+# ===================================================================
+# Boundary 8: Delivery contract boundary
+# ===================================================================
+
+_ADAPTER_BASE_MODULE = "medre.adapters.base"
+"""Module that owns the AdapterDeliveryResult contract."""
+
+_DELIVERY_CONTRACT_MODULES = [
+    _ADAPTER_BASE_MODULE,
+    # Placeholder for future dedicated delivery_contract module:
+    # "medre.core.delivery_contract",
+]
+"""Modules that define delivery result contracts."""
+
+
+class TestDeliveryContractBoundary:
+    """Delivery contract modules must not import concrete adapters or SDKs.
+
+    The delivery result contract (``AdapterDeliveryResult``) currently lives
+    in ``medre.adapters.base``, which is the protocol/base types module.  It
+    must not import concrete adapter packages or transport SDKs, ensuring the
+    delivery result type is SDK-agnostic and transport-neutral.
+
+    If a dedicated ``delivery_contract`` module is extracted in the future,
+    it should be added to ``_DELIVERY_CONTRACT_MODULES`` to inherit these
+    same checks automatically.
+    """
+
+    @pytest.fixture(params=_DELIVERY_CONTRACT_MODULES)
+    def delivery_module(self, request):
+        mod = _load_module(request.param)
+        if mod is None:
+            pytest.skip(f"{request.param} not importable (may not exist yet)")
+        return mod
+
+    def test_delivery_contract_does_not_import_concrete_adapters(
+        self, delivery_module,
+    ) -> None:
+        """Delivery contract source must not import concrete adapter packages."""
+        source = _read_module_source(delivery_module)
+        for line in _import_lines(source):
+            for prefix in _CONCRETE_ADAPTER_PREFIXES:
+                assert prefix not in line, (
+                    f"{delivery_module.__name__} imports concrete adapter "
+                    f"in: {line!r}"
+                )
+
+    def test_delivery_contract_does_not_import_transport_sdks(
+        self, delivery_module,
+    ) -> None:
+        """Delivery contract source must not import transport SDK packages."""
+        source = _read_module_source(delivery_module)
+        for line in _import_lines(source):
+            for sdk in _SDK_PACKAGES:
+                assert not (
+                    line.startswith(f"import {sdk}")
+                    or line.startswith(f"from {sdk}")
+                ), (
+                    f"{delivery_module.__name__} imports SDK {sdk!r} "
+                    f"in: {line!r}"
+                )
+
+    def test_delivery_contract_does_not_import_nio(
+        self, delivery_module,
+    ) -> None:
+        """Delivery contract source must not import the nio Matrix SDK."""
+        source = _read_module_source(delivery_module)
+        for line in _import_lines(source):
+            assert "nio" not in line.lower() or "medre" in line, (
+                f"{delivery_module.__name__} imports nio in: {line!r}"
+            )
+
+    def test_delivery_contract_has_adapter_delivery_result(
+        self, delivery_module,
+    ) -> None:
+        """Delivery contract module must export AdapterDeliveryResult.
+
+        This confirms the delivery result type remains in the adapter base
+        module and documents the architectural decision.
+        """
+        if delivery_module.__name__ != _ADAPTER_BASE_MODULE:
+            pytest.skip(
+                "AdapterDeliveryResult location check only applies to base"
+            )
+        assert hasattr(delivery_module, "AdapterDeliveryResult"), (
+            f"{delivery_module.__name__} must export AdapterDeliveryResult"
+        )
+
+    def test_delivery_contract_does_not_import_pipeline_router_storage(
+        self, delivery_module,
+    ) -> None:
+        """Delivery contract must not import pipeline/router/storage internals."""
+        source = _read_module_source(delivery_module)
+        for line in _import_lines(source):
+            for forbidden in ("pipeline", "router", "storage"):
+                assert forbidden not in line, (
+                    f"{delivery_module.__name__} imports {forbidden} "
+                    f"in: {line!r}"
+                )
+
+
+# ===================================================================
+# Boundary 9: Session runtime containment (no pipeline/router/storage)
+# ===================================================================
+
+_SESSION_RUNTIME_FORBIDDEN_PREFIXES = (
+    "medre.core.engine.pipeline",
+    "medre.core.routing.router",
+    "medre.core.storage",
+    "medre.routing",
+)
+"""Runtime implementation internals that session modules must not import.
+
+Safe diagnostic/capability types (e.g. ``medre.core.runtime.diagnostics``,
+``medre.core.runtime.capabilities``) are NOT forbidden here — sessions
+may legitimately query adapter capabilities.  Only the concrete runtime
+implementation modules (pipeline, router, storage) are disallowed.
+"""
+
+
+class TestSessionRuntimeContainment:
+    """Session modules must not import runtime implementation internals.
+
+    Sessions own transport lifecycle and normalize inbound data.  They must
+    not depend on the pipeline runner, routing engine, or storage backend —
+    those are orchestration-layer concerns that sit above the adapter layer.
+    """
+
+    @pytest.fixture(params=_SESSION_INFOS, ids=[s[0] for s in _SESSION_INFOS])
+    def session_info(self, request):
+        return request.param
+
+    def test_session_does_not_import_pipeline(self, session_info) -> None:
+        """Session source must not import the pipeline runner."""
+        _transport, mod_name, _cls_name = session_info
+        mod = _load_module(mod_name)
+        source = _read_module_source(mod)
+        for line in _import_lines(source):
+            assert "medre.core.engine.pipeline" not in line, (
+                f"Session must not import pipeline; found in {mod_name}: "
+                f"{line!r}"
+            )
+
+    def test_session_does_not_import_core_router(self, session_info) -> None:
+        """Session source must not import the core routing engine."""
+        _transport, mod_name, _cls_name = session_info
+        mod = _load_module(mod_name)
+        source = _read_module_source(mod)
+        for line in _import_lines(source):
+            assert (
+                "medre.core.routing.router" not in line
+                and "medre.core.routing.models" not in line
+            ), (
+                f"Session must not import core router; found in {mod_name}: "
+                f"{line!r}"
+            )
+
+    def test_session_does_not_import_storage(self, session_info) -> None:
+        """Session source must not import storage backend."""
+        _transport, mod_name, _cls_name = session_info
+        mod = _load_module(mod_name)
+        source = _read_module_source(mod)
+        for line in _import_lines(source):
+            assert "medre.core.storage" not in line, (
+                f"Session must not import storage; found in {mod_name}: "
+                f"{line!r}"
+            )
+
+    def test_session_does_not_import_medre_routing_top_level(
+        self, session_info,
+    ) -> None:
+        """Session source must not import medre.routing (top-level routing)."""
+        _transport, mod_name, _cls_name = session_info
+        mod = _load_module(mod_name)
+        source = _read_module_source(mod)
+        for line in _import_lines(source):
+            # Match "from medre.routing" or "import medre.routing" but NOT
+            # "medre.adapters.<transport>.routing" (adapter-local routing docs)
+            if "medre.routing" in line:
+                # Allow if it's actually an adapter-internal path
+                assert f"medre.adapters.{_transport}" in line, (
+                    f"Session must not import medre.routing; found in "
+                    f"{mod_name}: {line!r}"
+                )
+
+    def test_session_does_not_import_runtime_diagnostics_or_health(
+        self, session_info,
+    ) -> None:
+        """Session source must not import runtime diagnostics/health modules.
+
+        Sessions are transport-boundary objects; runtime diagnostics and
+        health projections sit above them.
+        """
+        _transport, mod_name, _cls_name = session_info
+        mod = _load_module(mod_name)
+        source = _read_module_source(mod)
+        for line in _import_lines(source):
+            assert "medre.core.runtime.diagnostics" not in line, (
+                f"Session must not import runtime diagnostics; found in "
+                f"{mod_name}: {line!r}"
+            )
+            assert "medre.core.runtime.health" not in line, (
+                f"Session must not import runtime health; found in "
+                f"{mod_name}: {line!r}"
+            )
+
+
+# ===================================================================
+# Boundary 10: Adapter runtime containment (no pipeline/router/storage)
+# ===================================================================
+
+_ADAPTER_RUNTIME_FORBIDDEN = (
+    "medre.core.engine.pipeline",
+    "medre.core.routing.router",
+    "medre.core.routing.models",
+    "medre.core.storage",
+    "medre.routing",
+)
+"""Runtime implementation internals that adapter modules must not import."""
+
+
+class TestAdapterRuntimeContainment:
+    """Concrete adapter modules must not import runtime implementation
+    internals (pipeline, router, storage) and must not import sibling
+    adapter packages.
+
+    Adapter modules implement transport-specific logic and communicate
+    with the framework through the ``medre.adapters.base`` protocol.
+    They must not reach into pipeline/router/storage internals.
+    """
+
+    @pytest.fixture(params=_ADAPTER_TRANSPORTS)
+    def transport(self, request):
+        return request.param
+
+    def test_adapter_modules_do_not_import_pipeline(self, transport) -> None:
+        """Adapter modules must not import the pipeline runner."""
+        modules = _adapter_modules(transport)
+        violations: list[str] = []
+        for mod_name in modules:
+            mod = _load_module(mod_name)
+            if mod is None:
+                continue
+            source = _read_module_source(mod)
+            for line in _import_lines(source):
+                if "medre.core.engine.pipeline" in line:
+                    violations.append(
+                        f"{mod_name} imports pipeline in: {line!r}"
+                    )
+        assert not violations, (
+            "Adapter pipeline import violations:\n" + "\n".join(violations)
+        )
+
+    def test_adapter_modules_do_not_import_router(self, transport) -> None:
+        """Adapter modules must not import the core routing engine."""
+        modules = _adapter_modules(transport)
+        violations: list[str] = []
+        for mod_name in modules:
+            mod = _load_module(mod_name)
+            if mod is None:
+                continue
+            source = _read_module_source(mod)
+            for line in _import_lines(source):
+                if (
+                    "medre.core.routing.router" in line
+                    or "medre.core.routing.models" in line
+                ):
+                    violations.append(
+                        f"{mod_name} imports router in: {line!r}"
+                    )
+        assert not violations, (
+            "Adapter router import violations:\n" + "\n".join(violations)
+        )
+
+    def test_adapter_modules_do_not_import_storage(self, transport) -> None:
+        """Adapter modules must not import the storage backend."""
+        modules = _adapter_modules(transport)
+        violations: list[str] = []
+        for mod_name in modules:
+            mod = _load_module(mod_name)
+            if mod is None:
+                continue
+            source = _read_module_source(mod)
+            for line in _import_lines(source):
+                if "medre.core.storage" in line:
+                    violations.append(
+                        f"{mod_name} imports storage in: {line!r}"
+                    )
+        assert not violations, (
+            "Adapter storage import violations:\n" + "\n".join(violations)
+        )
+
+    def test_adapter_modules_do_not_import_runtime_internals(
+        self, transport,
+    ) -> None:
+        """Adapter modules must not import runtime diagnostics/health.
+
+        Runtime diagnostics and health projections aggregate adapter
+        metadata from above; adapters must not depend on them.
+        """
+        modules = _adapter_modules(transport)
+        violations: list[str] = []
+        for mod_name in modules:
+            mod = _load_module(mod_name)
+            if mod is None:
+                continue
+            source = _read_module_source(mod)
+            for line in _import_lines(source):
+                for forbidden in (
+                    "medre.core.runtime.diagnostics",
+                    "medre.core.runtime.health",
+                    "medre.core.runtime.capabilities",
+                ):
+                    if forbidden in line:
+                        violations.append(
+                            f"{mod_name} imports {forbidden} in: {line!r}"
+                        )
+        assert not violations, (
+            "Adapter runtime import violations:\n" + "\n".join(violations)
+        )
+
+    def test_adapter_modules_do_not_import_sibling_packages(
+        self, transport,
+    ) -> None:
+        """Adapter modules must not import sibling adapter packages.
+
+        Each adapter package is an isolated transport implementation.
+        Cross-transport communication goes through the core event bus,
+        never via direct adapter-to-adapter imports.
+        """
+        siblings = _sibling_transports(transport)
+        modules = _adapter_modules(transport)
+
+        violations: list[str] = []
+        for mod_name in modules:
+            mod = _load_module(mod_name)
+            if mod is None:
+                continue
+            source = _read_module_source(mod)
+            for line in _import_lines(source):
+                for sibling in siblings:
+                    sibling_prefix = f"medre.adapters.{sibling}"
+                    if sibling_prefix in line:
+                        violations.append(
+                            f"{mod_name} imports sibling adapter "
+                            f"{sibling!r} in: {line!r}"
+                        )
+        assert not violations, (
+            "Adapter sibling import violations:\n" + "\n".join(violations)
+        )
+
+    def test_adapter_modules_do_not_import_medre_routing(
+        self, transport,
+    ) -> None:
+        """Adapter modules must not import the top-level medre.routing."""
+        modules = _adapter_modules(transport)
+        violations: list[str] = []
+        for mod_name in modules:
+            mod = _load_module(mod_name)
+            if mod is None:
+                continue
+            source = _read_module_source(mod)
+            for line in _import_lines(source):
+                if "medre.routing" in line:
+                    violations.append(
+                        f"{mod_name} imports medre.routing in: {line!r}"
+                    )
+        assert not violations, (
+            "Adapter medre.routing import violations:\n"
+            + "\n".join(violations)
+        )

@@ -1277,7 +1277,7 @@ The following test cases must pass for LXMF integration to be considered complet
 
 | Test Case | Description |
 |---|---|
-| **Inbound LXMF to Canonical Message** | An inbound `LXMessage` with text content is decoded by the codec into a `CanonicalEvent` with `event_kind="message.text"`, correct `source_adapter`, `source_transport_id` set to the source hash, and payload containing the message text. |
+| **Inbound LXMF to Canonical Message** | An inbound `LXMessage` with text content is decoded by the codec into a `CanonicalEvent` with `event_kind="message.created"`, correct `source_adapter`, `source_transport_id` set to the source hash, and payload containing the message text. |
 | **LXMF org.* Metadata to Relation Resolution** | An inbound `LXMessage` with `fields["org.medre.event"].relation` set to `{"type": "reply", "parent_event_id": "..."}` produces a `CanonicalEvent` with an `EventRelation(relation_type="reply", target_event_id="...")`. The relation is first-class, not buried in metadata. |
 | **Matrix Reply to LXMF Metadata-Native Relation** | A Matrix reply (`m.relates_to` with `m.in_reply_to`) is correlated to the originating LXMF message via `native_message_refs`, producing a `CanonicalEvent` with `EventRelation(relation_type="reply", target_event_id=<canonical id of the LXMF message>)`. The LXMF adapter encodes this relation into the outbound `LXMessage.fields` dict for framework-aware peers. |
 | **LXMF Delivery Callback to Receipt** | The LXMF per-message delivery callback fires with `LXMessage.state=DELIVERED`. A future adapter would append a `DeliveryReceipt` row with `status=confirmed` and store a `native_message_ref` mapping the LXMF message ID to the canonical event that was delivered. |
