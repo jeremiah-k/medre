@@ -17,20 +17,21 @@ The adapter supports four connection types configured via
 ``"fake"``
     No real client.  Used for testing without hardware.  Inbound
     simulation via :meth:`simulate_inbound`; outbound via :meth:`deliver`
-    returns ``None`` (scaffolded).
+    returns ``None`` (scaffolded for fake mode, real via session for
+    production modes).
 
 ``"tcp"``
-    Connects via TCP (future).
+    Connects via TCP using the MeshCore SDK.
 
 ``"serial"``
-    Connects via serial (future).
+    Connects via serial using the MeshCore SDK.
 
 ``"ble"``
-    Connects via BLE (future).
+    Connects via BLE using the MeshCore SDK (future).
 
-All non-fake modes require the ``meshcore`` package.  Real client
-creation is delegated to :meth:`_create_client`, which can be overridden
-in tests or monkeypatched with fake modules.
+All non-fake modes require the ``meshcore`` package.  Connection lifecycle
+is delegated to :class:`~medre.adapters.meshcore.session.MeshCoreSession`,
+which owns the SDK client instance and manages reconnection.
 
 Lifecycle
 ---------
@@ -59,8 +60,10 @@ from medre.adapters.meshcore.compat import HAS_MESHCORE
 from medre.adapters.meshcore.config import MeshCoreConfig
 from medre.adapters.meshcore.errors import (
     MeshCoreConnectionError,
+    MeshCoreSendError,
 )
 from medre.adapters.meshcore.packet_classifier import MeshCorePacketClassifier
+from medre.adapters.meshcore.session import MeshCoreSession
 from medre.core.rendering.renderer import RenderingResult
 
 # Capabilities for the MeshCore transport adapter.
@@ -91,6 +94,11 @@ class MeshCoreAdapter(BaseAdapter):
     them as canonical events.  Outbound rendered payloads are enqueued
     for paced delivery.
 
+    The adapter delegates SDK client lifecycle to a
+    :class:`~medre.adapters.meshcore.session.MeshCoreSession` instance.
+    The session owns the connection, subscriptions, reconnect loop, and
+    send operations.
+
     Parameters
     ----------
     config:
@@ -114,6 +122,9 @@ class MeshCoreAdapter(BaseAdapter):
         self._subscribed: bool = False
         self._background_tasks: set[asyncio.Task] = set()
 
+        # Session boundary — owns SDK lifecycle.
+        self._session: MeshCoreSession | None = None
+
     # -- Lifecycle ----------------------------------------------------------
 
     async def start(self, ctx: AdapterContext) -> None:
@@ -130,44 +141,21 @@ class MeshCoreAdapter(BaseAdapter):
         ------
         MeshCoreConnectionError
             If ``meshcore`` SDK is not installed and connection_type is
-            not ``"fake"``, or if real connections are not yet implemented.
+            not ``"fake"``, or if the real connection fails.
         """
         if self._started:
             return
 
         self.ctx = ctx
 
-        if self._config.connection_type == "fake":
-            # No real client needed for fake mode.
-            self._client = None
-        else:
-            if not HAS_MESHCORE:
-                raise MeshCoreConnectionError(
-                    "meshcore SDK not installed; pip install meshcore "
-                    "or use connection_type='fake'"
-                )
-            # Real client creation — scaffolded for now.
-            # self._client = self._create_client()
-            #
-            # Subscribe to inbound events.
-            # try:
-            #     self._subscribe_events()
-            # except Exception:
-            #     self._subscribed = False
-            #     try:
-            #         close_fn = getattr(self._client, "close", None)
-            #         if close_fn is not None:
-            #             close_fn()
-            #     except Exception:
-            #         pass
-            #     self._client = None
-            #     raise
-
-            # Tranche 1: real connections not yet implemented.
-            raise MeshCoreConnectionError(
-                "Real MeshCore connections not yet implemented; "
-                "use connection_type='fake'"
-            )
+        # Create and start the session.
+        self._session = MeshCoreSession(
+            config=self._config,
+            adapter_id=self.adapter_id,
+            platform=self.platform,
+            logger=ctx.logger,
+        )
+        await self._session.start(message_callback=self._on_message)
 
         self._started = True
         ctx.logger.info(
@@ -180,8 +168,7 @@ class MeshCoreAdapter(BaseAdapter):
         """Disconnect from the MeshCore node.
 
         Idempotent: calling stop on an already-stopped adapter is a no-op.
-        Cancels all tracked background tasks and unsubscribes event
-        callbacks before shutting down.
+        Cancels all tracked background tasks and stops the session.
 
         Parameters
         ----------
@@ -194,16 +181,13 @@ class MeshCoreAdapter(BaseAdapter):
         # Cancel all tracked background tasks and drain them.
         await self._drain_background_tasks(timeout)
 
-        # Unsubscribe event callbacks.
-        self._unsubscribe_events()
+        # Stop the session (handles SDK disconnect + cleanup).
+        if self._session is not None:
+            await self._session.stop()
+            self._session = None
 
-        if self._client is not None:
-            try:
-                close_fn = getattr(self._client, "close", None)
-                if close_fn is not None:
-                    close_fn()
-            except Exception:
-                pass
+        # Unsubscribe event callbacks (legacy compat).
+        self._unsubscribe_events()
 
         self._client = None
         self._started = False
@@ -221,13 +205,19 @@ class MeshCoreAdapter(BaseAdapter):
             Metadata describing the adapter's state.
 
         Health states:
-            - ``"healthy"`` — adapter started in fake mode.
-            - ``"unknown"`` — adapter not yet started (no client).
+            - ``"healthy"`` — adapter started and session connected.
+            - ``"degraded"`` — adapter started but session disconnected.
+            - ``"unknown"`` — adapter not yet started.
             - ``"failed"`` — client exists but start did not complete
               (subscription failure).
         """
         if self._started:
-            health = "healthy"
+            if self._session is not None and self._session.connected:
+                health = "healthy"
+            elif self._session is not None and self._session.reconnecting:
+                health = "degraded"
+            else:
+                health = "degraded"
         elif self._client is not None and not self._started:
             # Client exists but start did not complete — subscription failure.
             health = "failed"
@@ -251,7 +241,10 @@ class MeshCoreAdapter(BaseAdapter):
         dict already rendered by
         :class:`~medre.adapters.meshcore.renderer.MeshCoreRenderer`.
 
-        In tranche 1 this is scaffolded — returns ``None``.
+        For **fake mode** this is scaffolded — returns ``None``.
+
+        For **real modes** the delivery is delegated to the session's
+        :meth:`~MeshCoreSession.send_text` method.
 
         Parameters
         ----------
@@ -262,12 +255,14 @@ class MeshCoreAdapter(BaseAdapter):
         Returns
         -------
         AdapterDeliveryResult | None
-            ``None`` in tranche 1 (scaffolded).
+            ``None`` for fake mode; delivery result for real modes.
 
         Raises
         ------
         TypeError
             If *result* is not a :class:`RenderingResult`.
+        MeshCoreSendError
+            If the session send fails after retries.
         """
         if not isinstance(result, RenderingResult):
             raise TypeError(
@@ -276,16 +271,47 @@ class MeshCoreAdapter(BaseAdapter):
                 f"the inbound path."
             )
 
-        # Tranche 1: scaffolded — no real delivery result.
-        return None
+        # Fake mode: scaffolded — no real delivery result.
+        if self._config.connection_type == "fake":
+            return None
+
+        # Real mode: delegate to session.
+        if self._session is None:
+            raise MeshCoreSendError("Session not initialised")
+
+        payload = result.payload
+        if not isinstance(payload, dict):
+            return None
+
+        text = payload.get("text", "")
+        channel_index = payload.get("channel_index")
+        contact_id = str(payload.get("contact_id", ""))
+
+        native_id = await self._session.send_text(
+            contact_id=contact_id,
+            text=str(text),
+            channel_index=channel_index if isinstance(channel_index, int) else None,
+        )
+
+        if native_id is None:
+            return None
+
+        return AdapterDeliveryResult(
+            native_message_id=native_id,
+            native_channel_id=str(channel_index) if channel_index is not None else None,
+        )
 
     # -- Inbound callback ---------------------------------------------------
 
-    def _on_packet(self, packet: dict[str, Any]) -> None:
-        """Process an inbound MeshCore event payload.
+    def _on_message(self, packet: dict[str, Any]) -> None:
+        """Process an inbound MeshCore event payload from the session.
 
         Classifies the packet, decodes it via the codec, and publishes
         the resulting canonical event inbound.
+
+        This is the **session callback** — it receives plain dicts from
+        :class:`~medre.adapters.meshcore.session.MeshCoreSession`, never
+        SDK objects.
 
         Parameters
         ----------
@@ -304,9 +330,9 @@ class MeshCoreAdapter(BaseAdapter):
                 return
 
             canonical = self._codec.decode(packet)
-            # Schedule the async publish — _on_packet is synchronous
+            # Schedule the async publish — _on_message is synchronous
             # so we create a tracked task that is cleaned up on stop().
-            task = asyncio.create_task(self._on_packet_async(canonical))
+            task = asyncio.create_task(self._on_message_async(canonical))
             task.add_done_callback(self._background_tasks.discard)
             self._background_tasks.add(task)
         except Exception:
@@ -316,8 +342,8 @@ class MeshCoreAdapter(BaseAdapter):
                     self.adapter_id,
                 )
 
-    async def _on_packet_async(self, canonical: CanonicalEvent) -> None:
-        """Async handler for packets received via :meth:`_on_packet`.
+    async def _on_message_async(self, canonical: CanonicalEvent) -> None:
+        """Async handler for messages received via :meth:`_on_message`.
 
         Publishes the canonical event and logs exceptions from the
         background task.
@@ -336,6 +362,15 @@ class MeshCoreAdapter(BaseAdapter):
                     "MeshCoreAdapter %s: error in background publish",
                     self.adapter_id,
                 )
+
+    # Legacy inbound — retained for backward compat with _on_packet name.
+    def _on_packet(self, packet: dict[str, Any]) -> None:
+        """Process an inbound MeshCore event payload.
+
+        .. deprecated::
+            Use :meth:`_on_message` instead.  Retained for backward compat.
+        """
+        self._on_message(packet)
 
     async def simulate_inbound(self, packet: dict[str, Any]) -> None:
         """Simulate an inbound MeshCore event payload for testing.
@@ -368,52 +403,53 @@ class MeshCoreAdapter(BaseAdapter):
         canonical = self._codec.decode(packet)
         await self.ctx.publish_inbound(canonical)
 
-    # -- Event subscription (scaffolded) ------------------------------------
+    # -- Diagnostics --------------------------------------------------------
+
+    def diagnostics(self) -> dict[str, Any]:
+        """Return adapter-level diagnostics composed from session state.
+
+        No secrets, private keys, or raw SDK internals are exposed.
+        """
+        base: dict[str, Any] = {
+            "adapter_id": self.adapter_id,
+            "platform": self.platform,
+            "started": self._started,
+            "mode": self._config.connection_type,
+        }
+        if self._session is not None:
+            base["session"] = self._session.diagnostics()
+        return base
+
+    # -- Event subscription (legacy scaffold) --------------------------------
 
     def _subscribe_events(self) -> None:
         """Subscribe to MeshCore SDK event callbacks.
 
-        Only called when a real client exists.  This is scaffolded for
-        future implementation — currently logs that subscription would
-        occur.
-
-        Raises
-        ------
-        MeshCoreConnectionError
-            If callback registration fails.
+        .. deprecated::
+            Subscription is now managed by the session.  This method is
+            retained for backward compat with existing tests.
         """
         if self.ctx is not None:
             self.ctx.logger.debug(
-                "MeshCoreAdapter %s: _subscribe_events() scaffolded",
+                "MeshCoreAdapter %s: _subscribe_events() delegated to session",
                 self.adapter_id,
             )
-        # Future: subscribe to meshcore SDK event callbacks.
-        # try:
-        #     self._client.on("message", self._on_sdk_event)
-        # except Exception as exc:
-        #     raise MeshCoreConnectionError(
-        #         f"Failed to subscribe to MeshCore events: {exc}"
-        #     ) from exc
         self._subscribed = True
 
     def _unsubscribe_events(self) -> None:
         """Unsubscribe from MeshCore SDK event callbacks.
 
-        Only attempts unsubscription if a previous subscription succeeded.
-        Failures are logged but not raised.
+        .. deprecated::
+            Unsubscription is now managed by the session.  This method is
+            retained for backward compat.
         """
         if not self._subscribed:
             return
         if self.ctx is not None:
             self.ctx.logger.debug(
-                "MeshCoreAdapter %s: _unsubscribe_events() scaffolded",
+                "MeshCoreAdapter %s: _unsubscribe_events() delegated to session",
                 self.adapter_id,
             )
-        # Future: unsubscribe from meshcore SDK event callbacks.
-        # try:
-        #     self._client.off("message", self._on_sdk_event)
-        # except Exception:
-        #     pass
         self._subscribed = False
 
     # -- Background task management -----------------------------------------

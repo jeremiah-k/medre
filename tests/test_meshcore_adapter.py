@@ -1,7 +1,7 @@
 """Tests for FakeMeshCoreAdapter and MeshCoreAdapter: capabilities,
 lifecycle (start/stop idempotence), delivery contract, inbound simulation,
-rendering boundary enforcement, task scheduling, and event subscription
-scaffolding.
+rendering boundary enforcement, task scheduling, event subscription
+scaffolding, and session delegation.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from medre.adapters.base import AdapterContext, AdapterDeliveryResult
 from medre.adapters.meshcore.adapter import MeshCoreAdapter
 from medre.adapters.meshcore.config import MeshCoreConfig
 from medre.adapters.meshcore.errors import MeshCoreConnectionError, MeshCoreSendError
+from medre.adapters.meshcore.session import MeshCoreSession
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.events.kinds import EventKind
 from medre.core.rendering.renderer import RenderingResult
@@ -238,13 +239,57 @@ class TestMeshCoreAdapterLifecycle:
         assert info.health == "unknown"
 
 
+# ===================================================================
+# Session delegation
+# ===================================================================
+
+
+class TestMeshCoreAdapterSessionDelegation:
+    """Adapter delegates lifecycle to MeshCoreSession."""
+
+    async def test_session_created_on_start(self, make_adapter_context) -> None:
+        config = _make_config(connection_type="fake")
+        adapter = MeshCoreAdapter(config)
+        ctx = make_adapter_context("meshcore-1")
+        await adapter.start(ctx)
+        assert adapter._session is not None
+        assert isinstance(adapter._session, MeshCoreSession)
+        assert adapter._session.connected is True
+
+    async def test_session_cleared_on_stop(self, make_adapter_context) -> None:
+        config = _make_config(connection_type="fake")
+        adapter = MeshCoreAdapter(config)
+        ctx = make_adapter_context("meshcore-1")
+        await adapter.start(ctx)
+        await adapter.stop()
+        assert adapter._session is None
+
+    async def test_session_connected_affects_health(
+        self, make_adapter_context
+    ) -> None:
+        config = _make_config(connection_type="fake")
+        adapter = MeshCoreAdapter(config)
+        ctx = make_adapter_context("meshcore-1")
+        await adapter.start(ctx)
+        # In fake mode, session is connected → healthy
+        assert adapter._session is not None
+        assert adapter._session.connected is True
+        info = await adapter.health_check()
+        assert info.health == "healthy"
+
+
+# ===================================================================
+# Event subscription
+# ===================================================================
+
+
 class TestMeshCoreAdapterEventSubscription:
-    """Event subscription scaffolding tests."""
+    """Event subscription scaffolding tests (legacy compat)."""
 
     async def test_subscribe_events_scaffolded(
         self, make_adapter_context
     ) -> None:
-        """_subscribe_events() runs without error (scaffold)."""
+        """_subscribe_events() runs without error (delegated to session)."""
         config = _make_config(connection_type="fake")
         adapter = MeshCoreAdapter(config)
         ctx = make_adapter_context("meshcore-1")
@@ -490,9 +535,21 @@ class TestFakeMeshCoreAdapterMakeTextEvent:
 class TestMeshCoreAdapterDelivery:
     """Real adapter delivery and inbound via fake mode."""
 
-    async def test_deliver_returns_none_in_tranche1(self) -> None:
+    async def test_deliver_returns_none_in_fake(self) -> None:
         config = _make_config(connection_type="fake")
         adapter = MeshCoreAdapter(config)
+        ctx = make_adapter_context = None
+        # Need to start first
+        from unittest.mock import AsyncMock
+        ctx = AdapterContext(
+            adapter_id="meshcore-1",
+            event_bus=None,
+            publish_inbound=AsyncMock(),
+            logger=__import__("logging").getLogger("test"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+        )
+        await adapter.start(ctx)
         result = _make_rendering_result()
         delivery = await adapter.deliver(result)
         assert delivery is None
@@ -538,9 +595,9 @@ class TestMeshCoreAdapterDelivery:
 
 
 class TestMeshCoreAdapterTaskScheduling:
-    """Background tasks from _on_packet are tracked and cleaned up."""
+    """Background tasks from _on_message are tracked and cleaned up."""
 
-    async def test_on_packet_creates_tracked_task(
+    async def test_on_message_creates_tracked_task(
         self, make_adapter_context, inbound_collector
     ) -> None:
         config = _make_config(connection_type="fake")
@@ -549,7 +606,7 @@ class TestMeshCoreAdapterTaskScheduling:
         await adapter.start(ctx)
 
         packet = _make_contact_packet(text="tracked")
-        adapter._on_packet(packet)
+        adapter._on_message(packet)
 
         # Allow the background task to complete
         await asyncio.sleep(0.05)
@@ -579,11 +636,46 @@ class TestMeshCoreAdapterTaskScheduling:
         assert len(adapter._background_tasks) == 0
 
     async def test_no_ensure_future(self) -> None:
-        """Verify _on_packet does not use asyncio.ensure_future."""
+        """Verify _on_message does not use asyncio.ensure_future."""
         import inspect
-        source = inspect.getsource(MeshCoreAdapter._on_packet)
+        source = inspect.getsource(MeshCoreAdapter._on_message)
         assert "ensure_future" not in source
         assert "create_task" in source
+
+
+# ===================================================================
+# Diagnostics
+# ===================================================================
+
+
+class TestMeshCoreAdapterDiagnostics:
+    """Adapter diagnostics method exposes session state."""
+
+    async def test_diagnostics_before_start(self) -> None:
+        config = _make_config()
+        adapter = MeshCoreAdapter(config)
+        diag = adapter.diagnostics()
+        assert diag["started"] is False
+        assert "session" not in diag
+
+    async def test_diagnostics_after_start(self, make_adapter_context) -> None:
+        config = _make_config()
+        adapter = MeshCoreAdapter(config)
+        ctx = make_adapter_context("meshcore-1")
+        await adapter.start(ctx)
+        diag = adapter.diagnostics()
+        assert diag["started"] is True
+        assert "session" in diag
+        assert diag["session"]["connected"] is True
+
+    async def test_diagnostics_no_secrets(self) -> None:
+        config = _make_config()
+        adapter = MeshCoreAdapter(config)
+        diag = adapter.diagnostics()
+        diag_str = str(diag)
+        assert "private_key" not in diag_str
+        assert "secret" not in diag_str
+        assert "password" not in diag_str
 
 
 # ===================================================================

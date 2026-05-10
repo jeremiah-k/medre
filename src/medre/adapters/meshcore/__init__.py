@@ -7,6 +7,8 @@ Public symbols
 --------------
 * :class:`~medre.adapters.meshcore.adapter.MeshCoreAdapter` — the adapter
   itself.
+* :class:`~medre.adapters.meshcore.session.MeshCoreSession` — session
+  boundary that owns the SDK client lifecycle.
 * :class:`~medre.adapters.meshcore.config.MeshCoreConfig` — configuration
   dataclass.
 * :class:`~medre.adapters.meshcore.codec.MeshCoreCodec` — decode helper.
@@ -40,6 +42,7 @@ from medre.adapters.meshcore.packet_classifier import (
     MeshCorePacketClassifier,
 )
 from medre.adapters.meshcore.renderer import MeshCoreRenderer
+from medre.adapters.meshcore.session import MeshCoreSession
 
 __all__ = [
     "HAS_MESHCORE",
@@ -54,4 +57,5 @@ __all__ = [
     "MeshCorePacketError",
     "MeshCoreRenderer",
     "MeshCoreSendError",
+    "MeshCoreSession",
 ]
