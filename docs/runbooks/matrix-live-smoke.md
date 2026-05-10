@@ -357,6 +357,25 @@ The live smoke harness includes tests that validate adapter behavior across life
 - Recovery from process-level crashes (requires external supervisor).
 
 
+## Live Validation Evidence
+
+### Test Results
+
+- **File:** `tests/test_matrix_live.py` (also `tests/test_matrix_e2ee_live.py`)
+- **Last run:** Not yet run
+- **Command:** `pytest tests/test_matrix_live.py -m live -v`
+- **Result:** Not yet run
+- **Environment:**
+  - `MATRIX_HOMESERVER`: required, not set
+  - `MATRIX_USER_ID`: required, not set
+  - `MATRIX_ACCESS_TOKEN`: required, not set
+  - `MATRIX_ROOM_ID`: required, not set
+  - `MATRIX_DEVICE_ID`: required for E2EE, not set
+  - `MATRIX_STORE_PATH`: required for E2EE, not set
+- **Hardware/Network:** Not available (no Matrix homeserver accessible)
+- **Failures/Notes:** Live smoke tests have not been executed against a real Matrix homeserver in this environment. Without the required environment variables, all live tests skip automatically with descriptive messages. To run: configure the environment variables listed above against a local or test homeserver (see section "Required Environment Variables"), then execute the command.
+
+
 ## Explicit Scope Exclusions
 
 The following are explicitly **out of scope** for the live smoke harness

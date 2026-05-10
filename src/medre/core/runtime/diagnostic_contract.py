@@ -114,8 +114,11 @@ def _sanitize_value(value: Any) -> Any:
     * ``list`` / ``tuple`` / ``set`` / ``frozenset`` have each element
       sanitized and become ``list``.
     * Everything else (including exceptions, raw SDK objects, functions,
-      classes) is converted to ``str`` via ``repr()``.  If ``repr()`` raises,
-      the value is replaced with ``"<unrepresentable>"``.
+      classes, ``bytes``) is replaced with a type-name placeholder
+      like ``"<ValueError>"`` instead of a full ``repr()``.  This
+      prevents accidental leakage of secret-bearing repr output.  If
+      accessing the type name or building the placeholder fails, the
+      value is replaced with ``"<object>"``.
     """
     if isinstance(value, _SAFE_SCALAR_TYPES):
         return value
@@ -123,11 +126,11 @@ def _sanitize_value(value: Any) -> Any:
         return _sanitize_dict(value)
     if isinstance(value, (list, tuple, set, frozenset)):
         return [_sanitize_value(item) for item in value]
-    # Unsupported / complex object – stringify.
+    # Unsupported / complex object – safe type-name placeholder.
     try:
-        return repr(value)
+        return f"<{type(value).__name__}>"
     except Exception:
-        return "<unrepresentable>"
+        return "<object>"
 
 
 def _sanitize_dict(d: dict[str, Any]) -> dict[str, Any]:

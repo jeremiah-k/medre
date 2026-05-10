@@ -763,6 +763,25 @@ groups  # verify 'dialout' is listed
 ```
 
 
+## Live Validation Evidence
+
+### Test Results
+
+- **File:** `tests/test_meshtastic_live.py`
+- **Last run:** Not yet run
+- **Command:** `pytest tests/test_meshtastic_live.py -m live -v`
+- **Result:** Not yet run
+- **Environment:**
+  - `MESHTASTIC_CONNECTION_TYPE`: required (tcp/serial/ble), not set
+  - `MESHTASTIC_HOST`: required for TCP, not set
+  - `MESHTASTIC_PORT`: optional (default 4403), not set
+  - `MESHTASTIC_SERIAL_PORT`: required for serial, not set
+  - `MESHTASTIC_BLE_ADDRESS`: required for BLE, not set
+  - `MESHTASTIC_CHANNEL_INDEX`: optional (default 0), not set
+- **Hardware/Network:** Not available (no Meshtastic radio node connected)
+- **Failures/Notes:** Live validation has not been performed in this environment. Alpha operation requires a real Meshtastic radio node with the environment variables configured. Without these, all live tests skip automatically. See the smoke test runbook (`docs/runbooks/meshtastic-live-smoke.md`) for detailed setup and environment variable instructions.
+
+
 ## 16. Explicit Unsupported Features
 
 The following features are not supported in alpha mode. Do not attempt to use them. They are listed here so you do not have to wonder.

@@ -365,6 +365,25 @@ After running tests:
 4. **Disconnect the node** if it was powered on only for testing.
 
 
+## Live Validation Evidence
+
+### Test Results
+
+- **File:** `tests/test_meshtastic_live.py`
+- **Last run:** Not yet run
+- **Command:** `pytest tests/test_meshtastic_live.py -m live -v`
+- **Result:** Not yet run
+- **Environment:**
+  - `MESHTASTIC_CONNECTION_TYPE`: required (tcp/serial/ble), not set
+  - `MESHTASTIC_HOST`: required for TCP, not set
+  - `MESHTASTIC_PORT`: optional (default 4403), not set
+  - `MESHTASTIC_SERIAL_PORT`: required for serial, not set
+  - `MESHTASTIC_BLE_ADDRESS`: required for BLE, not set
+  - `MESHTASTIC_CHANNEL_INDEX`: optional (default 0), not set
+- **Hardware/Network:** Not available (no Meshtastic radio node connected)
+- **Failures/Notes:** Live smoke tests have not been executed against real Meshtastic hardware in this environment. Without the required environment variables and a connected radio node, all live tests skip automatically. To run: connect a Meshtastic node via TCP or serial, set `MESHTASTIC_CONNECTION_TYPE` and the corresponding connection variable, then execute the command.
+
+
 ## Explicit Scope Exclusions
 
 The following are explicitly **out of scope** for the live smoke harness

@@ -444,6 +444,23 @@ For smoke testing, `AutoInterface` (LAN) or `TCPClientInterface`
    handle signals. Consider this when designing the live harness.
 
 
+## Live Validation Evidence
+
+### Test Results
+
+- **File:** `tests/test_lxmf_live.py`
+- **Last run:** Not yet run
+- **Command:** `pytest tests/test_lxmf_live.py -m live -v`
+- **Result:** Not yet run
+- **Environment:**
+  - `LXMF_CONNECTION_TYPE`: required (reticulum), not set
+  - `LXMF_IDENTITY_PATH`: optional (auto-generated if empty), not set
+  - `LXMF_DISPLAY_NAME`: optional, not set
+  - `LXMF_DESTINATION_HASH`: optional (required for outbound delivery test), not set
+- **Hardware/Network:** Not available (no Reticulum network instance running)
+- **Failures/Notes:** Live smoke tests have not been executed against a real Reticulum network in this environment. Without the required environment variables and a running Reticulum instance, all live tests skip automatically. To run: configure a Reticulum instance (local `rnsd` or custom config), set `LXMF_CONNECTION_TYPE=reticulum`, then execute the command.
+
+
 ## Explicit Scope Exclusions
 
 The following are explicitly **out of scope** for the live smoke

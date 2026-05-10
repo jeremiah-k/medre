@@ -561,6 +561,25 @@ docker run -d --name medre-matrix \
 6. **Resource limits.** The sync loop maintains a single long-polling HTTP connection. Memory usage is dominated by the nio crypto store (SQLite + in-room key cache). For alpha with a handful of rooms, 256 MB is sufficient.
 
 
+## Live Validation Evidence
+
+### Test Results
+
+- **File:** `tests/test_matrix_live.py` (also `tests/test_matrix_e2ee_live.py`)
+- **Last run:** Not yet run
+- **Command:** `pytest tests/test_matrix_live.py -m live -v`
+- **Result:** Not yet run
+- **Environment:**
+  - `MATRIX_HOMESERVER`: required, not set
+  - `MATRIX_USER_ID`: required, not set
+  - `MATRIX_ACCESS_TOKEN`: required, not set
+  - `MATRIX_ROOM_ID`: required, not set
+  - `MATRIX_DEVICE_ID`: required for E2EE, not set
+  - `MATRIX_STORE_PATH`: required for E2EE, not set
+- **Hardware/Network:** Not available (no Matrix homeserver accessible)
+- **Failures/Notes:** Live validation has not been performed in this environment. Alpha operation requires a real Matrix homeserver with the environment variables configured. Without these, all live tests skip automatically. See the smoke test runbook (`docs/runbooks/matrix-live-smoke.md`) for detailed setup and environment variable instructions.
+
+
 ## 13. Explicit Unsupported Features
 
 The following features are not supported in alpha mode. Do not attempt to use them. They are listed here so you do not have to wonder.

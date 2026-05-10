@@ -334,7 +334,8 @@ class TestSecretFiltering:
 class TestUnsafeValueSanitization:
     """Tests that complex/unsafe values are converted to safe forms."""
 
-    def test_exception_converted_to_string(self) -> None:
+    def test_exception_becomes_type_placeholder(self) -> None:
+        """Exceptions become '<ValueError>', not full repr with message."""
         raw = {
             "connected": True,
             "last_error": ValueError("boom"),
@@ -342,12 +343,16 @@ class TestUnsafeValueSanitization:
         result = normalize_diagnostics(raw)
 
         assert isinstance(result["last_error"], str)
-        assert "boom" in result["last_error"]
+        assert result["last_error"] == "<ValueError>"
+        # The error message must NOT leak through.
+        assert "boom" not in result["last_error"]
 
-    def test_raw_object_converted_to_string(self) -> None:
+    def test_raw_object_becomes_type_placeholder(self) -> None:
+        """Custom objects become '<ClassName>', not full repr."""
+
         class SDKClient:
             def __repr__(self) -> str:
-                return "<SDKClient>"
+                return "<SDKClient secret=abc123>"
 
         raw = {
             "connected": True,
@@ -355,17 +360,35 @@ class TestUnsafeValueSanitization:
         }
         result = normalize_diagnostics(raw)
 
-        assert isinstance(result["transport_specific"]["client"], str)
-        assert "SDKClient" in result["transport_specific"]["client"]
+        val = result["transport_specific"]["client"]
+        assert isinstance(val, str)
+        assert val == "<SDKClient>"
+        # repr content must not leak.
+        assert "secret" not in val
+        assert "abc123" not in val
 
-    def test_function_converted_to_string(self) -> None:
+    def test_function_becomes_type_placeholder(self) -> None:
         raw = {
             "connected": True,
             "callback": lambda: None,
         }
         result = normalize_diagnostics(raw)
 
-        assert isinstance(result["transport_specific"]["callback"], str)
+        val = result["transport_specific"]["callback"]
+        assert isinstance(val, str)
+        assert val == "<function>"
+
+    def test_bytes_becomes_type_placeholder(self) -> None:
+        """bytes become '<bytes>', not b'...' repr."""
+        raw = {
+            "connected": True,
+            "raw_payload": b"\x00\x01secret",
+        }
+        result = normalize_diagnostics(raw)
+
+        val = result["transport_specific"]["raw_payload"]
+        assert val == "<bytes>"
+        assert "secret" not in val
 
     def test_list_values_sanitized(self) -> None:
         raw = {
@@ -376,8 +399,72 @@ class TestUnsafeValueSanitization:
 
         errors = result["transport_specific"]["errors"]
         assert isinstance(errors, list)
-        assert isinstance(errors[0], str)
+        assert errors[0] == "<ValueError>"
         assert errors[1] == "plain_string"
+
+    def test_secret_in_repr_not_leaked(self) -> None:
+        """A custom object whose repr includes token-like strings must not
+        leak those strings into the diagnostic output."""
+
+        class TokenHolder:
+            def __repr__(self) -> str:
+                return "TokenHolder(token='sk_live_abc123xyz')"
+
+        raw = {"connected": True, "holder": TokenHolder()}
+        result = normalize_diagnostics(raw)
+
+        val = result["transport_specific"]["holder"]
+        assert val == "<TokenHolder>"
+        assert "sk_live" not in val
+        assert "abc123" not in val
+
+    def test_exception_subclass_name(self) -> None:
+        """Subclassed exceptions use the subclass name."""
+
+        class CustomTimeout(TimeoutError):
+            pass
+
+        raw = {"connected": True, "last_error": CustomTimeout("timed out")}
+        result = normalize_diagnostics(raw)
+
+        assert result["last_error"] == "<CustomTimeout>"
+        assert "timed out" not in result["last_error"]
+
+    def test_set_becomes_sanitized_list(self) -> None:
+        """Sets are recursively sanitized into lists."""
+        raw = {"connected": True, "tags": {ValueError("x"), 42}}
+        result = normalize_diagnostics(raw)
+
+        tags = result["transport_specific"]["tags"]
+        assert isinstance(tags, list)
+        assert 42 in tags
+        assert "<ValueError>" in tags
+
+    def test_dict_values_with_unknown_objects(self) -> None:
+        """Nested dicts with unknown objects sanitize correctly."""
+
+        class Conn:
+            def __repr__(self) -> str:
+                return "Conn(session_key=deadbeef)"
+
+        raw = {
+            "connected": True,
+            "meta": {"conn": Conn(), "count": 3},
+        }
+        result = normalize_diagnostics(raw)
+
+        meta = result["transport_specific"]["meta"]
+        assert meta["conn"] == "<Conn>"
+        assert meta["count"] == 3
+        assert "deadbeef" not in meta["conn"]
+
+    def test_string_scalar_passes_through(self) -> None:
+        """Plain strings (even with token-like content) pass through as-is,
+        because they are scalar values the caller intentionally provided."""
+        raw = {"connected": True, "note": "sk_live_abc123 is my token"}
+        result = normalize_diagnostics(raw)
+
+        assert result["transport_specific"]["note"] == "sk_live_abc123 is my token"
 
     def test_none_preserved(self) -> None:
         raw = {"connected": None, "last_error": None}

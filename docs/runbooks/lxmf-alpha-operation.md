@@ -619,6 +619,23 @@ rnsd &
 - **Clean up test directories.** LXMF storage and Reticulum config dirs accumulate state.
 
 
+## Live Validation Evidence
+
+### Test Results
+
+- **File:** `tests/test_lxmf_live.py`
+- **Last run:** Not yet run
+- **Command:** `pytest tests/test_lxmf_live.py -m live -v`
+- **Result:** Not yet run
+- **Environment:**
+  - `LXMF_CONNECTION_TYPE`: required (reticulum), not set
+  - `LXMF_IDENTITY_PATH`: optional (auto-generated if empty), not set
+  - `LXMF_DISPLAY_NAME`: optional, not set
+  - `LXMF_DESTINATION_HASH`: optional (required for outbound delivery test), not set
+- **Hardware/Network:** Not available (no Reticulum network instance running)
+- **Failures/Notes:** Live validation has not been performed in this environment. Alpha operation requires a running Reticulum transport layer with the environment variables configured. Without these, all live tests skip automatically. See the smoke test runbook (`docs/runbooks/lxmf-live-smoke.md`) for detailed setup and environment variable instructions.
+
+
 ## 14. Explicit Non-Claims
 
 - **No production LXMF/Reticulum deployment readiness is claimed.** Alpha mode requires installed SDK and live environment.

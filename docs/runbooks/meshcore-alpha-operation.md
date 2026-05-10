@@ -886,6 +886,25 @@ pip install meshcore
 Core MEDRE tests pass without it. Only real connectivity modes require the SDK.
 
 
+## Live Validation Evidence
+
+### Test Results
+
+- **File:** `tests/test_meshcore_live.py`
+- **Last run:** Not yet run
+- **Command:** `pytest tests/test_meshcore_live.py -m live -v`
+- **Result:** Not yet run
+- **Environment:**
+  - `MESHCORE_CONNECTION_TYPE`: required (tcp/serial/ble), not set
+  - `MESHCORE_HOST`: required for TCP, not set
+  - `MESHCORE_PORT`: optional (default 4403), not set
+  - `MESHCORE_SERIAL_PORT`: required for serial, not set
+  - `MESHCORE_BLE_ADDRESS`: required for BLE, not set
+  - `MESHCORE_CHANNEL_INDEX`: optional (default 0), not set
+- **Hardware/Network:** Not available (no MeshCore radio node connected)
+- **Failures/Notes:** Live validation has not been performed in this environment. Alpha operation requires a real MeshCore radio node with the environment variables configured. Without these, all live tests skip automatically. See the smoke test runbook (`docs/runbooks/meshcore-live-smoke.md`) for detailed setup and environment variable instructions.
+
+
 ## 16. Explicit Unsupported Features
 
 The following features are not supported in alpha mode. Do not attempt to use them. They are listed here so you do not have to wonder.

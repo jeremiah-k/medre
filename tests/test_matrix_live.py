@@ -832,3 +832,115 @@ class TestMatrixLiveSmoke:
             assert delivery2.native_channel_id == MATRIX_ROOM_ID
         finally:
             await adapter.stop()
+
+    # -- Inbound third-party message reception --------------------------------
+
+    async def test_inbound_message_received(self):
+        """Receive an inbound message from a third-party sender via live Matrix.
+
+        Validates that ``publish_inbound`` fires when a message from a
+        **different** Matrix user arrives in the monitored room.  This
+        exercises the real nio sync loop, codec decode, and inbound
+        publishing path end-to-end.
+
+        **Prerequisites (one of):**
+
+        1. Set ``MATRIX_INBOUND_SENDER`` to the Matrix user ID of a
+           second account that will send a message to ``MATRIX_ROOM_ID``
+           during the test.  Example::
+
+               export MATRIX_INBOUND_SENDER="@alice:example.com"
+
+        2. Manually send a message from any other Matrix client into
+           ``MATRIX_ROOM_ID`` while the test is running (within 30 s).
+
+        If ``MATRIX_INBOUND_SENDER`` is set, the test verifies that at
+        least one received event's sender matches.  If unset, the test
+        accepts **any** inbound message from a non-self sender within the
+        timeout window.
+
+        **Skips** when the core ``MATRIX_*`` env vars are absent.
+        **xfail** if no third-party message arrives within 30 s (sync
+        delay, missing sender, quiet room).
+        """
+        from medre.adapters.matrix.adapter import MatrixAdapter
+        from medre.adapters.base import AdapterContext
+
+        inbound_sender = os.environ.get("MATRIX_INBOUND_SENDER")
+
+        publish_mock = AsyncMock()
+        ctx = AdapterContext(
+            adapter_id="matrix-live-inbound",
+            event_bus=None,
+            publish_inbound=publish_mock,
+            logger=logging.getLogger("test.matrix-live.inbound"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+        )
+
+        adapter = MatrixAdapter(_make_config())
+        await adapter.start(ctx)
+        try:
+            # Wait up to 30 seconds for a third-party message to arrive.
+            # Poll publish_mock every 0.5 s so we exit early on success.
+            deadline = time.monotonic() + 30.0
+            found_event = None
+            while time.monotonic() < deadline:
+                for call in publish_mock.call_args_list:
+                    args = call.args
+                    if not args:
+                        continue
+                    event = args[0]
+                    # Verify this is not a self-message (shouldn't happen
+                    # due to suppression, but defensive).
+                    sender = None
+                    native_refs = (
+                        event.metadata.native_refs
+                        if hasattr(event, "metadata") and event.metadata
+                        else ()
+                    )
+                    for ref in native_refs:
+                        if hasattr(ref, "native_sender_id"):
+                            sender = ref.native_sender_id
+                            break
+                    if sender == MATRIX_USER_ID:
+                        continue
+
+                    # If MATRIX_INBOUND_SENDER is set, filter to that sender.
+                    if inbound_sender and sender and sender != inbound_sender:
+                        continue
+
+                    found_event = event
+                    break
+                if found_event is not None:
+                    break
+                await asyncio.sleep(0.5)
+            else:
+                pytest.xfail(
+                    "No inbound message from a third-party sender received "
+                    "within 30 s.  Set MATRIX_INBOUND_SENDER and have that "
+                    "user send a message to the room, or manually send a "
+                    "message during the test window."
+                )
+
+            # If we got here, publish_inbound was called with a non-self event.
+            assert found_event is not None
+
+            # Validate sender if MATRIX_INBOUND_SENDER was specified.
+            if inbound_sender:
+                matched_sender = None
+                native_refs = (
+                    found_event.metadata.native_refs
+                    if hasattr(found_event, "metadata") and found_event.metadata
+                    else ()
+                )
+                for ref in native_refs:
+                    if hasattr(ref, "native_sender_id"):
+                        matched_sender = ref.native_sender_id
+                        break
+                assert matched_sender == inbound_sender, (
+                    f"Expected sender {inbound_sender!r}, "
+                    f"got {matched_sender!r}"
+                )
+        finally:
+            await adapter.stop()
