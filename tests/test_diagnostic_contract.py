@@ -726,3 +726,63 @@ class TestCrossShapeEquivalence:
 
         for key in COMMON_DIAGNOSTIC_KEYS:
             assert from_dict[key] == from_struct[key], f"Mismatch on {key}"
+
+
+# ===========================================================================
+# 12. Known limitation: nested session diagnostics
+# ===========================================================================
+
+
+class TestNestedSessionDiagnosticsLimitation:
+    """Track 5: document that normalize_diagnostics operates on flat keys only.
+
+    Some adapters (Meshtastic, MeshCore, LXMF) nest delivery failure counters
+    under a ``session`` sub-dict rather than at the top level.  The
+    ``normalize_diagnostics`` contract extracts common keys from the **top
+    level** of the input dict only — it does not recurse into nested dicts.
+
+    This is an intentional design choice: the contract is observational and
+    does not invent cross-transport normalization.  Consumers that need
+    delivery failure counters from these adapters must access
+    ``session.transient_delivery_failures`` directly from the raw adapter
+    diagnostics, not via the normalized output.
+    """
+
+    def test_nested_transient_failures_not_extracted(self) -> None:
+        """Delivery counters nested under 'session' resolve to None."""
+        raw = {
+            "adapter_id": "mesh-1",
+            "started": True,
+            "session": {
+                "connected": True,
+                "reconnecting": False,
+                "reconnect_attempts": 0,
+                "transient_delivery_failures": 5,
+                "permanent_delivery_failures": 1,
+                "last_error": None,
+            },
+        }
+        result = normalize_diagnostics(raw)
+
+        # Top-level extraction finds connected via the session sub-dict?  No.
+        # The contract only looks at the top-level keys of *raw*.
+        assert result["transient_delivery_failures"] is None
+        assert result["permanent_delivery_failures"] is None
+
+        # The nested session dict is preserved in transport_specific.
+        assert result["transport_specific"]["session"]["transient_delivery_failures"] == 5
+        assert result["transport_specific"]["session"]["permanent_delivery_failures"] == 1
+
+    def test_flat_transient_failures_extracted(self) -> None:
+        """Delivery counters at the top level are extracted correctly."""
+        raw = {
+            "connected": True,
+            "reconnecting": False,
+            "reconnect_attempts": 0,
+            "transient_delivery_failures": 3,
+            "permanent_delivery_failures": 0,
+            "last_error": None,
+        }
+        result = normalize_diagnostics(raw)
+        assert result["transient_delivery_failures"] == 3
+        assert result["permanent_delivery_failures"] == 0

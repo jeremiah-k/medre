@@ -755,3 +755,36 @@ class TestLxmfAdapterSessionIntegration:
         assert diag.connected is True
         assert diag.mode == "fake"
         await adapter.stop()
+
+    async def test_adapter_diagnostics_returns_dict(
+        self, make_adapter_context
+    ) -> None:
+        """Track 5: adapter.diagnostics() returns a structured dict."""
+        config = _make_config(connection_type="fake")
+        adapter = LxmfAdapter(config)
+        ctx = make_adapter_context("lxmf-diag")
+        await adapter.start(ctx)
+
+        diag = adapter.diagnostics()
+        assert isinstance(diag, dict)
+        assert diag["adapter_id"] == config.adapter_id
+        assert diag["platform"] == "lxmf"
+        assert diag["started"] is True
+        assert diag["mode"] == "fake"
+        assert "session" in diag
+        assert diag["session"]["connected"] is True
+        assert diag["session"]["router_running"] is True
+        assert diag["session"]["reconnecting"] is False
+        assert diag["session"]["reconnect_attempts"] == 0
+        await adapter.stop()
+
+    async def test_adapter_diagnostics_before_start(self) -> None:
+        """Track 5: adapter.diagnostics() works before start()."""
+        config = _make_config(connection_type="fake")
+        adapter = LxmfAdapter(config)
+
+        diag = adapter.diagnostics()
+        assert isinstance(diag, dict)
+        assert diag["started"] is False
+        assert "session" in diag
+        assert diag["session"]["connected"] is False

@@ -253,15 +253,26 @@ All eight runbooks exist. They must be updated with live test results before bet
 
 ### 7.1 Version Pins
 
-All transport SDK dependencies must be version-pinned before beta:
+All transport SDK dependencies use **minimum-version floor pins** (`>=`).
+This is a deliberate strategy, not an oversight. See contract 34, section 7
+for the full rationale.
 
-| Dependency | Transport | Current Pin | Risk |
-|------------|-----------|-------------|------|
-| `mindroom-nio` | Matrix | `>=0.25.3` (floor pin) | Fork maintenance risk. Monitor upstream. |
-| `mtjk` | Meshtastic | `>=2.7.8` (floor pin) | Firmware API stability risk. |
-| `meshcore` | MeshCore | `>=2.3.7` (floor pin) | Small community, API instability risk. |
-| `lxmf` / `rns` | LXMF | `>=0.9.6` (floor pin) | Low risk, stable APIs. |
-| `vodozemac` | Matrix E2EE | Pinned (optional dep) | Required for E2EE, optional dependency. |
+**Summary of the strategy:**
+
+- Transport SDKs: `>=` (minimum validated version, allows newer).
+- Core dependency (`msgspec`): `==` (exact pin for deterministic serialization).
+- Dev dependencies: `>=` (not shipped).
+- No lockfile committed. No upper-bound caps.
+- MEDRE is a library, not an application — libraries declare minimums.
+
+| Dependency | Transport | Current Pin | Strategy | Rationale |
+|------------|-----------|-------------|----------|-----------|
+| `msgspec` | Core | `==0.21.1` | Exact pin | Serialization determinism; msgspec has broken forward compat before. |
+| `mindroom-nio` | Matrix | `>=0.25.3` | Floor pin | Fork dependency; project controls versioning. |
+| `mtjk` | Meshtastic | `>=2.7.8` | Floor pin | Fork dependency; project controls versioning. |
+| `meshcore` | MeshCore | `>=2.3.7` | Floor pin | Third-party SDK; allows security patches. |
+| `lxmf` | LXMF | `>=0.9.6` | Floor pin | Third-party SDK; stable API. |
+| `vodozemac` | Matrix E2EE | (transitive) | Inherited | Pulled by `mindroom-nio[e2e]`. Not directly pinned. |
 
 ### 7.2 Optional Dependencies
 
@@ -278,7 +289,7 @@ Beta should declare a minimum Python version in `pyproject.toml`. The codebase u
 
 | # | Item | Status | Live Validation Evidence |
 |---|------|--------|--------------------------|
-| P1 | All SDK dependencies version-pinned | ✅ Satisfied | `pyproject.toml` updated with floor pins: `mindroom-nio>=0.25.3`, `mtjk>=2.7.8`, `meshcore>=2.3.7`, `lxmf>=0.9.6`. Core dep `msgspec==0.21.1` exact pin. Verified from local reference repos. |
+| P1 | All SDK dependencies version-pinned | ✅ Satisfied | `pyproject.toml` uses minimum-version floor pins (`>=`) for transport SDKs and exact pin (`==`) for core `msgspec`. Strategy documented in contract 34, section 7. Not strict pins — intentional library strategy. Verified from local reference repos. |
 | P2 | Optional dependencies declared as extras | ✅ Satisfied | `pyproject.toml` declares `dev`, `matrix`, `matrix-e2e`, `meshtastic`, `meshcore`, `lxmf` extras. Verified 2026-05-10. |
 | P3 | `pyproject.toml` declares minimum Python version | ✅ Satisfied | `requires-python = ">=3.11"` declared. Verified 2026-05-10. |
 | P4 | No SDK objects in public API surface | ✅ Satisfied | Verified (contract 27). |

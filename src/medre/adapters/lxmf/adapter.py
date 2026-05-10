@@ -220,6 +220,37 @@ class LxmfAdapter(BaseAdapter):
             health=health,
         )
 
+    # -- Diagnostics --------------------------------------------------------
+
+    def diagnostics(self) -> dict[str, Any]:
+        """Return adapter-level diagnostics composed from session state.
+
+        No secrets, private keys, identity material, or raw RNS/LXMF
+        objects are exposed.
+        """
+        base: dict[str, Any] = {
+            "adapter_id": self.adapter_id,
+            "platform": self.platform,
+            "started": self._started,
+            "mode": self._config.connection_type,
+        }
+        if self._session is not None:
+            base["session"] = {
+                "connected": self._session.connected,
+                "router_running": self._session.router_running,
+                "reconnecting": self._session.reconnecting,
+                "reconnect_attempts": self._session.reconnect_attempts,
+                "transient_delivery_failures": (
+                    self._session.transient_delivery_failures
+                ),
+                "permanent_delivery_failures": (
+                    self._session.permanent_delivery_failures
+                ),
+                "last_error": self._session.last_error,
+                "mode": self._config.connection_type,
+            }
+        return base
+
     # -- Background task management -----------------------------------------
 
     async def _drain_background_tasks(self, timeout: float = 5.0) -> None:

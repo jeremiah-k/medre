@@ -344,6 +344,78 @@ No friction. Standard build tooling.
 5. **Reticulum's license is non-standard.** Not an install issue, but a
    distribution concern for downstream consumers.
 
-6. **No dependency requires Docker.** All can be installed via pip. Docker
-  suitability varies by connection type (TCP = good, serial = moderate,
-   BLE = poor).
+ 6. **No dependency requires Docker.** All can be installed via pip. Docker
+   suitability varies by connection type (TCP = good, serial = moderate,
+    BLE = poor).
+
+
+## 7. Dependency Versioning Strategy
+
+This section documents MEDRE's intended dependency versioning strategy
+explicitly, so that it is not silently assumed.
+
+### 7.1 Strategy: Minimum Validated Versions (`>=`)
+
+MEDRE uses **minimum-version floor pins** (`>=`) for all transport
+dependencies. This means:
+
+- `pyproject.toml` declares the minimum version that has been tested and
+  validated (`mindroom-nio>=0.25.3`, `mtjk>=2.7.8`, `meshcore>=2.3.7`,
+  `lxmf>=0.9.6`).
+- Newer compatible versions are allowed at install time.
+- Compatibility with newer versions is assumed until proven otherwise
+  (semantic versioning by upstream projects).
+
+### 7.2 Exceptions
+
+| Dependency | Pin type | Reason |
+|------------|----------|--------|
+| `msgspec` | Exact pin (`==0.21.1`) | Core dependency. Exact pin ensures deterministic serialization behavior across all environments. msgspec has broken forward compatibility in minor releases before. |
+| `setuptools` | Minimum (`>=68`) | Build system only. Wide compatibility tolerance is acceptable. |
+| `pytest` / `pytest-asyncio` | Minimum (`>=`) | Dev-only dependency. Not shipped. |
+
+### 7.3 What MEDRE Does NOT Do
+
+- **No strict pins (`==`) for transport SDKs.** Transport dependencies are
+  optional and maintained by third parties (or forks). Strict pins would
+  prevent users from getting security patches and bug fixes.
+- **No compatible-range pins (`~=`) for transport SDKs.** Fork versioning
+  (`mindroom-nio`, `mtjk`) may not follow semantic versioning strictly enough
+  for `~=` to be meaningful.
+- **No lockfile in the repository.** There is no `requirements.lock`,
+  `poetry.lock`, or `pdm.lock` committed. A lockfile may be appropriate for
+  CI or reproducible deployment pipelines in the future, but MEDRE does not
+  currently ship one.
+- **No upper-bound caps (`<`).** No dependency is capped at a maximum version.
+  Upper bounds would require proactive maintenance for every upstream release.
+
+### 7.4 Rationale
+
+The `>=` strategy is a deliberate choice:
+
+1. **MEDRE is a library, not an application.** Libraries should declare
+   minimum compatibility and allow downstream consumers to resolve versions.
+   Applications pin strictly.
+2. **Two of five transport SDKs are forks.** Fork versioning is controlled by
+   the project. Strict pins would be redundant (we control the version) or
+   harmful (we'd miss our own updates).
+3. **Core dep (`msgspec`) is exact-pinned.** The one dependency that every
+   MEDRE installation requires is strictly controlled. This limits
+   nondeterminism to the edges (optional transport SDKs).
+4. **Testing is against specific versions.** Contract 37 (transport maturity)
+   records exact tested versions. The `>=` floor pin says "this or newer,"
+   not "any version." The floor is the version that was actually validated.
+
+### 7.5 If This Strategy Changes
+
+If MEDRE later moves to strict pins, compatible ranges, or lockfiles, this
+section must be updated to reflect the new strategy. The change must be
+documented as an intentional decision, not a silent drift.
+
+Potential future strategies and when they might become appropriate:
+
+| Strategy | When appropriate |
+|----------|-----------------|
+| Lockfile in repo | When MEDRE has CI or reproducible deployment requirements |
+| Compatible ranges (`~=`) | When upstream SDKs demonstrate reliable semver compliance |
+| Strict pins (`==`) for all | When MEDRE becomes an application rather than a library |
