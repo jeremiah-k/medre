@@ -25,7 +25,7 @@ Scope boundaries:
 - No multi-hop mesh delivery testing beyond what the local Reticulum instance provides.
 - No E2EE beyond what Reticulum provides natively at the link layer.
 
-This runbook complements `docs/runbooks/lxmf-live-smoke.md`. The smoke test documents SDK connectivity procedures and manual verification scripts. Alpha operation would validate the full wiring: config, adapter, codec, inbound callback dispatch, outbound delivery, and health, running together.
+This runbook complements `docs/runbooks/lxmf-live-smoke.md`. The smoke test validates adapter lifecycle and SDK connectivity. Alpha operation validates the full wiring: config, adapter, codec, inbound callback dispatch, outbound delivery, and health, running together.
 
 
 ## 2. Prerequisites
@@ -231,7 +231,7 @@ A propagation node is an LXMF router that stores messages on behalf of offline r
 ### 7.2 Configuration
 
 ```python
-# In the real adapter (not yet implemented):
+# Propagation node configuration (not yet implemented in LxmfSession):
 router.set_outbound_propagation_node(node_hash)  # 16-byte destination hash
 ```
 

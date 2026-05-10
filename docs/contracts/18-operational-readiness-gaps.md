@@ -1,12 +1,12 @@
 # Operational Readiness Gap Audit
 
-> Contract version: 2
+> Contract version: 3
 > Last updated: 2026-05-09
 > Track: 7 (Operational Runtime Hardening)
 
 This document audits the current operational readiness of the MEDRE runtime and its four adapters. It is an honest assessment for operators and maintainers. Nothing here should be read as a feature proposal, deployment guide, or production readiness claim. Contract 16 (`16-production-connectivity-readiness.md`) remains the authoritative readiness assessment per adapter.
 
-All four adapters are in tranche 1. Every adapter uses fake delivery. No adapter has been tested against real hardware or services in default CI.
+All four adapters are in alpha. Fake mode is the default development path for all four. All four now have optional live smoke harnesses (excluded from default CI). No adapter has been tested against real hardware or services in default CI. The current cross-transport assessment is consolidated in contract 28 (`28-alpha-readiness-report.md`).
 
 
 ## 1. Per-Adapter Operational Status

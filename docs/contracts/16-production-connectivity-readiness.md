@@ -1,12 +1,14 @@
 # Production Connectivity Readiness
 
-> Contract version: 3
+> Contract version: 4
 > Last updated: 2026-05-09
 > Track: 8 (Production Connectivity Readiness)
 
 This document assesses each adapter's readiness for real network operation. It is deliberately conservative. Nothing claimed here should be interpreted as "works against real hardware/services" until it has been explicitly verified against the actual SDK, transport, or service.
 
-All four adapters are in tranche 1. Every adapter uses fake delivery. No adapter has been tested against a real production endpoint by default. The Matrix adapter has an **optional** live smoke harness that can verify real connectivity when explicitly enabled.
+All four adapters are in tranche 1. Fake mode is the default development path for all four. All four adapters now have **optional** live smoke harnesses that can verify real connectivity when explicitly enabled via environment variables. No adapter has been tested against a real production endpoint in default CI.
+
+**Note (2026-05-09):** The per-transport sections below were written before the MeshCore and LXMF real session code was merged. MeshCore and LXMF now have real session implementations (see contracts 19, 20) and live smoke harnesses. The current cross-transport assessment is consolidated in contract 28 (`28-alpha-readiness-report.md`). The diagnostics consistency audit is in contract 27 (`27-diagnostics-consistency-audit.md`).
 
 
 ## Matrix

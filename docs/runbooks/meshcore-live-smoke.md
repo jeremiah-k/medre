@@ -1,29 +1,31 @@
 # MeshCore Live Smoke Test Runbook
 
 > Last updated: 2026-05-09
-> Status: **Reference only. No live harness exists yet.**
+> Status: **Live harness exists. Real mode requires `meshcore` package and a live MeshCore node.**
 > See: `docs/contracts/19-meshcore-connectivity-readiness.md`
+> Scope: `tests/test_meshcore_live.py`
 
-This runbook describes how to test MeshCore connectivity against real hardware when a live smoke harness is eventually built. It documents the SDK's connection methods, required environment variables, and expected behaviors so that when someone sits down with a MeshCore radio node, they have a verified procedure to follow.
+This runbook describes how to test MeshCore connectivity against a real MeshCore radio node. It documents the SDK's connection methods, required environment variables, and expected behaviors so that when someone sits down with a MeshCore radio node, they have a verified procedure to follow.
 
-**This is not a test you can run today.** The MEDRE adapter has no real MeshCore client code. The adapter's `start()` raises `MeshCoreConnectionError` for any non-fake connection type. This runbook exists to document the SDK's connectivity interface so the eventual harness can be built without re-researching the SDK.
+The MEDRE adapter has session-backed real MeshCore support via `MeshCoreSession`. When `connection_type` is not `"fake"` and the `meshcore` package is installed, the adapter initializes a real MeshCore SDK client, subscribes to events, and can send and receive messages. Without a live node present, real-mode tests skip with `pytest.skip()`. Fake-mode tests run unconditionally.
 
 
 ## Purpose
 
-When built, the MeshCore live smoke harness would validate:
+The live smoke harness in `tests/test_meshcore_live.py` validates:
 
 - The `meshcore` package installs and imports correctly.
-- A `MeshCore` instance connects to a real MeshCore radio node via TCP, serial, or BLE.
-- `send_msg()` completes and returns an `Event` with `type == MSG_SENT` and a valid `expected_ack`.
-- `send_chan_msg()` completes and returns `Event` with `type == OK`.
-- Event subscriptions fire for `CONTACT_MSG_RECV` and `CHANNEL_MSG_RECV`.
-- ACK correlation works (expected_ack matches incoming ACK event).
-- The full lifecycle (connect, send, receive, disconnect) works cleanly.
+- The MEDRE `MeshCoreAdapter` can `start()` against a real node.
+- `health_check()` reports `"healthy"` after successful start.
+- `stop()` disconnects cleanly and session reports disconnected.
+- `send_text()` delivers a channel message without error.
+- Inbound callbacks receive messages with expected fields.
+- Diagnostics snapshot is available after start and never exposes secrets.
+- Repeated start/stop cycles are stable.
 
-### What live smoke would NOT prove
+### What live smoke does NOT prove
 
-- Full MEDRE adapter integration with real MeshCore events (adapter has no real client code).
+- Full MEDRE adapter integration with real MeshCore events beyond the live smoke scope.
 - Inbound message reception from a second node.
 - Multi-hop mesh delivery.
 - Bridge compatibility with Meshtastic.
@@ -46,7 +48,7 @@ pip install meshcore
 - **Import namespace:** `meshcore` (same as package name).
 - **License:** MIT.
 - **Dependencies pulled in:** `bleak`, `pyserial-asyncio-fast`, `pycayennelpp`.
-- **Optional:** Core MEDRE tests pass without `meshcore`. Only live smoke tests would require it.
+- **Optional:** Core MEDRE tests pass without `meshcore`. Only live smoke tests require it.
 - **Source:** `https://github.com/fdlamotte/meshcore_py`
 - **SDK is fully async:** All methods are coroutines. No synchronous wrappers.
 
@@ -350,7 +352,7 @@ For full details, see `docs/contracts/19-meshcore-connectivity-readiness.md` Sec
 
 ### Does Not Prove
 
-- MEDRE adapter integration with real MeshCore events (adapter has no real client code).
+- MEDRE adapter integration with real MeshCore events beyond the live smoke scope.
 - Inbound message reception from a second node (tests would use self-receive).
 - Multi-hop mesh delivery.
 - Bridge compatibility with Meshtastic.

@@ -12,8 +12,8 @@ what the MEDRE adapter scaffold currently looks like, and what remains
 genuinely unknown until someone runs code against a real Reticulum
 network.
 
-**No production LXMF/Reticulum connectivity is claimed or implemented.
-The adapter operates exclusively in `connection_type="fake"` mode.**
+**No production LXMF/Reticulum connectivity is claimed.
+The adapter supports `connection_type="reticulum"` for real Reticulum/LXMF operation via `LxmfSession` when optional dependencies are installed; fake mode remains the default.**
 
 
 ## 1. Package and Import

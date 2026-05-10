@@ -2,7 +2,7 @@
 
 > Last updated: 2026-05-09
 > Scope: Real MeshCore Operation Alpha
-> Status: Alpha. Not production. Not hardened. Not complete. Fake mode is the primary development and testing path. Real connectivity (TCP/serial/BLE) is documented from SDK source analysis but adapter real-client code is scaffolded.
+> Status: Alpha. Not production. Not hardened. Not complete. Fake mode is the primary development and testing path. Real connectivity (TCP/serial) is implemented via `MeshCoreSession`; BLE is future.
 
 This runbook describes how to run the MEDRE MeshCore adapter against a real MeshCore radio node in alpha mode. Alpha mode means the MeshCoreAdapter connects to a real node using TCP, serial, or BLE, receives real events via the SDK's async event dispatcher, and sends real messages via the channel or direct-message send API. It does not mean the system is ready for anything beyond a single operator on a single node.
 
@@ -150,9 +150,9 @@ config = MeshCoreConfig(
 - Default port: 4000 (from SDK examples, not verified as firmware default).
 - Connection is fully async. `create_tcp` handles transport setup, connect, and `appstart()`.
 - `appstart()` triggers a `SELF_INFO` event with the node's public key and config.
-- Real client creation is scaffolded in the adapter. When wired, `_create_client()` will call `MeshCore.create_tcp()` and `_subscribe_events()` will subscribe to `CONTACT_MSG_RECV` and `CHANNEL_MSG_RECV`.
+- Real client creation is handled by `MeshCoreSession`. The session calls `MeshCore.create_tcp()` and subscribes to `CONTACT_MSG_RECV` and `CHANNEL_MSG_RECV`.
 
-**Current status:** Real TCP connections raise `MeshCoreConnectionError`. The adapter is in tranche 1 scaffold mode. See section 6 for what to expect when real client code lands.
+**Current status:** Real TCP connections work via `MeshCoreSession`. See section 6.
 
 ### 4.3 Serial mode
 
@@ -170,7 +170,7 @@ config = MeshCoreConfig(
 - Default baudrate: 115200.
 - Port must exist and be accessible (user in `dialout` group on Linux).
 
-**Current status:** Same as TCP — scaffolded, raises `MeshCoreConnectionError`.
+**Current status:** Real serial connections work via `MeshCoreSession`. Same TCP behavior.
 
 ### 4.4 BLE mode
 
@@ -190,7 +190,7 @@ config = MeshCoreConfig(
 - Requires `bleak` (installed automatically with `meshcore`).
 - BLE testing requires BLE-capable hardware and OS support (BlueZ on Linux).
 
-**Current status:** Same as TCP/serial — scaffolded, raises `MeshCoreConnectionError`. Not exercised in any harness.
+**Current status:** BLE is not yet implemented in the session. Use TCP or serial for live testing.
 
 ### 4.5 Configuration validation
 
@@ -304,15 +304,15 @@ When `start(ctx)` is called:
 2. `_started` is set to `True`.
 3. A startup log line is emitted: `"MeshCoreAdapter meshcore-alpha started (mode=fake)"`.
 
-**Real mode (TCP/serial/BLE — scaffolded, will work once implemented):**
-1. The adapter checks `HAS_MESHCORE` (the `meshcore` import guard in `compat.py`). If `meshcore` is not installed, raises `MeshCoreConnectionError`.
-2. `_create_client()` is called. This calls the appropriate async SDK factory (`MeshCore.create_tcp()`, `create_serial()`, or `create_ble()`). This call is **async** and blocks until the connection is established and `appstart()` completes.
+**Real mode (TCP/serial — implemented via MeshCoreSession):**
+1. The adapter creates a `MeshCoreSession`, which checks `HAS_MESHCORE` (the `meshcore` import guard in `compat.py`). If `meshcore` is not installed, raises `MeshCoreConnectionError`.
+2. The session calls the appropriate async SDK factory (`MeshCore.create_tcp()`, `create_serial()`). This call is **async** and blocks until the connection is established and `appstart()` completes.
 3. On success, the SDK emits a `SELF_INFO` event containing the node's Ed25519 public key and configuration.
-4. `_subscribe_events()` subscribes to `CONTACT_MSG_RECV` and `CHANNEL_MSG_RECV` via the SDK's event dispatcher.
+4. The session subscribes to `CONTACT_MSG_RECV` and `CHANNEL_MSG_RECV` via the SDK's event dispatcher.
 5. `_started` is set to `True`.
 6. A startup log line is emitted: `"MeshCoreAdapter meshcore-alpha started (mode=tcp)"`.
 
-**Current real-mode behavior:** Steps 2–4 are scaffolded. The adapter raises `MeshCoreConnectionError("Real MeshCore connections not yet implemented; use connection_type='fake'")`.
+**BLE mode:** BLE connectivity is documented from SDK source analysis but not yet implemented in the session. Use TCP or serial for live testing.
 
 ### 6.2 Expected startup output
 
@@ -321,16 +321,15 @@ When `start(ctx)` is called:
 INFO  MeshCoreAdapter meshcore-alpha started (mode=fake)
 ```
 
-**Real mode (when implemented):**
+**Real mode (TCP/serial):**
 ```
 INFO  MeshCoreAdapter meshcore-alpha started (mode=tcp)
 ```
 
 If startup fails, you will see one of:
 - `MeshCoreConnectionError: meshcore SDK not installed; pip install meshcore or use connection_type='fake'`
-- `MeshCoreConnectionError: Real MeshCore connections not yet implemented; use connection_type='fake'` (current scaffold behavior)
-- `MeshCoreConnectionError: Failed to create tcp client: <underlying error>` (when implemented)
-- `MeshCoreConnectionError: Failed to subscribe to events: <error>` (when implemented)
+- `MeshCoreConnectionError: Failed to create tcp client: <underlying error>`
+- `MeshCoreConnectionError: Failed to subscribe to events: <error>`
 
 ### 6.3 Shutdown sequence
 
@@ -397,9 +396,9 @@ When a real event arrives via the SDK's event dispatcher:
 
 There is no periodic "still alive" log. Silence is normal when no events arrive. The SDK event dispatcher runs passively.
 
-### 7.4 Outbound send path (when implemented)
+### 7.4 Outbound send path
 
-`deliver(result)` accepts a `RenderingResult`, and the outbound path will call `send_chan_msg()` or `send_msg()` on the SDK client:
+`deliver(result)` accepts a `RenderingResult`, and the outbound path calls `send_text()` on the session (which delegates to `send_chan_msg()` or `send_msg()` on the SDK client):
 
 - **Channel messages:** `await mc.commands.send_chan_msg(chan, msg)` returns `Event` with `type == OK` on success or `type == ERROR` on failure.
 - **Direct messages:** `await mc.commands.send_msg(dst, msg)` returns `Event` with `type == MSG_SENT` and `payload["expected_ack"]` on success, or `type == ERROR` on failure.
@@ -542,14 +541,14 @@ Operators should expect loss and plan accordingly. The adapter does not provide 
 
 ### 10.2 Inbound event reception (requires real node)
 
-1. Start the adapter with a real node connection (when implemented).
+1. Start the adapter with a real node connection (TCP or serial).
 2. From a second MeshCore node, send a text message on the configured channel.
 3. Subscribe to the event bus or check `ctx.publish_inbound` calls.
 4. Confirm the canonical event has the expected `source_transport_id` (pubkey prefix), `payload.body`, and `metadata.native.data` fields.
 
 ### 10.3 Outbound delivery validation (requires real node)
 
-1. Start the adapter with a real node connection (when implemented).
+1. Start the adapter with a real node connection (TCP or serial).
 2. Enqueue a message via `deliver(rendering_result)`.
 3. Confirm the SDK `send_chan_msg()` or `send_msg()` call completes.
 4. Check the remote node for the message.
@@ -660,7 +659,7 @@ SDK reconnect behavior (from source analysis):
 - Emits `CONNECTED` event with `reconnected: True` on successful reconnect.
 - Emits `DISCONNECTED` event with `max_attempts_exceeded: True` on final failure.
 
-**Important:** This is SDK-level reconnect, not adapter-level. When the adapter's real client code is implemented, enabling `auto_reconnect=True` in the SDK constructor would give the transport layer automatic recovery. The adapter would observe reconnection via `CONNECTED` events.
+**Important:** This is SDK-level reconnect, not adapter-level. The adapter's `MeshCoreSession` enables `auto_reconnect=True` in the SDK constructor to give the transport layer automatic recovery. The adapter observes reconnection via `CONNECTED` events.
 
 ### 12.3 What this means for operation
 
@@ -699,9 +698,9 @@ Automatic reconnection with exponential backoff and health state transitions (`h
 
 This is an honest list. Everything here is real.
 
-1. **Real client code is scaffolded.** The adapter raises `MeshCoreConnectionError` for all non-fake connection types. No real SDK client is created, no events are received, no messages are sent. See section 6.
+1. **BLE mode not yet implemented.** TCP and serial real connections work via `MeshCoreSession`. BLE connectivity is documented from SDK source analysis but not wired in the session. See section 6.
 
-2. **No automatic reconnection at adapter level.** If the connection to the node is lost, the adapter does not recover. Manual `stop()` + `start()` is required. SDK-level auto-reconnect exists but is not wired. See section 12.
+2. **No automatic reconnection at adapter level.** If the connection to the node is lost, the session attempts bounded reconnect with exponential backoff (up to 10 attempts). See section 12.
 
 3. **No outbound retry.** Failed sends are permanently dropped, not requeued. See section 9.2.
 
@@ -781,7 +780,7 @@ Use fake mode for now:
 config = MeshCoreConfig(adapter_id="meshcore-alpha", connection_type="fake")
 ```
 
-### 15.3 `MeshCoreConnectionError: Failed to create tcp client: ...` (when implemented)
+### 15.3 `MeshCoreConnectionError: Failed to create tcp client: ...`
 
 TCP connection to the node failed. Check:
 
@@ -791,7 +790,7 @@ TCP connection to the node failed. Check:
 4. Is the node connected to the network (WiFi/Ethernet)?
 5. Firewall rules blocking port 4000?
 
-### 15.4 `MeshCoreConnectionError: Failed to create serial client: ...` (when implemented)
+### 15.4 `MeshCoreConnectionError: Failed to create serial client: ...`
 
 Serial connection failed. Check:
 
