@@ -10,9 +10,8 @@ send, and receive against real hardware.
 
 **Category B — MEDRE Adapter Lifecycle Smoke Tests:**
 Exercise the MEDRE ``MeshtasticAdapter`` against a real node: start,
-health_check, and stop.  These do NOT exercise full MEDRE adapter
-``send_one`` / ``deliver`` integration with real hardware — that path
-is tested with monkeypatched clients in unit tests only.
+health_check, diagnostics, and stop.  These also exercise the
+``MeshtasticSession`` boundary for real transport lifecycle.
 
 All tests are **skipped by default** and require explicit opt-in via
 environment variables.
@@ -103,14 +102,17 @@ with a descriptive reason.
   packets.  Packet shape matches expected fields.
 - **Category B (MEDRE adapter lifecycle):** The MEDRE ``MeshtasticAdapter``
   can ``start()`` against a real node, ``health_check()`` reports
-  ``"healthy"``, and ``stop()`` disconnects cleanly.
+  ``"healthy"``, ``diagnostics()`` returns session state, and ``stop()``
+  disconnects cleanly.  The ``MeshtasticSession`` boundary owns the raw
+  transport lifecycle.
 
 **What this does NOT prove:**
 
 - Full MEDRE adapter ``send_one`` integration with real hardware (adapter's
   queue → pacing → real ``sendText`` via ``send_one`` is not exercised;
   tested with monkeypatched clients in unit tests only).
-- Production-grade reconnection handling.
+- Production-grade reconnection handling (session reconnect loop is
+  exercised in unit tests with mocked connections).
 - Multi-hop mesh delivery (tests only cover direct node communication).
 - Encrypted channel support.
 - Channel mapping or advanced routing.
@@ -318,8 +320,10 @@ class TestMeshtasticLiveSmoke:
         **Category B — MEDRE adapter lifecycle smoke test.**
 
         This validates:
-        - The adapter creates a real mtjk interface in ``start()``.
+        - The adapter creates a real MeshtasticSession in ``start()``.
         - ``health_check()`` returns ``"healthy"`` after start.
+        - ``stop()`` disconnects cleanly.
+        - ``diagnostics()`` returns session state.
 
         Note: This does NOT exercise full MEDRE ``send_one`` / ``deliver``
         integration.  The adapter lifecycle (connect → health → disconnect)
@@ -332,7 +336,7 @@ class TestMeshtasticLiveSmoke:
         adapter = MeshtasticAdapter(config)
         ctx = _make_context()
 
-        # The adapter creates a real client via _create_client() when
+        # The adapter creates a real client via session in ``start()`` when
         # mtjk is available, or raises MeshtasticConnectionError if not.
         try:
             await adapter.start(ctx)
@@ -342,6 +346,51 @@ class TestMeshtasticLiveSmoke:
             assert info.health in ("healthy", "unknown"), (
                 f"Expected healthy or unknown, got {info.health!r}"
             )
+
+            # Verify diagnostics returns session state
+            diag = adapter.diagnostics()
+            assert "session" in diag
+            assert diag["session"]["connected"] is True or config.connection_type == "fake"
+        finally:
+            await adapter.stop()
+
+    async def test_adapter_diagnostics_exposes_session_state(self):
+        """Verify diagnostics() exposes session boundary state.
+
+        **Category B — MEDRE adapter diagnostics smoke test.**
+
+        This validates:
+        - ``diagnostics()`` returns combined adapter + session state.
+        - Session diagnostics include connected, reconnecting, etc.
+        """
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+
+        config = _make_config()
+        adapter = MeshtasticAdapter(config)
+        ctx = _make_context()
+
+        try:
+            await adapter.start(ctx)
+            diag = adapter.diagnostics()
+
+            # Adapter-level diagnostics
+            assert diag["adapter_id"] == "meshtastic-live-smoke"
+            assert diag["platform"] == "meshtastic"
+            assert diag["started"] is True
+            assert diag["connection_type"] == MESHTASTIC_CONNECTION_TYPE
+
+            # Session-level diagnostics
+            assert "session" in diag
+            session = diag["session"]
+            assert "connected" in session
+            assert "reconnecting" in session
+            assert "reconnect_attempts" in session
+            assert "last_packet_time" in session
+            assert "node_id" in session
+            assert "channel_count" in session
+            assert "transient_delivery_failures" in session
+            assert "permanent_delivery_failures" in session
+            assert "last_error" in session
         finally:
             await adapter.stop()
 
@@ -499,6 +548,32 @@ class TestMeshtasticLiveSmoke:
         finally:
             pub.unsubscribe(_on_receive, "meshtastic.receive")
             await asyncio.get_event_loop().run_in_executor(None, iface.close)
+
+    # -- Start/stop cycle ---------------------------------------------------
+
+    async def test_repeated_start_stop_cycle(self):
+        """Verify the adapter can start/stop multiple times cleanly.
+
+        **Category B — MEDRE adapter lifecycle smoke test.**
+
+        This validates:
+        - Multiple start/stop cycles don't leak resources.
+        - Each restart connects cleanly.
+        - Session state is properly reset between cycles.
+        """
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+
+        config = _make_config()
+
+        for i in range(3):
+            adapter = MeshtasticAdapter(config)
+            ctx = _make_context()
+            try:
+                await adapter.start(ctx)
+                info = await adapter.health_check()
+                assert info.health in ("healthy", "unknown")
+            finally:
+                await adapter.stop()
 
     # -- Documentation tests (always pass) ----------------------------------
 

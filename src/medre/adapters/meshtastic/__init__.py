@@ -8,6 +8,8 @@ Public symbols
 --------------
 * :class:`~medre.adapters.meshtastic.adapter.MeshtasticAdapter` — the adapter
   itself.
+* :class:`~medre.adapters.meshtastic.session.MeshtasticSession` — session
+  lifecycle boundary owning raw transport.
 * :class:`~medre.adapters.meshtastic.config.MeshtasticConfig` — configuration
   dataclass.
 * :class:`~medre.adapters.meshtastic.codec.MeshtasticCodec` — decode helper.
@@ -43,6 +45,10 @@ from medre.adapters.meshtastic.packet_classifier import (
 )
 from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
+from medre.adapters.meshtastic.session import (
+    MeshtasticSession,
+    MeshtasticSessionDiagnostics,
+)
 
 __all__ = [
     "MeshtasticAdapter",
@@ -57,4 +63,6 @@ __all__ = [
     "MeshtasticOutboundQueue",
     "MeshtasticRenderer",
     "MeshtasticSendError",
+    "MeshtasticSession",
+    "MeshtasticSessionDiagnostics",
 ]

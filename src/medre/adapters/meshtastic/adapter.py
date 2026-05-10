@@ -30,14 +30,21 @@ The adapter supports four connection types configured via
     Connects via BLE using ``meshtastic.ble_interface.BLEInterface(address)``.
 
 All non-fake modes require the ``mtjk`` package.  Client creation is
-delegated to :meth:`_create_client`, which can be overridden in tests
-or monkeypatched with fake modules.
+delegated to the :class:`~medre.adapters.meshtastic.session.MeshtasticSession`,
+which can be overridden in tests or monkeypatched with fake modules.
 
 Lifecycle
 ---------
 :meth:`start` and :meth:`stop` are idempotent — calling them multiple
 times is safe.  The adapter tracks background :class:`asyncio.Task`
 instances spawned by inbound packet callbacks and drains them on stop.
+
+Session boundary
+----------------
+The adapter delegates raw transport lifecycle to
+:class:`~medre.adapters.meshtastic.session.MeshtasticSession`.
+The session owns the raw client; the adapter owns semantic conversion
+(classification, codec, event publishing).
 """
 from __future__ import annotations
 
@@ -64,6 +71,7 @@ from medre.adapters.meshtastic.errors import (
 )
 from medre.adapters.meshtastic.packet_classifier import MeshtasticPacketClassifier
 from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
+from medre.adapters.meshtastic.session import MeshtasticSession
 from medre.core.rendering.renderer import RenderingResult
 
 # Capabilities for the Meshtastic transport adapter.
@@ -94,6 +102,11 @@ class MeshtasticAdapter(BaseAdapter):
     them as canonical events.  Outbound rendered payloads are enqueued
     for paced delivery.
 
+    Delegates raw transport lifecycle to
+    :class:`~medre.adapters.meshtastic.session.MeshtasticSession`.
+    The session owns the raw client; the adapter owns semantic conversion
+    (classification, codec, event publishing).
+
     Parameters
     ----------
     config:
@@ -109,7 +122,8 @@ class MeshtasticAdapter(BaseAdapter):
         self._config = config
         self.adapter_id = config.adapter_id
         self._capabilities = _MESHTASTIC_CAPABILITIES
-        self._client: Any = None
+        self._session: MeshtasticSession | None = None
+        self._client: Any = None  # backward compat; mirrors session.client
         self._codec = MeshtasticCodec(config.adapter_id, config)
         self._classifier = MeshtasticPacketClassifier(config)
         self._queue = MeshtasticOutboundQueue(
@@ -117,7 +131,6 @@ class MeshtasticAdapter(BaseAdapter):
         )
         self.ctx: AdapterContext | None = None
         self._started: bool = False
-        self._subscribed: bool = False
         self._background_tasks: set[asyncio.Task] = set()
 
     # -- Lifecycle ----------------------------------------------------------
@@ -142,30 +155,25 @@ class MeshtasticAdapter(BaseAdapter):
 
         self.ctx = ctx
 
-        if self._config.connection_type == "fake":
-            # No real client needed for fake mode.
-            self._client = None
-        else:
-            if not HAS_MESHTASTIC:
-                raise MeshtasticConnectionError(
-                    "mtjk not installed; pip install mtjk"
-                )
-            self._client = self._create_client()
+        # Create session and delegate lifecycle
+        self._session = MeshtasticSession(
+            config=self._config,
+            adapter_id=self.adapter_id,
+            platform=self.platform,
+            logger=ctx.logger if ctx.logger else None,
+        )
 
-            # Subscribe to inbound packets via pubsub callback.
-            try:
-                self._subscribe_callbacks()
-            except Exception:
-                # Clean up client on subscription failure.
-                self._subscribed = False
-                try:
-                    close_fn = getattr(self._client, "close", None)
-                    if close_fn is not None:
-                        close_fn()
-                except Exception:
-                    pass
-                self._client = None
-                raise
+        # Register our inbound packet callback with the session
+        try:
+            await self._session.start(message_callback=self._on_packet)
+        except Exception:
+            # Clean up session on failure
+            self._session = None
+            self._client = None
+            raise
+
+        # Mirror session client for backward compat
+        self._client = self._session.client
 
         self._started = True
         ctx.logger.info(
@@ -191,18 +199,12 @@ class MeshtasticAdapter(BaseAdapter):
         # Cancel all tracked background tasks and drain them.
         await self._drain_background_tasks(timeout)
 
-        # Unsubscribe pubsub callbacks and close the client.
-        self._unsubscribe_callbacks()
-
-        if self._client is not None:
-            try:
-                close_fn = getattr(self._client, "close", None)
-                if close_fn is not None:
-                    close_fn()
-            except Exception:
-                pass
+        # Delegate stop to session
+        if self._session is not None:
+            await self._session.stop(timeout=timeout)
 
         self._client = None
+        self._session = None
         self._started = False
         if self.ctx is not None:
             self.ctx.logger.info(
@@ -212,13 +214,20 @@ class MeshtasticAdapter(BaseAdapter):
     async def health_check(self) -> AdapterInfo:
         """Return a snapshot of the adapter's current health.
 
+        Composes health from session diagnostics when available.
+
         Returns
         -------
         AdapterInfo
             Metadata describing the adapter's state.
         """
-        if self._started:
-            health = "healthy"
+        if self._started and self._session is not None:
+            if self._session.connected or self._config.connection_type == "fake":
+                health = "healthy"
+            elif self._session.reconnecting:
+                health = "degraded"
+            else:
+                health = "unknown"
         elif self._client is not None and not self._started:
             # Client exists but start did not complete — subscription failure.
             health = "failed"
@@ -242,10 +251,8 @@ class MeshtasticAdapter(BaseAdapter):
         dict already rendered by
         :class:`~medre.adapters.meshtastic.renderer.MeshtasticRenderer`.
 
-        In the current scaffold the real adapter enqueues the payload and
-        returns ``None`` — send completion is asynchronous and managed
-        by the queue's ``process_one`` loop (not by this method).
-        Tests and docs must not overclaim production connectivity.
+        For fake mode, the payload is enqueued and ``None`` is returned.
+        For real modes, the payload is enqueued for queue-based delivery.
 
         Parameters
         ----------
@@ -256,7 +263,7 @@ class MeshtasticAdapter(BaseAdapter):
         Returns
         -------
         AdapterDeliveryResult | None
-            ``None`` in scaffold mode (send is async via queue).
+            ``None`` in scaffold/fake mode (send is async via queue).
 
         Raises
         ------
@@ -282,6 +289,23 @@ class MeshtasticAdapter(BaseAdapter):
         return None
 
     # -- Inbound callback ---------------------------------------------------
+
+    def _on_receive_callback(self, packet: dict[str, Any], interface: Any = None) -> None:
+        """Pubsub callback matching the Meshtastic ``onReceive(packet, interface)`` signature.
+
+        Delegates to :meth:`_on_packet` for classification and processing.
+        This method exists on the adapter for backward compatibility with
+        tests that call it directly; the session's own ``_on_receive``
+        forwards to the adapter's ``_on_packet`` via the message_callback.
+
+        Parameters
+        ----------
+        packet:
+            Raw Meshtastic packet dict.
+        interface:
+            The interface that received the packet (unused).
+        """
+        self._on_packet(packet)
 
     def _on_packet(self, packet: dict[str, Any]) -> None:
         """Process an inbound Meshtastic packet.
@@ -370,110 +394,45 @@ class MeshtasticAdapter(BaseAdapter):
         canonical = self._codec.decode(packet)
         await self.ctx.publish_inbound(canonical)
 
-    # -- Client creation (overridable for testing) --------------------------
+    # -- Diagnostics --------------------------------------------------------
 
-    def _create_client(self) -> Any:
-        """Create a Meshtastic interface client based on config.
+    def diagnostics(self) -> dict[str, Any]:
+        """Return a diagnostic snapshot combining adapter and session state.
 
-        Uses the real ``meshtastic`` library interfaces:
-
-        * TCP: ``TCPInterface(hostname, portNumber)``
-        * Serial: ``SerialInterface(devPath)``
-        * BLE: ``BLEInterface(address)``
-
-        This method is the single injection point for client creation
-        and can be monkeypatched in tests to inject fake clients.
+        No secrets, private keys, raw protobuf dumps, or sensitive radio
+        identifiers beyond what is public.
 
         Returns
         -------
-        object
-            A Meshtastic interface instance.
-
-        Raises
-        ------
-        MeshtasticConnectionError
-            If the client cannot be created.
+        dict
+            Combined adapter + session diagnostics.
         """
-        try:
-            conn = self._config.connection_type
-            if conn == "tcp":
-                from meshtastic.tcp_interface import TCPInterface
-                assert self._config.host is not None  # validated by config
-                return TCPInterface(
-                    hostname=self._config.host,
-                    portNumber=self._config.port if self._config.port is not None else 4403,
-                )
-            elif conn == "serial":
-                from meshtastic.serial_interface import SerialInterface
-                return SerialInterface(
-                    devPath=self._config.serial_port,
-                )
-            elif conn == "ble":
-                from meshtastic.ble_interface import BLEInterface  # type: ignore[attr-defined]
-                assert self._config.ble_address is not None  # validated by config
-                return BLEInterface(
-                    address=self._config.ble_address,
-                )
-            else:
-                raise MeshtasticConnectionError(
-                    f"Unsupported connection_type: {conn!r}"
-                )
-        except MeshtasticConnectionError:
-            raise
-        except Exception as exc:
-            raise MeshtasticConnectionError(
-                f"Failed to create {self._config.connection_type} client: {exc}"
-            ) from exc
+        result: dict[str, Any] = {
+            "adapter_id": self.adapter_id,
+            "platform": self.platform,
+            "started": self._started,
+            "connection_type": self._config.connection_type,
+            "queue_pending": self._queue.pending_count,
+            "queue_total_sent": self._queue.total_sent,
+            "queue_total_failed": self._queue.total_failed,
+            "background_tasks": len(self._background_tasks),
+        }
 
-    def _subscribe_callbacks(self) -> None:
-        """Subscribe to Meshtastic pubsub callbacks for inbound packets.
+        if self._session is not None:
+            session_diag = self._session.diagnostics()
+            result["session"] = {
+                "connected": session_diag.connected,
+                "reconnecting": session_diag.reconnecting,
+                "reconnect_attempts": session_diag.reconnect_attempts,
+                "last_packet_time": session_diag.last_packet_time,
+                "node_id": session_diag.node_id,
+                "channel_count": session_diag.channel_count,
+                "transient_delivery_failures": session_diag.transient_delivery_failures,
+                "permanent_delivery_failures": session_diag.permanent_delivery_failures,
+                "last_error": session_diag.last_error,
+            }
 
-        Only called when a real client exists.  Uses ``pubsub.pub.subscribe``
-        with the ``meshtastic.receive`` topic and the ``onReceive``
-        callback signature ``(packet, interface)``.
-
-        Raises
-        ------
-        MeshtasticConnectionError
-            If callback registration fails.
-        """
-        try:
-            from pubsub import pub
-            pub.subscribe(self._on_receive_callback, "meshtastic.receive")
-        except Exception as exc:
-            raise MeshtasticConnectionError(
-                f"Failed to subscribe to meshtastic.receive: {exc}"
-            ) from exc
-        self._subscribed = True
-
-    def _unsubscribe_callbacks(self) -> None:
-        """Unsubscribe from Meshtastic pubsub callbacks.
-
-        Only attempts unsubscription if a previous subscription succeeded.
-        Failures are logged but not raised.
-        """
-        if not self._subscribed:
-            return
-        try:
-            from pubsub import pub
-            pub.unsubscribe(self._on_receive_callback, "meshtastic.receive")
-        except Exception:
-            pass
-        self._subscribed = False
-
-    def _on_receive_callback(self, packet: dict[str, Any], interface: Any = None) -> None:
-        """Pubsub callback matching the Meshtastic ``onReceive(packet, interface)`` signature.
-
-        Delegates to :meth:`_on_packet` for classification and processing.
-
-        Parameters
-        ----------
-        packet:
-            Raw Meshtastic packet dict.
-        interface:
-            The interface that received the packet (unused).
-        """
-        self._on_packet(packet)
+        return result
 
     # -- Background task management -----------------------------------------
 
@@ -500,12 +459,12 @@ class MeshtasticAdapter(BaseAdapter):
     # -- Queue / send helpers -----------------------------------------------
 
     async def send_one(self) -> AdapterDeliveryResult | None:
-        """Send one queued payload via the real client, if connected.
+        """Send one queued payload via the session, if connected.
 
-        Creates an async wrapper around the client's ``sendText`` method
+        Creates an async wrapper around the session's ``send`` method
         and delegates to :meth:`MeshtasticOutboundQueue.process_one`.
 
-        Returns ``None`` if the queue is empty or the client is not
+        Returns ``None`` if the queue is empty or the session is not
         connected (fake mode).
 
         Returns
@@ -513,19 +472,18 @@ class MeshtasticAdapter(BaseAdapter):
         AdapterDeliveryResult | None
             Delivery metadata or ``None``.
         """
-        if self._client is None:
+        session = self._session
+        if session is None or session.client is None:
             return None
 
         async def _send_fn(item: dict[str, Any]) -> Any:
             payload = item.get("payload", {})
             channel_index = item.get("channel_index", 0)
             text = str(payload.get("text", ""))
-            # sendText is synchronous; wrap in executor.
-            return await asyncio.to_thread(
-                self._client.sendText,
-                text,
-                channelIndex=channel_index,
-            )
+            return await session.send({
+                "text": text,
+                "channel_index": channel_index,
+            })
 
         return await self._queue.process_one(send_fn=_send_fn)
 

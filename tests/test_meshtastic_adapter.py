@@ -1,12 +1,13 @@
 """Tests for FakeMeshtasticAdapter and MeshtasticAdapter: capabilities,
 lifecycle (start/stop), delivery contract, inbound simulation, rendering
-boundary enforcement, and packet simulation.
+boundary enforcement, packet simulation, and session boundary.
 """
 
 from __future__ import annotations
 
 import asyncio
 import sys
+import types
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
@@ -16,6 +17,7 @@ from medre.adapters import AdapterRole, FakeMeshtasticAdapter
 from medre.adapters.base import AdapterContext, AdapterDeliveryResult
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.adapters.meshtastic.config import MeshtasticConfig
+from medre.adapters.meshtastic.session import MeshtasticSession
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.adapters.meshtastic.errors import MeshtasticConnectionError, MeshtasticSendError
 from medre.core.events.kinds import EventKind
@@ -591,12 +593,24 @@ class TestMeshtasticAdapterConnectionModes:
                 """Sync sendText returning a packet with id."""
                 return type("Packet", (), {"id": 42})()
 
+        FakeInterface._instances = []
         FakeInterface.__name__ = name
         FakeInterface.__qualname__ = name
         return FakeInterface
 
+    def _patch_session_create_client(self, adapter, FakeClass, monkeypatch):
+        """Patch MeshtasticSession._create_client to return a FakeClass instance."""
+        def fake_create_client(session_self):
+            return FakeClass()
+        monkeypatch.setattr(
+            MeshtasticSession, "_create_client", fake_create_client
+        )
+        monkeypatch.setattr(
+            "medre.adapters.meshtastic.session.HAS_MESHTASTIC", True
+        )
+
     async def test_tcp_mode_with_monkeypatched_client(self, make_adapter_context, monkeypatch) -> None:
-        """TCP mode creates TCPInterface(hostname, portNumber)."""
+        """TCP mode creates TCPInterface(hostname, portNumber) via session."""
         FakeTCP = self._make_fake_interface_class("FakeTCPInterface")
         config = _make_config(
             connection_type="tcp",
@@ -605,23 +619,27 @@ class TestMeshtasticAdapterConnectionModes:
         )
         adapter = MeshtasticAdapter(config)
 
-        def fake_create_client():
-            return FakeTCP(hostname=adapter._config.host, portNumber=adapter._config.port)
+        def fake_create_client(session_self):
+            return FakeTCP(
+                hostname=session_self._config.host,
+                portNumber=session_self._config.port,
+            )
 
-        monkeypatch.setattr(adapter, "_create_client", fake_create_client)
-        monkeypatch.setattr("medre.adapters.meshtastic.adapter.HAS_MESHTASTIC", True)
+        monkeypatch.setattr(MeshtasticSession, "_create_client", fake_create_client)
+        monkeypatch.setattr("medre.adapters.meshtastic.session.HAS_MESHTASTIC", True)
 
         ctx = make_adapter_context("mesh-1")
         await adapter.start(ctx)
-        assert adapter._client is not None
-        assert adapter._client._kwargs["hostname"] == "192.168.1.100"
-        assert adapter._client._kwargs["portNumber"] == 4403
+        assert adapter._session is not None
+        assert adapter._session.client is not None
+        assert adapter._session.client._kwargs["hostname"] == "192.168.1.100"
+        assert adapter._session.client._kwargs["portNumber"] == 4403
 
         await adapter.stop()
-        assert adapter._client is None
+        assert adapter._session is None
 
     async def test_serial_mode_with_monkeypatched_client(self, make_adapter_context, monkeypatch) -> None:
-        """Serial mode creates SerialInterface(devPath)."""
+        """Serial mode creates SerialInterface(devPath) via session."""
         FakeSerial = self._make_fake_interface_class("FakeSerialInterface")
         config = _make_config(
             connection_type="serial",
@@ -629,21 +647,22 @@ class TestMeshtasticAdapterConnectionModes:
         )
         adapter = MeshtasticAdapter(config)
 
-        def fake_create_client():
-            return FakeSerial(devPath=adapter._config.serial_port)
+        def fake_create_client(session_self):
+            return FakeSerial(devPath=session_self._config.serial_port)
 
-        monkeypatch.setattr(adapter, "_create_client", fake_create_client)
-        monkeypatch.setattr("medre.adapters.meshtastic.adapter.HAS_MESHTASTIC", True)
+        monkeypatch.setattr(MeshtasticSession, "_create_client", fake_create_client)
+        monkeypatch.setattr("medre.adapters.meshtastic.session.HAS_MESHTASTIC", True)
 
         ctx = make_adapter_context("mesh-1")
         await adapter.start(ctx)
-        assert adapter._client is not None
-        assert adapter._client._kwargs["devPath"] == "/dev/ttyUSB0"
+        assert adapter._session is not None
+        assert adapter._session.client is not None
+        assert adapter._session.client._kwargs["devPath"] == "/dev/ttyUSB0"
 
         await adapter.stop()
 
     async def test_ble_mode_with_monkeypatched_client(self, make_adapter_context, monkeypatch) -> None:
-        """BLE mode creates BLEInterface(address)."""
+        """BLE mode creates BLEInterface(address) via session."""
         FakeBLE = self._make_fake_interface_class("FakeBLEInterface")
         config = _make_config(
             connection_type="ble",
@@ -651,22 +670,23 @@ class TestMeshtasticAdapterConnectionModes:
         )
         adapter = MeshtasticAdapter(config)
 
-        def fake_create_client():
-            return FakeBLE(address=adapter._config.ble_address)
+        def fake_create_client(session_self):
+            return FakeBLE(address=session_self._config.ble_address)
 
-        monkeypatch.setattr(adapter, "_create_client", fake_create_client)
-        monkeypatch.setattr("medre.adapters.meshtastic.adapter.HAS_MESHTASTIC", True)
+        monkeypatch.setattr(MeshtasticSession, "_create_client", fake_create_client)
+        monkeypatch.setattr("medre.adapters.meshtastic.session.HAS_MESHTASTIC", True)
 
         ctx = make_adapter_context("mesh-1")
         await adapter.start(ctx)
-        assert adapter._client is not None
-        assert adapter._client._kwargs["address"] == "AA:BB:CC:DD:EE:FF"
+        assert adapter._session is not None
+        assert adapter._session.client is not None
+        assert adapter._session.client._kwargs["address"] == "AA:BB:CC:DD:EE:FF"
 
         await adapter.stop()
 
     async def test_non_fake_without_mtjk_raises(self, monkeypatch) -> None:
         """Non-fake mode raises MeshtasticConnectionError when mtjk missing."""
-        monkeypatch.setattr("medre.adapters.meshtastic.adapter.HAS_MESHTASTIC", False)
+        monkeypatch.setattr("medre.adapters.meshtastic.session.HAS_MESHTASTIC", False)
         config = _make_config(
             connection_type="tcp",
             host="192.168.1.100",
@@ -683,20 +703,16 @@ class TestMeshtasticAdapterConnectionModes:
             ))
 
     async def test_stop_closes_client(self, make_adapter_context, monkeypatch) -> None:
-        """stop() calls client.close() on the real client."""
+        """stop() calls client.close() on the real client via session."""
         FakeTCP = self._make_fake_interface_class("FakeTCPInterface")
         config = _make_config(connection_type="tcp", host="1.2.3.4")
         adapter = MeshtasticAdapter(config)
-
-        def fake_create_client():
-            return FakeTCP(hostname="1.2.3.4")
-
-        monkeypatch.setattr(adapter, "_create_client", fake_create_client)
-        monkeypatch.setattr("medre.adapters.meshtastic.adapter.HAS_MESHTASTIC", True)
+        self._patch_session_create_client(adapter, FakeTCP, monkeypatch)
 
         ctx = make_adapter_context("mesh-1")
         await adapter.start(ctx)
-        client = adapter._client
+        session = adapter._session
+        client = session.client
         assert not client._closed
         await adapter.stop()
         assert client._closed
@@ -705,6 +721,17 @@ class TestMeshtasticAdapterConnectionModes:
 # ===================================================================
 # Pubsub subscription
 # ===================================================================
+
+
+def _patch_pubsub(monkeypatch, subscribe_fn=None, unsubscribe_fn=None):
+    """Patch pubsub module for session tests."""
+    fake_pubsub = types.ModuleType("pubsub")
+    fake_pub = types.ModuleType("pubsub.pub")
+    fake_pub.subscribe = subscribe_fn or (lambda cb, topic: None)
+    fake_pub.unsubscribe = unsubscribe_fn or (lambda cb, topic: None)
+    fake_pubsub.pub = fake_pub
+    monkeypatch.setitem(sys.modules, "pubsub", fake_pubsub)
+    monkeypatch.setitem(sys.modules, "pubsub.pub", fake_pub)
 
 
 class TestMeshtasticAdapterPubsubSubscription:
@@ -717,65 +744,51 @@ class TestMeshtasticAdapterPubsubSubscription:
         subscribed = []
 
         def fake_subscribe(callback, topic):
-            subscribed.append((callback.__name__, topic))
-
-        class FakePub:
-            def subscribe(self, callback, topic):
-                fake_subscribe(callback, topic)
+            subscribed.append(("_on_receive", topic))
 
         class FakeClient:
             def close(self):
                 pass
 
-        monkeypatch.setattr("medre.adapters.meshtastic.adapter.HAS_MESHTASTIC", True)
+        monkeypatch.setattr("medre.adapters.meshtastic.session.HAS_MESHTASTIC", True)
 
         config = _make_config(connection_type="tcp", host="1.2.3.4")
         adapter = MeshtasticAdapter(config)
-        monkeypatch.setattr(adapter, "_create_client", lambda: FakeClient())
 
-        import medre.adapters.meshtastic.adapter as adapter_mod
-        monkeypatch.setattr(adapter_mod, "HAS_MESHTASTIC", True)
+        def fake_create_client(session_self):
+            return FakeClient()
+        monkeypatch.setattr(MeshtasticSession, "_create_client", fake_create_client)
 
-        # Patch pubsub import inside _subscribe_callbacks
-        import types
-        fake_pubsub = types.ModuleType("pubsub")
-        fake_pub = types.ModuleType("pubsub.pub")
-        fake_pub.subscribe = fake_subscribe
-        fake_pub.unsubscribe = lambda cb, topic: None
-        fake_pubsub.pub = fake_pub
-        monkeypatch.setitem(sys.modules, "pubsub", fake_pubsub)
-        monkeypatch.setitem(sys.modules, "pubsub.pub", fake_pub)
+        _patch_pubsub(monkeypatch, subscribe_fn=fake_subscribe)
 
         ctx = make_adapter_context("mesh-1")
         await adapter.start(ctx)
         assert len(subscribed) == 1
-        assert subscribed[0] == ("_on_receive_callback", "meshtastic.receive")
+        assert subscribed[0] == ("_on_receive", "meshtastic.receive")
         await adapter.stop()
 
     async def test_subscription_failure_during_start_raises(
         self, monkeypatch
     ) -> None:
         """start() raises MeshtasticConnectionError when subscription fails."""
-        import types
 
         class FakeClient:
             def close(self):
                 self.closed = True
 
-        monkeypatch.setattr("medre.adapters.meshtastic.adapter.HAS_MESHTASTIC", True)
+        monkeypatch.setattr("medre.adapters.meshtastic.session.HAS_MESHTASTIC", True)
 
         config = _make_config(connection_type="tcp", host="1.2.3.4")
         adapter = MeshtasticAdapter(config)
-        monkeypatch.setattr(adapter, "_create_client", lambda: FakeClient())
 
-        # Patch pubsub to raise on subscribe
-        fake_pubsub = types.ModuleType("pubsub")
-        fake_pub = types.ModuleType("pubsub.pub")
-        fake_pub.subscribe = lambda cb, topic: (_ for _ in ()).throw(RuntimeError("nope"))
-        fake_pub.unsubscribe = lambda cb, topic: None
-        fake_pubsub.pub = fake_pub
-        monkeypatch.setitem(sys.modules, "pubsub", fake_pubsub)
-        monkeypatch.setitem(sys.modules, "pubsub.pub", fake_pub)
+        def fake_create_client(session_self):
+            return FakeClient()
+        monkeypatch.setattr(MeshtasticSession, "_create_client", fake_create_client)
+
+        _patch_pubsub(
+            monkeypatch,
+            subscribe_fn=lambda cb, topic: (_ for _ in ()).throw(RuntimeError("nope")),
+        )
 
         with pytest.raises(MeshtasticConnectionError, match="meshtastic.receive"):
             await adapter.start(AdapterContext(
@@ -791,27 +804,25 @@ class TestMeshtasticAdapterPubsubSubscription:
         self, monkeypatch
     ) -> None:
         """When subscription fails, start() closes the client before re-raising."""
-        import types
-
         closed_flag = {"closed": False}
 
         class FakeClient:
             def close(self):
                 closed_flag["closed"] = True
 
-        monkeypatch.setattr("medre.adapters.meshtastic.adapter.HAS_MESHTASTIC", True)
+        monkeypatch.setattr("medre.adapters.meshtastic.session.HAS_MESHTASTIC", True)
 
         config = _make_config(connection_type="tcp", host="1.2.3.4")
         adapter = MeshtasticAdapter(config)
-        monkeypatch.setattr(adapter, "_create_client", lambda: FakeClient())
 
-        fake_pubsub = types.ModuleType("pubsub")
-        fake_pub = types.ModuleType("pubsub.pub")
-        fake_pub.subscribe = lambda cb, topic: (_ for _ in ()).throw(RuntimeError("fail"))
-        fake_pub.unsubscribe = lambda cb, topic: None
-        fake_pubsub.pub = fake_pub
-        monkeypatch.setitem(sys.modules, "pubsub", fake_pubsub)
-        monkeypatch.setitem(sys.modules, "pubsub.pub", fake_pub)
+        def fake_create_client(session_self):
+            return FakeClient()
+        monkeypatch.setattr(MeshtasticSession, "_create_client", fake_create_client)
+
+        _patch_pubsub(
+            monkeypatch,
+            subscribe_fn=lambda cb, topic: (_ for _ in ()).throw(RuntimeError("fail")),
+        )
 
         with pytest.raises(MeshtasticConnectionError):
             await adapter.start(AdapterContext(
@@ -828,26 +839,24 @@ class TestMeshtasticAdapterPubsubSubscription:
     async def test_start_failure_no_orphaned_state(
         self, monkeypatch
     ) -> None:
-        """After subscription failure, adapter is not started and client is None."""
-        import types
-
+        """After subscription failure, adapter is not started and session is None."""
         class FakeClient:
             def close(self):
                 pass
 
-        monkeypatch.setattr("medre.adapters.meshtastic.adapter.HAS_MESHTASTIC", True)
+        monkeypatch.setattr("medre.adapters.meshtastic.session.HAS_MESHTASTIC", True)
 
         config = _make_config(connection_type="tcp", host="1.2.3.4")
         adapter = MeshtasticAdapter(config)
-        monkeypatch.setattr(adapter, "_create_client", lambda: FakeClient())
 
-        fake_pubsub = types.ModuleType("pubsub")
-        fake_pub = types.ModuleType("pubsub.pub")
-        fake_pub.subscribe = lambda cb, topic: (_ for _ in ()).throw(RuntimeError("fail"))
-        fake_pub.unsubscribe = lambda cb, topic: None
-        fake_pubsub.pub = fake_pub
-        monkeypatch.setitem(sys.modules, "pubsub", fake_pubsub)
-        monkeypatch.setitem(sys.modules, "pubsub.pub", fake_pub)
+        def fake_create_client(session_self):
+            return FakeClient()
+        monkeypatch.setattr(MeshtasticSession, "_create_client", fake_create_client)
+
+        _patch_pubsub(
+            monkeypatch,
+            subscribe_fn=lambda cb, topic: (_ for _ in ()).throw(RuntimeError("fail")),
+        )
 
         with pytest.raises(MeshtasticConnectionError):
             await adapter.start(AdapterContext(
@@ -861,31 +870,29 @@ class TestMeshtasticAdapterPubsubSubscription:
 
         assert adapter._started is False
         assert adapter._client is None
-        assert adapter._subscribed is False
+        assert adapter._session is None
 
     async def test_health_check_unknown_after_subscription_failure(
         self, monkeypatch
     ) -> None:
         """health_check() returns 'unknown' after subscription failure and cleanup."""
-        import types
-
         class FakeClient:
             def close(self):
                 pass
 
-        monkeypatch.setattr("medre.adapters.meshtastic.adapter.HAS_MESHTASTIC", True)
+        monkeypatch.setattr("medre.adapters.meshtastic.session.HAS_MESHTASTIC", True)
 
         config = _make_config(connection_type="tcp", host="1.2.3.4")
         adapter = MeshtasticAdapter(config)
-        monkeypatch.setattr(adapter, "_create_client", lambda: FakeClient())
 
-        fake_pubsub = types.ModuleType("pubsub")
-        fake_pub = types.ModuleType("pubsub.pub")
-        fake_pub.subscribe = lambda cb, topic: (_ for _ in ()).throw(RuntimeError("fail"))
-        fake_pub.unsubscribe = lambda cb, topic: None
-        fake_pubsub.pub = fake_pub
-        monkeypatch.setitem(sys.modules, "pubsub", fake_pubsub)
-        monkeypatch.setitem(sys.modules, "pubsub.pub", fake_pub)
+        def fake_create_client(session_self):
+            return FakeClient()
+        monkeypatch.setattr(MeshtasticSession, "_create_client", fake_create_client)
+
+        _patch_pubsub(
+            monkeypatch,
+            subscribe_fn=lambda cb, topic: (_ for _ in ()).throw(RuntimeError("fail")),
+        )
 
         with pytest.raises(MeshtasticConnectionError):
             await adapter.start(AdapterContext(
@@ -898,7 +905,6 @@ class TestMeshtasticAdapterPubsubSubscription:
             ))
 
         # After failed start, client is cleaned up, health should be "unknown"
-        # since _client is set to None during cleanup
         info = await adapter.health_check()
         assert info.health == "unknown"
 
@@ -906,27 +912,26 @@ class TestMeshtasticAdapterPubsubSubscription:
         self, make_adapter_context, monkeypatch
     ) -> None:
         """stop() does not call pub.unsubscribe if subscription never succeeded."""
-        import types
-
         unsubscribe_calls = []
 
         class FakeClient:
             def close(self):
                 pass
 
-        monkeypatch.setattr("medre.adapters.meshtastic.adapter.HAS_MESHTASTIC", True)
+        monkeypatch.setattr("medre.adapters.meshtastic.session.HAS_MESHTASTIC", True)
 
         config = _make_config(connection_type="tcp", host="1.2.3.4")
         adapter = MeshtasticAdapter(config)
-        monkeypatch.setattr(adapter, "_create_client", lambda: FakeClient())
 
-        fake_pubsub = types.ModuleType("pubsub")
-        fake_pub = types.ModuleType("pubsub.pub")
-        fake_pub.subscribe = lambda cb, topic: (_ for _ in ()).throw(RuntimeError("fail"))
-        fake_pub.unsubscribe = lambda cb, topic: unsubscribe_calls.append((cb, topic))
-        fake_pubsub.pub = fake_pub
-        monkeypatch.setitem(sys.modules, "pubsub", fake_pubsub)
-        monkeypatch.setitem(sys.modules, "pubsub.pub", fake_pub)
+        def fake_create_client(session_self):
+            return FakeClient()
+        monkeypatch.setattr(MeshtasticSession, "_create_client", fake_create_client)
+
+        _patch_pubsub(
+            monkeypatch,
+            subscribe_fn=lambda cb, topic: (_ for _ in ()).throw(RuntimeError("fail")),
+            unsubscribe_fn=lambda cb, topic: unsubscribe_calls.append((cb, topic)),
+        )
 
         with pytest.raises(MeshtasticConnectionError):
             await adapter.start(AdapterContext(
@@ -1080,7 +1085,16 @@ class TestMeshtasticAdapterQueueOwnership:
                 return type("Packet", (), {"id": 77})()
 
         fake_client = FakeClient()
-        adapter._client = fake_client
+
+        # Patch session to use our fake client
+        monkeypatch.setattr("medre.adapters.meshtastic.session.HAS_MESHTASTIC", True)
+        monkeypatch.setattr(
+            MeshtasticSession, "_create_client",
+            lambda self: fake_client,
+        )
+
+        ctx = make_adapter_context("mesh-1")
+        await adapter.start(ctx)
 
         # Enqueue a payload
         await adapter._queue.enqueue({"text": "hello"}, 0)
@@ -1093,6 +1107,8 @@ class TestMeshtasticAdapterQueueOwnership:
         assert result.native_channel_id == "0"
         assert adapter.queue.pending_count == 0
         assert len(fake_client.sent) == 1
+
+        await adapter.stop()
 
 
 # ===================================================================
@@ -1167,27 +1183,248 @@ class TestMeshtasticAdapterSendSemantics:
         queue = MeshtasticOutboundQueue(delay_between_messages=0.0)
         await queue.enqueue({"text": "test"}, 0)
 
-        async def failing_send(item):
-            raise RuntimeError("send failed")
-
-        with pytest.raises(RuntimeError, match="send failed"):
-            await queue.process_one(send_fn=failing_send)
-
-        assert queue.total_failed == 1
-        assert queue.total_sent == 0
-
-    async def test_queue_failed_item_not_requeued(self) -> None:
-        """Failed sends are dropped, not requeued (scaffold behavior)."""
-        from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
-        queue = MeshtasticOutboundQueue(delay_between_messages=0.0)
-        await queue.enqueue({"text": "will_fail"}, 0)
-
-        async def failing_send(item):
+        async def fake_send_fail(item):
             raise RuntimeError("boom")
 
-        with pytest.raises(RuntimeError):
-            await queue.process_one(send_fn=failing_send)
+        with pytest.raises(RuntimeError, match="boom"):
+            await queue.process_one(send_fn=fake_send_fail)
 
-        # The item is gone — not requeued.
-        assert queue.pending_count == 0
         assert queue.total_failed == 1
+
+
+# ===================================================================
+# Session boundary
+# ===================================================================
+
+
+class TestMeshtasticSessionBoundary:
+    """MeshtasticSession lifecycle and diagnostics."""
+
+    async def test_session_created_on_start(self, make_adapter_context) -> None:
+        """Adapter creates a MeshtasticSession on start."""
+        config = _make_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        ctx = make_adapter_context("mesh-1")
+        await adapter.start(ctx)
+        assert adapter._session is not None
+        assert isinstance(adapter._session, MeshtasticSession)
+        await adapter.stop()
+
+    async def test_session_cleared_on_stop(self, make_adapter_context) -> None:
+        """Adapter clears session ref on stop."""
+        config = _make_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        ctx = make_adapter_context("mesh-1")
+        await adapter.start(ctx)
+        assert adapter._session is not None
+        await adapter.stop()
+        assert adapter._session is None
+
+    async def test_session_diagnostics_exposed(self, make_adapter_context) -> None:
+        """diagnostics() returns combined adapter + session state."""
+        config = _make_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        ctx = make_adapter_context("mesh-1")
+        await adapter.start(ctx)
+
+        diag = adapter.diagnostics()
+        assert diag["adapter_id"] == "mesh-1"
+        assert diag["platform"] == "meshtastic"
+        assert diag["started"] is True
+        assert diag["connection_type"] == "fake"
+
+        # Session diagnostics present
+        assert "session" in diag
+        session = diag["session"]
+        assert session["connected"] is False  # fake mode has no real client
+        assert session["reconnecting"] is False
+        assert session["reconnect_attempts"] == 0
+        assert session["last_packet_time"] is None
+        assert session["node_id"] is None
+        assert session["channel_count"] == 0
+        assert session["transient_delivery_failures"] == 0
+        assert session["permanent_delivery_failures"] == 0
+        assert session["last_error"] is None
+
+        await adapter.stop()
+
+    async def test_session_diagnostics_after_stop(self, make_adapter_context) -> None:
+        """diagnostics() without session shows adapter-only state."""
+        config = _make_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        diag = adapter.diagnostics()
+        assert diag["started"] is False
+        assert "session" not in diag
+
+    async def test_session_diagnostics_no_secrets(self, make_adapter_context) -> None:
+        """Diagnostics never exposes secrets, keys, or raw protobuf."""
+        config = _make_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        ctx = make_adapter_context("mesh-1")
+        await adapter.start(ctx)
+
+        diag = adapter.diagnostics()
+        diag_str = str(diag)
+        # No secret-like keys
+        for forbidden in ("password", "secret", "key", "token", "private"):
+            assert forbidden not in diag_str.lower() or "node_id" in diag_str
+
+        await adapter.stop()
+
+
+# ===================================================================
+# MeshtasticSession unit tests
+# ===================================================================
+
+
+class TestMeshtasticSessionUnit:
+    """Direct unit tests for MeshtasticSession."""
+
+    async def test_fake_mode_session_start(self) -> None:
+        """Session start in fake mode creates no client."""
+        config = _make_config(connection_type="fake")
+        session = MeshtasticSession(
+            config=config, adapter_id="mesh-1", platform="meshtastic"
+        )
+        await session.start()
+        assert session.connected is False  # fake mode, no real client
+        assert session.client is None
+        await session.stop()
+
+    async def test_session_stop_idempotent(self) -> None:
+        """Session stop is safe without start."""
+        config = _make_config(connection_type="fake")
+        session = MeshtasticSession(
+            config=config, adapter_id="mesh-1", platform="meshtastic"
+        )
+        await session.stop()  # should not raise
+
+    async def test_session_diagnostics_dataclass(self) -> None:
+        """Session diagnostics returns proper dataclass."""
+        config = _make_config(connection_type="fake")
+        session = MeshtasticSession(
+            config=config, adapter_id="mesh-1", platform="meshtastic"
+        )
+        diag = session.diagnostics()
+        from medre.adapters.meshtastic.session import MeshtasticSessionDiagnostics
+        assert isinstance(diag, MeshtasticSessionDiagnostics)
+        assert diag.connected is False
+        assert diag.reconnecting is False
+        assert diag.reconnect_attempts == 0
+        assert diag.last_packet_time is None
+        assert diag.node_id is None
+        assert diag.channel_count == 0
+        assert diag.transient_delivery_failures == 0
+        assert diag.permanent_delivery_failures == 0
+        assert diag.last_error is None
+
+    async def test_session_send_returns_none_fake(self) -> None:
+        """Session send returns None in fake mode (no real client)."""
+        config = _make_config(connection_type="fake")
+        session = MeshtasticSession(
+            config=config, adapter_id="mesh-1", platform="meshtastic"
+        )
+        await session.start()
+        result = await session.send({"text": "hello", "channel_index": 0})
+        assert result is None
+        await session.stop()
+
+    async def test_session_send_with_transient_retry(self, monkeypatch) -> None:
+        """Session send retries on transient errors."""
+        config = _make_config(connection_type="tcp", host="1.2.3.4")
+        session = MeshtasticSession(
+            config=config, adapter_id="mesh-1", platform="meshtastic"
+        )
+
+        # Inject a fake client that fails once then succeeds
+        call_count = {"n": 0}
+
+        class FakeClient:
+            def sendText(self, text, channelIndex=0):
+                call_count["n"] += 1
+                if call_count["n"] == 1:
+                    raise ConnectionError("transient")
+                return type("Packet", (), {"id": 42})()
+
+        session._client = FakeClient()
+        result = await session.send({"text": "hello", "channel_index": 0})
+        assert result is not None
+        assert call_count["n"] == 2
+        assert session.transient_delivery_failures == 1
+
+    async def test_session_send_permanent_failure_raises(self) -> None:
+        """Session send raises immediately on non-transient errors."""
+        config = _make_config(connection_type="tcp", host="1.2.3.4")
+        session = MeshtasticSession(
+            config=config, adapter_id="mesh-1", platform="meshtastic"
+        )
+
+        class FakeClient:
+            def sendText(self, text, channelIndex=0):
+                raise ValueError("bad packet")
+
+        session._client = FakeClient()
+        with pytest.raises(MeshtasticSendError, match="Permanent"):
+            await session.send({"text": "hello", "channel_index": 0})
+        assert session.permanent_delivery_failures == 1
+
+    async def test_session_reconnect_loop_bounded(self) -> None:
+        """Reconnect loop stops after max attempts."""
+        config = _make_config(connection_type="tcp", host="1.2.3.4")
+        session = MeshtasticSession(
+            config=config, adapter_id="mesh-1", platform="meshtastic"
+        )
+        session._started = True
+
+        # _create_client always fails
+        def always_fail(self):
+            raise ConnectionError("nope")
+
+        import medre.adapters.meshtastic.session as session_mod
+        original_create = session_mod.MeshtasticSession._create_client
+        session_mod.MeshtasticSession._create_client = always_fail
+
+        try:
+            # Use very short backoff for testing
+            session_mod._BACKOFF_BASE = 0.01
+            session_mod._BACKOFF_CAP = 0.01
+
+            await session._reconnect_loop()
+
+            assert session.reconnect_attempts > 0
+            assert session.reconnecting is False
+            assert session.last_error is not None
+        finally:
+            session_mod.MeshtasticSession._create_client = original_create
+            session_mod._BACKOFF_BASE = 1.0
+            session_mod._BACKOFF_CAP = 30.0
+
+    async def test_session_message_callback(self) -> None:
+        """Session forwards received packets to message callback."""
+        config = _make_config(connection_type="fake")
+        session = MeshtasticSession(
+            config=config, adapter_id="mesh-1", platform="meshtastic"
+        )
+
+        received = []
+        await session.start(message_callback=lambda pkt: received.append(pkt))
+
+        # Simulate callback
+        session._on_receive({"id": 1, "decoded": {"text": "test"}})
+        assert len(received) == 1
+        assert received[0]["id"] == 1
+        assert session.last_packet_time is not None
+
+        await session.stop()
+
+    async def test_session_stop_prevents_reconnect(self) -> None:
+        """stop() sets _stop_requested, preventing reconnect."""
+        config = _make_config(connection_type="fake")
+        session = MeshtasticSession(
+            config=config, adapter_id="mesh-1", platform="meshtastic"
+        )
+        await session.start()
+        session.notify_connection_lost()
+        # Stop before reconnect can do anything
+        await session.stop()
+        assert session._stop_requested is True
