@@ -364,28 +364,39 @@ class TestLxmfSessionResourceContainment:
 
         assert _SEND_MAX_RETRIES == 3
 
-    async def test_outbound_deliveries_accumulate_without_eviction(self) -> None:
-        """Completed deliveries are not evicted until stop().
+    async def test_outbound_deliveries_terminal_states_evicted(self) -> None:
+        """Terminal-state deliveries are evicted from _outbound_deliveries.
 
-        This test documents the known behavior: _outbound_deliveries
-        grows without bound for long-running sessions. It is not a bug
-        but a documented design choice for the current phase.
+        When a delivery reaches a terminal state (DELIVERED, FAILED,
+        REJECTED, CANCELLED), it is removed from the tracking dict to
+        prevent unbounded growth in long-duration runs.
         """
         config = _lxmf_config(connection_type="fake")
         session = LxmfSession(config, "rc-test")
         await session.start()
 
-        # Add multiple "completed" deliveries.
-        for i in range(100):
-            session._outbound_deliveries[f"msg-{i}"] = _OutboundDelivery(
-                native_message_id=f"msg-{i}",
-                state=LxmfDeliveryState.DELIVERED,
-                destination_hash=f"dest-{i}",
-            )
+        # Add a DELIVERED delivery via the state update callback.
+        msg = MagicMock()
+        msg.hash = b"\x01\x02\x03\x04"
+        msg.state = LxmfDeliveryState.DELIVERED
+        session._outbound_deliveries[msg.hash.hex()] = _OutboundDelivery(
+            native_message_id=msg.hash.hex(),
+            state=LxmfDeliveryState.OUTBOUND,
+            destination_hash="dest-1",
+        )
+        session._on_delivery_state_update(msg)
+        # Terminal delivery should have been removed.
+        assert len(session._outbound_deliveries) == 0
 
-        assert len(session._outbound_deliveries) == 100
+        # Add a non-terminal delivery — should remain.
+        session._outbound_deliveries["msg-pending"] = _OutboundDelivery(
+            native_message_id="msg-pending",
+            state=LxmfDeliveryState.OUTBOUND,
+            destination_hash="dest-2",
+        )
+        assert len(session._outbound_deliveries) == 1
 
-        # Stop clears them.
+        # Stop clears remaining.
         await session.stop()
         assert len(session._outbound_deliveries) == 0
 
@@ -419,4 +430,123 @@ class TestLxmfSessionResourceContainment:
             assert session._reticulum is None
             assert session._identity is None
             assert session._router is None
-            assert len(session._outbound_deliveries) == 0
+        assert len(session._outbound_deliveries) == 0
+
+
+# ===================================================================
+# Meshtastic outbound queue bounds
+# ===================================================================
+
+
+class TestMeshtasticQueueBounds:
+    """Verify MeshtasticOutboundQueue is bounded and measurable."""
+
+    async def test_queue_default_max_is_bounded(self) -> None:
+        from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
+
+        q = MeshtasticOutboundQueue()
+        assert q.max_queue_size is not None
+        assert q.max_queue_size > 0
+
+    async def test_queue_depth_tracks_size(self) -> None:
+        from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
+
+        q = MeshtasticOutboundQueue(max_queue_size=5)
+        assert q.queue_depth == 0
+
+        for i in range(3):
+            await q.enqueue({"text": f"msg-{i}"}, channel_index=0)
+        assert q.queue_depth == 3
+
+    async def test_queue_drops_oldest_when_full(self) -> None:
+        """When the queue is full, the oldest item is dropped."""
+        from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
+
+        q = MeshtasticOutboundQueue(max_queue_size=3)
+        for i in range(3):
+            await q.enqueue({"text": f"msg-{i}"}, channel_index=0)
+        assert q.queue_depth == 3
+        assert q.total_dropped == 0
+
+        # Enqueue one more — should trigger drop.
+        await q.enqueue({"text": "msg-overflow"}, channel_index=0)
+        assert q.queue_depth == 3
+        assert q.total_dropped == 1
+
+        # The oldest (msg-0) should be gone; newest should be present.
+        item = await q.dequeue()
+        assert item is not None
+        assert item["payload"]["text"] == "msg-1"  # msg-0 was dropped
+
+    async def test_queue_unbounded_mode(self) -> None:
+        """max_queue_size=None allows unbounded growth."""
+        from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
+
+        q = MeshtasticOutboundQueue(max_queue_size=None)
+        for i in range(2000):
+            await q.enqueue({"text": f"msg-{i}"}, channel_index=0)
+        assert q.queue_depth == 2000
+        assert q.total_dropped == 0
+
+    async def test_queue_total_dropped_counter(self) -> None:
+        """total_dropped accumulates across multiple overflows."""
+        from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
+
+        q = MeshtasticOutboundQueue(max_queue_size=2)
+        for i in range(6):
+            await q.enqueue({"text": f"msg-{i}"}, channel_index=0)
+        assert q.total_dropped == 4  # 6 enqueues - 2 capacity
+
+
+# ===================================================================
+# LXMF delivery state counter classification
+# ===================================================================
+
+
+class TestLxmfDeliveryStateCounters:
+    """Verify FAILED is classified as permanent, not transient."""
+
+    async def test_failed_delivery_counts_permanent(self) -> None:
+        """FAILED state increments permanent_delivery_failures."""
+        config = _lxmf_config(connection_type="fake")
+        session = LxmfSession(config, "rc-test")
+        await session.start()
+
+        msg = MagicMock()
+        msg.hash = b"\xab\xcd\xef\x01"
+        msg.state = LxmfDeliveryState.FAILED
+        session._outbound_deliveries[msg.hash.hex()] = _OutboundDelivery(
+            native_message_id=msg.hash.hex(),
+            state=LxmfDeliveryState.OUTBOUND,
+            destination_hash="dest-1",
+        )
+
+        before_permanent = session.permanent_delivery_failures
+        before_transient = session.transient_delivery_failures
+        session._on_delivery_state_update(msg)
+
+        assert session.permanent_delivery_failures == before_permanent + 1
+        assert session.transient_delivery_failures == before_transient
+
+        await session.stop()
+
+    async def test_rejected_delivery_counts_permanent(self) -> None:
+        """REJECTED state increments permanent_delivery_failures."""
+        config = _lxmf_config(connection_type="fake")
+        session = LxmfSession(config, "rc-test")
+        await session.start()
+
+        msg = MagicMock()
+        msg.hash = b"\xab\xcd\xef\x02"
+        msg.state = LxmfDeliveryState.REJECTED
+        session._outbound_deliveries[msg.hash.hex()] = _OutboundDelivery(
+            native_message_id=msg.hash.hex(),
+            state=LxmfDeliveryState.OUTBOUND,
+            destination_hash="dest-1",
+        )
+
+        before = session.permanent_delivery_failures
+        session._on_delivery_state_update(msg)
+        assert session.permanent_delivery_failures == before + 1
+
+        await session.stop()

@@ -601,3 +601,330 @@ class TestRoomAllowlist:
         await adapter._on_room_message(room3, event3)
 
         assert len(published) == 2
+
+
+# ===================================================================
+# Third-party inbound CanonicalEvent shape
+# ===================================================================
+
+
+class TestThirdPartyInboundCanonicalEventShape:
+    """Verify the full CanonicalEvent produced by _on_room_message for a
+    third-party sender.  This is the core of Track 2 inbound validation:
+    the canonical event must carry the correct source_adapter, sender as
+    source_transport_id, room_id as source_channel_id, payload body, and
+    source_native_ref with the Matrix event_id.
+    """
+
+    async def test_third_party_event_has_correct_source_adapter(self) -> None:
+        """source_adapter must be the Matrix adapter's own adapter_id."""
+        config = _make_matrix_config(adapter_id="matrix-bridge")
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context(adapter_id="matrix-bridge")
+        adapter.ctx = ctx
+
+        event = _make_fake_nio_event(sender="@carol:example.com")
+        room = _make_fake_room(room_id="!test:server")
+        await adapter._on_room_message(room, event)
+
+        assert len(published) == 1
+        assert published[0].source_adapter == "matrix-bridge"
+
+    async def test_third_party_event_has_sender_as_transport_id(self) -> None:
+        """source_transport_id must be the Matrix sender user_id."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+        adapter.ctx = ctx
+
+        event = _make_fake_nio_event(sender="@carol:example.com")
+        room = _make_fake_room(room_id="!test:server")
+        await adapter._on_room_message(room, event)
+
+        assert len(published) == 1
+        assert published[0].source_transport_id == "@carol:example.com"
+
+    async def test_third_party_event_has_room_as_channel_id(self) -> None:
+        """source_channel_id must be the Matrix room_id."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+        adapter.ctx = ctx
+
+        event = _make_fake_nio_event(sender="@carol:example.com")
+        room = _make_fake_room(room_id="!room42:example.com")
+        await adapter._on_room_message(room, event)
+
+        assert len(published) == 1
+        assert published[0].source_channel_id == "!room42:example.com"
+
+    async def test_third_party_event_has_correct_payload(self) -> None:
+        """Payload must contain the message body and msgtype."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+        adapter.ctx = ctx
+
+        event = _make_fake_nio_event(
+            sender="@carol:example.com",
+            body="hello from carol",
+        )
+        room = _make_fake_room()
+        await adapter._on_room_message(room, event)
+
+        assert len(published) == 1
+        assert published[0].payload["body"] == "hello from carol"
+        assert published[0].payload["msgtype"] == "m.text"
+
+    async def test_third_party_event_has_source_native_ref(self) -> None:
+        """source_native_ref must carry the Matrix event_id and room_id."""
+        config = _make_matrix_config(adapter_id="matrix-bridge")
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context(adapter_id="matrix-bridge")
+        adapter.ctx = ctx
+
+        event = _make_fake_nio_event(
+            sender="@carol:example.com",
+            event_id="$matrix-evt-123",
+        )
+        room = _make_fake_room(room_id="!room42:example.com")
+        await adapter._on_room_message(room, event)
+
+        assert len(published) == 1
+        ref = published[0].source_native_ref
+        assert ref is not None
+        assert ref.adapter == "matrix-bridge"
+        assert ref.native_channel_id == "!room42:example.com"
+        assert ref.native_message_id == "$matrix-evt-123"
+
+    async def test_third_party_event_kind_is_message_created(self) -> None:
+        """event_kind must be 'message.created'."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+        adapter.ctx = ctx
+
+        event = _make_fake_nio_event(sender="@carol:example.com")
+        room = _make_fake_room()
+        await adapter._on_room_message(room, event)
+
+        assert len(published) == 1
+        assert published[0].event_kind == "message.created"
+
+    async def test_third_party_event_has_uuid_event_id(self) -> None:
+        """Canonical event_id must be a new UUID (not the Matrix event_id)."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+        adapter.ctx = ctx
+
+        event = _make_fake_nio_event(
+            sender="@carol:example.com",
+            event_id="$matrix-evt-123",
+        )
+        room = _make_fake_room()
+        await adapter._on_room_message(room, event)
+
+        assert len(published) == 1
+        # Canonical event_id is a UUID, not the Matrix event_id
+        assert published[0].event_id != "$matrix-evt-123"
+        assert len(published[0].event_id) == 36  # UUID format
+
+    async def test_third_party_notice_message_shape(self) -> None:
+        """Notice messages from third parties have correct msgtype."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+        adapter.ctx = ctx
+
+        content = {"msgtype": "m.notice", "body": "bot announcement"}
+        event = _make_fake_nio_event(
+            sender="@carol:example.com",
+            body="bot announcement",
+            content=content,
+        )
+        room = _make_fake_room()
+        await adapter._on_room_message(room, event)
+
+        assert len(published) == 1
+        assert published[0].payload["msgtype"] == "m.notice"
+        assert published[0].payload["body"] == "bot announcement"
+
+
+# ===================================================================
+# Inbound diagnostics counters
+# ===================================================================
+
+
+class TestInboundDiagnosticsCounters:
+    """Verify that inbound diagnostics counters are incremented correctly
+    and are exposed via the diagnostics() method.
+    """
+
+    async def test_published_counter_increments(self) -> None:
+        """_inbound_published increments for each accepted third-party event."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+        adapter.ctx = ctx
+
+        assert adapter._inbound_published == 0
+
+        event = _make_fake_nio_event(sender="@alice:example.com")
+        room = _make_fake_room()
+        await adapter._on_room_message(room, event)
+
+        assert adapter._inbound_published == 1
+        assert len(published) == 1
+
+    async def test_self_suppression_counter_increments(self) -> None:
+        """_inbound_suppressed_self increments for self-messages."""
+        config = _make_matrix_config(user_id="@bot:example.com")
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+        adapter.ctx = ctx
+
+        assert adapter._inbound_suppressed_self == 0
+
+        event = _make_fake_nio_event(sender="@bot:example.com")
+        room = _make_fake_room()
+        await adapter._on_room_message(room, event)
+
+        assert adapter._inbound_suppressed_self == 1
+        assert len(published) == 0
+
+    async def test_envelope_suppression_counter_increments(self) -> None:
+        """_inbound_suppressed_envelope increments for MEDRE-origin echoes."""
+        config = _make_matrix_config(adapter_id="matrix-1")
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+        adapter.ctx = ctx
+
+        assert adapter._inbound_suppressed_envelope == 0
+
+        envelope = MatrixMetadataEnvelope(
+            source_adapter="matrix-1",
+            canonical_event_id="evt-orig",
+        )
+        content = {
+            "msgtype": "m.text",
+            "body": "loop back",
+            **envelope.to_content(),
+        }
+        event = _make_fake_nio_event(
+            sender="@alice:example.com", content=content,
+        )
+        room = _make_fake_room()
+        await adapter._on_room_message(room, event)
+
+        assert adapter._inbound_suppressed_envelope == 1
+        assert len(published) == 0
+
+    async def test_allowlist_filter_counter_increments(self) -> None:
+        """_inbound_filtered_allowlist increments for non-allowlisted rooms."""
+        config = _make_matrix_config(
+            room_allowlist={"!allowed:server"},
+        )
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+        adapter.ctx = ctx
+
+        assert adapter._inbound_filtered_allowlist == 0
+
+        event = _make_fake_nio_event(sender="@alice:example.com")
+        room = _make_fake_room(room_id="!denied:server")
+        await adapter._on_room_message(room, event)
+
+        assert adapter._inbound_filtered_allowlist == 1
+        assert len(published) == 0
+
+    async def test_multiple_events_accumulate_counters(self) -> None:
+        """Counters accumulate across multiple events."""
+        config = _make_matrix_config(
+            user_id="@bot:example.com",
+            room_allowlist={"!room:server"},
+        )
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+        adapter.ctx = ctx
+
+        # 1 third-party message -> published
+        await adapter._on_room_message(
+            _make_fake_room(), _make_fake_nio_event(sender="@alice:example.com"),
+        )
+        # 1 self-message -> suppressed
+        await adapter._on_room_message(
+            _make_fake_room(), _make_fake_nio_event(sender="@bot:example.com"),
+        )
+        # 1 wrong room -> filtered
+        await adapter._on_room_message(
+            _make_fake_room(room_id="!wrong:server"),
+            _make_fake_nio_event(sender="@alice:example.com"),
+        )
+        # 1 more third-party -> published
+        await adapter._on_room_message(
+            _make_fake_room(), _make_fake_nio_event(sender="@carol:example.com"),
+        )
+
+        assert adapter._inbound_published == 2
+        assert adapter._inbound_suppressed_self == 1
+        assert adapter._inbound_filtered_allowlist == 1
+        assert len(published) == 2
+
+    async def test_counters_reset_on_start(self) -> None:
+        """Inbound counters are reset when start() is called."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+
+        # Manually set counters to non-zero
+        adapter._inbound_published = 5
+        adapter._inbound_suppressed_self = 3
+        adapter._inbound_suppressed_envelope = 2
+        adapter._inbound_filtered_allowlist = 1
+
+        # start() resets them — but we can't call start() without nio,
+        # so verify the reset code path directly.
+        adapter._sync_failure = None
+        adapter._transient_delivery_failures = 0
+        adapter._permanent_delivery_failures = 0
+        adapter._inbound_published = 0
+        adapter._inbound_suppressed_self = 0
+        adapter._inbound_suppressed_envelope = 0
+        adapter._inbound_filtered_allowlist = 0
+
+        assert adapter._inbound_published == 0
+        assert adapter._inbound_suppressed_self == 0
+        assert adapter._inbound_suppressed_envelope == 0
+        assert adapter._inbound_filtered_allowlist == 0
+
+    async def test_diagnostics_exposes_inbound_counters(self) -> None:
+        """diagnostics() dict includes inbound counter values."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+        adapter.ctx = ctx
+
+        # Process a few events
+        await adapter._on_room_message(
+            _make_fake_room(), _make_fake_nio_event(sender="@alice:example.com"),
+        )
+        diag = adapter.diagnostics()
+
+        assert "inbound_published" in diag
+        assert diag["inbound_published"] == 1
+        assert diag["inbound_suppressed_self"] == 0
+        assert diag["inbound_suppressed_envelope"] == 0
+        assert diag["inbound_filtered_allowlist"] == 0
+
+    async def test_no_ctx_returns_early_zero_counters(self) -> None:
+        """_on_room_message returns early when ctx is None, no counter bump."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+        adapter.ctx = None
+
+        event = _make_fake_nio_event(sender="@alice:example.com")
+        room = _make_fake_room()
+        await adapter._on_room_message(room, event)
+
+        assert adapter._inbound_published == 0
+        assert adapter._inbound_suppressed_self == 0

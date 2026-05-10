@@ -117,6 +117,11 @@ class MatrixAdapter(BaseAdapter):
         # Track 5 — delivery retry stats
         "_transient_delivery_failures",
         "_permanent_delivery_failures",
+        # Inbound diagnostics counters
+        "_inbound_published",
+        "_inbound_suppressed_self",
+        "_inbound_suppressed_envelope",
+        "_inbound_filtered_allowlist",
     )
 
     adapter_id: str
@@ -139,6 +144,11 @@ class MatrixAdapter(BaseAdapter):
         # Track 5
         self._transient_delivery_failures: int = 0
         self._permanent_delivery_failures: int = 0
+        # Inbound diagnostics counters
+        self._inbound_published: int = 0
+        self._inbound_suppressed_self: int = 0
+        self._inbound_suppressed_envelope: int = 0
+        self._inbound_filtered_allowlist: int = 0
 
     @property
     def _sync_failure(self) -> Exception | None:
@@ -173,6 +183,11 @@ class MatrixAdapter(BaseAdapter):
         # Track 5 — reset delivery stats on start
         self._transient_delivery_failures = 0
         self._permanent_delivery_failures = 0
+        # Inbound diagnostics — reset on start
+        self._inbound_published = 0
+        self._inbound_suppressed_self = 0
+        self._inbound_suppressed_envelope = 0
+        self._inbound_filtered_allowlist = 0
         self.ctx = ctx
 
         if not HAS_NIO:
@@ -445,11 +460,13 @@ class MatrixAdapter(BaseAdapter):
         # Apply room allowlist filter
         if self._config.room_allowlist is not None:
             if room.room_id not in self._config.room_allowlist:
+                self._inbound_filtered_allowlist += 1
                 return
 
         # Self-message suppression: skip events sent by our own user.
         sender = getattr(event, "sender", "")
         if sender == self._config.user_id:
+            self._inbound_suppressed_self += 1
             self.ctx.logger.debug(
                 "MatrixAdapter %s: suppressing self-message from %s",
                 self.adapter_id,
@@ -467,6 +484,7 @@ class MatrixAdapter(BaseAdapter):
             content = getattr(event, "source", {}).get("content", {})
             envelope = self._envelope_handler.from_content(content)
             if envelope is not None and envelope.source_adapter == self.adapter_id:
+                self._inbound_suppressed_envelope += 1
                 self.ctx.logger.debug(
                     "MatrixAdapter %s: suppressing MEDRE-origin event "
                     "from same adapter",
@@ -475,6 +493,7 @@ class MatrixAdapter(BaseAdapter):
                 return
 
             await self.ctx.publish_inbound(canonical)
+            self._inbound_published += 1
         except Exception:
             if self.ctx is not None:
                 self.ctx.logger.exception(
@@ -530,6 +549,11 @@ class MatrixAdapter(BaseAdapter):
                 # Track 5 — delivery stats
                 "transient_delivery_failures": self._transient_delivery_failures,
                 "permanent_delivery_failures": self._permanent_delivery_failures,
+                # Inbound diagnostics counters
+                "inbound_published": self._inbound_published,
+                "inbound_suppressed_self": self._inbound_suppressed_self,
+                "inbound_suppressed_envelope": self._inbound_suppressed_envelope,
+                "inbound_filtered_allowlist": self._inbound_filtered_allowlist,
             }
         return {
             "connected": False,
@@ -556,4 +580,9 @@ class MatrixAdapter(BaseAdapter):
             # Track 5
             "transient_delivery_failures": self._transient_delivery_failures,
             "permanent_delivery_failures": self._permanent_delivery_failures,
+            # Inbound diagnostics counters
+            "inbound_published": self._inbound_published,
+            "inbound_suppressed_self": self._inbound_suppressed_self,
+            "inbound_suppressed_envelope": self._inbound_suppressed_envelope,
+            "inbound_filtered_allowlist": self._inbound_filtered_allowlist,
         }

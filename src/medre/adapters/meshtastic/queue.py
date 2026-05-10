@@ -21,15 +21,29 @@ item is **permanently dropped** — it is NOT requeued or retried.  The
 queue increments ``total_failed`` and re-raises the exception to the
 caller.  Production-grade retry / requeue logic is explicitly deferred
 to a future tranche.  This is a scaffold design choice, not a bug.
+
+Queue bounds
+------------
+The internal deque is bounded by ``max_queue_size`` (default 1024).
+When the queue is full, the **oldest** item is silently dropped to make
+room for the new enqueue.  This prevents unbounded memory growth in
+long-duration runs where outbound throughput exceeds send capacity.
+The ``total_dropped`` counter tracks how many items were shed.
 """
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from collections import deque
 from typing import Any, Callable, Awaitable
 
 from medre.adapters.base import AdapterDeliveryResult
+
+_logger = logging.getLogger(__name__)
+
+# Default maximum queue size.  When full, oldest items are dropped.
+_DEFAULT_MAX_QUEUE_SIZE: int = 1024
 
 
 class MeshtasticOutboundQueue:
@@ -39,22 +53,52 @@ class MeshtasticOutboundQueue:
     ----------
     delay_between_messages:
         Minimum delay in seconds between consecutive outbound messages.
+    max_queue_size:
+        Maximum number of queued items.  When exceeded, the oldest item
+        is silently dropped.  ``None`` means unbounded (not recommended
+        for production).
     """
 
-    def __init__(self, delay_between_messages: float = 0.5) -> None:
+    def __init__(
+        self,
+        delay_between_messages: float = 0.5,
+        max_queue_size: int | None = _DEFAULT_MAX_QUEUE_SIZE,
+    ) -> None:
         self._delay = delay_between_messages
-        self._queue: deque[dict[str, Any]] = deque()
+        self._max_queue_size = max_queue_size
+        self._queue: deque[dict[str, Any]] = deque(
+            maxlen=max_queue_size,
+        )
         self._last_send_time: float = 0.0
         self._total_sent: int = 0
         self._total_failed: int = 0
+        self._total_dropped: int = 0
 
     @property
     def delay_between_messages(self) -> float:
         """Minimum seconds between consecutive outbound messages."""
         return self._delay
 
+    @property
+    def max_queue_size(self) -> int | None:
+        """Maximum queue capacity, or ``None`` if unbounded."""
+        return self._max_queue_size
+
+    @property
+    def queue_depth(self) -> int:
+        """Current number of items waiting in the queue."""
+        return len(self._queue)
+
+    @property
+    def total_dropped(self) -> int:
+        """Number of items dropped due to queue overflow."""
+        return self._total_dropped
+
     async def enqueue(self, payload: dict[str, Any], channel_index: int) -> None:
         """Enqueue a payload for delivery.
+
+        When the queue is at capacity, the oldest item is silently
+        dropped and ``total_dropped`` is incremented.
 
         Parameters
         ----------
@@ -63,6 +107,17 @@ class MeshtasticOutboundQueue:
         channel_index:
             The target radio channel index.
         """
+        # Detect overflow: deque with maxlen silently drops from the
+        # left (oldest) when append would exceed capacity.
+        if (
+            self._max_queue_size is not None
+            and len(self._queue) >= self._max_queue_size
+        ):
+            self._total_dropped += 1
+            _logger.warning(
+                "MeshtasticOutboundQueue full (%d items); dropping oldest",
+                self._max_queue_size,
+            )
         self._queue.append({
             "payload": payload,
             "channel_index": channel_index,

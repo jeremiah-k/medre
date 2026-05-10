@@ -921,5 +921,47 @@ class TestMatrixLiveSmoke:
                     f"Expected sender {inbound_sender!r}, "
                     f"got {matched_sender!r}"
                 )
+
+            # Track 2 — validate CanonicalEvent shape for third-party inbound
+            assert found_event.source_adapter == "matrix-live-smoke", (
+                f"Expected source_adapter 'matrix-live-smoke', "
+                f"got {found_event.source_adapter!r}"
+            )
+            assert found_event.event_kind == "message.created", (
+                f"Expected event_kind 'message.created', "
+                f"got {found_event.event_kind!r}"
+            )
+            assert found_event.source_channel_id == MATRIX_ROOM_ID, (
+                f"Expected source_channel_id {MATRIX_ROOM_ID!r}, "
+                f"got {found_event.source_channel_id!r}"
+            )
+            assert isinstance(found_event.payload, dict), (
+                f"Expected payload dict, got {type(found_event.payload)}"
+            )
+            assert "body" in found_event.payload, (
+                "Payload missing 'body' key"
+            )
+
+            # Validate source_native_ref carries the Matrix event_id
+            ref = getattr(found_event, "source_native_ref", None)
+            assert ref is not None, "source_native_ref is None"
+            assert ref.native_message_id, (
+                "source_native_ref.native_message_id is empty"
+            )
+            assert ref.adapter == "matrix-live-smoke", (
+                f"Expected ref.adapter 'matrix-live-smoke', "
+                f"got {ref.adapter!r}"
+            )
+
+            # Validate diagnostics counters
+            assert adapter._inbound_published >= 1, (
+                f"Expected inbound_published >= 1, "
+                f"got {adapter._inbound_published}"
+            )
+            diag = adapter.diagnostics()
+            assert diag["inbound_published"] >= 1, (
+                f"Diagnostics should report inbound_published >= 1, "
+                f"got {diag['inbound_published']}"
+            )
         finally:
             await adapter.stop()

@@ -20,7 +20,7 @@ These items are blocking. Beta cannot ship without them.
 
 | # | Item | Current Status | Live Validation Evidence | Gap |
 |---|------|---------------|--------------------------|-----|
-| M1 | All four adapters pass unit test suite | ✅ Satisfied | Unit run 2026-05-10: 2049/2049 pass, 57 deselected. `compileall` clean. All adapter-specific tests pass. | None. |
+| M1 | All four adapters pass unit test suite | ✅ Satisfied | Unit run 2026-05-10: 2127/2127 pass, 61 deselected. `compileall` clean. All adapter-specific tests pass. | None. |
 | M2 | All four adapters have live test harness files | ✅ Satisfied | Harnesses confirmed: `test_matrix_live.py`, `test_meshtastic_live.py`, `test_meshcore_live.py`, `test_lxmf_live.py`. All use `pytest.mark.live` and `@require_live` skip guards. | Harnesses exist but have not been run against real endpoints. See section 1.3.2 for live run status. |
 | M3 | All four adapters have fake mode implementations | ✅ Satisfied | Confirmed: `FakeMatrixAdapter` (`fake_matrix.py`), `FakeMeshtasticAdapter` (`fake_meshtastic.py`), `FakeMeshCoreAdapter` (`fake_meshcore.py`), `FakeLxmfAdapter` (`fake_lxmf.py`). | None. |
 | M4 | Diagnostics contract documented (contract 29) | ✅ Satisfied | File exists with substantial content. Verified 2026-05-10. | None. |
@@ -53,7 +53,7 @@ This section records the live validation status of all test harnesses and unit s
 
 | Suite | Run Date | Result | Details |
 |-------|----------|--------|---------|
-| Full unit suite (non-live) | 2026-05-10 | ✅ 2049 passed, 57 deselected | All tests pass. `python -m compileall -q src tests` clean. `PYTHONPATH=src pytest -q`: 2049 passed, 57 deselected. |
+| Full unit suite (non-live) | 2026-05-10 | ✅ 2127 passed, 61 deselected | All tests pass. `python -m compileall -q src tests` clean. `PYTHONPATH=src pytest -q`: 2127 passed, 61 deselected. |
 | `test_delivery.py` | 2026-05-10 | ✅ 65/65 pass | Delivery receipt pipeline fully unit-tested. |
 | Live tests (56 tests across 5 files) | 2026-05-10 | ✅ Matrix 13/13 pass, Meshtastic 10/10 pass | Matrix and Meshtastic live harnesses run against real endpoints. MeshCore, LXMF, Matrix inbound remain skipped. |
 
@@ -305,7 +305,7 @@ A beta release requires:
 2. **All packaging items (P1-P6) verified.** → ✅ All 6/6 satisfied. SDK deps now floor-pinned from verified local repos.
 3. **All live test results recorded in runbooks.** → Currently 2/4 recorded (Matrix ✅, Meshtastic ✅; MeshCore and LXMF not yet run).
 4. **All four contract documents (29-32) published.** → ✅ All published.
-5. **No critical regressions in existing unit test suite.** → ✅ 2049/2049 pass, 57 deselected. Clean suite.
+5. **No critical regressions in existing unit test suite.** → ✅ 2127/2127 pass, 61 deselected. Clean suite.
 
 Should-have items (S1-S11) are strongly recommended. If any remain unsatisfied at beta, they must be documented as known limitations in the release notes.
 
@@ -326,7 +326,7 @@ As of 2026-05-10, head `7046ecc`:
 
 | # | Item | Notes |
 |---|------|-------|
-| R1 | ~~Fix `test_diagnostic_contract.py` regression~~ | ✅ Resolved. `_sanitize_value()` refactor complete; 2049/2049 pass. No remaining regression. |
+| R1 | ~~Fix `test_diagnostic_contract.py` regression~~ | ✅ Resolved. `_sanitize_value()` refactor complete; full suite passes. No remaining regression. |
 | R2 | ~~Document secure token/identity handling in runbooks~~ | ✅ Resolved. `docs/runbooks/secure-credentials.md` created. |
 | R3 | ~~Document fire-and-forget limitations for radio transports~~ | ✅ Resolved. `docs/contracts/36-radio-limitations.md` created. |
 | R4 | Test or document BLE mode as unsupported (MeshCore) | BLE constructor exists but untested. |
@@ -338,7 +338,7 @@ After this beta validation update, the recommended next tranche should focus on 
 
 ### Tranche Priority Order
 
-1. ~~**Fix the diagnostic contract regression (R1).**~~ ✅ Done. Resolved in `_sanitize_value()` refactor. 2049/2049 pass.
+1. ~~**Fix the diagnostic contract regression (R1).**~~ ✅ Done. Resolved in `_sanitize_value()` refactor. Full suite passes.
 
 2. ~~**Run Matrix live smoke tests (B1: M11, M12).**~~ ✅ Done. Matrix plaintext 13/13, Matrix E2EE 7/7 (post-fix `ignore_unverified_devices=True`).
 

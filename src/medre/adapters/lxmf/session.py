@@ -854,7 +854,9 @@ class LxmfSession:
                     new_state.value,
                 )
 
-                # Clean up terminal states after a delay.
+                # Clean up terminal states immediately to prevent
+                # unbounded _outbound_deliveries growth in long-duration
+                # runs.  The state transition has already been logged.
                 if new_state in (
                     LxmfDeliveryState.DELIVERED,
                     LxmfDeliveryState.FAILED,
@@ -862,12 +864,14 @@ class LxmfSession:
                     LxmfDeliveryState.CANCELLED,
                 ):
                     if new_state == LxmfDeliveryState.FAILED:
-                        self._diag.transient_delivery_failures += 1
+                        self._diag.permanent_delivery_failures += 1
                     elif new_state in (
                         LxmfDeliveryState.REJECTED,
                         LxmfDeliveryState.CANCELLED,
                     ):
                         self._diag.permanent_delivery_failures += 1
+                    # Remove from tracking dict to prevent unbounded growth.
+                    self._outbound_deliveries.pop(msg_hash, None)
         except Exception as exc:
             self._logger.debug(
                 "LxmfSession %s: error tracking delivery state: %s",

@@ -1,7 +1,7 @@
 # LXMF Alpha Operation Runbook
 
 > Last updated: 2026-05-10
-> Scope: Real LXMF/Reticulum Operation Alpha (Track 8)
+> Scope: Real LXMF/Reticulum Operation Alpha (Track 8) + LXMF Operational Clarification (Track 3)
 > Status: **Alpha. Not production. Not hardened. Not complete.** Fake mode is the default development path. Real Reticulum/LXMF mode is implemented and available when optional dependencies (`pip install lxmf`) and valid configuration are present. It requires a live Reticulum transport to route actual messages.
 
 This runbook describes how the MEDRE LXMF adapter operates against a real Reticulum network in alpha mode. Alpha mode means the `LxmfAdapter` — via its owned `LxmfSession` — initializes a real `RNS.Reticulum` instance, loads or creates an `RNS.Identity`, creates an `LXMF.LXMRouter`, registers delivery callbacks, sends real LXMF messages, and receives real inbound traffic. It does not mean the system is ready for anything beyond a single operator on a single Reticulum node.
@@ -39,7 +39,7 @@ This runbook complements `docs/runbooks/lxmf-live-smoke.md`. The smoke test vali
 | Package install | Core MEDRE: `pip install -e .` (no extra required for fake mode). Real connectivity: `pip install lxmf` (installs `rns` as a dependency). Alternative: `pip install rnspure` for pure-Python crypto (slower). |
 | Network access | At least one Reticulum transport interface configured (AutoInterface for LAN, TCPClientInterface for remote, etc.) |
 
-You do not need Docker for basic alpha operation. Docker guidance is in section 12.
+You do not need Docker for basic alpha operation. Docker guidance is in section 17.
 
 **Critical: LXMF is not connection-oriented.** There is no "connect to a server" step. Reticulum auto-discovers peers on configured interfaces. Path requests and announces handle routing automatically. See section 5 for delivery semantics.
 
@@ -301,13 +301,341 @@ The identity file persists across restarts. The outbound tracking dict is cleare
 - The identity file is not deleted between cycles.
 
 
-## 9. Diagnostics
+## 9. Minimum Viable Reticulum Topology
 
-### 9.1 Implementation
+This section describes what constitutes a real Reticulum "network" for MEDRE LXMF operation. It is grounded in the Reticulum source code at `/home/jeremiah/dev/Reticulum/RNS/Reticulum.py` (v1.2.4) and does not assume prior Reticulum operational experience.
+
+### 9.1 What Is a Reticulum Network?
+
+A Reticulum network is **one or more Reticulum instances that can reach each other via at least one shared interface**. There is no central server, no broker, and no enrollment authority. A "network" exists when:
+
+1. At least one `RNS.Reticulum()` instance is running with at least one interface configured.
+2. If a second instance exists, it shares at least one interface (directly or via intermediate hops) with the first.
+
+A **single instance with no peers is still a valid Reticulum instance** — it just cannot send or receive messages to/from anyone else.
+
+### 9.2 Default Configuration Reality
+
+On first run, Reticulum creates a default config at `~/.reticulum/config` (`Reticulum.py` line 1790, `__default_rns_config__`). The default config contains:
+
+```ini
+[reticulum]
+enable_transport = False
+share_instance = Yes
+instance_name = default
+
+[interfaces]
+  [[Default Interface]]
+    type = AutoInterface
+    enabled = Yes
+```
+
+**What this means operationally:**
+
+- `AutoInterface` uses IPv6 link-local multicast over UDP to discover other Reticulum nodes on the same LAN segment. No IP infrastructure (router, DHCP, DNS) is required. Link-local IPv6 must be enabled in the OS (default on nearly all Linux/macOS systems).
+- `enable_transport = False` means this node will NOT route traffic for other peers or forward announces beyond what it needs for its own communication. It is an endpoint, not a router.
+- `share_instance = Yes` means the first Reticulum process on this machine becomes the "master" instance. Subsequent programs on the same machine connect to it via local IPC (TCP port 37428 or AF_UNIX socket), not via separate interface hardware.
+
+**The default config gives you a node that can discover and communicate with other Reticulum nodes on the same LAN, and nothing more.** No TCP, no serial, no radio. For anything beyond LAN scope, interfaces must be manually configured.
+
+### 9.3 Interface Types Available
+
+Confirmed from `Reticulum.py` imports and source (lines 33–47):
+
+| Interface | Transport | Configuration Required | Scope |
+|-----------|-----------|----------------------|-------|
+| `AutoInterface` | IPv6 link-local UDP/multicast | Minimal (default) | Same LAN segment |
+| `TCPClientInterface` | TCP | Target host + port | Any reachable TCP endpoint |
+| `TCPServerInterface` | TCP | Listen host + port | Accepts inbound TCP connections |
+| `UDPInterface` | UDP | Target host + port | Point-to-point or broadcast UDP |
+| `RNodeInterface` | Serial/USB radio (RNode) | Serial device path | LoRa radio |
+| `SerialInterface` | Serial | Device path + baud | Serial cable |
+| `KISSInterface` | Serial KISS TNC | Device path + baud | Ham radio TNC |
+| `I2PInterface` | I2P | I2P settings | I2P overlay network |
+| `BackboneInterface` | TCP (backbone) | Target host + port | Inter-network backbone |
+| `RNodeMultiInterface` | Multi-port RNode | Serial device | Multiple LoRa channels |
+
+For MEDRE alpha operation, `AutoInterface` (LAN) and `TCPClientInterface`/`TCPServerInterface` (remote nodes) are the practical choices. Radio interfaces require physical hardware.
+
+### 9.4 Single-Node Setup
+
+A single Reticulum node is sufficient for:
+
+- Validating MEDRE adapter lifecycle (start, health, stop, restart).
+- Confirming SDK integration (`RNS.Reticulum` init, identity load, `LXMRouter` creation).
+- Self-loop testing if the adapter sends to its own identity (path discovery to self is immediate).
+
+A single node is **insufficient** for:
+
+- Testing actual message delivery between independent identities.
+- Validating path discovery across the network.
+- Testing propagation node store-and-forward.
+- Any multi-hop behavior.
+
+### 9.5 Two-Node Minimum for Delivery Validation
+
+To test actual LXMF message delivery, you need **two independent Reticulum instances**, each with a separate identity, connected via at least one shared interface. Options:
+
+| Setup | How | Complexity |
+|-------|-----|------------|
+| **Two processes, same machine** | Process A: `RNS.Reticulum(configdir="/tmp/ret_a")`. Process B: `RNS.Reticulum(configdir="/tmp/ret_b")` with a TCPClientInterface pointing to a TCPServerInterface in A's config. | Medium. Requires custom configs and separate processes (singleton constraint). |
+| **Two machines, same LAN** | Both use default `AutoInterface` config. They discover each other automatically. | Low. Zero config if on same subnet. |
+| **Two machines, TCP** | One runs `TCPServerInterface`, the other `TCPClientInterface` pointing at it. | Low. Requires one manual interface entry. |
+| **Radio link** | Both have RNode or compatible radio hardware. | High. Requires hardware and physical proximity. |
+
+**The simplest viable test topology is two machines on the same LAN with default AutoInterface configs.** No manual configuration required beyond installing Reticulum.
+
+### 9.6 Path Discovery Timeline
+
+Reticulum discovers paths via announce propagation. When a node announces, the announce propagates through connected interfaces. Path discovery time depends on:
+
+- **Same LAN (AutoInterface):** Typically 1–5 seconds for announce propagation.
+- **TCP link, online peer:** Seconds, depending on link latency.
+- **Multi-hop mesh:** Accumulates per-hop. Each hop adds announce processing time.
+- **Offline peer:** No path possible. Messages to offline peers require PROPAGATED delivery via a propagation node.
+
+MEDRE does not control or accelerate path discovery. The `LxmfSession` cannot make path discovery faster than the underlying Reticulum transport allows. First message to a newly discovered peer may take seconds to minutes for path establishment before delivery begins.
+
+
+## 10. rnsd Usage Expectations
+
+### 10.1 What Is rnsd?
+
+`rnsd` is the Reticulum Network Stack daemon — a minimal Python program (`RNS/Utilities/rnsd.py`) that instantiates a `RNS.Reticulum()` object and holds it alive indefinitely:
+
+```python
+# Simplified from rnsd.py
+reticulum = RNS.Reticulum(configdir=configdir, verbosity=targetverbosity, logdest=targetlogdest)
+while True:
+    time.sleep(1)
+```
+
+That is the entire program. It does not route LXMF messages, handle identities, or run an LXMRouter. It simply keeps a Reticulum transport instance running so that:
+
+1. Transport interfaces stay active and connected.
+2. Announce propagation continues.
+3. Path tables are maintained.
+4. Other local programs can connect to the shared instance.
+
+### 10.2 When to Use rnsd
+
+| Scenario | Use rnsd? | Rationale |
+|----------|-----------|-----------|
+| **MEDRE adapter runs continuously** | Optional | The adapter's `LxmfSession` already creates its own `RNS.Reticulum()` instance. Running rnsd alongside it would conflict (singleton). The adapter IS the Reticulum instance. |
+| **Multiple local programs need RNS** | Yes | rnsd acts as the shared instance master. Other programs (Sideband, Nomad Network, MEDRE) connect as clients. |
+| **Headless routing node** | Yes | A dedicated machine running rnsd with `enable_transport = True` and radio/TCP interfaces acts as a network router for other nodes. |
+| **Development/testing** | Usually no | The MEDRE live harness creates its own Reticulum instance. Running rnsd on the same machine would cause the harness to connect to the shared instance instead of owning its own interfaces. |
+| **CI/CD** | No | Test isolation requires dedicated `configdir` per test process. |
+
+### 10.3 Shared Instance Model
+
+Reticulum uses a master-client model on the same machine (`Reticulum.py` lines 282–289):
+
+1. The **first** `RNS.Reticulum()` instance in a process becomes the "master" (shared instance).
+2. It listens on TCP port 37428 (default) or an AF_UNIX socket for local client connections.
+3. **Subsequent** `RNS.Reticulum()` calls in other processes detect the running master and connect as clients. They do NOT open their own hardware interfaces.
+4. `is_connected_to_shared_instance` is `True` for client instances.
+5. The master instance owns all hardware interfaces (serial, radio, TCP servers).
+
+**Implication for MEDRE:** If rnsd is running when the MEDRE adapter starts, the adapter will connect as a client to rnsd's shared instance. It will NOT directly control any interfaces. This is fine for LAN operation (AutoInterface is shared) but may cause confusion during testing where the adapter expects to own its interfaces.
+
+rnsd warns when started as a client to another shared instance (`rnsd.py` line 51):
+
+```
+"Started rnsd version {version} connected to another shared local instance,
+this is probably NOT what you want!"
+```
+
+### 10.4 When NOT to Use rnsd
+
+- **During MEDRE live harness execution.** The harness needs to own its Reticulum instance with a custom `configdir` for test isolation.
+- **When MEDRE is the only RNS program on the machine.** The adapter's built-in `RNS.Reticulum()` is sufficient.
+- **When you need test isolation.** Use `RNS.Reticulum(configdir="/tmp/test_reticulum")` instead of relying on rnsd's shared instance.
+
+### 10.5 rnsd Does Not Provide LXMF Services
+
+Running rnsd does NOT provide:
+
+- An LXMF propagation node (that requires `LXMRouter.enable_propagation()` — typically `lxmd`).
+- An LXMF delivery endpoint.
+- Message store-and-forward.
+- Any LXMF-specific functionality.
+
+rnsd provides Reticulum **transport** only. LXMF runs as a separate layer on top of Reticulum. To run a propagation node, use `lxmd` (the LXMF propagation daemon from the LXMF package) or an application that calls `LXMRouter.enable_propagation()`.
+
+
+## 11. Propagation Node Realities
+
+### 11.1 Propagation Is an LXMF Concept, Not a Reticulum Concept
+
+Reticulum itself provides point-to-point and multi-hop **transport**. It has no concept of "propagation nodes" or message storage. Propagation is entirely an LXMF-layer feature implemented in `LXMRouter` (source: `/home/jeremiah/dev/LXMF/LXMF/LXMRouter.py` lines 535–673).
+
+A propagation node is an `LXMRouter` that has called `enable_propagation()`. This:
+
+1. Creates a message store at `{storagepath}/messagestore/`.
+2. Indexes all existing messages on disk (blocking operation — can be slow with large stores).
+3. Registers a `lxmf.propagation` destination for sync with other propagation nodes.
+4. Accepts inbound PROPAGATED messages from senders and stores them indexed by recipient identity hash.
+5. Syncs stored messages with other propagation nodes (encrypted, distributed).
+
+### 11.2 What Propagation Nodes Provide
+
+| Capability | Reality |
+|-----------|---------|
+| Store-and-forward for offline recipients | Yes. Message is stored until the recipient syncs. |
+| Guaranteed delivery | No. Recipient must explicitly sync. No push notification. |
+| Distributed message store | Yes. Propagation nodes sync with each other. |
+| Encrypted storage | Yes. Messages are encrypted to the recipient's identity. The propagation node cannot read them. |
+| Realtime delivery | No. Delivery latency depends entirely on when the recipient's router calls `request_messages_from_propagation_node()`. |
+
+### 11.3 Running a Propagation Node
+
+To run a propagation node for MEDRE testing:
+
+1. Create a dedicated `LXMRouter` with `enable_propagation()`.
+2. This requires a **separate process** from the MEDRE adapter (singleton constraint: one `RNS.Reticulum` per process, and one delivery identity per `LXMRouter`).
+3. The propagation node's identity hash must be configured in the sender's router via `router.set_outbound_propagation_node(node_hash)`.
+4. The recipient must call `router.request_messages_from_propagation_node(identity)` to sync.
+
+The LXMF package provides `lxmd` (`LXMF/Utilities/lxmd.py`) — a standalone propagation node daemon. It runs as a separate process, creates its own Reticulum instance and LXMRouter, and provides propagation services.
+
+### 11.4 MEDRE Alpha: Propagation Is Not Required
+
+For alpha validation, DIRECT delivery to an online peer is the primary test path. Propagation adds significant operational complexity:
+
+- Requires a third process (the propagation node) in addition to sender and receiver.
+- Requires configuring the propagation node's destination hash in both sender and receiver.
+- Adds indeterminate latency (recipient must actively sync).
+- Has not been tested against the MEDRE adapter in any configuration.
+
+Propagation is architecturally important for real-world LXMF operation (offline delivery is a core feature) but is **not a blocker for alpha or beta-readiness validation**. The adapter's `propagation_enabled` diagnostic key detects propagation state; the adapter does not currently configure or manage propagation nodes.
+
+### 11.5 Propagation Node Sync Protocol
+
+Confirmed from `LXMRouter.py`:
+
+1. Sender's router delivers PROPAGATED message to the propagation node via a direct link.
+2. The propagation node stores the message, indexed by recipient's destination hash.
+3. Other propagation nodes sync with this node, creating a distributed store.
+4. The recipient's router periodically calls `request_messages_from_propagation_node()`.
+5. The propagation node responds with messages addressed to the recipient's identity.
+6. The recipient's router unpacks, validates, and fires delivery callbacks.
+
+This is a **pull model**. There is no push notification to the recipient. The recipient must actively request messages. The sync interval is configured in the recipient's router, not in MEDRE.
+
+
+## 12. Single-Node vs Multi-Node Expectations
+
+### 12.1 What Works with a Single Node
+
+| Capability | Works? | Notes |
+|-----------|--------|-------|
+| Adapter lifecycle (start/stop/health) | ✅ | No network required. |
+| Identity creation/loading | ✅ | Local operation. |
+| LXMRouter creation | ✅ | Local operation. Requires `storagepath`. |
+| SDK import verification | ✅ | `import RNS; import LXMF` |
+| Self-send (identity to self) | ⚠️ | Path discovery to self is immediate but this is a degenerate case. |
+| Outbound to unknown peer | ❌ | No path exists. Message stays in OUTBOUND state indefinitely. |
+| Inbound from external peer | ❌ | No external peers exist. |
+| Propagation node operation | ❌ | No other peers to store messages for or sync with. |
+
+### 12.2 What Requires Two Nodes
+
+| Capability | Minimum Topology |
+|-----------|-----------------|
+| Direct message delivery | Two nodes on shared interface. Seconds to minutes for path establishment on first send. |
+| Path discovery validation | Two nodes. Announce propagation confirms path. |
+| Inbound delivery callback | Two nodes. Sender in process A, receiver in process B. |
+| Delivery state progression (OUTBOUND→DELIVERED) | Two nodes. DIRECT delivery with proof receipt. |
+
+### 12.3 What Requires Three+ Nodes
+
+| Capability | Minimum Topology |
+|-----------|-----------------|
+| Multi-hop routing | Three nodes in a line (A→B→C). Node B must have `enable_transport = True`. |
+| Propagation node store-and-forward | Three nodes: sender, propagation node, recipient. Propagation node is a dedicated LXMRouter. |
+| Propagation node sync (distributed store) | Four nodes: sender, propagation node A, propagation node B, recipient. Nodes A and B sync with each other. |
+
+### 12.4 What Has Not Been Tested at Any Topology
+
+As of 2026-05-10, the following have **no live evidence** in the MEDRE project:
+
+- Any message delivery between two independent Reticulum instances.
+- Delivery state progression beyond OUTBOUND against a real network.
+- Path discovery time or reliability.
+- Propagation node store-and-forward.
+- Multi-hop routing.
+- Reconnect behavior after real network interruption.
+- Announce propagation latency.
+- Message delivery under concurrent load.
+
+All validation to date is mock-based (fake mode). The live harness (`tests/test_lxmf_live.py`, 829 LOC) exists but has not been run against a real Reticulum network. See `docs/runbooks/operational-evidence.md` §3 for the LXMF evidence placeholder.
+
+
+## 13. Realistic Operational Constraints
+
+This section documents honest constraints that operators and developers should expect when running the MEDRE LXMF adapter against real Reticulum networks. It prevents false expectations about deployment maturity.
+
+### 13.1 Deployment Maturity
+
+| Constraint | Reality |
+|-----------|---------|
+| Production readiness | **Not ready.** Alpha-operational (Tier 2). Unit-tested only. No live evidence. |
+| Live harness status | Exists (829 LOC) but **not executed** against real Reticulum. |
+| Delivery state validation | State model (`OUTBOUND → DELIVERED`) is implemented but **not confirmed** against real network. Timing/state assumptions may break in practice. |
+| Compatibility with LXMF clients | No compatibility tested or claimed with Sideband, MeshChat, Nomad Network, or any other LXMF application. |
+
+### 13.2 Network Constraints
+
+| Constraint | Reality |
+|-----------|---------|
+| Path discovery latency | Seconds to minutes. Not instant. First send to a new peer always incurs path discovery overhead. |
+| Offline peer delivery | Only via PROPAGATED method with a configured propagation node. No fallback. |
+| Delivery confirmation | Asynchronous only. `deliver()` returns before the message is delivered. Proof receipts arrive via callbacks. |
+| Message ordering | No guaranteed ordering. Two messages sent in sequence may arrive in any order. |
+| Payload size (DIRECT) | 319 bytes per link packet. Larger payloads use `RNS.Resource` (multi-packet transfer). |
+| Payload size (OPPORTUNISTIC) | 295 bytes encrypted content. Hard limit. No fragmentation. |
+| Bandwidth | Depends entirely on interface type. LoRa: bytes/second. LAN: megabytes/second. Reticulum adapts to interface MTU. |
+
+### 13.3 Operational Constraints
+
+| Constraint | Reality |
+|-----------|---------|
+| Process model | One `RNS.Reticulum` per process (singleton). One delivery identity per `LXMRouter`. Multiple identities require multiple processes. |
+| Identity security | 64-byte raw private key file. No encryption. No passphrase. Anyone with the file can impersonate the identity and decrypt all messages. |
+| Threading | Reticulum and LXMF use daemon threads, not asyncio. MEDRE bridges via `loop.create_task()`. Potential GIL/contention issues under load. |
+| Storage | `LXMRouter` requires a writable `storagepath`. Message store grows over time. No automatic cleanup. |
+| License | Reticulum uses a custom license that restricts AI training data usage and certain applications. Not OSI-approved. Review for downstream distribution. |
+| Daemon dependency | Reticulum is designed for long-running processes. Short-lived scripts may not establish stable connectivity before exiting. |
+
+### 13.4 What MEDRE Does NOT Provide
+
+- **No E2EE beyond Reticulum's link-layer encryption.** MEDRE sends plaintext to the LXMF layer. Reticulum encrypts at the link/transport level.
+- **No propagation node management.** The adapter does not configure, start, or manage propagation nodes.
+- **No LXMF client compatibility.** No testing against Sideband, MeshChat, Nomad Network, or other LXMF applications.
+- **No attachment or media transfer.** Text messages only.
+- **No message queue persistence.** If the adapter stops, in-flight outbound messages are lost. The LXMF router persists outbound state, but MEDRE does not re-sync on restart.
+- **No topology management.** MEDRE does not configure Reticulum interfaces, manage announces, or control path discovery.
+- **No monitoring or alerting.** No Prometheus, no health alerts, no uptime tracking.
+
+### 13.5 Honest Beta Assessment
+
+For LXMF to move from alpha-operational (Tier 2) to beta-candidate (Tier 3), the following must happen (per `docs/contracts/37-transport-maturity-classification.md` §9.2):
+
+1. **Run live harness** against a real two-node Reticulum network. Record results in `operational-evidence.md`.
+2. **Confirm delivery state progression** (`OUTBOUND → SENDING → SENT → DELIVERED`) against a real network.
+3. **Document identity file protection** requirements in a security runbook or operational guide.
+
+These are not optional. Without live evidence, the delivery state model is speculative regardless of how well it tests against mocks. The live harness exists and is comprehensive (829 LOC, 19 test cases). What is missing is the operational act of running it against a real Reticulum instance and recording results.
+
+
+## 14. Diagnostics
+
+### 14.1 Implementation
 
 The `LxmfSession` exposes a `diagnostics()` method returning `LxmfSessionDiagnostics`, a frozen dataclass. The adapter exposes the session via its `session` property. The `LxmfAdapter` itself does not wrap this in a top-level `diagnostics()` method; consumers access it via `adapter.session.diagnostics()`.
 
-### 9.2 Diagnostics Keys
+### 14.2 Diagnostics Keys
 
 | Key | Type | Description |
 |-----|------|-------------|
@@ -326,7 +654,7 @@ The `LxmfSession` exposes a `diagnostics()` method returning `LxmfSessionDiagnos
 
 The session also provides `delivery_state_counts()` returning a `dict[str, int]` of outbound delivery counts per state (`"outbound"`, `"sending"`, `"sent"`, `"delivered"`, `"failed"`, etc.).
 
-### 9.3 What Diagnostics Does NOT Expose
+### 14.3 What Diagnostics Does NOT Expose
 
 - Private keys, identity file contents, or raw key material.
 - Raw `RNS.Destination` or `RNS.Identity` objects.
@@ -334,7 +662,7 @@ The session also provides `delivery_state_counts()` returning a `dict[str, int]`
 - Reticulum transport interface internals.
 - Peer identity dumps or cryptographic material.
 
-### 9.4 Interpreting Diagnostics
+### 14.4 Interpreting Diagnostics
 
 | Symptom | Likely Cause |
 |---------|-------------|
@@ -347,7 +675,7 @@ The session also provides `delivery_state_counts()` returning a `dict[str, int]`
 | `last_message_time` stale | No traffic for an extended period. Not necessarily an error. |
 | `router_running=False` with `connected=True` | Router teardown incomplete or crashed `jobloop` thread. |
 
-### 9.5 Delivery State Model
+### 14.5 Delivery State Model
 
 The session tracks outbound delivery states via the `LxmfDeliveryState` enum:
 
@@ -361,9 +689,9 @@ GENERATING → OUTBOUND → SENDING → SENT → DELIVERED
 `delivery_state_counts()` returns counts of tracked outbound deliveries per state. These are snapshots at call time. Terminal deliveries (`DELIVERED`, `FAILED`, `REJECTED`, `CANCELLED`) are cleaned up after processing, so the count reflects active/pending deliveries predominantly.
 
 
-## 10. Troubleshooting
+## 15. Troubleshooting
 
-### 10.1 Common Failures
+### 15.1 Common Failures
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
@@ -380,7 +708,7 @@ GENERATING → OUTBOUND → SENDING → SENT → DELIVERED
 | `LxmfConnectionError: Failed to initialise LXMF session: ...` | Reticulum init or router creation failed | Check Reticulum config, available interfaces, and that no other process holds the singleton. |
 | Live tests skip with "Set LXMF_CONNECTION_TYPE" | Environment variables not set | Set `LXMF_CONNECTION_TYPE=reticulum` and `LXMF_IDENTITY_PATH=/path/to/identity`. |
 
-### 10.2 Reticulum-Specific Issues
+### 15.2 Reticulum-Specific Issues
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
@@ -388,7 +716,7 @@ GENERATING → OUTBOUND → SENDING → SENT → DELIVERED
 | Slow identity creation | High `stamp_cost` on first run | Stamp cost affects inbound validation, not identity creation. If identity creation is slow, check system entropy. |
 | Announce not reaching peers | Interface misconfiguration or firewall | Verify interface in Reticulum config. Check `rnstatus` output. AutoInterface requires multicast-enabled LAN. |
 
-### 10.3 Diagnostic Commands
+### 15.3 Diagnostic Commands
 
 ```bash
 # Check Reticulum interface status
@@ -405,13 +733,13 @@ python -c "import RNS; i = RNS.Identity(); print(i.hexhash)"
 ```
 
 
-## 11. Live Harness Instructions
+## 16. Live Harness Instructions
 
-### 11.1 Test Markers
+### 16.1 Test Markers
 
 All live tests in `tests/test_lxmf_live.py` are tagged with `pytest.mark.live`. They are excluded by default via `pyproject.toml` addopts (`-m 'not live'`).
 
-### 11.2 Environment Gating
+### 16.2 Environment Gating
 
 Live tests require explicit opt-in via environment variables:
 
@@ -423,7 +751,7 @@ Live tests require explicit opt-in via environment variables:
 
 If any required variable is unset, every test in the file skips with a descriptive reason.
 
-### 11.3 Running Live Tests
+### 16.3 Running Live Tests
 
 ```bash
 # Install dependencies
@@ -443,7 +771,7 @@ pytest
 pytest -m ""
 ```
 
-### 11.4 Current Test Status
+### 16.4 Current Test Status
 
 Live tests in `tests/test_lxmf_live.py` are structured as dual-mode:
 
@@ -451,7 +779,7 @@ Live tests in `tests/test_lxmf_live.py` are structured as dual-mode:
 - **Fake-mode tests** (`connection_type="fake"`): run without any SDK dependency. Exercise the complete lifecycle in fake mode including rapid start/stop cycles, idempotency, and the inbound pipeline via `simulate_inbound`.
 - **Documentation tests**: always-pass tests that record current constraints (no E2EE, no inbound from second identity in this harness).
 
-### 11.5 Identity Path Setup for Tests
+### 16.5 Identity Path Setup for Tests
 
 ```bash
 # Create a test identity
@@ -466,7 +794,7 @@ print(f'Identity hash: {i.hexhash}')
 export LXMF_IDENTITY_PATH="/tmp/lxmf_test_identity"
 ```
 
-### 11.6 Startup/Shutdown Test Pattern
+### 16.6 Startup/Shutdown Test Pattern
 
 Test lifecycle (matches `tests/test_lxmf_live.py`):
 
@@ -494,7 +822,7 @@ await adapter.stop()
 await adapter.stop()  # should be no-op
 ```
 
-### 11.7 Send Test Pattern
+### 16.7 Send Test Pattern
 
 ```python
 # 1. Start adapter with real Reticulum
@@ -504,7 +832,7 @@ await adapter.stop()  # should be no-op
 # 5. Track delivery via session.delivery_state_counts() over time
 ```
 
-### 11.8 Callback Test Pattern
+### 16.8 Callback Test Pattern
 
 ```python
 # 1. Start adapter with real LXMRouter
@@ -514,7 +842,7 @@ await adapter.stop()  # should be no-op
 # 5. Verify publish_inbound was called with the decoded event
 ```
 
-### 11.9 Restart/Repeated Start-Stop
+### 16.9 Restart/Repeated Start-Stop
 
 ```python
 # Verify idempotency
@@ -529,11 +857,9 @@ await adapter.stop()
 ```
 
 
-## 12. Docker Guidance
+## 17. Docker Guidance
 
-Docker is not required for alpha operation. If desired for isolation:
-
-### 12.1 Key Considerations
+### 17.1 Key Considerations
 
 - **Reticulum singleton**: one `RNS.Reticulum` per container. If you need multiple routers, use multiple containers or processes.
 - **Network access**: Reticulum's `AutoInterface` uses multicast for LAN discovery. Docker's default bridge network does not forward multicast. You need `--network host` or a custom network with multicast enabled.
@@ -541,7 +867,7 @@ Docker is not required for alpha operation. If desired for isolation:
 - **Storage paths**: mount LXMF storage and Reticulum config as volumes for persistence.
 - **Identity files**: mount the identity file as a read-only volume or secret.
 
-### 12.2 Minimal Docker Compose (Sketch)
+### 17.2 Minimal Docker Compose (Sketch)
 
 ```yaml
 # This is a sketch, not a tested configuration.
@@ -567,9 +893,9 @@ secrets:
 This is not production guidance. It is a starting point for alpha isolation testing.
 
 
-## 13. Reticulum Config Guidance
+## 18. Reticulum Config Guidance
 
-### 13.1 Config Directory Search Order
+### 18.1 Config Directory Search Order
 
 1. `/etc/reticulum/config` (system-wide)
 2. `~/.config/reticulum/config` (XDG)
@@ -577,7 +903,7 @@ This is not production guidance. It is a starting point for alpha isolation test
 
 If none exist, Reticulum creates a minimal default at `~/.reticulum/config` on first run.
 
-### 13.2 Minimal Alpha Config
+### 18.2 Minimal Alpha Config
 
 ```ini
 # /tmp/reticulum_alpha/config
@@ -595,7 +921,7 @@ If none exist, Reticulum creates a minimal default at `~/.reticulum/config` on f
 #   target_port = 4242
 ```
 
-### 13.3 Shared Instance
+### 18.3 Shared Instance
 
 If `rnsd` is already running, other programs connect to it via local IPC (port 37428 by default). No interface configuration needed in the application config.
 
@@ -603,7 +929,7 @@ If `rnsd` is already running, other programs connect to it via local IPC (port 3
 rnsd &
 ```
 
-### 13.4 Storage Paths
+### 18.4 Storage Paths
 
 | System | Path | Contents |
 |--------|------|----------|
@@ -612,14 +938,14 @@ rnsd &
 | LXMF router storage | `{storagepath}/lxmf/` | `local_deliveries`, `messagestore/`, `ratchets/` |
 | MEDRE SQLite | Configured by MEDRE | Events, receipts, native refs |
 
-### 13.5 Safety
+### 18.5 Safety
 
 - **Do not use production identity files for testing.** Create separate test identities.
 - **Use custom configdir for testing.** `RNS.Reticulum(configdir="/tmp/test_reticulum")` avoids modifying system-wide config.
 - **Clean up test directories.** LXMF storage and Reticulum config dirs accumulate state.
 
 
-## Live Validation Evidence
+### 18.6 Live Validation Evidence
 
 ### Test Results
 
@@ -636,7 +962,7 @@ rnsd &
 - **Failures/Notes:** Live validation has not been performed in this environment. Alpha operation requires a running Reticulum transport layer with the environment variables configured. Without these, all live tests skip automatically. See the smoke test runbook (`docs/runbooks/lxmf-live-smoke.md`) for detailed setup and environment variable instructions.
 
 
-## 14. Explicit Non-Claims
+## 19. Explicit Non-Claims
 
 - **No production LXMF/Reticulum deployment readiness is claimed.** Alpha mode requires installed SDK and live environment.
 - **No realtime delivery guarantees.** LXMF is asynchronous store-and-forward. Latency ranges from seconds to hours.
@@ -648,7 +974,7 @@ rnsd &
 - **No attachment, image, audio, or media transfer support.**
 
 
-## 15. Cross-References
+## 20. Cross-References
 
 | Topic | Document |
 |-------|----------|

@@ -60,7 +60,7 @@ pip install -e ".[dev]"
 
 # Verify: run the full unit test suite
 PYTHONPATH=src pytest -q
-# Expected: ~2049 passed, ~57 deselected (live tests skipped)
+# Expected: ~2127 passed, ~61 deselected (live tests skipped)
 
 # Verify: compile check
 python -m compileall -q src tests
@@ -252,7 +252,7 @@ This is the exact environment used for validation as of 2026-05-10:
 | Meshtastic radio firmware | 2.7.19 (LilyGO T-LORA V2.1) |
 | Matrix homeserver | matrix.org (public) |
 
-**Unit test results:** 2049 passed, 57 deselected (live tests), 0 failed.
+**Unit test results:** 2127 passed, 61 deselected (live tests), 0 failed.
 
 **Live test results:** Matrix 13/13 pass (plaintext), Matrix 7/7 pass (E2EE), Meshtastic 10/10 pass. MeshCore and LXMF live tests not run.
 

@@ -22,6 +22,19 @@ All tests in this module are:
 
        pytest tests/test_soak.py -m live -v -s
 
+**Meshtastic env vars (connection-type-aware):**
+
+=========================== =====================================================
+Variable                    Description
+=========================== =====================================================
+``MESHTASTIC_CONNECTION_TYPE``  ``tcp``, ``serial``, or ``ble``
+``MESHTASTIC_HOST``         Hostname/IP for TCP (required when type=tcp)
+``MESHTASTIC_PORT``         Port for TCP (default ``4403``)
+``MESHTASTIC_SERIAL_PORT``  Device path for serial (required when type=serial)
+``MESHTASTIC_BLE_ADDRESS``  BLE MAC for BLE (required when type=ble)
+``MESHTASTIC_CHANNEL_INDEX`` Channel index for outbound messages (default ``0``)
+=========================== =====================================================
+
 **Safety:**
 
 - Maximum soak duration is **hard-capped at 300 seconds** regardless of
@@ -96,22 +109,44 @@ pytestmark_matrix = [
 
 
 # ---------------------------------------------------------------------------
-# Meshtastic soak — env gating
+# Meshtastic soak — env gating (connection-type-aware, parity with live smoke)
 # ---------------------------------------------------------------------------
 
-_meshtastic_env_vars = [
-    "MESHTASTIC_CONNECTION_TYPE",
-    "MESHTASTIC_HOST",
-]
+_MESHTASTIC_CONNECTION_TYPE = os.environ.get(
+    "MESHTASTIC_CONNECTION_TYPE", ""
+).lower()
 
-_meshtastic_soak_ok = all(os.environ.get(v) for v in _meshtastic_env_vars)
+
+def _validate_meshtastic_soak_env() -> tuple[bool, str]:
+    """Check Meshtastic soak env vars, mirroring live smoke gating.
+
+    Returns (ok, reason).  ``ok`` is True when the required vars for the
+    selected connection type are present.
+    """
+    ct = _MESHTASTIC_CONNECTION_TYPE
+    if not ct:
+        return False, "Set MESHTASTIC_CONNECTION_TYPE (tcp/serial/ble) for Meshtastic soak"
+    if ct == "tcp":
+        if not os.environ.get("MESHTASTIC_HOST"):
+            return False, "MESHTASTIC_HOST required for TCP soak"
+    elif ct == "serial":
+        if not os.environ.get("MESHTASTIC_SERIAL_PORT"):
+            return False, "MESHTASTIC_SERIAL_PORT required for serial soak"
+    elif ct == "ble":
+        if not os.environ.get("MESHTASTIC_BLE_ADDRESS"):
+            return False, "MESHTASTIC_BLE_ADDRESS required for BLE soak"
+    else:
+        return False, f"Unknown MESHTASTIC_CONNECTION_TYPE {ct!r}; use tcp/serial/ble"
+    return True, ""
+
+
+_meshtastic_soak_ok, _meshtastic_soak_reason = _validate_meshtastic_soak_env()
 
 pytestmark_meshtastic = [
     pytest.mark.live,
     pytest.mark.skipif(
         not _meshtastic_soak_ok,
-        reason="Meshtastic soak tests require MESHTASTIC_CONNECTION_TYPE, "
-        "MESHTASTIC_HOST",
+        reason=_meshtastic_soak_reason,
     ),
 ]
 
@@ -163,16 +198,36 @@ def _make_meshtastic_context() -> Any:
 
 
 def _make_meshtastic_config() -> Any:
-    """Build a MeshtasticConfig from environment variables."""
+    """Build a MeshtasticConfig from environment variables.
+
+    Supports tcp, serial, and ble connection types with the same env var
+    convention as the live smoke tests (``test_meshtastic_live.py``).
+    """
     from medre.adapters.meshtastic.config import MeshtasticConfig
 
-    return MeshtasticConfig(
-        adapter_id="meshtastic-soak",
-        connection_type=os.environ["MESHTASTIC_CONNECTION_TYPE"],  # type: ignore[arg-type]
-        host=os.environ.get("MESHTASTIC_HOST"),
-        port=int(os.environ.get("MESHTASTIC_PORT", "4403")),
-        default_channel=int(os.environ.get("MESHTASTIC_CHANNEL_INDEX", "0")),
-    )
+    ct = _MESHTASTIC_CONNECTION_TYPE
+    if ct == "serial":
+        return MeshtasticConfig(
+            adapter_id="meshtastic-soak",
+            connection_type="serial",
+            serial_port=os.environ["MESHTASTIC_SERIAL_PORT"],
+            default_channel=int(os.environ.get("MESHTASTIC_CHANNEL_INDEX", "0")),
+        )
+    elif ct == "ble":
+        return MeshtasticConfig(
+            adapter_id="meshtastic-soak",
+            connection_type="ble",
+            ble_address=os.environ["MESHTASTIC_BLE_ADDRESS"],
+            default_channel=int(os.environ.get("MESHTASTIC_CHANNEL_INDEX", "0")),
+        )
+    else:  # tcp (default)
+        return MeshtasticConfig(
+            adapter_id="meshtastic-soak",
+            connection_type="tcp",
+            host=os.environ.get("MESHTASTIC_HOST"),
+            port=int(os.environ.get("MESHTASTIC_PORT", "4403")),
+            default_channel=int(os.environ.get("MESHTASTIC_CHANNEL_INDEX", "0")),
+        )
 
 
 # ---------------------------------------------------------------------------

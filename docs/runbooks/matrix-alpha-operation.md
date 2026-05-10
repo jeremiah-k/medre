@@ -395,6 +395,94 @@ This section describes how to manually verify that the adapter behaves correctly
 2. Call `stop()`. Confirm `health_check()` returns `"unknown"`.
 3. Confirm no lingering asyncio tasks. Use `asyncio.all_tasks()` before and after to check.
 
+### 10.6 Third-party inbound validation (Track 2)
+
+This procedure validates the complete third-party inbound path: a message
+from a different Matrix user arrives via the nio sync loop, passes sender
+filtering and allowlist checks, gets decoded into a `CanonicalEvent`, and
+triggers `publish_inbound()`.  This is the most operationally significant
+beta unknown — it cannot be tested with a single account.
+
+**Prerequisites:**
+
+| Requirement | Details |
+|------------|---------|
+| Bot account | The MEDRE Matrix adapter account (with access token) |
+| Second account | A different Matrix user on the same homeserver |
+| Shared room | Both accounts must be in the same room |
+
+**Procedure (manual):**
+
+1. Set environment variables:
+
+```bash
+export MATRIX_HOMESERVER="http://localhost:8008"
+export MATRIX_USER_ID="@bot:localhost"
+export MATRIX_ACCESS_TOKEN="syt_..."
+export MATRIX_ROOM_ID="!test:localhost"
+export MATRIX_INBOUND_SENDER="@alice:localhost"  # second account
+```
+
+2. Run the third-party inbound live test:
+
+```bash
+pytest tests/test_matrix_live.py::TestMatrixLiveSmoke::test_inbound_message_received -m live -v
+```
+
+3. While the test is waiting (30 s window), send a message from the
+   second account (`@alice:localhost`) into `MATRIX_ROOM_ID`.
+
+4. The test should pass (not xfail), confirming:
+   - `publish_inbound()` was called
+   - `source_transport_id` matches `@alice:localhost`
+   - `source_channel_id` matches `MATRIX_ROOM_ID`
+   - `source_native_ref.native_message_id` is a Matrix event ID
+   - `event_kind` is `"message.created"`
+   - Payload contains `body` and `msgtype`
+
+5. If no second account is available, the test will xfail with a
+   descriptive message.  This is acceptable — the deterministic unit
+   tests in `tests/test_matrix_adapter.py` (classes
+   `TestThirdPartyInboundCanonicalEventShape` and
+   `TestInboundDiagnosticsCounters`) cover the same logic paths
+   without requiring live connectivity.
+
+**Diagnostics counters:**
+
+The adapter exposes inbound counters via `diagnostics()`:
+
+| Counter | Description |
+|---------|-------------|
+| `inbound_published` | Events successfully published via `publish_inbound()` |
+| `inbound_suppressed_self` | Events dropped because sender == bot user_id |
+| `inbound_suppressed_envelope` | Events dropped because MEDRE envelope source_adapter matched |
+| `inbound_filtered_allowlist` | Events dropped because room was not in the allowlist |
+
+To inspect counters programmatically:
+
+```python
+diag = adapter.diagnostics()
+print(f"published={diag['inbound_published']} "
+      f"self_suppressed={diag['inbound_suppressed_self']} "
+      f"envelope_suppressed={diag['inbound_suppressed_envelope']} "
+      f"allowlist_filtered={diag['inbound_filtered_allowlist']}")
+```
+
+After a successful third-party inbound validation:
+- `inbound_published` should be >= 1
+- `inbound_suppressed_self` should be >= 0 (may include echo from outbound tests)
+- `inbound_filtered_allowlist` should be 0 (if using correct allowlist)
+
+**Automated test coverage (no live server required):**
+
+| Test class | File | Coverage |
+|-----------|------|----------|
+| `TestThirdPartyInboundCanonicalEventShape` | `tests/test_matrix_adapter.py` | 8 tests: source_adapter, sender as transport_id, room as channel_id, payload shape, source_native_ref, event_kind, UUID event_id, notice msgtype |
+| `TestInboundDiagnosticsCounters` | `tests/test_matrix_adapter.py` | 8 tests: published/self/envelope/allowlist counter increments, accumulation, reset on start, diagnostics exposure, no-ctx early return |
+| `TestSelfMessageSuppression` | `tests/test_matrix_adapter.py` | 3 tests: self suppressed, other accepted, missing sender |
+| `TestMEDREOriginLoopSuppression` | `tests/test_matrix_adapter.py` | 4 tests: same adapter suppressed, different adapter accepted, missing envelope, corrupt envelope |
+| `TestRoomAllowlist` | `tests/test_matrix_adapter.py` | 4 tests: no allowlist, matching, non-matching, multiple rooms |
+
 
 ## 11. Known Limitations
 
@@ -416,7 +504,7 @@ This is an honest list. Everything here is real.
 
 8. **No structured logging.** The adapter uses `ctx.logger.info/debug/error` with format strings. There are no structured log fields, no trace IDs, no correlation across events.
 
-9. **No metrics.** There is no Prometheus endpoint, no counters, no histograms. The only observability is the log output and the `health_check()` return value.
+9. **No metrics.** There is no Prometheus endpoint, no counters, no histograms. Inbound diagnostics counters (`inbound_published`, `inbound_suppressed_self`, `inbound_suppressed_envelope`, `inbound_filtered_allowlist`) are available via `diagnostics()`, but there is no external metrics export. The only observability is the log output, the `health_check()` return value, and the `diagnostics()` counters.
 
 10. **Runner is in alpha.** The runner (`python -m medre.runner`) works for testing but has limited error recovery. If a subsystem fails during startup, the runner exits with a traceback rather than attempting partial recovery. There is no watchdog to restart the runner if it crashes.
 
