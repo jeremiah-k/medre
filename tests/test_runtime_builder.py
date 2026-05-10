@@ -371,23 +371,19 @@ class TestBuilderErrorCases:
     """Edge cases and error handling in the builder."""
 
     def test_unknown_transport_type_skipped(self, tmp_paths: MedrePaths) -> None:
-        """An adapter with a transport type not in _ADAPTER_BUILDERS is skipped."""
-        # We can't easily create a config with an unknown transport type
-        # since AdapterConfigSet has fixed fields. Instead, test that
-        # _build_single_adapter handles unknown transports.
+        """An adapter with a transport type not in _ADAPTER_BUILDERS raises."""
         config = _make_empty_config()
         builder = RuntimeBuilder(config, tmp_paths)
 
-        # Call _build_single_adapter with an unknown transport
-        result = builder._build_single_adapter("unknown_transport", "test_id", MagicMock())
-        assert result is None
+        with pytest.raises(RuntimeConfigError, match="Unknown transport type"):
+            builder._build_single_adapter("unknown_transport", "test_id", MagicMock())
 
     def test_adapter_with_none_config_skipped(self, tmp_paths: MedrePaths) -> None:
-        """Adapter with config=None is skipped."""
+        """Adapter with config=None raises RuntimeConfigError."""
         rt = MatrixRuntimeConfig(adapter_id="no_cfg", enabled=True, config=None)
         config = RuntimeConfig(
             adapters=AdapterConfigSet(matrix={"no_cfg": rt}),
         )
         builder = RuntimeBuilder(config, tmp_paths)
-        result = builder._build_single_adapter("matrix", "no_cfg", rt)
-        assert result is None
+        with pytest.raises(RuntimeConfigError, match="no config"):
+            builder._build_single_adapter("matrix", "no_cfg", rt)

@@ -1,9 +1,9 @@
 # MEDRE Example: Matrix Adapter
 #
-# Single Matrix adapter with plaintext messaging.
+# Single Matrix adapter. Plaintext by default.
+# For E2EE, change encryption_mode to "e2ee_required" and
+# install the matrix-e2e extra: pip install "medre[matrix-e2e]"
 # Copy and adjust for your homeserver and credentials.
-#
-# Adapter "main" — Matrix (plaintext, real homeserver)
 
 [runtime]
 name = "matrix-bot"
@@ -22,8 +22,8 @@ path = "{state}/medre.sqlite"
 enabled = true
 homeserver = "https://matrix.example.com"
 user_id = "@bot:example.com"
-access_token = "syt_example_token_replace_me"
+access_token = ""
 room_allowlist = ["!room:example.com"]
 device_id = "MEDREBOT"
 store_path = "{state}/matrix/main/store"
-encryption_enabled = false
+encryption_mode = "plaintext"

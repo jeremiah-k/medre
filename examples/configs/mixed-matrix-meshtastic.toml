@@ -23,9 +23,9 @@ path = "{state}/store"
 enabled = true
 homeserver = "https://matrix.example.com"
 user_id = "@mesh-bridge:example.com"
-access_token = "syt_example_token_replace_me"
+access_token = ""
 room_allowlist = ["!bridge-room:example.com"]
-encryption_enabled = false
+encryption_mode = "plaintext"
 
 # --- Meshtastic transport ---
 [adapters.meshtastic.radio]

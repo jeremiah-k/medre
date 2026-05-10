@@ -100,7 +100,7 @@ device_id = "MEDREBOT"
 room_allowlist = ["!room:example.com"]
 store_path = "{state}/matrix/main/store"
 sync_timeout_ms = 30000
-encryption_enabled = false
+encryption_mode = "plaintext"          # plaintext, e2ee_required, e2ee_optional
 ```
 
 | Field | Type | Default | Description |
@@ -115,7 +115,8 @@ encryption_enabled = false
 | `metadata_embedding_mode` | string | `"safe"` | How metadata is embedded in messages. |
 | `store_path` | string | `None` | Path to the nio crypto store. Supports [path placeholders](#path-placeholders). Required for E2EE. |
 | `sync_timeout_ms` | int | `30000` | Long-polling sync timeout in milliseconds. |
-| `encryption_enabled` | bool | `false` | Enable Matrix E2EE. When `true`, MEDRE configures the underlying crypto subsystem automatically (requires the `matrix-e2e` optional dependency). |
+| `encryption_mode` | string | `"plaintext"` | Encryption policy: `plaintext`, `e2ee_required`, or `e2ee_optional`. E2EE modes handle device verification internally. |
+| `require_encrypted_rooms` | bool | `false` | When `true`, only operate in rooms with encryption enabled. Invalid with `encryption_mode="plaintext"`. |
 
 You can define multiple Matrix instances:
 
@@ -355,7 +356,7 @@ Boolean env vars accept: `1`, `true`, `yes` (truthy) and `0`, `false`, `no`
 | `MEDRE_MATRIX_ROOM_ALLOWLIST` | comma-separated list | `adapters.matrix["env"].room_allowlist` | `None` (all rooms) |
 | `MEDRE_MATRIX_DEVICE_ID` | string | `adapters.matrix["env"].device_id` | `None` |
 | `MEDRE_MATRIX_STORE_PATH` | string | `adapters.matrix["env"].store_path` | `None` |
-| `MEDRE_MATRIX_ENCRYPTION_ENABLED` | bool | `adapters.matrix["env"].encryption_enabled` | `false` |
+| `MEDRE_MATRIX_ENCRYPTION_MODE` | string | `adapters.matrix["env"].encryption_mode` | `"plaintext"` |
 
 ### Meshtastic
 

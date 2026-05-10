@@ -143,7 +143,7 @@ class MatrixRuntimeConfig:
         *instance_name* is the key under ``[adapters.matrix]`` and becomes
         ``adapter_id`` unless the table explicitly provides one.
 
-        Encryption settings (``encryption_mode``, ``ignore_unverified_devices``,
+        Encryption settings (``encryption_mode``,
         ``require_encrypted_rooms``) are set directly in the TOML table and
         pass through to :class:`MatrixConfig` via
         :func:`_coerce_adapter_kwargs`.

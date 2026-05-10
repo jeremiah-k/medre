@@ -31,11 +31,14 @@ path = "{state}/medre.sqlite"
 enabled = true
 homeserver = "https://matrix.example.com"
 user_id = "@bot:example.com"
-access_token = "syt_secret_token_here"
+# Prefer using MEDRE_MATRIX_ACCESS_TOKEN env var over embedding tokens
+access_token = ""
 room_allowlist = ["!room:example.com"]
 device_id = "MEDREBOT"
 store_path = "{state}/matrix/main/store"
-encryption_enabled = false
+encryption_mode = "plaintext"
+# When using E2EE:
+# encryption_mode = "e2ee_required"
 
 [adapters.meshtastic.radio]
 enabled = false

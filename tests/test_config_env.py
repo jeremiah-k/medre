@@ -209,9 +209,9 @@ class TestMatrixOverrides:
         base = _make_config_with_matrix()
         result = apply_env_overrides(base)
 
-        # Env creates an "env" key adapter
-        assert "env" in result.adapters.matrix
-        env_matrix = result.adapters.matrix["env"]
+        # Single adapter: env overrides the existing adapter by its key
+        assert "from-toml" in result.adapters.matrix
+        env_matrix = result.adapters.matrix["from-toml"]
         assert env_matrix.config is not None
         assert env_matrix.config.homeserver == "https://env.matrix.org"
 
@@ -223,7 +223,7 @@ class TestMatrixOverrides:
         base = _make_base_config()
         result = apply_env_overrides(base)
 
-        env_adapter = result.adapters.matrix["env"]
+        env_adapter = result.adapters.matrix["default"]
         assert env_adapter.config is not None
         assert isinstance(env_adapter.config.room_allowlist, set)
         assert "!room1:test" in env_adapter.config.room_allowlist
@@ -232,15 +232,15 @@ class TestMatrixOverrides:
     def test_adapter_env_creates_new_instance_when_none_in_toml(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """If no Matrix adapter in TOML, env vars create a new 'env' instance."""
+        """If no Matrix adapter in TOML, env vars create a new 'default' instance."""
         monkeypatch.setenv("MEDRE_MATRIX_HOMESERVER", "https://new.test")
         monkeypatch.setenv("MEDRE_MATRIX_USER_ID", "@new:test")
         monkeypatch.setenv("MEDRE_MATRIX_ACCESS_TOKEN", "new-tok")
         base = _make_base_config()  # No adapters
         result = apply_env_overrides(base)
 
-        assert "env" in result.adapters.matrix
-        env_adapter = result.adapters.matrix["env"]
+        assert "default" in result.adapters.matrix
+        env_adapter = result.adapters.matrix["default"]
         assert env_adapter.config is not None
         assert env_adapter.config.homeserver == "https://new.test"
 
@@ -252,7 +252,7 @@ class TestMatrixOverrides:
         base = _make_base_config()
         result = apply_env_overrides(base)
 
-        env_adapter = result.adapters.matrix["env"]
+        env_adapter = result.adapters.matrix["default"]
         assert env_adapter.enabled is False
 
 
@@ -289,7 +289,7 @@ class TestImmutability:
         result = apply_env_overrides(base)
 
         assert set(base.adapters.matrix.keys()) == original_matrix_keys
-        assert "env" in result.adapters.matrix
+        assert "default" in result.adapters.matrix
 
 
 # ---------------------------------------------------------------------------
