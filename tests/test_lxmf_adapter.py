@@ -125,6 +125,11 @@ class TestLxmfAdapterCapabilities:
         from medre.adapters.fake_lxmf import _FAKE_LXMF_CAPABILITIES
         assert _FAKE_LXMF_CAPABILITIES.max_text_bytes is None
 
+    def test_capabilities_store_and_forward_true(self) -> None:
+        """LXMF supports store-and-forward via propagation nodes."""
+        from medre.adapters.fake_lxmf import _FAKE_LXMF_CAPABILITIES
+        assert _FAKE_LXMF_CAPABILITIES.store_and_forward is True
+
 
 class TestRealLxmfCapabilities:
     """Real LxmfAdapter capabilities match spec."""
@@ -145,6 +150,12 @@ class TestRealLxmfCapabilities:
         assert real_caps.direct_messages == _FAKE_LXMF_CAPABILITIES.direct_messages
         assert real_caps.replies == _FAKE_LXMF_CAPABILITIES.replies
         assert real_caps.max_text_chars == _FAKE_LXMF_CAPABILITIES.max_text_chars
+
+    def test_real_adapter_store_and_forward_true(self) -> None:
+        """Real LXMF adapter must report store_and_forward=True."""
+        config = _make_config()
+        adapter = LxmfAdapter(config)
+        assert adapter._capabilities.store_and_forward is True
 
 
 # ===================================================================

@@ -440,3 +440,272 @@ class TestDeliveryStateCounts:
         counts = session.delivery_state_counts()
         assert counts.get("outbound", 0) == 2
         await session.stop()
+
+
+# ===================================================================
+# Real-mode _send_real fields preservation (mocked LXMF)
+# ===================================================================
+
+
+class TestSendRealFieldsPreservation:
+    """_send_real() passes fields dict to the real LXMessage constructor."""
+
+    async def test_fields_passed_to_lxmessage_constructor(self) -> None:
+        """LXMessage must receive the fields kwarg in real mode."""
+        session = _make_session(connection_type="fake")
+        await session.start()
+
+        # Patch internals to simulate real mode with mocked SDK objects.
+        session._config = _make_config(connection_type="reticulum")
+        session._diag.connected = True
+
+        captured_kwargs: dict[str, Any] = {}
+
+        class FakeLXMessage:
+            GENERATING = 0
+            OUTBOUND = 1
+            SENDING = 2
+            SENT = 3
+            DELIVERED = 4
+            FAILED = 5
+
+            def __init__(self, dest, router, content, **kwargs):
+                self.state = self.OUTBOUND
+                self.hash = b"\xab" * 16
+                self.fields = kwargs.get("fields", None)
+                captured_kwargs.update(kwargs)
+
+            def register_delivery_callback(self, cb):
+                pass
+
+        mock_rns = MagicMock()
+        mock_lxmf = MagicMock()
+        mock_lxmf.LXMessage = FakeLXMessage
+        mock_lxmf.LXMessage.OUTBOUND = 1
+
+        mock_identity = MagicMock()
+        session._identity = mock_identity
+        session._router = MagicMock()
+
+        with patch(
+            "medre.adapters.lxmf.session._require_lxmf",
+            return_value=(mock_rns, mock_lxmf),
+        ):
+            fields = {0xFD: {"medre": {"event_id": "evt-1"}}}
+            native_id, state = await session._send_real(
+                destination_hash="ab" * 16,
+                content="hello",
+                title="test",
+                fields=fields,
+            )
+
+        assert captured_kwargs.get("fields") is fields, (
+            f"Expected fields dict passed through to LXMessage, "
+            f"got {captured_kwargs.get('fields')!r}"
+        )
+        assert native_id is not None
+        await session.stop()
+
+    async def test_none_fields_passed_through(self) -> None:
+        """fields=None must reach LXMessage without error."""
+        session = _make_session(connection_type="fake")
+        await session.start()
+        session._config = _make_config(connection_type="reticulum")
+        session._diag.connected = True
+
+        captured_fields: list = [None]
+
+        class FakeLXMessage:
+            OUTBOUND = 1
+
+            def __init__(self, dest, router, content, **kwargs):
+                self.state = self.OUTBOUND
+                self.hash = b"\xcd" * 16
+                captured_fields[0] = kwargs.get("fields")
+
+            def register_delivery_callback(self, cb):
+                pass
+
+        mock_rns = MagicMock()
+        mock_lxmf = MagicMock()
+        mock_lxmf.LXMessage = FakeLXMessage
+
+        session._identity = MagicMock()
+        session._router = MagicMock()
+
+        with patch(
+            "medre.adapters.lxmf.session._require_lxmf",
+            return_value=(mock_rns, mock_lxmf),
+        ):
+            await session._send_real(
+                destination_hash="ab" * 16,
+                content="hello",
+                fields=None,
+            )
+
+        assert captured_fields[0] is None
+        await session.stop()
+
+    async def test_medre_envelope_fields_preserved(self) -> None:
+        """MEDRE envelope fields from renderer are passed to real LXMessage."""
+        from medre.adapters.lxmf.fields import (
+            FIELD_MEDRE_ENVELOPE,
+            LXMF_NAMESPACE,
+            LxmfFieldsHelper,
+        )
+
+        session = _make_session(connection_type="fake")
+        await session.start()
+        session._config = _make_config(connection_type="reticulum")
+        session._diag.connected = True
+
+        captured_fields: list = [None]
+
+        class FakeLXMessage:
+            OUTBOUND = 1
+
+            def __init__(self, dest, router, content, **kwargs):
+                self.state = self.OUTBOUND
+                self.hash = b"\xef" * 16
+                captured_fields[0] = kwargs.get("fields")
+
+            def register_delivery_callback(self, cb):
+                pass
+
+        mock_rns = MagicMock()
+        mock_lxmf = MagicMock()
+        mock_lxmf.LXMessage = FakeLXMessage
+
+        session._identity = MagicMock()
+        session._router = MagicMock()
+
+        # Simulate fields with a MEDRE envelope from the renderer.
+        fields = LxmfFieldsHelper.embed_envelope(
+            {}, "evt-42", (), {"source_hash": "ab" * 16}
+        )
+
+        with patch(
+            "medre.adapters.lxmf.session._require_lxmf",
+            return_value=(mock_rns, mock_lxmf),
+        ):
+            await session._send_real(
+                destination_hash="ab" * 16,
+                content="hello",
+                fields=fields,
+            )
+
+        assert captured_fields[0] is not None
+        assert FIELD_MEDRE_ENVELOPE in captured_fields[0]
+        envelope = captured_fields[0][FIELD_MEDRE_ENVELOPE]
+        assert LXMF_NAMESPACE in envelope
+        assert envelope[LXMF_NAMESPACE]["event_id"] == "evt-42"
+        await session.stop()
+
+    async def test_fields_contain_no_secrets(self) -> None:
+        """Fields passed to LXMessage must not include private keys/secrets."""
+        from medre.adapters.lxmf.fields import (
+            FIELD_MEDRE_ENVELOPE,
+            LXMF_NAMESPACE,
+            LxmfFieldsHelper,
+        )
+
+        session = _make_session(connection_type="fake")
+        await session.start()
+        session._config = _make_config(connection_type="reticulum")
+        session._diag.connected = True
+
+        captured_fields: list = [None]
+
+        class FakeLXMessage:
+            OUTBOUND = 1
+
+            def __init__(self, dest, router, content, **kwargs):
+                self.state = self.OUTBOUND
+                self.hash = b"\xaa" * 16
+                captured_fields[0] = kwargs.get("fields")
+
+            def register_delivery_callback(self, cb):
+                pass
+
+        mock_rns = MagicMock()
+        mock_lxmf = MagicMock()
+        mock_lxmf.LXMessage = FakeLXMessage
+
+        session._identity = MagicMock()
+        session._router = MagicMock()
+
+        fields = LxmfFieldsHelper.embed_envelope(
+            {}, "evt-99", (), {"source_hash": "ab" * 16}
+        )
+
+        with patch(
+            "medre.adapters.lxmf.session._require_lxmf",
+            return_value=(mock_rns, mock_lxmf),
+        ):
+            await session._send_real(
+                destination_hash="ab" * 16,
+                content="hello",
+                fields=fields,
+            )
+
+        result_fields = captured_fields[0]
+        assert result_fields is not None
+
+        # The top-level keys should be int field IDs (like 0xFD),
+        # not private keys, secrets, or raw identity material.
+        for key in result_fields:
+            assert isinstance(key, int), (
+                f"Field key should be int (LXMF field ID), got {type(key)}: {key!r}"
+            )
+
+        # Specifically check envelope content doesn't leak secrets.
+        envelope = result_fields[FIELD_MEDRE_ENVELOPE][LXMF_NAMESPACE]
+        forbidden = {
+            "private_key", "secret", "password", "token",
+            "identity", "raw_identity",
+        }
+        for word in forbidden:
+            assert word not in envelope, (
+                f"Envelope must not contain {word!r}"
+            )
+        await session.stop()
+
+
+# ===================================================================
+# Fake-mode send returns AdapterDeliveryResult-compatible data
+# ===================================================================
+
+
+class TestFakeSendReturnsAdapterDeliveryResult:
+    """Fake send_text returns honest outbound/pending data, not None."""
+
+    async def test_fake_send_returns_non_none_id(self) -> None:
+        session = _make_session(connection_type="fake")
+        await session.start()
+        native_id, state = await session.send_text(
+            destination_hash="ab" * 16, content="hello",
+        )
+        assert native_id is not None
+        assert isinstance(native_id, str)
+        await session.stop()
+
+    async def test_fake_send_state_is_outbound(self) -> None:
+        session = _make_session(connection_type="fake")
+        await session.start()
+        _, state = await session.send_text(
+            destination_hash="ab" * 16, content="hello",
+        )
+        assert state == LxmfDeliveryState.OUTBOUND
+        await session.stop()
+
+    async def test_fake_send_with_fields(self) -> None:
+        """Fake mode accepts fields without error (no-op on fields)."""
+        session = _make_session(connection_type="fake")
+        await session.start()
+        fields = {0x01: "test"}
+        native_id, state = await session.send_text(
+            destination_hash="ab" * 16, content="hello", fields=fields,
+        )
+        assert native_id is not None
+        assert state == LxmfDeliveryState.OUTBOUND
+        await session.stop()

@@ -597,7 +597,7 @@ class LxmfSession:
         -------
         tuple[str | None, LxmfDeliveryState]
             ``(native_message_id, initial_state)``.  In fake mode,
-            returns ``(None, OUTBOUND)``.  In real mode, returns the
+            returns ``(fake_id, OUTBOUND)``.  In real mode, returns the
             message hash and the initial delivery state.
 
         Raises
@@ -1032,12 +1032,15 @@ class LxmfSession:
                 # This is the standard pattern from LXMF examples.
                 dest.hash = dest_bytes
 
-                # Build the LXMessage.
+                # Build the LXMessage — include fields so rendered
+                # metadata (MEDRE envelope, provenance hints, etc.)
+                # is preserved through serialisation (pack()).
                 lxm = lxmf.LXMessage(
                     dest,
                     self._router,
                     content,
                     title=title,
+                    fields=fields,
                     desired_method=method_const,
                 )
 

@@ -17,7 +17,8 @@ The adapter supports connection types configured via
 ``"fake"``
     No real client.  Used for testing without hardware.  Inbound
     simulation via :meth:`simulate_inbound`; outbound via :meth:`deliver`
-    returns ``None`` (scaffolded).
+    returns an :class:`AdapterDeliveryResult` with honest
+    ``outbound``/``pending`` delivery semantics.
 
 ``"reticulum"``
     Connects to a locally-running Reticulum instance via the ``RNS``
@@ -74,7 +75,7 @@ _LXMF_CAPABILITIES = AdapterCapabilities(
     attachments=False,
     metadata_fields=True,
     delivery_receipts=False,
-    store_and_forward=False,
+    store_and_forward=True,
     direct_messages=True,
     channels=False,
     async_delivery=True,
