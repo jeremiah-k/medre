@@ -33,7 +33,7 @@
 25. [Future Document Split](#25-future-document-split)
 26. [Behavioral Lessons from MMRelay](#26-behavioral-lessons-from-mmrelay)
 27. [Out of Scope](#27-out-of-scope)
-28. [Conceptual Configuration Schema](#28-conceptual-configuration-schema)
+28. [Runtime Configuration API](#28-runtime-configuration-api)
 29. [Appendix: Illustrative Snippets](#29-appendix-illustrative-snippets)
 
 
@@ -1513,141 +1513,137 @@ Events carry a trace context through the pipeline. Each stage creates a span. Di
 
 ## 22. Proposed Package Tree
 
+> **Note:** The tree below reflects the **implemented** source layout under `src/medre/`.
+> Sections not yet populated (e.g. `core/transforms/`, `core/policies/`) contain only `__init__.py`.
+
 ```
-<project>/
-├── app/                          # Application entry point, CLI, configuration loading
+src/medre/
+├── __init__.py
+├── cli.py                        # CLI: medre run, config check, config sample, paths, version
+├── runner.py                     # Config-driven runner (python -m medre.runner)
+│
+├── config/                       # Runtime configuration system
+│   ├── __init__.py               # Public API re-exports
+│   ├── paths.py                  # XDG path resolution, MEDRE_HOME override, placeholder expansion
+│   ├── model.py                  # Frozen dataclass config models (RuntimeConfig, AdapterConfigSet, etc.)
+│   ├── errors.py                 # ConfigError hierarchy
+│   ├── loader.py                 # TOML loader, ConfigSource enum, find_config, load_config
+│   ├── env.py                    # MEDRE_* env-var override layer, MedreEnvConfig
+│   └── sample.py                 # generate_sample_config() for "medre config sample"
+│
+├── runtime/                      # Runtime assembly and lifecycle
 │   ├── __init__.py
-│   ├── main.py                   # Async entry point
-│   ├── cli.py                    # Click/Typer CLI
-│   └── config.py                 # Configuration loading and validation
-├── core/
-│   ├── __init__.py
-│   ├── events/                   # Canonical event model, schema registry, event kinds
+│   ├── app.py                    # MedreApp — top-level runtime container (start/stop lifecycle)
+│   ├── builder.py                # RuntimeBuilder — wires all subsystems from config + paths
+│   └── errors.py                 # Runtime errors (AdapterStartupError, etc.)
+│
+├── core/                         # Core engine (transport-agnostic)
+│   ├── events/                   # Canonical event model, event bus
 │   │   ├── __init__.py
 │   │   ├── canonical.py          # CanonicalEvent dataclass
 │   │   ├── kinds.py              # Event kind registry
-│   │   └── schema.py             # Schema registry and validation
-│   ├── routing/                  # Route matching only (no fanout, no transforms)
+│   │   ├── metadata.py           # Event metadata handling
+│   │   ├── schema.py             # Schema registry and validation
+│   │   └── bus.py                # Async EventBus with middleware
+│   ├── routing/                  # Route matching engine
 │   │   ├── __init__.py
-│   │   └── router.py             # Route evaluation engine
+│   │   ├── router.py             # Route evaluation engine
+│   │   └── models.py             # Route data models
 │   ├── planning/                 # Delivery planning, fallback, relation resolution
 │   │   ├── __init__.py
 │   │   ├── delivery_plan.py      # DeliveryPlan construction
 │   │   ├── fallback_resolution.py
-│   │   ├── relation_resolution.py
-│   │   └── capability_fallback.py  # Capability downgrade per target adapter
+│   │   └── relation_resolution.py
 │   ├── rendering/                # Target-specific payload rendering
 │   │   ├── __init__.py
-│   │   ├── renderer.py           # Rendering engine
-│   │   ├── matrix.py             # Matrix-specific rendering (HTML, metadata embedding)
-│   │   ├── meshcore.py           # MeshCore-specific rendering (truncation, plain text)
-│   │   └── lxmf.py               # LXMF-specific rendering (fields dict, title/content)
-│   ├── delivery/                 # Adapter queues, execution, receipt processing
+│   │   ├── renderer.py           # RenderingPipeline engine
+│   │   └── text.py               # Default TextRenderer
+│   ├── engine/                   # Central pipeline orchestration
 │   │   ├── __init__.py
-│   │   ├── executor.py           # Delivery execution engine
-│   │   ├── queues.py             # Per-adapter queues
-│   │   └── receipt_processor.py  # Receipt handling and correlation
-│   ├── transforms/               # Event transform pipeline
-│   │   ├── __init__.py
-│   │   ├── pipeline.py           # Transform chain executor
-│   │   ├── telemetry.py          # Telemetry transforms
-│   │   ├── message.py            # Message transforms
-│   │   └── presentation.py       # Presentation-specific transforms
-│   ├── policies/                 # Policy pipeline
-│   │   ├── __init__.py
-│   │   ├── pipeline.py           # Policy evaluation chain
-│   │   ├── rate_limit.py
-│   │   ├── content_filter.py
-│   │   ├── dedup.py
-│   │   └── permissions.py
+│   │   └── pipeline.py           # PipelineRunner, PipelineConfig
 │   ├── storage/                  # Storage abstraction and implementations
 │   │   ├── __init__.py
 │   │   ├── backend.py            # StorageBackend protocol
 │   │   ├── sqlite.py             # SQLite implementation
-│   │   ├── replay.py             # Replay engine
-│   │   └── archive.py            # Raw native archive
+│   │   └── replay.py             # Replay engine
 │   ├── lifecycle/                # Component lifecycle management
 │   │   ├── __init__.py
 │   │   ├── manager.py            # Adapter lifecycle manager
 │   │   └── states.py             # Lifecycle state definitions
-│   ├── observability/            # Logging, metrics, tracing
+│   ├── observability/            # Logging, metrics
 │   │   ├── __init__.py
-│   │   ├── metrics.py            # Prometheus-compatible metrics
-│   │   ├── tracing.py            # OpenTelemetry tracing setup
+│   │   ├── metrics.py            # Diagnostician, Prometheus-compatible metrics
 │   │   └── logging.py            # Structured logging config
-│   └── identity/                 # Identity resolution and actor management
-│       ├── __init__.py
-│       ├── resolver.py           # IdentityResolver
-│       ├── actor.py              # CanonicalActor model
-│       └── mapping.py            # Identity mapping storage
+│   ├── identity/                 # Identity resolution and actor management
+│   │   ├── __init__.py
+│   │   ├── resolver.py           # IdentityResolver
+│   │   └── actor.py              # CanonicalActor model
+│   ├── runtime/                  # Runtime diagnostics and capabilities
+│   │   ├── __init__.py
+│   │   ├── capabilities.py       # Adapter capability declarations
+│   │   ├── diagnostics.py        # Runtime diagnostics
+│   │   ├── diagnostic_contract.py # Diagnostic interfaces
+│   │   └── health.py             # Health check infrastructure
+│   ├── transforms/               # Event transform pipeline (scaffold)
+│   │   └── __init__.py
+│   └── policies/                 # Policy pipeline (scaffold)
+│       └── __init__.py
+│
 ├── adapters/                     # Adapter implementations
 │   ├── __init__.py
-│   ├── base.py                   # Adapter protocol and base classes
-│   ├── meshcore/                 # MeshCore TRANSPORT adapter
-│   │   ├── __init__.py
-│   │   ├── adapter.py
-│   │   ├── codec.py              # MeshCore native <-> canonical event encoding
-│   │   └── state_machine.py
-│   ├── meshtastic/               # Meshtastic TRANSPORT adapter
-│   │   ├── __init__.py
-│   │   ├── adapter.py
-│   │   ├── codec.py              # Meshtastic protobuf <-> canonical event encoding
-│   │   └── node_cache.py         # Node database cache and refresh
-│   ├── lxmf/                     # LXMF TRANSPORT adapter (over Reticulum)
-│   │   ├── __init__.py
-│   │   ├── adapter.py            # Adapter protocol implementation, lifecycle
-│   │   ├── codec.py              # LXMessage <-> canonical event encoding/decoding
-│   │   ├── router.py             # LXMRouter setup, delivery callback registration
-│   │   ├── identity.py           # Reticulum identity management, hash mapping
-│   │   ├── delivery.py           # Outbound delivery, method selection, receipt handling
-│   │   ├── propagation.py        # Propagation node configuration and sync
-│   │   ├── formatting.py         # Content formatting for LXMF (title, content, fields)
-│   │   ├── fields.py             # Fields dict construction and parsing for framework metadata
-│   │   └── connection.py         # Reticulum transport initialization, announce handling
+│   ├── base.py                   # BaseAdapter protocol, AdapterContext, lifecycle ABC
+│   ├── fake_transport.py         # Fake transport adapter (testing/dev)
+│   ├── fake_presentation.py      # Fake presentation adapter (testing/dev)
+│   ├── fake_matrix.py            # Fake Matrix adapter
+│   ├── fake_meshtastic.py        # Fake Meshtastic adapter
+│   ├── fake_meshcore.py          # Fake MeshCore adapter
+│   ├── fake_lxmf.py              # Fake LXMF adapter
 │   ├── matrix/                   # Matrix PRESENTATION adapter
 │   │   ├── __init__.py
-│   │   ├── adapter.py
+│   │   ├── adapter.py            # MatrixAdapter implementation
 │   │   ├── codec.py              # Matrix event <-> canonical event encoding
-│   │   └── embedding.py
-│   ├── discord/                  # Discord PRESENTATION adapter
+│   │   ├── config.py             # MatrixConfig frozen dataclass
+│   │   ├── compat.py             # Compatibility layer
+│   │   ├── errors.py             # Matrix adapter errors
+│   │   ├── metadata.py           # Matrix metadata handling
+│   │   ├── relations.py          # Matrix relation tracking
+│   │   ├── renderer.py           # Matrix-specific renderer
+│   │   └── session.py            # Matrix nio session management
+│   ├── meshtastic/               # Meshtastic TRANSPORT adapter
 │   │   ├── __init__.py
-│   │   └── adapter.py
-│   ├── telegram/                 # Telegram PRESENTATION adapter
+│   │   ├── adapter.py            # MeshtasticAdapter implementation
+│   │   ├── codec.py              # Meshtastic protobuf <-> canonical event encoding
+│   │   ├── config.py             # MeshtasticConfig frozen dataclass
+│   │   ├── compat.py             # Compatibility layer
+│   │   ├── errors.py             # Meshtastic adapter errors
+│   │   ├── packet_classifier.py  # Packet type classification
+│   │   ├── queue.py              # Outbound message queue
+│   │   ├── renderer.py           # Meshtastic-specific renderer
+│   │   └── session.py            # Meshtastic client session
+│   ├── meshcore/                 # MeshCore TRANSPORT adapter
 │   │   ├── __init__.py
-│   │   └── adapter.py
-│   └── mqtt/                     # MQTT TRANSPORT adapter
+│   │   ├── adapter.py            # MeshCoreAdapter implementation
+│   │   ├── codec.py              # MeshCore native <-> canonical event encoding
+│   │   ├── config.py             # MeshCoreConfig frozen dataclass
+│   │   ├── compat.py             # Compatibility layer
+│   │   ├── errors.py             # MeshCore adapter errors
+│   │   ├── packet_classifier.py  # Packet type classification
+│   │   ├── renderer.py           # MeshCore-specific renderer
+│   │   └── session.py            # MeshCore client session
+│   └── lxmf/                     # LXMF TRANSPORT adapter (over Reticulum)
 │       ├── __init__.py
-│       └── adapter.py
-├── plugins/                      # Built-in plugins and plugin host
-│   ├── __init__.py
-│   ├── host.py                   # Plugin loader and sandbox
-│   ├── map_viz.py                # Example: map visualization plugin
-│   └── alert_rules.py            # Example: alert rule plugin
-├── management/                   # Management interface (future, not Phase 1)
-│   ├── __init__.py
-│   ├── interface.py              # Future management interface boundary
-│   ├── events.py                 # Event query/replay interface (future)
-│   ├── routes.py                 # Route management interface (future)
-│   ├── adapters.py               # Adapter status interface (future)
-│   └── plugins.py                # Plugin management interface (future)
-└── tests/
-    ├── __init__.py
-    ├── conftest.py
-    ├── test_canonical_events.py
-    ├── test_transforms.py
-    ├── test_policies.py
-    ├── test_routing.py
-    ├── test_delivery.py
-    ├── test_identity.py
-    ├── test_storage.py
-    ├── test_receipt_immutability.py  # Verifies receipts are append-only and never mutated
-    ├── test_meshcore_adapter.py
-    ├── test_matrix_adapter.py
-    ├── test_lxmf_adapter.py
-    ├── test_lxmf_relations.py
-    ├── test_lxmf_delivery.py
-    ├── test_lxmf_identity.py
-    └── test_replay.py
+│       ├── adapter.py            # LxmfAdapter implementation
+│       ├── codec.py              # LXMessage <-> canonical event encoding
+│       ├── config.py             # LxmfConfig frozen dataclass
+│       ├── compat.py             # Compatibility layer
+│       ├── errors.py             # LXMF adapter errors
+│       ├── fields.py             # Fields dict construction and parsing
+│       ├── packet_classifier.py  # Packet type classification
+│       ├── renderer.py           # LXMF-specific renderer
+│       └── session.py            # Reticulum/LXMRouter session
+│
+└── plugins/                      # Plugin system (scaffold)
+    └── __init__.py
 ```
 
 
@@ -1849,99 +1845,199 @@ The following are explicitly out of scope for this project:
 - **LXST (LXMF Streaming Transport).** LXST is a separate Reticulum-based streaming and media protocol, not a feature of LXMF. No media session runtime, no audio abstractions, no LXST adapter sections, and no real-time media pipeline. LXST may be evaluated later as its own adapter only if the project expands into real-time media/session events.
 
 
-## 28. Conceptual Configuration Schema
+## 28. Runtime Configuration API
 
-This section provides a first-pass conceptual schema for the runtime's YAML configuration file. The schema is organized by concern. Individual sections reference specific spec sections for detailed contracts.
+This section documents the **implemented** configuration system. The runtime uses TOML (not YAML), frozen dataclasses, XDG-compatible path resolution, and a layered override model.
 
-```yaml
-# runtime.yaml — Conceptual configuration schema
+### Config Package Structure
 
-runtime:
-  name: "medre-relay"                    # Instance name for logging/identification
-  log_level: "info"                        # debug | info | warn | error
-  event_loop: "uvloop"                     # asyncio | uvloop
-  graceful_shutdown_timeout: 30            # Seconds to drain on shutdown
+The configuration system lives under `medre.config`:
 
-storage:
-  backend: "sqlite"                        # sqlite | postgres | future
-  sqlite:
-    path: "~/.medre/events.db"
-    wal_mode: true
-    busy_timeout: 5000
-  native_archive:
-    enabled: false
-    compression: gzip                      # gzip | zstd
-    retention:
-      max_age_days: 30
-      max_count: 100000
-    adapters: {}                           # Per-adapter opt-in
+| Module | Purpose |
+|---|---|
+| `paths.py` | XDG-compatible path resolution with `MEDRE_HOME` single-directory override |
+| `model.py` | Typed frozen-dataclass configuration models |
+| `errors.py` | Configuration error hierarchy (`ConfigError` → `ConfigNotFoundError`, `ConfigValidationError`, `ConfigFileError`) |
+| `loader.py` | TOML file loader with priority search order |
+| `env.py` | `MEDRE_*` environment variable override layer |
+| `sample.py` | Sample config generator (`medre config sample`) |
+| `__init__.py` | Public API re-exports (guarded imports for forward compat) |
 
-adapters:
-  <adapter-name>:
-    type: <adapter-type>                   # meshcore | meshtastic | matrix | lxmf | discord | telegram | mqtt
-    # role: transport | presentation | hybrid  — READ-ONLY. Inferred from adapter type at load time.
-    enabled: true
-    connection: {}                         # Adapter-specific connection config (see adapter sections)
-    channels: {}                           # Adapter-specific channel/slot mapping
-    rate_limits: {}                        # Per-adapter rate limit overrides
+### Root Configuration Model
 
-routes:
-  - id: <route-id>
-    from:
-      adapter: <adapter-name> | null       # null matches any adapter
-      event_kinds: [<kind>, ...]           # Event kinds to match
-      channel: <channel> | null            # null matches any channel
-    to:
-      - adapter: <adapter-name>
-        channel: <channel> | null
-        destination:                       # Optional structured destination
-          kind: channel | lxmf_destination | meshcore_contact | matrix_room
-          destination_hash: <hash> | null
-          destination_name: <name> | null
-    priority: <int>
-    enabled: true
-    filters: {}                            # Additional filter criteria
+The top-level `RuntimeConfig` is a frozen dataclass with four sections:
 
-transforms:
-  - name: <transform-name>
-    class: <python-class-path>
-    config: {}                             # Transform-specific configuration
+```python
+@dataclass(frozen=True)
+class RuntimeConfig:
+    runtime: RuntimeOptions       # name, shutdown_timeout_seconds
+    logging: LoggingConfig        # level, format
+    storage: StorageConfig        # backend, path
+    adapters: AdapterConfigSet    # grouped by transport type
+```
 
-policies:
-  ingress: []                              # Ingress-stage policies (Section 7)
-  event: []                                # Event-stage policies
-  route: []                                # Route-stage policies
-  delivery: []                             # Delivery-stage policies
+### TOML Schema
 
-  # Each policy entry:
-  # - name: <policy-name>
-  #   class: <python-class-path>
-  #   config: {}
+The runtime configuration file uses TOML (parsed via stdlib `tomllib`).
+Full schema with examples is documented in `docs/runbooks/configuration.md`.
 
-plugins:
-  - name: <plugin-name>
-    class: <python-class-path>
-    enabled: true
-    capabilities: []                       # Required capabilities
-    config: {}                             # Plugin-specific configuration
-    rate_limits: {}                        # Per-plugin rate limits
+Key sections:
 
-observability:
-  metrics:
-    enabled: true
-    port: 9090                             # Prometheus-compatible metrics export (future)
-  tracing:
-    enabled: false
-    exporter: "otlp"                       # otlp | jaeger | none
-    endpoint: "http://localhost:4317"
-  logging:
-    structured: true
-    format: "json"                         # json | text
+```toml
+[runtime]
+name = "medre"
+shutdown_timeout_seconds = 10
 
-management:
-  enabled: false                    # Future management interface, not Phase 1
-  # Concrete server, access-control, and network binding settings are intentionally
-  # omitted from Phase 1. The current foundation does not implement an admin API.
+[logging]
+level = "INFO"          # DEBUG | INFO | WARNING | ERROR
+format = "text"         # text | json
+
+[storage]
+backend = "sqlite"      # currently only "sqlite"
+path = "{state}/medre.sqlite"   # supports {placeholder} expansion
+
+# --- Adapter instances (multi-instance per type) ---
+
+[adapters.matrix.<name>]
+enabled = true
+homeserver = "https://matrix.example.com"
+user_id = "@bot:example.com"
+access_token = "syt_..."
+room_allowlist = ["!room:example.com"]
+device_id = "MEDREBOT"
+store_path = "{state}/matrix/<name>/store"
+encryption_enabled = false
+
+[adapters.meshtastic.<name>]
+enabled = false
+connection_type = "serial"   # serial | tcp
+serial_port = "/dev/ttyACM0"
+host = "localhost"
+port = 4403
+
+[adapters.meshcore.<name>]
+enabled = false
+connection_type = "serial"   # serial | tcp | ble
+serial_port = "/dev/ttyUSB0"
+host = "localhost"
+port = 4403
+ble_address = ""
+
+[adapters.lxmf.<name>]
+enabled = false
+connection_type = "reticulum"
+identity_path = "{state}/lxmf/identity"
+display_name = "MEDRE"
+```
+
+### Configuration Search Order
+
+1. `--config` CLI flag (explicit path, must exist)
+2. `MEDRE_CONFIG` environment variable
+3. `$MEDRE_HOME/config.toml` (when `MEDRE_HOME` is set)
+4. XDG config path (`$XDG_CONFIG_HOME/medre/config.toml`, defaults to `~/.config/medre/config.toml`)
+5. `./medre.toml` (local project fallback)
+
+The loader returns a `(RuntimeConfig, ConfigSource, MedrePaths)` triple so callers know where the config was found.
+
+### Env Override Model
+
+`MEDRE_*` environment variables are applied as overrides on top of the loaded TOML config. The original config is **never mutated** — overrides produce a new frozen instance via `dataclasses.replace()`.
+
+Core overrides:
+- `MEDRE_DB_PATH` → `config.storage.path`
+- `MEDRE_LOG_LEVEL` → `config.logging.level`
+
+Adapter overrides map to a virtual `"env"` adapter instance within each transport type:
+- **Matrix**: `MEDRE_MATRIX_HOMESERVER`, `MEDRE_MATRIX_USER_ID`, `MEDRE_MATRIX_ACCESS_TOKEN`, `MEDRE_MATRIX_DEVICE_ID`, `MEDRE_MATRIX_STORE_PATH`, `MEDRE_MATRIX_ENCRYPTION_ENABLED`, `MEDRE_MATRIX_ROOM_ALLOWLIST`
+- **Meshtastic**: `MEDRE_MESHTASTIC_CONNECTION_TYPE`, `MEDRE_MESHTASTIC_SERIAL_PORT`, `MEDRE_MESHTASTIC_HOST`, `MEDRE_MESHTASTIC_PORT`
+- **MeshCore**: `MEDRE_MESHCORE_CONNECTION_TYPE`, `MEDRE_MESHCORE_SERIAL_PORT`, `MEDRE_MESHCORE_HOST`, `MEDRE_MESHCORE_PORT`, `MEDRE_MESHCORE_BLE_ADDRESS`
+- **LXMF**: `MEDRE_LXMF_CONNECTION_TYPE`, `MEDRE_LXMF_IDENTITY_PATH`, `MEDRE_LXMF_DISPLAY_NAME`, `MEDRE_LXMF_DESTINATION_HASH`
+
+Type coercion is explicit (bool/int/list). Secrets are redacted in log output.
+
+### XDG Path Model
+
+| Category | XDG Default | MEDRE_HOME Mode |
+|---|---|---|
+| Config | `$XDG_CONFIG_HOME/medre/` or `~/.config/medre/` | `$MEDRE_HOME/config.toml` |
+| State | `$XDG_STATE_HOME/medre/` or `~/.local/state/medre/` | `$MEDRE_HOME/state/` |
+| Data | `$XDG_DATA_HOME/medre/` or `~/.local/share/medre/` | `$MEDRE_HOME/data/` |
+| Cache | `$XDG_CACHE_HOME/medre/` or `~/.cache/medre/` | `$MEDRE_HOME/cache/` |
+| Logs | `state_dir/logs` | `$MEDRE_HOME/logs/` |
+| Database | `state_dir/medre.sqlite` | `$MEDRE_HOME/state/medre.sqlite` |
+| Matrix store | `state_dir/matrix/store/` | `$MEDRE_HOME/state/matrix/store/` |
+| Adapter state | `state_dir/adapters/<id>/` | `$MEDRE_HOME/state/adapters/<id>/` |
+
+Path placeholders `{config}`, `{state}`, `{data}`, `{cache}`, `{logs}` are expanded via `MedrePaths.expand_placeholder()`. Directories are never created by pure path resolution — only during runtime startup.
+
+### Adapter Config Wrapping
+
+Each adapter type has a runtime wrapper (`MatrixRuntimeConfig`, `MeshtasticRuntimeConfig`, `MeshCoreRuntimeConfig`, `LxmfRuntimeConfig`) that:
+
+1. Parses the TOML table via `from_toml_dict(instance_name, data)`
+2. Separates runtime fields (`enabled`, `adapter_id`) from adapter-specific fields
+3. Coerces TOML types (list→set, string-keyed→int-keyed dicts)
+4. Constructs and validates the adapter's own config dataclass
+5. Stores the validated adapter config in a `.config` attribute
+
+`AdapterConfigSet` groups all adapters by transport type and provides `all_enabled()` iteration.
+
+### Runtime Builder
+
+`RuntimeBuilder(config, paths).build()` constructs a `MedreApp` with all required subsystems:
+
+1. `EventBus` — central async pub/sub
+2. `RenderingPipeline` — with registered renderers (default: `TextRenderer`)
+3. `Router` — route table
+4. `FallbackResolver` — capability degradation
+5. `SQLiteStorage` — using resolved database path
+6. `Diagnostician` — metrics and diagnostics
+7. `RelationResolver` — cross-adapter event linking
+8. `PipelineRunner` — orchestration via `PipelineConfig`
+9. Adapters — constructed from enabled adapter configs (disabled adapters ignored)
+10. Per-adapter `AdapterContext` with full wiring
+
+`MedreApp` lifecycle: `start()` → `wait_for_shutdown()` → `stop()`.
+
+### CLI
+
+```
+medre run [--config PATH]         # Start the MEDRE runtime
+medre config check [--config PATH] # Validate config file
+medre config sample                # Print a sample TOML config
+medre paths                        # Print resolved MEDRE paths
+medre version                      # Print MEDRE version
+```
+
+Also supports `python -m medre.cli`.
+
+### Runner
+
+`python -m medre.runner [--config PATH]` loads config, applies env overrides, builds runtime, and runs. No Matrix-specific code.
+
+### Example Configs
+
+Example TOML files in `examples/configs/`:
+
+| File | Description |
+|---|---|
+| `matrix.toml` | Single Matrix adapter (plaintext) |
+| `meshtastic-serial.toml` | Serial Meshtastic radio |
+| `fake-multi-adapter.toml` | All adapters in fake mode (dev/CI) |
+| `mixed-matrix-meshtastic.toml` | Matrix + Meshtastic bridge |
+
+### Encryption Model
+
+At the TOML config level, Matrix encryption is controlled by a single `encryption_enabled: bool` field. When `true`, MEDRE internally configures `encryption_mode = "e2ee_required"` and `ignore_unverified_devices = True` on the underlying `MatrixConfig`. This is an upstream nio client limitation — cross-signing is not yet supported, so all automated E2EE requires the unverified devices flag.
+
+### Configuration Error Hierarchy
+
+```
+ConfigError                          # Base
+├── ConfigNotFoundError              # File not found
+├── ConfigValidationError            # Validation failure
+└── ConfigFileError                  # File read/parse error
 ```
 
 ## 29. Appendix: Illustrative Snippets

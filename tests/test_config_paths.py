@@ -48,6 +48,7 @@ class TestXDGDefaults:
 
     def test_config_file_inside_config_dir(self) -> None:
         paths = resolve()
+        assert paths.config_dir is not None
         assert paths.config_file == paths.config_dir / "config.toml"
 
     def test_state_dir_under_xdg_state(self) -> None:
@@ -202,6 +203,7 @@ class TestExpandPlaceholder:
         assert result == xdg_paths.data_dir / "stuff"
 
     def test_config_placeholder(self, xdg_paths: MedrePaths) -> None:
+        assert xdg_paths.config_dir is not None
         result = xdg_paths.expand_placeholder("{config}/extra.toml")
         assert result == xdg_paths.config_dir / "extra.toml"
 

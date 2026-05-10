@@ -23,8 +23,7 @@ Matrix adapter (``adapters.matrix["env"]``):
   ``MEDRE_MATRIX_HOMESERVER``, ``MEDRE_MATRIX_USER_ID``,
   ``MEDRE_MATRIX_ACCESS_TOKEN``, ``MEDRE_MATRIX_ROOM_ALLOWLIST``,
   ``MEDRE_MATRIX_DEVICE_ID``, ``MEDRE_MATRIX_STORE_PATH``,
-  ``MEDRE_MATRIX_ENCRYPTION_MODE``,
-  ``MEDRE_MATRIX_IGNORE_UNVERIFIED_DEVICES``
+  ``MEDRE_MATRIX_ENCRYPTION_ENABLED``
 
 Meshtastic adapter (``adapters.meshtastic["env"]``):
 
@@ -91,8 +90,7 @@ MATRIX_ENV_NAMES: frozenset[str] = frozenset({
     "MEDRE_MATRIX_ROOM_ALLOWLIST",
     "MEDRE_MATRIX_DEVICE_ID",
     "MEDRE_MATRIX_STORE_PATH",
-    "MEDRE_MATRIX_ENCRYPTION_MODE",
-    "MEDRE_MATRIX_IGNORE_UNVERIFIED_DEVICES",
+    "MEDRE_MATRIX_ENCRYPTION_ENABLED",
 })
 
 MESHTASTIC_ENV_NAMES: frozenset[str] = frozenset({
@@ -238,8 +236,7 @@ _ENV_FIELD_MAP: dict[str, str] = {
     "MEDRE_MATRIX_ROOM_ALLOWLIST": "matrix_room_allowlist",
     "MEDRE_MATRIX_DEVICE_ID": "matrix_device_id",
     "MEDRE_MATRIX_STORE_PATH": "matrix_store_path",
-    "MEDRE_MATRIX_ENCRYPTION_MODE": "matrix_encryption_mode",
-    "MEDRE_MATRIX_IGNORE_UNVERIFIED_DEVICES": "matrix_ignore_unverified_devices",
+    "MEDRE_MATRIX_ENCRYPTION_ENABLED": "matrix_encryption_enabled",
     # Meshtastic
     "MEDRE_MESHTASTIC_ENABLED": "meshtastic_enabled",
     "MEDRE_MESHTASTIC_ADAPTER_ID": "meshtastic_adapter_id",
@@ -268,8 +265,7 @@ _ENV_FIELD_MAP: dict[str, str] = {
 _MATRIX_ENV_FIELDS: tuple[str, ...] = (
     "matrix_enabled", "matrix_adapter_id", "matrix_homeserver",
     "matrix_user_id", "matrix_access_token", "matrix_room_allowlist",
-    "matrix_device_id", "matrix_store_path", "matrix_encryption_mode",
-    "matrix_ignore_unverified_devices",
+    "matrix_device_id", "matrix_store_path", "matrix_encryption_enabled",
 )
 _MESHTASTIC_ENV_FIELDS: tuple[str, ...] = (
     "meshtastic_enabled", "meshtastic_adapter_id",
@@ -290,7 +286,6 @@ _LXMF_ENV_FIELDS: tuple[str, ...] = (
 _MATRIX_CONFIG_ENV_FIELDS: tuple[str, ...] = (
     "matrix_homeserver", "matrix_user_id", "matrix_access_token",
     "matrix_room_allowlist", "matrix_device_id", "matrix_store_path",
-    "matrix_encryption_mode", "matrix_ignore_unverified_devices",
 )
 _MESHTASTIC_CONFIG_ENV_FIELDS: tuple[str, ...] = (
     "meshtastic_connection_type", "meshtastic_serial_port",
@@ -336,8 +331,7 @@ class MedreEnvConfig:
     matrix_room_allowlist: str | None = None
     matrix_device_id: str | None = None
     matrix_store_path: str | None = None
-    matrix_encryption_mode: str | None = None
-    matrix_ignore_unverified_devices: str | None = None
+    matrix_encryption_enabled: str | None = None
 
     # -- Meshtastic --
     meshtastic_enabled: str | None = None
@@ -486,15 +480,19 @@ def _build_matrix_config(
         kwargs["device_id"] = env.matrix_device_id
     if env.matrix_store_path is not None:
         kwargs["store_path"] = env.matrix_store_path
-    if env.matrix_encryption_mode is not None:
-        kwargs["encryption_mode"] = env.matrix_encryption_mode
     if env.matrix_room_allowlist is not None:
         kwargs["room_allowlist"] = _coerce_set(env.matrix_room_allowlist)
-    if env.matrix_ignore_unverified_devices is not None:
-        kwargs["ignore_unverified_devices"] = _coerce_bool(
-            env.matrix_ignore_unverified_devices,
-            "MEDRE_MATRIX_IGNORE_UNVERIFIED_DEVICES",
+    if env.matrix_encryption_enabled is not None:
+        enabled = _coerce_bool(
+            env.matrix_encryption_enabled,
+            "MEDRE_MATRIX_ENCRYPTION_ENABLED",
         )
+        if enabled:
+            kwargs["encryption_mode"] = "e2ee_required"
+            kwargs["ignore_unverified_devices"] = True
+        else:
+            kwargs["encryption_mode"] = "plaintext"
+            kwargs["ignore_unverified_devices"] = False
 
     # Ensure required fields have at least placeholder values
     kwargs.setdefault("homeserver", "")
@@ -518,7 +516,17 @@ def _build_matrix_runtime(
         else (existing.enabled if existing else True)
     )
     config = _build_matrix_config(existing, env)
-    return MatrixRuntimeConfig(adapter_id=adapter_id, enabled=enabled, config=config)
+    encryption_enabled = (
+        _coerce_bool(env.matrix_encryption_enabled, "MEDRE_MATRIX_ENCRYPTION_ENABLED")
+        if env.matrix_encryption_enabled is not None
+        else (existing.encryption_enabled if existing else False)
+    )
+    return MatrixRuntimeConfig(
+        adapter_id=adapter_id,
+        enabled=enabled,
+        encryption_enabled=encryption_enabled,
+        config=config,
+    )
 
 
 def _build_meshtastic_config(

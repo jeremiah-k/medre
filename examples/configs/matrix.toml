@@ -1,0 +1,29 @@
+# MEDRE Example: Matrix Adapter
+#
+# Single Matrix adapter with plaintext messaging.
+# Copy and adjust for your homeserver and credentials.
+#
+# Adapter "main" — Matrix (plaintext, real homeserver)
+
+[runtime]
+name = "matrix-bot"
+shutdown_timeout_seconds = 10
+
+[logging]
+level = "INFO"
+format = "text"
+
+[storage]
+backend = "sqlite"
+path = "{state}/medre.sqlite"
+
+# --- Matrix transport ---
+[adapters.matrix.main]
+enabled = true
+homeserver = "https://matrix.example.com"
+user_id = "@bot:example.com"
+access_token = "syt_example_token_replace_me"
+room_allowlist = ["!room:example.com"]
+device_id = "MEDREBOT"
+store_path = "{state}/matrix/main/store"
+encryption_enabled = false

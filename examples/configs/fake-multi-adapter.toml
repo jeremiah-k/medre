@@ -28,7 +28,7 @@ homeserver = "https://fake.local"
 user_id = "@dev-bot:fake.local"
 access_token = "fake_token_for_dev"
 room_allowlist = ["!fake-room:fake.local"]
-encryption_mode = "plaintext"
+encryption_enabled = false
 
 # --- Meshtastic (fake) ---
 [adapters.meshtastic.fake_meshtastic]

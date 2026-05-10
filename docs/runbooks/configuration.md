@@ -100,9 +100,7 @@ device_id = "MEDREBOT"
 room_allowlist = ["!room:example.com"]
 store_path = "{state}/matrix/main/store"
 sync_timeout_ms = 30000
-encryption_mode = "plaintext"
-require_encrypted_rooms = false
-ignore_unverified_devices = false
+encryption_enabled = false
 ```
 
 | Field | Type | Default | Description |
@@ -117,9 +115,7 @@ ignore_unverified_devices = false
 | `metadata_embedding_mode` | string | `"safe"` | How metadata is embedded in messages. |
 | `store_path` | string | `None` | Path to the nio crypto store. Supports [path placeholders](#path-placeholders). Required for E2EE. |
 | `sync_timeout_ms` | int | `30000` | Long-polling sync timeout in milliseconds. |
-| `encryption_mode` | string | `"plaintext"` | Encryption policy: `plaintext`, `e2ee_required`, or `e2ee_optional`. |
-| `require_encrypted_rooms` | bool | `false` | Only operate in encrypted rooms. Invalid with `encryption_mode="plaintext"`. |
-| `ignore_unverified_devices` | bool | `false` | Share Megolm session keys with unverified devices. Set to `true` in deployments without cross-signing. |
+| `encryption_enabled` | bool | `false` | Enable Matrix E2EE. When `true`, MEDRE configures the underlying crypto subsystem automatically (requires the `matrix-e2e` optional dependency). |
 
 You can define multiple Matrix instances:
 
@@ -273,20 +269,20 @@ Setting the `MEDRE_HOME` environment variable switches MEDRE into
 single-directory mode. All paths are resolved under one root:
 
 ```
-MEDRE_HOME=/data
-Config:    /data/config.toml
-State:     /data/state/
-Data:      /data/data/
-Cache:     /data/cache/
-Logs:      /data/logs/
-Database:  /data/state/medre.sqlite
-Matrix:    /data/state/matrix/store/
-Adapters:  /data/state/adapters/<adapter_id>/
+MEDRE_HOME=/opt/medre
+Config:    /opt/medre/config.toml
+State:     /opt/medre/state/
+Data:      /opt/medre/data/
+Cache:     /opt/medre/cache/
+Logs:      /opt/medre/logs/
+Database:  /opt/medre/state/medre.sqlite
+Matrix:    /opt/medre/state/matrix/store/
+Adapters:  /opt/medre/state/adapters/<adapter_id>/
 ```
 
 Use this mode when:
 
-- **Docker / Podman** — mount a single volume at `/data`, set `MEDRE_HOME=/data`.
+- **Docker / Podman** — mount a single volume at `MEDRE_HOME`, e.g. `MEDRE_HOME=/opt/medre`.
 - **Kubernetes** — use a PersistentVolumeClaim mounted at one path.
 - **Portable deployments** — run from a USB drive or single directory.
 - **Development** — keep all MEDRE data in one place for easy cleanup.
@@ -294,9 +290,9 @@ Use this mode when:
 Example:
 
 ```bash
-export MEDRE_HOME=/data
+export MEDRE_HOME=/opt/medre
 medre paths    # verify paths
-medre run      # reads /data/config.toml
+medre run      # reads /opt/medre/config.toml
 ```
 
 
@@ -359,8 +355,7 @@ Boolean env vars accept: `1`, `true`, `yes` (truthy) and `0`, `false`, `no`
 | `MEDRE_MATRIX_ROOM_ALLOWLIST` | comma-separated list | `adapters.matrix["env"].room_allowlist` | `None` (all rooms) |
 | `MEDRE_MATRIX_DEVICE_ID` | string | `adapters.matrix["env"].device_id` | `None` |
 | `MEDRE_MATRIX_STORE_PATH` | string | `adapters.matrix["env"].store_path` | `None` |
-| `MEDRE_MATRIX_ENCRYPTION_MODE` | string | `adapters.matrix["env"].encryption_mode` | `"plaintext"` |
-| `MEDRE_MATRIX_IGNORE_UNVERIFIED_DEVICES` | bool | `adapters.matrix["env"].ignore_unverified_devices` | `false` |
+| `MEDRE_MATRIX_ENCRYPTION_ENABLED` | bool | `adapters.matrix["env"].encryption_enabled` | `false` |
 
 ### Meshtastic
 
@@ -407,7 +402,7 @@ With Docker Compose or Podman:
 
 ```bash
 # .env file
-MEDRE_HOME=/data
+MEDRE_HOME=/opt/medre
 MEDRE_LOG_LEVEL=DEBUG
 MEDRE_MATRIX_ENABLED=true
 MEDRE_MATRIX_HOMESERVER=https://matrix.example.com
@@ -422,7 +417,7 @@ services:
     image: medre:latest
     env_file: .env
     volumes:
-      - medre-data:/data
+      - medre-data:/opt/medre
     devices:
       - /dev/ttyACM0:/dev/ttyACM0
 ```
@@ -458,7 +453,7 @@ FROM python:3.11-slim
 WORKDIR /app
 COPY . .
 RUN pip install ".[matrix,matrix-e2e,meshtastic]"
-ENV MEDRE_HOME=/data
+ENV MEDRE_HOME=/opt/medre
 ENTRYPOINT ["medre"]
 CMD ["run"]
 ```
@@ -470,18 +465,18 @@ docker build -t medre .
 # Run with config file in volume
 docker run -d \
   --name medre \
-  -v /srv/medre:/data \
+  -v /srv/medre:/opt/medre \
   medre run
 
 # Run with env vars instead of config file
 docker run -d \
   --name medre \
-  -e MEDRE_HOME=/data \
+  -e MEDRE_HOME=/opt/medre \
   -e MEDRE_MATRIX_ENABLED=true \
   -e MEDRE_MATRIX_HOMESERVER=https://matrix.example.com \
   -e MEDRE_MATRIX_USER_ID=@bot:example.com \
   -e MEDRE_MATRIX_ACCESS_TOKEN=syt_... \
-  -v medre-state:/data \
+  -v medre-state:/opt/medre \
   medre run
 ```
 
@@ -492,7 +487,7 @@ For Meshtastic and MeshCore adapters using serial connections:
 ```bash
 docker run -d \
   --device /dev/ttyACM0:/dev/ttyACM0 \
-  -v /srv/medre:/data \
+  -v /srv/medre:/opt/medre \
   medre run
 ```
 
@@ -506,7 +501,7 @@ survive. Mount the state volume:
 store_path = "{state}/matrix/main/store"
 ```
 
-With `MEDRE_HOME=/data`, this resolves to `/data/state/matrix/main/store`.
+With `MEDRE_HOME=/opt/medre`, this resolves to `/opt/medre/state/matrix/main/store`.
 Ensure the volume is persistent.
 
 

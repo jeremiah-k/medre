@@ -25,7 +25,7 @@ homeserver = "https://matrix.example.com"
 user_id = "@mesh-bridge:example.com"
 access_token = "syt_example_token_replace_me"
 room_allowlist = ["!bridge-room:example.com"]
-encryption_mode = "plaintext"
+encryption_enabled = false
 
 # --- Meshtastic transport ---
 [adapters.meshtastic.radio]

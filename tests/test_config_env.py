@@ -34,10 +34,6 @@ from medre.adapters.matrix.config import MatrixConfig
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Remove all MEDRE_* env vars between tests."""
-    for key in list(monkeypatch._orig_env.keys() if hasattr(monkeypatch, '_orig_env') else []):
-        if key.startswith("MEDRE_"):
-            monkeypatch.delenv(key, raising=False)
-    # Also clean the actual env just in case
     import os
     for key in list(os.environ.keys()):
         if key.startswith("MEDRE_"):

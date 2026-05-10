@@ -42,7 +42,7 @@ homeserver = "https://matrix.test"
 user_id = "@bot:test"
 access_token = "tok"
 room_allowlist = ["!room:test"]
-encryption_mode = "plaintext"
+encryption_enabled = false
 """
 
 SAMPLE_MULTI_ADAPTER_TOML = """\
@@ -61,14 +61,16 @@ enabled = true
 homeserver = "https://matrix.example.com"
 user_id = "@bot:example.com"
 access_token = "secret1"
-encryption_mode = "plaintext"
+encryption_enabled = false
 
 [adapters.matrix.alt]
 enabled = false
 homeserver = "https://matrix.alt.com"
 user_id = "@alt:alt.com"
 access_token = "secret2"
-encryption_mode = "e2ee_optional"
+device_id = "ALT_DEVICE"
+store_path = "{state}/matrix/alt/store"
+encryption_enabled = true
 
 [adapters.meshtastic.radio]
 enabled = false
@@ -232,7 +234,8 @@ class TestLoadMultiAdapter:
         alt = config.adapters.matrix["alt"]
         assert alt.config is not None
         assert alt.config.homeserver == "https://matrix.alt.com"
-        assert alt.config.encryption_mode == "e2ee_optional"
+        assert alt.encryption_enabled is True
+        assert alt.config.encryption_mode == "e2ee_required"
 
 
 # ---------------------------------------------------------------------------

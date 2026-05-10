@@ -35,8 +35,7 @@ access_token = "syt_secret_token_here"
 room_allowlist = ["!room:example.com"]
 device_id = "MEDREBOT"
 store_path = "{state}/matrix/main/store"
-encryption_mode = "plaintext"
-ignore_unverified_devices = false
+encryption_enabled = false
 
 [adapters.meshtastic.radio]
 enabled = false
