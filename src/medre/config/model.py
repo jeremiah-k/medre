@@ -156,7 +156,11 @@ class MatrixRuntimeConfig:
         adapter_kind: str = data.pop("adapter_kind", "real")
         if adapter_kind not in ("real", "fake"):
             raise ConfigValidationError(
-                f"adapter_kind must be 'real' or 'fake', got {adapter_kind!r}"
+                f"adapter_kind must be 'real' or 'fake', got {adapter_kind!r} "
+                f"in adapters.matrix.{instance_name}",
+                transport="matrix",
+                adapter_id=adapter_id,
+                section_path=f"adapters.matrix.{instance_name}",
             )
         adapter_kwargs = _coerce_adapter_kwargs(MatrixConfig, data)
         adapter_kwargs.setdefault("adapter_id", adapter_id)
@@ -182,7 +186,11 @@ class MeshtasticRuntimeConfig:
         adapter_kind: str = data.pop("adapter_kind", "real")
         if adapter_kind not in ("real", "fake"):
             raise ConfigValidationError(
-                f"adapter_kind must be 'real' or 'fake', got {adapter_kind!r}"
+                f"adapter_kind must be 'real' or 'fake', got {adapter_kind!r} "
+                f"in adapters.meshtastic.{instance_name}",
+                transport="meshtastic",
+                adapter_id=adapter_id,
+                section_path=f"adapters.meshtastic.{instance_name}",
             )
         adapter_kwargs = _coerce_adapter_kwargs(MeshtasticConfig, data)
         adapter_kwargs.setdefault("adapter_id", adapter_id)
@@ -208,7 +216,11 @@ class MeshCoreRuntimeConfig:
         adapter_kind: str = data.pop("adapter_kind", "real")
         if adapter_kind not in ("real", "fake"):
             raise ConfigValidationError(
-                f"adapter_kind must be 'real' or 'fake', got {adapter_kind!r}"
+                f"adapter_kind must be 'real' or 'fake', got {adapter_kind!r} "
+                f"in adapters.meshcore.{instance_name}",
+                transport="meshcore",
+                adapter_id=adapter_id,
+                section_path=f"adapters.meshcore.{instance_name}",
             )
         adapter_kwargs = _coerce_adapter_kwargs(MeshCoreConfig, data)
         adapter_kwargs.setdefault("adapter_id", adapter_id)
@@ -234,7 +246,11 @@ class LxmfRuntimeConfig:
         adapter_kind: str = data.pop("adapter_kind", "real")
         if adapter_kind not in ("real", "fake"):
             raise ConfigValidationError(
-                f"adapter_kind must be 'real' or 'fake', got {adapter_kind!r}"
+                f"adapter_kind must be 'real' or 'fake', got {adapter_kind!r} "
+                f"in adapters.lxmf.{instance_name}",
+                transport="lxmf",
+                adapter_id=adapter_id,
+                section_path=f"adapters.lxmf.{instance_name}",
             )
         adapter_kwargs = _coerce_adapter_kwargs(LxmfConfig, data)
         adapter_kwargs.setdefault("adapter_id", adapter_id)
@@ -291,6 +307,45 @@ class AdapterConfigSet:
             for _name, rtc in group.items():
                 result.append((transport, rtc.adapter_id, rtc))
         return result
+
+    def validate(self) -> None:
+        """Validate the adapter configuration set for consistency.
+
+        Checks performed:
+
+        * **Duplicate adapter IDs** — no two adapters (even across
+          different transports) may share the same ``adapter_id``.
+          The ``adapter_id`` determines per-adapter state directories
+          and runtime identity, so duplicates would cause path conflicts.
+
+        Raises
+        ------
+        ConfigValidationError
+            If a validation rule is violated.
+        """
+        # -- Duplicate adapter IDs across all transports ----------------------
+        seen: dict[str, tuple[str, str]] = {}  # adapter_id → (transport, instance_name)
+        for transport, group in (
+            ("matrix", self.matrix),
+            ("meshtastic", self.meshtastic),
+            ("meshcore", self.meshcore),
+            ("lxmf", self.lxmf),
+        ):
+            for instance_name, rtc in group.items():
+                aid = rtc.adapter_id
+                if aid in seen:
+                    prev_transport, prev_name = seen[aid]
+                    section = f"adapters.{transport}.{instance_name}"
+                    prev_section = f"adapters.{prev_transport}.{prev_name}"
+                    raise ConfigValidationError(
+                        f"Duplicate adapter: {transport}.{aid} "
+                        f"(also defined as {prev_transport}.{aid}). "
+                        f"Adapter IDs must be unique across all transports.",
+                        transport=transport,
+                        adapter_id=aid,
+                        section_path=section,
+                    )
+                seen[aid] = (transport, instance_name)
 
 
 # ---------------------------------------------------------------------------

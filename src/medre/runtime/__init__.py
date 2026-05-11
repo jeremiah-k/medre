@@ -9,6 +9,7 @@ Public symbols
 * :class:`~medre.runtime.errors.AdapterStartupError` — adapter start failures
 * :class:`~medre.runtime.app.MedreApp` — runtime container with lifecycle
 * :class:`~medre.runtime.builder.RuntimeBuilder` — constructs MedreApp from config
+* :class:`~medre.runtime.builder.AdapterBuildFailure` — adapter construction failure record
 """
 
 from medre.runtime.errors import (
@@ -19,7 +20,7 @@ from medre.runtime.errors import (
     RuntimeStartupError,
 )
 from medre.runtime.app import MedreApp
-from medre.runtime.builder import RuntimeBuilder
+from medre.runtime.builder import RuntimeBuilder, AdapterBuildFailure
 
 __all__ = [
     "RuntimeError",
@@ -29,4 +30,5 @@ __all__ = [
     "AdapterStartupError",
     "MedreApp",
     "RuntimeBuilder",
+    "AdapterBuildFailure",
 ]

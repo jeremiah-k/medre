@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
@@ -53,9 +54,43 @@ from medre.runtime.errors import RuntimeConfigError
 if TYPE_CHECKING:
     pass
 
-__all__ = ["RuntimeBuilder"]
+__all__ = ["RuntimeBuilder", "AdapterBuildFailure"]
 
 _logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Build result types
+# ---------------------------------------------------------------------------
+
+
+class AdapterBuildFailure:
+    """Records a single adapter that failed during construction.
+
+    Attributes
+    ----------
+    transport:
+        Transport type (e.g. ``"matrix"``).
+    adapter_id:
+        Adapter identifier.
+    error:
+        The exception that caused the failure.
+    """
+
+    __slots__ = ("transport", "adapter_id", "error")
+
+    def __init__(
+        self, transport: str, adapter_id: str, error: Exception
+    ) -> None:
+        self.transport = transport
+        self.adapter_id = adapter_id
+        self.error = error
+
+    def __repr__(self) -> str:
+        return (
+            f"AdapterBuildFailure(transport={self.transport!r}, "
+            f"adapter_id={self.adapter_id!r}, error={self.error!r})"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -243,7 +278,15 @@ class RuntimeBuilder:
         pipeline_runner = PipelineRunner(pipeline_config)
 
         # 10. Construct adapters from RuntimeConfig
-        self._build_adapters(adapters)
+        build_failures = self._build_adapters(adapters)
+
+        if build_failures:
+            failed_ids = ", ".join(
+                f"{f.transport}.{f.adapter_id}" for f in build_failures
+            )
+            _logger.warning(
+                "Adapter build failures (%d): %s", len(build_failures), failed_ids
+            )
 
         # 11. Shutdown event
         shutdown_event = asyncio.Event()
@@ -261,6 +304,7 @@ class RuntimeBuilder:
             diagnostician=diagnostician,
             adapters=adapters,
             shutdown_event=shutdown_event,
+            build_failures=build_failures,
         )
 
     # -- Storage construction ----------------------------------------------------
@@ -295,19 +339,65 @@ class RuntimeBuilder:
 
     # -- Adapter construction ----------------------------------------------------
 
-    def _build_adapters(self, adapters: dict[str, BaseAdapter]) -> None:
+    def _build_adapters(
+        self, adapters: dict[str, BaseAdapter]
+    ) -> list[AdapterBuildFailure]:
         """Populate *adapters* from the enabled adapter configs.
 
-        Disabled adapters are silently skipped.  Enabled adapters that
-        cannot be built raise :class:`RuntimeConfigError`.
-        """
-        for transport, adapter_id, rtc in self._config.adapters.all_configs():
-            if not rtc.enabled:
-                _logger.debug("Adapter %r (%s) is disabled — skipping", adapter_id, transport)
-                continue
+        Disabled adapters are silently skipped.  Individual adapter
+        construction failures are **not fatal** — the failed adapter is
+        recorded and the remaining adapters continue to build.
 
-            adapters[adapter_id] = self._build_single_adapter(transport, adapter_id, rtc)
-            _logger.info("Constructed adapter %r (%s)", adapter_id, transport)
+        Returns
+        -------
+        list[AdapterBuildFailure]
+            Adapters that failed to build, with transport and adapter_id
+            attribution.
+
+        Ordering
+        --------
+        Adapters are built in deterministic order sorted by
+        ``(transport, adapter_id)`` tuple.
+        """
+        failures: list[AdapterBuildFailure] = []
+
+        # Gather all enabled adapters and sort deterministically.
+        all_cfgs = self._config.adapters.all_configs()
+        enabled = [
+            (transport, adapter_id, rtc)
+            for transport, adapter_id, rtc in all_cfgs
+            if rtc.enabled
+        ]
+        enabled.sort(key=lambda t: (t[0], t[1]))
+
+        for transport, adapter_id, rtc in enabled:
+            try:
+                adapter = self._build_single_adapter(transport, adapter_id, rtc)
+                adapters[adapter_id] = adapter
+                _logger.info(
+                    "Constructed adapter %r (%s)", adapter_id, transport
+                )
+            except Exception as exc:
+                wrapped = RuntimeConfigError(
+                    f"Failed to build adapter {adapter_id!r} "
+                    f"({transport}): {exc}"
+                )
+                wrapped.__cause__ = exc
+                failures.append(
+                    AdapterBuildFailure(
+                        transport=transport,
+                        adapter_id=adapter_id,
+                        error=wrapped,
+                    )
+                )
+                _logger.error(
+                    "Failed to build adapter %r (%s): %s",
+                    adapter_id,
+                    transport,
+                    exc,
+                )
+
+        return failures
 
     def _build_single_adapter(
         self,

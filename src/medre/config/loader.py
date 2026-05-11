@@ -226,6 +226,9 @@ def _parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
         ),
     )
 
+    # Validate adapter config consistency (duplicate IDs, etc.)
+    adapters.validate()
+
     return RuntimeConfig(
         runtime=runtime, logging=logging, storage=storage, adapters=adapters
     )
