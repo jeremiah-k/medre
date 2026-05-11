@@ -64,6 +64,7 @@ from medre.core.storage.backend import EventFilter, StorageBackend
 
 if TYPE_CHECKING:
     from medre.core.observability.metrics import Diagnostician
+    from medre.runtime.capacity import CapacityController
 
 
 _logger = logging.getLogger(__name__)
@@ -878,6 +879,16 @@ class ReplayEngine:
         self._pipeline = pipeline
         self._event_bus = event_bus
         self._diagnostician = diagnostician
+        self._capacity_controller: CapacityController | None = None
+
+    def set_capacity_controller(self, cc: CapacityController) -> None:
+        """Wire a :class:`~medre.runtime.capacity.CapacityController`.
+
+        When set, :meth:`_stage_deliver` acquires a replay slot
+        before delivery in BEST_EFFORT mode and releases it on
+        completion.
+        """
+        self._capacity_controller = cc
 
     # -- Public API ---------------------------------------------------------
 
@@ -1644,6 +1655,20 @@ class ReplayEngine:
                 )
             plan_result = filtered
 
+        # Capacity guard: acquire replay slot for BEST_EFFORT delivery.
+        _capacity_acquired = False
+        if self._capacity_controller is not None and mode is ReplayMode.BEST_EFFORT:
+            acquired = await self._capacity_controller.acquire_replay()
+            if not acquired:
+                return ReplayResult(
+                    event_id=event.event_id,
+                    stage="deliver",
+                    status="error",
+                    error="replay_capacity_exceeded",
+                    duration_ms=_elapsed_ms(t0),
+                )
+            _capacity_acquired = True
+
         try:
             # Detect real pipeline by data format: if plan_result contains
             # (Route, DeliveryPlan) tuples, use deliver_to_targets.  This
@@ -1685,6 +1710,9 @@ class ReplayEngine:
                 error=str(exc),
                 duration_ms=_elapsed_ms(t0),
             )
+        finally:
+            if _capacity_acquired and self._capacity_controller is not None:
+                await self._capacity_controller.release_replay()
 
 
 # ---------------------------------------------------------------------------

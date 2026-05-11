@@ -42,6 +42,7 @@ if TYPE_CHECKING:
     from medre.core.routing.stats import RouteStats
     from medre.core.storage.sqlite import SQLiteStorage
     from medre.runtime.builder import AdapterBuildFailure
+    from medre.runtime.capacity import CapacityController
 
 __all__ = ["MedreApp", "RuntimeState"]
 
@@ -139,6 +140,7 @@ class MedreApp:
     adapter_start_times: dict[str, float] = field(default_factory=dict)
     started_adapter_ids: list[str] = field(default_factory=list)
     _state: RuntimeState = field(default=RuntimeState.INITIALIZED, init=False)
+    _capacity_controller: CapacityController | None = field(default=None, init=False)
 
     # -- State management -------------------------------------------------------
 
@@ -165,11 +167,26 @@ class MedreApp:
         """Return a diagnostics dict including the current runtime state.
 
         This augments the subsystem-level diagnostics (route stats, replay
-        metrics) with runtime-level metadata.
+        metrics) with runtime-level metadata including capacity counters
+        and shutdown fields.
         """
-        return {
+        snap: dict[str, Any] = {
+            "accepting_work": (
+                self._capacity_controller.accepting_work
+                if self._capacity_controller is not None
+                else True
+            ),
+            "capacity": (
+                self._capacity_controller.snapshot()
+                if self._capacity_controller is not None
+                else None
+            ),
             "runtime_state": self._state.value,
+            "shutdown_drain_timeout_seconds": (
+                self.config.limits.shutdown_drain_timeout_seconds
+            ),
         }
+        return snap
 
     # -- Lifecycle ---------------------------------------------------------------
 
@@ -339,6 +356,36 @@ class MedreApp:
             self.config.runtime.name,
             timeout,
         )
+
+        # Phase 1: Stop accepting new work.
+        if self._capacity_controller is not None:
+            self._capacity_controller.stop_accepting()
+        _logger.info("Runtime stopping — accepting no new work")
+
+        # Phase 2: Drain in-flight work with timeout.
+        if self._capacity_controller is not None:
+            drain_deadline = (
+                _time.monotonic()
+                + self.config.limits.shutdown_drain_timeout_seconds
+            )
+            drain_snap: dict | None = None
+            while _time.monotonic() < drain_deadline:
+                drain_snap = self._capacity_controller.snapshot()
+                if (
+                    drain_snap["delivery_current"] == 0
+                    and drain_snap["replay_current"] == 0
+                ):
+                    _logger.info("In-flight work drained")
+                    break
+                await asyncio.sleep(0.1)
+            else:
+                if drain_snap is None:
+                    drain_snap = self._capacity_controller.snapshot()
+                _logger.warning(
+                    "Drain timed out — %d delivery, %d replay in-flight abandoned",
+                    drain_snap["delivery_current"],
+                    drain_snap["replay_current"],
+                )
 
         # Signal shutdown to adapters and waiters.
         self.shutdown_event.set()

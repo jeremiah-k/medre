@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 def build_diagnostics_snapshot(
     route_stats: RouteStats,
     replay_metrics: ReplayMetrics,
+    capacity_snapshot: dict | None = None,
 ) -> dict:
     """Return a unified, deterministic diagnostics snapshot.
 
@@ -39,19 +40,27 @@ def build_diagnostics_snapshot(
         Per-route delivery counters (from the routing subsystem).
     replay_metrics:
         Per-route replay counters (from the diagnostics subsystem).
+    capacity_snapshot:
+        Optional capacity controller snapshot (from the runtime
+        subsystem).  When provided, included under the ``"capacity"``
+        key.
 
     Returns
     -------
     dict
         Top-level keys:
 
+        * ``"capacity"`` – capacity controller counters (when provided).
+        * ``"replay"`` – replay-specific counters with ``"global"`` totals
+          and ``"by_route"`` breakdown sorted by route_id.
         * ``"routes"`` – route-level delivery counters sorted by route_id.
           Each value is a dict with ``delivered``, ``failed``, ``skipped``,
           ``loop_prevented``, and optional ``last_error``.
-        * ``"replay"`` – replay-specific counters with ``"global"`` totals
-          and ``"by_route"`` breakdown sorted by route_id.
     """
-    return {
+    snap: dict = {
         "routes": route_stats.snapshot(),
         "replay": replay_metrics.snapshot(),
     }
+    if capacity_snapshot is not None:
+        snap["capacity"] = capacity_snapshot
+    return snap

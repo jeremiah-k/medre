@@ -50,6 +50,7 @@ from medre.core.routing.router import Router
 from medre.core.routing.stats import RouteStats
 from medre.core.storage.sqlite import SQLiteStorage
 from medre.runtime.app import MedreApp
+from medre.runtime.capacity import CapacityController
 from medre.runtime.errors import RuntimeConfigError
 
 if TYPE_CHECKING:
@@ -280,6 +281,10 @@ class RuntimeBuilder:
         )
         pipeline_runner = PipelineRunner(pipeline_config)
 
+        # 9.5 CapacityController — bounds in-flight delivery and replay.
+        capacity_controller = CapacityController(self._config.limits)
+        pipeline_runner.set_capacity_controller(capacity_controller)
+
         # 10. Construct adapters from RuntimeConfig
         build_failures = self._build_adapters(adapters)
 
@@ -300,7 +305,7 @@ class RuntimeBuilder:
         # 11. Shutdown event
         shutdown_event = asyncio.Event()
 
-        return MedreApp(
+        app = MedreApp(
             config=self._config,
             paths=self._paths,
             storage=storage,
@@ -316,6 +321,9 @@ class RuntimeBuilder:
             shutdown_event=shutdown_event,
             build_failures=build_failures,
         )
+        # Wire capacity controller onto the app (non-init field).
+        app._capacity_controller = capacity_controller
+        return app
 
     # -- Storage construction ----------------------------------------------------
 

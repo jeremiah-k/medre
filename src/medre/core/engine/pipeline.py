@@ -56,7 +56,7 @@ from medre.core.routing.stats import RouteStats
 from medre.core.storage.backend import StorageBackend
 
 if TYPE_CHECKING:
-    pass
+    from medre.runtime.capacity import CapacityController
 
 
 # ---------------------------------------------------------------------------
@@ -226,6 +226,7 @@ class PipelineRunner:
         )
         self._middleware: _PipelineLoggingMiddleware | None = None
         self._route_stats: RouteStats | None = config.route_stats
+        self._capacity_controller: CapacityController | None = None
 
     # -- Lifecycle ----------------------------------------------------------
 
@@ -261,6 +262,14 @@ class PipelineRunner:
             self._log.debug(
                 "Populated rendering pipeline platform registry: %s", platforms
             )
+
+    def set_capacity_controller(self, cc: CapacityController) -> None:
+        """Wire a :class:`~medre.runtime.capacity.CapacityController`.
+
+        When set, :meth:`deliver_to_targets` acquires a delivery slot
+        before processing and releases it on completion.
+        """
+        self._capacity_controller = cc
 
     async def stop(self) -> None:
         """Remove pipeline middleware from the event bus.
@@ -556,6 +565,42 @@ class PipelineRunner:
             One :class:`DeliveryOutcome` per target, preserving the
             order of *route_targets*.
         """
+        # Capacity guard: acquire a delivery slot before processing.
+        if self._capacity_controller is not None:
+            acquired = await self._capacity_controller.acquire_delivery()
+            if not acquired:
+                return [
+                    DeliveryOutcome(
+                        event_id=event.event_id,
+                        target_adapter=(
+                            p.target.adapter if hasattr(p, "target") else ""
+                        ),
+                        target_channel=(
+                            p.target.channel if hasattr(p, "target") else None
+                        ),
+                        route_id=r.id,
+                        delivery_plan_id=(
+                            p.plan_id if hasattr(p, "plan_id") else ""
+                        ),
+                        status="permanent_failure",
+                        failure_kind=None,
+                        receipt=None,
+                        error="delivery_capacity_exceeded",
+                        duration_ms=0.0,
+                    )
+                    for r, p in route_targets
+                ]
+        try:
+            return await self._deliver_to_targets_inner(event, route_targets)
+        finally:
+            if self._capacity_controller is not None:
+                await self._capacity_controller.release_delivery()
+
+    async def _deliver_to_targets_inner(
+        self,
+        event: CanonicalEvent,
+        route_targets: list[tuple[Route, DeliveryPlan]],
+    ) -> list[DeliveryOutcome]:
 
         async def _deliver_one(
             route: Route, plan: DeliveryPlan

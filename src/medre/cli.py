@@ -205,6 +205,21 @@ def _config_check(config_path: str | None) -> None:
     print()
     print(f"Global DB: {paths.database_path}")
 
+    # --- Runtime limits ---
+    limits = config.limits
+    print()
+    print("Runtime limits:")
+    print(f"  max_inflight_deliveries = {limits.max_inflight_deliveries}")
+    print(f"  max_inflight_replay_events = {limits.max_inflight_replay_events}")
+    print(f"  shutdown_drain_timeout_seconds = {limits.shutdown_drain_timeout_seconds}")
+    print(f"  delivery_acquire_timeout_seconds = {limits.delivery_acquire_timeout_seconds}")
+
+    # Validate limits and append any errors
+    try:
+        limits.validate()
+    except ConfigValidationError as exc:
+        validation_errors.append(f"  \u26a0 runtime.limits: {exc}")
+
     # --- Route inventory ---
     routes = config.routes
     route_list = routes.routes
@@ -643,6 +658,14 @@ async def _run(config_path: str | None) -> None:
     summary = startup_summary(startup_results)
     print(summary)
 
+    # Print runtime limits summary
+    limits = config.limits
+    print(
+        f"Runtime limits: max_inflight_deliveries={limits.max_inflight_deliveries}, "
+        f"max_inflight_replay_events={limits.max_inflight_replay_events}, "
+        f"drain_timeout={limits.shutdown_drain_timeout_seconds}s"
+    )
+
     # Log structured startup
     logger.info(
         "Runtime started — %d adapter(s) in %s",
@@ -664,12 +687,29 @@ async def _run(config_path: str | None) -> None:
         print("Runtime shutting down")
         logger.info("Runtime shutting down")
 
+        limits = config.limits
+        drain_timeout = limits.shutdown_drain_timeout_seconds
+
         shutdown_errors: list[tuple[str, str]] = []
+        drain_outcome = "completed"
+        abandoned_count = 0
         try:
             await app.stop()
         except Exception as exc:
             logger.error("Shutdown error: %s", exc)
             shutdown_errors.append(("runtime", str(exc)))
+            drain_outcome = "timed_out"
+            # Count adapters that were still running as abandoned work.
+            abandoned_count = len(getattr(app, "started_adapter_ids", []))
+
+        # Print drain outcome
+        if drain_outcome == "completed":
+            print(f"  Drain completed (timeout={drain_timeout}s)")
+        else:
+            print(
+                f"  Drain timed out after {drain_timeout}s "
+                f"({abandoned_count} adapter(s) abandoned)"
+            )
 
         # Per-adapter shutdown messages
         for adapter_id in app.adapters:
