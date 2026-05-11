@@ -227,6 +227,7 @@ class PipelineRunner:
         self._middleware: _PipelineLoggingMiddleware | None = None
         self._route_stats: RouteStats | None = config.route_stats
         self._capacity_controller: CapacityController | None = None
+        self._delivery_rejection_count: int = 0
 
     # -- Lifecycle ----------------------------------------------------------
 
@@ -569,6 +570,7 @@ class PipelineRunner:
         if self._capacity_controller is not None:
             acquired = await self._capacity_controller.acquire_delivery()
             if not acquired:
+                self._delivery_rejection_count += 1
                 return [
                     DeliveryOutcome(
                         event_id=event.event_id,

@@ -41,6 +41,11 @@ _BACKOFF_BASE: float = 1.0
 _BACKOFF_CAP: float = 60.0
 _BACKOFF_JITTER_FRACTION: float = 0.25
 
+# Maximum number of rooms tracked in _room_states.
+# Prevents unbounded growth if a compromised or misconfigured
+# homeserver exposes an extreme number of rooms.
+_MAX_ROOM_STATES: int = 10_000
+
 
 @dataclass(frozen=True)
 class MatrixSessionDiagnostics:
@@ -556,6 +561,14 @@ class MatrixSession:
         if room is not None:
             rid = getattr(room, "room_id", None)
             if rid is not None:
+                if len(self._room_states) >= _MAX_ROOM_STATES and rid not in self._room_states:
+                    oldest = next(iter(self._room_states))
+                    del self._room_states[oldest]
+                    self._logger.warning(
+                        "MatrixSession: room-state tracking hit cap (%d); "
+                        "evicted room %s for encrypted room %s",
+                        _MAX_ROOM_STATES, oldest, rid,
+                    )
                 self._room_states[rid] = "encrypted"
 
     async def _on_room_encryption_event(self, room: Any, event: Any) -> None:
@@ -575,13 +588,37 @@ class MatrixSession:
         if room is not None:
             rid = getattr(room, "room_id", None)
             if rid is not None:
+                if len(self._room_states) >= _MAX_ROOM_STATES and rid not in self._room_states:
+                    oldest = next(iter(self._room_states))
+                    del self._room_states[oldest]
+                    self._logger.warning(
+                        "MatrixSession: room-state tracking hit cap (%d); "
+                        "evicted room %s for encrypted room %s",
+                        _MAX_ROOM_STATES, oldest, rid,
+                    )
                 self._room_states[rid] = "encrypted"
 
     # Track 4 — track rooms seen via sync (called by message callback wrapper)
     def _track_room(self, room_id: str) -> None:
-        """Track a room as seen.  Sets 'unknown' if not already tracked."""
-        if room_id not in self._room_states:
-            self._room_states[room_id] = "unknown"
+        """Track a room as seen.  Sets 'unknown' if not already tracked.
+
+        Bounded by ``_MAX_ROOM_STATES`` — when the cap is reached, the
+        oldest room entry is evicted.
+        """
+        if room_id in self._room_states:
+            return
+        if len(self._room_states) >= _MAX_ROOM_STATES:
+            # Evict one oldest entry to make room.
+            oldest = next(iter(self._room_states))
+            del self._room_states[oldest]
+            _logger.warning(
+                "MatrixSession: room-state tracking hit cap (%d); "
+                "evicted room %s to track new room %s",
+                _MAX_ROOM_STATES,
+                oldest,
+                room_id,
+            )
+        self._room_states[room_id] = "unknown"
 
     # -- Sync loop (Track 1 — Automatic Sync Recovery) -----------------------
 

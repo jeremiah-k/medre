@@ -25,6 +25,7 @@ Usage
 
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Any
 
@@ -62,6 +63,22 @@ _FAKE_PRESENTATION_CAPABILITIES = AdapterCapabilities(
     async_delivery=True,
     topic_rooms=True,
 )
+
+_logger = logging.getLogger(__name__)
+
+# Maximum history size for fake adapter tracking lists.
+_MAX_FAKE_HISTORY: int = 1000
+
+
+def _trim(lst: list[Any], maxsize: int = _MAX_FAKE_HISTORY) -> None:
+    """Evict oldest entries from *lst* when it exceeds *maxsize*."""
+    if len(lst) > maxsize:
+        excess = len(lst) - maxsize
+        del lst[:excess]
+        _logger.warning(
+            "Fake adapter history trimmed %d oldest entries (cap=%d)",
+            excess, maxsize,
+        )
 
 
 class FakePresentationAdapter(BaseAdapter):
@@ -174,6 +191,7 @@ class FakePresentationAdapter(BaseAdapter):
                 f"the inbound path."
             )
         self.delivered_payloads.append(result)
+        _trim(self.delivered_payloads)
         return AdapterDeliveryResult(
             native_message_id=f"fake-pres-{result.event_id}",
             native_channel_id=result.target_channel,
@@ -205,6 +223,7 @@ class FakePresentationAdapter(BaseAdapter):
             )
         await self.ctx.publish_inbound(event)
         self.inbound_events.append(event)
+        _trim(self.inbound_events)
 
     def make_event(
         self,
@@ -457,6 +476,7 @@ class FaultyPresentationAdapter(BaseAdapter):
         if self._should_fail():
             self._raise_failure()
         self.delivered_payloads.append(result)
+        _trim(self.delivered_payloads)
         # Produce a deterministic result for the success path.
         event_id = getattr(result, "event_id", None) or "unknown"
         return AdapterDeliveryResult(

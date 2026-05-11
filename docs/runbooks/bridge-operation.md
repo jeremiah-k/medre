@@ -227,7 +227,64 @@ This guard fires on every delivery attempt. It catches runtime self-loops that c
 See: Contract 49 (Routing and Bridge), Routing Correctness Runbook.
 
 
-## 11. Explicit Non-Guarantees
+## 11. Soak Harness and Queue Pressure
+
+### Soak Harness Reference
+
+The soak harness at `tests/test_soak_harness.py` provides a test-only harness for validating bridge stability patterns without live transports. It is **not** a multi-hour CI run — it exercises start/stop cycling, replay cycling, delivery under pressure, and long-running stability within seconds using fake adapters and in-memory storage.
+
+Key characteristics:
+
+- **Fake adapters only.** No real Matrix homeserver, radio, or Reticulum network.
+- **In-memory storage.** No filesystem I/O beyond temp directories.
+- **Deterministic.** No wall-clock sleeps. Iteration count configurable via `SOAK_HARNESS_ITERATIONS` (default 50, max 200).
+- **Validates patterns, not completeness.** The harness verifies that the pipeline correctly routes, delivers, and reports outcomes under repeated cycling. It does not validate that every message reaches its destination (MEDRE does not provide this guarantee).
+
+### Queue Pressure Expectations
+
+When bridging events across transports with different speed profiles (e.g., Matrix → Meshtastic), the pipeline may experience queue pressure:
+
+**Delivery capacity pressure:**
+
+- The `CapacityController` bounds concurrent deliveries to `max_inflight_deliveries` (default 64).
+- When the Meshtastic adapter's transport is slow (LoRa PHY, serial write blocking), delivery slots are held longer.
+- Other adapters (Matrix, LXMF) compete for the same delivery semaphore pool.
+- If delivery acquire times out (`delivery_acquire_timeout_seconds`, default 30.0s), the delivery is permanently failed with `error="delivery_capacity_exceeded"`.
+
+**Meshtastic outbound queue pressure:**
+
+- The Meshtastic adapter's `MeshtasticOutboundQueue` uses a `deque(maxlen=1024)`.
+- Under sustained pressure (outbound throughput exceeds send capacity), the oldest items are silently dropped.
+- `total_dropped` tracks how many items were shed.
+- This is expected behavior for radio transports — the runtime prioritizes stability over completeness.
+
+**Replay pressure:**
+
+- Replay in `BEST_EFFORT` mode acquires a separate replay semaphore (`max_inflight_replay_events`, default 32).
+- Replay does not starve real-time delivery — the semaphores are independent.
+- If the replay semaphore is exhausted, replay events are rejected with `error="replay_capacity_exceeded"`.
+
+### Monitoring Bridge Pressure
+
+During bridge operation, monitor these signals:
+
+| Signal | Source | Interpretation |
+|--------|--------|----------------|
+| `delivery_timeouts` growing | `CapacityController` | Delivery concurrency is insufficient for the load |
+| `total_dropped` growing | Meshtastic adapter | Outbound send rate cannot keep up with inbound rate |
+| `replay_timeouts` growing | `CapacityController` | Replay concurrency is insufficient |
+| High `delivery_current` sustained | `CapacityController` | Adapters are slow to complete deliveries |
+
+**Remediation:**
+
+- Increase `max_inflight_deliveries` if delivery timeouts are frequent and memory allows.
+- Reduce active routes or source event rate if the bridge cannot keep up.
+- For Meshtastic specifically, consider whether the channel configuration and radio settings can be optimized for throughput.
+
+**Important:** MEDRE remains best-effort. Queue bounds prevent unbounded accumulation but do not prevent data loss under extreme pressure. No exactly-once guarantees. No transactional delivery guarantees. Radio transports remain probabilistic. The soak harness validates stability patterns for CI — it is not a substitute for operational monitoring with live transports.
+
+
+## 12. Explicit Non-Guarantees
 
 The bridge operation layer explicitly does **not** provide:
 
@@ -240,3 +297,9 @@ The bridge operation layer explicitly does **not** provide:
 4. **Per-adapter restart.** Only full runtime stop/start is supported. Individual adapters cannot be restarted independently.
 
 5. **Distributed coordination.** Delivery state, receipts, and loop prevention are local to the process. There is no shared state between MEDRE instances.
+
+6. **Exactly-once or transactional delivery.** MEDRE provides no exactly-once delivery, no transactional delivery guarantees, and no atomic fan-out. Partial delivery in fan-out scenarios is normal.
+
+7. **Queue-bound delivery completeness.** Capacity semaphores and adapter-level queue bounds prevent unbounded memory accumulation but do not guarantee that every message is delivered. Under extreme pressure, messages are dropped or rejected to protect process stability.
+
+8. **Persistent in-flight recovery.** No in-flight delivery state survives shutdown. No replay resume after restart. Cancelled deliveries are lost.

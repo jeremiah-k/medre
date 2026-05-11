@@ -874,12 +874,13 @@ class ReplayEngine:
         pipeline: _PipelineProtocol | None = None,
         event_bus: _EventBusProtocol | None = None,
         diagnostician: Diagnostician | None = None,
+        capacity_controller: CapacityController | None = None,
     ) -> None:
         self._storage = storage
         self._pipeline = pipeline
         self._event_bus = event_bus
         self._diagnostician = diagnostician
-        self._capacity_controller: CapacityController | None = None
+        self._capacity_controller: CapacityController | None = capacity_controller
 
     def set_capacity_controller(self, cc: CapacityController) -> None:
         """Wire a :class:`~medre.runtime.capacity.CapacityController`.

@@ -354,7 +354,7 @@ INFO  medre.runtime: Assembly complete: 2/2 adapters started in 457ms
 INFO  medre.runtime: Resource limits: max_inflight_deliveries=64 max_inflight_replay=32 drain_timeout=5.0s delivery_acquire_timeout=30.0s
 ```
 
-Adapters start in deterministic order: sorted by `(transport, adapter_id)`. Resource limits are logged at startup with their resolved values (explicit or default).
+Adapters start in deterministic order: sorted by `(transport, adapter_id)`. Resource limits are logged at startup with their resolved values (explicit or default). Queue bounds are enforced by the `CapacityController` — delivery concurrency is bounded by `max_inflight_deliveries`, replay concurrency by `max_inflight_replay_events`, and adapter-level queues (e.g., Meshtastic outbound queue) apply their own `maxlen` bounds.
 
 
 ## Expected Shutdown Output
@@ -512,3 +512,149 @@ MEDRE does not rotate logs internally. Use external log rotation (logrotate, Doc
 2. Back up `{state}/medre.sqlite`.
 3. If the database is corrupted, delete it and restart. The runtime creates a fresh database.
 4. **Note:** This loses all event history. Crypto stores (under `{state}/adapters/`) are separate and unaffected.
+
+
+## Queue Discipline
+
+The MEDRE pipeline uses bounded capacity to prevent unbounded memory accumulation. This section describes how queue bounds work, what happens when capacity is exhausted, and what operators should expect.
+
+### Capacity Bounding
+
+The `CapacityController` (see Contract 53, §15) manages two independent semaphores:
+
+| Stream | Config field | Default bound | What it limits |
+|--------|-------------|---------------|----------------|
+| Delivery | `max_inflight_deliveries` | 64 | Concurrent adapter `deliver()` calls across all adapters |
+| Replay | `max_inflight_replay_events` | 32 | Concurrent replay event deliveries |
+
+When a delivery or replay event cannot acquire a slot within `delivery_acquire_timeout_seconds` (default 30.0s), the operation is **rejected** — it returns a failure outcome with diagnostics incremented. No retry is attempted. Capacity timeout is a backpressure signal, not a transient error.
+
+### Adapter-Level Queue Bounds
+
+Some adapters maintain their own bounded internal queues in addition to the global capacity semaphores:
+
+| Adapter | Queue mechanism | Default bound | Overflow policy |
+|---------|----------------|---------------|-----------------|
+| Meshtastic | `deque(maxlen=1024)` | 1024 items | Drop-oldest, `total_dropped` counter incremented |
+
+Other adapters (Matrix, LXMF, MeshCore) rely on the `CapacityController` semaphore and their transport's own flow control.
+
+### What Rejection Looks Like
+
+When capacity is exhausted:
+
+1. The delivery or replay acquire fails.
+2. The outcome records `status="permanent_failure"` with `error="delivery_capacity_exceeded"` (delivery) or `error="replay_capacity_exceeded"` (replay).
+3. A diagnostic counter is incremented (`delivery_timeouts`, `delivery_rejections`, `replay_timeouts`, or `replay_rejections`).
+4. A WARNING log is emitted with the current vs. limit counts.
+5. **No retry.** The delivery is abandoned. The operator can re-trigger replay manually if needed.
+
+### Monitoring Queue Pressure
+
+Use `medre diagnostics` to inspect capacity counters:
+
+| Counter | What it tells you |
+|---------|-------------------|
+| `delivery_current` | How many deliveries are in-flight right now |
+| `delivery_timeouts` | How many deliveries timed out waiting for a slot (sign of sustained pressure) |
+| `delivery_rejections` | How many deliveries were rejected due to shutdown |
+| `replay_current` | How many replay events are in-flight right now |
+| `replay_timeouts` | How many replay events timed out waiting for a slot |
+| `replay_rejections` | How many replay events were rejected due to shutdown |
+
+Sustained growth in `delivery_timeouts` indicates the runtime is under more delivery pressure than its configured limits can handle. Consider increasing `max_inflight_deliveries` or reducing the number of active routes.
+
+**Important:** Queue bounds prevent unbounded memory accumulation but do **not** prevent data loss under extreme pressure. MEDRE remains best-effort. No exactly-once guarantees. No transactional delivery guarantees.
+
+
+## Soak Expectations
+
+The soak harness (`tests/test_soak_harness.py`) validates stability patterns within a bounded timeframe suitable for CI. It is **not** a multi-hour or multi-day soak test.
+
+### What the Soak Harness Validates
+
+The `SoakRuntime` test helper builds a fully-wired `MedreApp` with one fake adapter per transport (Matrix, Meshtastic, MeshCore, LXMF) using `adapter_kind="fake"` and in-memory storage. It exercises:
+
+- **Start/stop cycling:** Repeatedly starting and stopping the runtime to verify clean lifecycle transitions with no resource leaks.
+- **Replay cycling:** Running replay operations across multiple start/stop cycles to verify replay engine stability.
+- **Pressure testing:** Pumping fake inbound events through adapters to validate delivery pipeline behavior under load.
+- **Long-running stability:** A configurable iteration count (default 50, max 200, via `SOAK_HARNESS_ITERATIONS` env var) that exercises all the above in a single sustained run.
+
+### What the Soak Harness Does NOT Validate
+
+- **Live transport behavior.** All adapters are fake. No real Matrix homeserver, radio, or Reticulum network is involved.
+- **Multi-hour stability.** The harness runs in seconds, not hours. Long-duration soak testing is an operational activity conducted with live transports.
+- **Radio transport pressure.** The harness cannot exercise the physical constraints of LoRa (low bandwidth, serial write blocking, packet loss).
+- **Exactly-once delivery.** MEDRE does not provide this guarantee. The harness validates pattern correctness, not delivery completeness.
+
+### Running the Soak Harness
+
+```bash
+# Default: 50 iterations
+pytest tests/test_soak_harness.py
+
+# Deeper local run: 200 iterations
+SOAK_HARNESS_ITERATIONS=200 pytest tests/test_soak_harness.py
+```
+
+### Soak Harness Design Principles
+
+Every test in the harness:
+
+- Uses **fake adapters** only — no live transports or SDKs required.
+- Uses **in-memory storage** — no filesystem I/O beyond temp dirs.
+- Runs within **<10 seconds** for default iteration counts.
+- Is **deterministic** — no sleeps or wall-clock dependencies beyond what the event loop needs for async scheduling.
+
+
+## Operational Caveats
+
+### Radio Transport Pressure
+
+Radio transports (Meshtastic, MeshCore) are inherently constrained:
+
+- **Low bandwidth:** LoRa PHY is extremely slow (hundreds of bytes per second on LongFast).
+- **No flow control from the mesh:** The radio accepts packets as fast as the serial link allows, but the mesh itself may drop them.
+- **Serial write blocking:** Writing to a serial port blocks until the kernel buffer accepts the data.
+- **Packet loss is normal.** Do not alert on individual packet failures. Monitor trends, not individual events.
+
+Under sustained radio pressure, the Meshtastic outbound queue drops the oldest items (see Queue Discipline section). This is by design — the runtime prioritizes stability over delivery completeness.
+
+### No Exactly-Once Guarantees
+
+MEDRE does not provide exactly-once delivery semantics for any transport:
+
+- **Radio transports (Meshtastic, MeshCore):** Probabilistic fire-and-forget. Packet loss is expected. Duplicate sends are normal operational practice.
+- **Matrix:** At-least-once. Retries after connection loss may produce duplicates.
+- **LXMF (Reticulum):** At-least-once with eventual delivery. Propagation delays range from seconds to hours.
+
+The runtime records what adapters report honestly. It never upgrades receipt states based on assumptions.
+
+### No Transactional Delivery Guarantees
+
+When a single inbound event routes to multiple targets (fan-out), each target gets an independent delivery. There is no transactional coordination:
+
+- A failure on one target does not affect the other.
+- A success on one target does not guarantee the other.
+- Partial delivery is a normal outcome, not an error.
+
+### Queue Bounds Are Not Delivery Guarantees
+
+Queue bounds (capacity semaphores, adapter-level queues) prevent unbounded memory accumulation. They do **not** prevent data loss:
+
+- When the capacity semaphore is exhausted, new deliveries are rejected (permanently failed).
+- When an adapter-level queue overflows, items are dropped silently (drop-oldest).
+- Under extreme pressure, the runtime sheds load to protect process stability.
+
+This is an explicit design tradeoff: runtime stability over delivery completeness. Operators must monitor capacity timeout counters and tune limits accordingly.
+
+### MEDRE Is Best-Effort
+
+The entire MEDRE runtime is best-effort:
+
+- No replay deduplication. Replayed events may be delivered again.
+- No persistent in-flight recovery. Cancelled deliveries are lost on shutdown.
+- No distributed coordination. State is local to the process.
+- No per-adapter restart. Only full runtime stop/start is supported.
+
+These are not bugs — they are documented design boundaries. See Contract 53 and Contract 54 for the complete non-guarantee enumeration.

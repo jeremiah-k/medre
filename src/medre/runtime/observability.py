@@ -45,6 +45,7 @@ class DiagnosticsCollector:
     def __init__(self) -> None:
         self._route_stats = RouteStats()
         self._replay_metrics = ReplayMetrics()
+        self._capacity_snapshot: dict | None = None
 
     # -- Route-level recording (delegates to RouteStats) ----------------------
 
@@ -94,6 +95,24 @@ class DiagnosticsCollector:
         """Record a replay event skipped by loop prevention for *route_id*."""
         self._replay_metrics.record_skipped_by_loop(route_id)
 
+    def set_replay_backlog_estimate(self, count: int) -> None:
+        """Update the estimated number of pending replay events."""
+        self._replay_metrics.set_backlog_estimate(count)
+
+    def record_replay_rejection(self) -> None:
+        """Record a capacity rejection during replay."""
+        self._replay_metrics.record_rejection()
+
+    def record_replay_cancellation(self) -> None:
+        """Record a replay cancellation."""
+        self._replay_metrics.record_cancellation()
+
+    # -- Capacity snapshot injection -------------------------------------------
+
+    def set_capacity_snapshot(self, snapshot: dict) -> None:
+        """Inject a capacity controller snapshot for inclusion in diagnostics."""
+        self._capacity_snapshot = snapshot
+
     # -- Snapshot -------------------------------------------------------------
 
     def snapshot(self) -> dict:
@@ -104,4 +123,5 @@ class DiagnosticsCollector:
         """
         return build_diagnostics_snapshot(
             self._route_stats, self._replay_metrics,
+            capacity_snapshot=self._capacity_snapshot,
         )

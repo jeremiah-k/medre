@@ -12,6 +12,7 @@ Public symbols
 
 from __future__ import annotations
 
+import time as _time
 from dataclasses import dataclass, field
 
 
@@ -79,6 +80,10 @@ class ReplayMetrics:
 
     def __init__(self) -> None:
         self._route_counters: dict[str, ReplayRouteCounters] = {}
+        # Track 6+7 diagnostics: backlog, rejection, cancellation counters.
+        self._backlog_estimate: int = 0
+        self._rejection_count: int = 0
+        self._last_cancelled_at: float | None = None
 
     # -- Helpers ---------------------------------------------------------------
 
@@ -162,6 +167,20 @@ class ReplayMetrics:
             skipped_by_loop=c.skipped_by_loop + 1,
         ))
 
+    # -- Track 6+7: Backlog / rejection / cancellation counters ----------------
+
+    def set_backlog_estimate(self, count: int) -> None:
+        """Update the estimated number of pending replay events."""
+        self._backlog_estimate = max(0, count)
+
+    def record_rejection(self) -> None:
+        """Record a capacity rejection during replay."""
+        self._rejection_count += 1
+
+    def record_cancellation(self) -> None:
+        """Record a replay cancellation, capturing the current timestamp."""
+        self._last_cancelled_at = _time.monotonic()
+
     # -- Snapshot --------------------------------------------------------------
 
     def snapshot(self) -> dict:
@@ -173,6 +192,8 @@ class ReplayMetrics:
             Keys:
 
             * ``"global"`` – aggregated totals across all routes.
+              Includes ``backlog_estimate``, ``rejection_count``,
+              ``last_cancelled_at`` in addition to delivery counters.
             * ``"by_route"`` – per-route breakdown sorted by route_id.
               Each entry includes ``events_processed``,
               ``deliveries_attempted``, ``deliveries_succeeded``,
@@ -214,6 +235,9 @@ class ReplayMetrics:
                 "replay_deliveries_failed": total_failed,
                 "replay_skipped_by_filter": total_filter,
                 "replay_skipped_by_loop": total_loop,
+                "backlog_estimate": self._backlog_estimate,
+                "rejection_count": self._rejection_count,
+                "last_cancelled_at": self._last_cancelled_at,
             },
             "by_route": by_route,
         }

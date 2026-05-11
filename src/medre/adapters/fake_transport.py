@@ -22,6 +22,7 @@ Usage
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from typing import Any
 
@@ -37,6 +38,23 @@ from medre.adapters.base import (
     AdapterRole,
     BaseAdapter,
 )
+
+_logger = logging.getLogger(__name__)
+
+# Maximum history size for fake adapter tracking lists.
+_MAX_FAKE_HISTORY: int = 1000
+
+
+def _trim(lst: list[Any], maxsize: int = _MAX_FAKE_HISTORY) -> None:
+    """Evict oldest entries from *lst* when it exceeds *maxsize*."""
+    if len(lst) > maxsize:
+        excess = len(lst) - maxsize
+        del lst[:excess]
+        _logger.warning(
+            "Fake adapter history trimmed %d oldest entries (cap=%d)",
+            excess, maxsize,
+        )
+
 
 # Default capabilities for the fake transport.
 _FAKE_TRANSPORT_CAPABILITIES = AdapterCapabilities(
@@ -169,6 +187,7 @@ class FakeTransportAdapter(BaseAdapter):
             Native delivery metadata.
         """
         self.delivered_payloads.append(result)
+        _trim(self.delivered_payloads)
         return AdapterDeliveryResult(
             native_message_id=f"fake-transport-{result.event_id}",
             native_channel_id=result.target_channel,
@@ -202,6 +221,7 @@ class FakeTransportAdapter(BaseAdapter):
             )
         await self.ctx.publish_inbound(event)
         self.delivered_events.append(event)
+        _trim(self.delivered_events)
 
     def make_event(
         self,
@@ -250,6 +270,16 @@ class FakeTransportAdapter(BaseAdapter):
         )
         # Snapshot at creation time for immutability verification.
         self.event_snapshots[event.event_id] = event
+        # Trim snapshots dict if it exceeds the cap.
+        if len(self.event_snapshots) > _MAX_FAKE_HISTORY:
+            keys = list(self.event_snapshots.keys())
+            excess = len(keys) - _MAX_FAKE_HISTORY
+            for k in keys[:excess]:
+                del self.event_snapshots[k]
+            _logger.warning(
+                "FakeTransportAdapter event_snapshots trimmed %d entries (cap=%d)",
+                excess, _MAX_FAKE_HISTORY,
+            )
         return event
 
     @property

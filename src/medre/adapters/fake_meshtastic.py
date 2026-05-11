@@ -25,6 +25,7 @@ Usage
 """
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -44,6 +45,22 @@ from medre.adapters.meshtastic.packet_classifier import MeshtasticPacketClassifi
 from medre.core.events.canonical import CanonicalEvent, EventMetadata
 from medre.core.events.kinds import EventKind
 from medre.core.rendering.renderer import RenderingResult
+
+_logger = logging.getLogger(__name__)
+
+# Maximum history size for fake adapter tracking lists.
+_MAX_FAKE_HISTORY: int = 1000
+
+
+def _trim(lst: list[Any], maxsize: int = _MAX_FAKE_HISTORY) -> None:
+    """Evict oldest entries from *lst* when it exceeds *maxsize*."""
+    if len(lst) > maxsize:
+        excess = len(lst) - maxsize
+        del lst[:excess]
+        _logger.warning(
+            "Fake adapter history trimmed %d oldest entries (cap=%d)",
+            excess, maxsize,
+        )
 
 
 class FakeMeshtasticClient:
@@ -99,6 +116,7 @@ class FakeMeshtasticClient:
             "dest_id": dest_id,
             "packet_id": packet_id,
         })
+        _trim(self.sent_packets)
         self.sent_count += 1
         return {"packet_id": packet_id}
 
@@ -253,6 +271,7 @@ class FakeMeshtasticAdapter(BaseAdapter):
             raise MeshtasticSendError("FakeMeshtasticAdapter: simulated send failure")
 
         self.delivered_payloads.append(result)
+        _trim(self.delivered_payloads)
 
         text = str(result.payload.get("text", ""))
         channel_index = result.payload.get("channel_index", 0)
@@ -305,6 +324,7 @@ class FakeMeshtasticAdapter(BaseAdapter):
         canonical = self._codec.decode(packet)
         await self.ctx.publish_inbound(canonical)
         self.inbound_events.append(canonical)
+        _trim(self.inbound_events)
 
     # -- Test helpers -------------------------------------------------------
 

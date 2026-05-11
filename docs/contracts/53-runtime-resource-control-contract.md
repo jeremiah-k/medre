@@ -1,13 +1,13 @@
 # Contract 53 — Runtime Resource Control Contract
 
-**Status:** v1 Partial Implementation — Design sections remain as reference
-**Scope:** Resource control for the MEDRE runtime: delivery concurrency limits, replay event limiting, shutdown drain, capacity timeout behavior, and diagnostics. Sections 2–13 are design reference — some decisions deferred to v2. Section 14 describes the v1 implementation.
+**Status:** v2 Partial Implementation — CapacityController wired; adapter-level queue bounds in Meshtastic; design sections 2–13 remain as reference
+**Scope:** Resource control for the MEDRE runtime: delivery concurrency limits, replay event limiting, shutdown drain, capacity timeout behavior, queue overflow behavior, and diagnostics. Sections 2–13 are design reference — some decisions deferred. Section 14 describes the v1 implementation. Section 15 describes the v2 implementation.
 **Audience:** Runtime builders, adapter authors, operators, future implementors.
 **References:** Contract 47 (Runtime Assembly), Contract 48 (Runtime Observability), Contract 31 (Session Boundary), Contract 49 (Routing and Bridge).
 
 Every agent or document that references MEDRE queue depth limits, backpressure semantics, delivery throttling, or resource containment must defer to this contract.
 
-**v1 non-guarantees (explicit):** The runtime provides no replay deduplication, no exactly-once delivery guarantee, no persistent queue, no per-adapter restart, and no distributed coordination. These are all deferred or out of scope.
+**Non-guarantees (explicit):** MEDRE remains best-effort. The runtime provides no replay deduplication, no exactly-once delivery guarantee, no transactional delivery guarantees, no persistent queue, no per-adapter restart, and no distributed coordination. Radio transports remain probabilistic. Queue bounds prevent unbounded accumulation but do not prevent data loss under extreme pressure. These are all deferred or out of scope.
 
 
 ## 1. Scope
@@ -395,5 +395,148 @@ The following from the design sections (2–13) are **deferred to v2**:
 - **Replay deduplication.** Replay processes events without deduplication.
 - **Exactly-once delivery guarantee.** Not provided by any MEDRE component.
 - **Persistent queue.** Delivery state is in-memory only.
+- **Per-adapter restart.** Only full runtime stop/start is supported.
+- **Distributed coordination.** Limits and state are local to the process.
+
+
+## 15. v2 Implementation — CapacityController and Queue Discipline
+
+v2 introduces `CapacityController` as a centralized capacity manager, wires `ReplayEngine` into `RuntimeBuilder` with capacity and shutdown participation, and adds bounded adapter-level queues where applicable. The design sections (2–13) described per-adapter outbound queues with backpressure policies; v2 delivers this through a combination of the global `CapacityController` (reject-with-diagnostics default) and adapter-level bounding (drop-oldest for Meshtastic).
+
+**What v2 does not change:** MEDRE remains best-effort. No exactly-once guarantees, no transactional delivery guarantees, no persistent in-flight recovery. Radio transports remain probabilistic. Queue bounds prevent unbounded accumulation but not data loss under extreme pressure.
+
+### 15.1 CapacityController
+
+`CapacityController` (in `src/medre/runtime/capacity.py`) is a semaphore-based capacity manager that bounds in-flight delivery and replay work. It replaces the inline semaphores that were previously held directly by `PipelineRunner` and `ReplayEngine`.
+
+The controller manages two independent semaphores:
+
+| Stream | Semaphore | Limit field |
+|--------|-----------|-------------|
+| Delivery | `_delivery_sem` | `max_inflight_deliveries` |
+| Replay | `_replay_sem` | `max_inflight_replay_events` |
+
+Both use the same acquire-timeout (`delivery_acquire_timeout_seconds`) for timed waits.
+
+**Lifecycle:**
+
+- `accepting_work` starts `True`. All acquire calls proceed normally.
+- `stop_accepting()` sets `accepting_work = False`. All subsequent acquire calls return `False` immediately. This is called during shutdown (see Contract 54, §12).
+- `snapshot()` returns a deterministic dict of all counters for diagnostics.
+
+**Acquire/release flow:**
+
+```
+acquire_delivery() / acquire_replay()
+  ├── accepting_work == False  →  increment rejection counter; return False
+  ├── await semaphore (timeout) →  increment current; return True
+  └── TimeoutError             →  increment timeout counter; return False
+
+release_delivery() / release_replay()
+  └── release semaphore; decrement current
+```
+
+### 15.2 ReplayEngine Wired into RuntimeBuilder
+
+`RuntimeBuilder.build()` (in `src/medre/runtime/builder.py`) now constructs and wires:
+
+1. `CapacityController(limits)` — step 9.5 in the build sequence.
+2. `ReplayEngine(storage, pipeline, capacity_controller, diagnostician)` — step 9.6.
+
+The `CapacityController` is injected into `PipelineRunner` via `set_capacity_controller()`. The same controller is passed to `ReplayEngine` at construction. Both subsystems share the same capacity state, ensuring that:
+
+- Delivery and replay compete for separate semaphore budgets (not the same pool).
+- `stop_accepting()` blocks new work for both streams simultaneously.
+- Drain logic can observe both `delivery_current` and `replay_current` via a single `snapshot()` call.
+
+### 15.3 Adapter Accumulation Bounding
+
+v2 adds bounded internal queues at the adapter level to prevent unbounded memory accumulation per adapter.
+
+#### Meshtastic — deque with maxlen
+
+`MeshtasticOutboundQueue` (in `src/medre/adapters/meshtastic/queue.py`) uses a `deque(maxlen=max_queue_size)` (default 1024). When the deque is at capacity:
+
+- **Policy: drop-oldest.** The deque silently drops the leftmost (oldest) item when `append()` would exceed capacity.
+- `total_dropped` counter is incremented for each dropped item.
+- A WARNING log is emitted: `"MeshtasticOutboundQueue full (N items); dropping oldest"`.
+
+This prevents unbounded growth in long-duration runs where outbound throughput exceeds send capacity. Failed items during `process_one` are permanently dropped (not requeued).
+
+#### Other adapters
+
+Matrix, LXMF, and MeshCore adapters do not currently have explicit bounded queues. They rely on the `CapacityController`'s global semaphore to bound in-flight work, and on the transport's own flow control (Matrix rate limiting, LXMF fire-and-forget, MeshCore protocol framing). Per-adapter queue bounds for these transports remain a design reference item (see §4, §9).
+
+### 15.4 Bounded Staging in the Pipeline
+
+The `PipelineRunner` uses `CapacityController` to gate delivery execution. Before each delivery, the runner calls `acquire_delivery()`. If the controller rejects the acquire (work stopped or timeout), the runner returns `DeliveryOutcome` with:
+
+- `status="permanent_failure"`
+- `error="delivery_capacity_exceeded"`
+- `_delivery_rejection_count` incremented
+
+The capacity slot is released in a `finally` block after the delivery completes (success or failure). This ensures forward progress: the pipeline never blocks indefinitely on capacity — it either proceeds within the timeout or rejects with diagnostics.
+
+### 15.5 Replay Capacity Participation
+
+The `ReplayEngine` participates in capacity control during `BEST_EFFORT` mode:
+
+1. Before delivery, `_stage_deliver()` calls `capacity_controller.acquire_replay()`.
+2. If the acquire fails (work stopped or timeout), the replay result records:
+   - `status="error"`
+   - `error="replay_capacity_exceeded"`
+3. If the acquire succeeds, the replay slot is released in a `finally` block after delivery.
+
+Non-delivery replay modes (`RE_RENDER`, `RE_ROUTE`, `DRY_RUN`) do not acquire replay slots — they are read-only and do not consume delivery capacity.
+
+### 15.6 Queue Overflow Behavior
+
+When capacity is exhausted, the system applies one of three behaviors depending on the subsystem:
+
+| Subsystem | Default behavior | Alternative (documented) |
+|-----------|-----------------|--------------------------|
+| `PipelineRunner` delivery | **Reject** — return `permanent_failure` with `delivery_capacity_exceeded`; increment diagnostics | N/A (reject is the only policy at this layer) |
+| `ReplayEngine` delivery | **Reject** — return `error` with `replay_capacity_exceeded`; increment diagnostics | N/A (reject is the only policy at this layer) |
+| Meshtastic outbound queue | **Drop-oldest** — `deque(maxlen)` silently discards oldest item; increment `total_dropped` | `max_queue_size=None` for unbounded (not recommended) |
+| Design reference (§3) | — | **Drop-newest** — preserves earliest queued items, loses newest arrivals. Appropriate for command-and-control where ordering matters. |
+
+**Default: reject with diagnostics increment.** The `CapacityController` rejects work when capacity is exhausted or when shutdown has been signaled. Each rejection increments a counter visible in `snapshot()`. The caller records the failure in its outcome (delivery or replay) and moves on. No retry is attempted — capacity rejection is a backpressure signal, not a transient error.
+
+### 15.7 Queue Rejection Metrics
+
+The `CapacityController` tracks the following counters, all visible via `snapshot()`:
+
+| Counter | Type | Description |
+|---------|------|-------------|
+| `delivery_current` | Gauge | Currently in-flight delivery slots |
+| `delivery_limit` | Constant | Maximum concurrent deliveries |
+| `delivery_rejections` | Counter | Deliveries rejected because `accepting_work == False` (shutdown) |
+| `delivery_timeouts` | Counter | Deliveries that timed out waiting for a slot |
+| `replay_current` | Gauge | Currently in-flight replay slots |
+| `replay_limit` | Constant | Maximum concurrent replay events |
+| `replay_rejections` | Counter | Replay events rejected because `accepting_work == False` (shutdown) |
+| `replay_timeouts` | Counter | Replay events that timed out waiting for a slot |
+| `accepting_work` | Flag | Whether the controller is still accepting new work |
+
+Adapter-level queue metrics (Meshtastic):
+
+| Counter | Type | Description |
+|---------|------|-------------|
+| `total_dropped` | Counter | Items dropped from the Meshtastic outbound queue due to overflow |
+| `queue_depth` | Gauge | Current number of items in the Meshtastic outbound queue |
+
+### 15.8 What v2 Does NOT Implement
+
+The following from the design sections (2–13) remain deferred:
+
+- **Per-adapter outbound queues for Matrix, LXMF, MeshCore.** Only Meshtastic has an explicit bounded queue.
+- **Operator-configurable backpressure policy per adapter.** The policy is hardcoded: reject for capacity, drop-oldest for Meshtastic.
+- **Block policy with per-adapter delivery tasks.** Requires architectural changes to PipelineRunner.
+- **Per-route queues.** Delivery remains inline within the pipeline runner.
+- **Replay rate limiting** (producer-side throttle). v2 bounds replay concurrency but does not rate-limit replay event production.
+- **Queue high-water marks and latency histograms.** v2 provides gauges and counters only.
+- **Replay deduplication.** Replay processes events without deduplication.
+- **Exactly-once delivery guarantee.** Not provided by any MEDRE component.
+- **Persistent queue or in-flight recovery.** Delivery state is in-memory only. No recovery of in-flight work after shutdown.
 - **Per-adapter restart.** Only full runtime stop/start is supported.
 - **Distributed coordination.** Limits and state are local to the process.

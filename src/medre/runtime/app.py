@@ -40,6 +40,7 @@ if TYPE_CHECKING:
     from medre.core.rendering.renderer import RenderingPipeline
     from medre.core.routing.router import Router
     from medre.core.routing.stats import RouteStats
+    from medre.core.storage.replay import ReplayEngine
     from medre.core.storage.sqlite import SQLiteStorage
     from medre.runtime.builder import AdapterBuildFailure
     from medre.runtime.capacity import CapacityController
@@ -141,6 +142,7 @@ class MedreApp:
     started_adapter_ids: list[str] = field(default_factory=list)
     _state: RuntimeState = field(default=RuntimeState.INITIALIZED, init=False)
     _capacity_controller: CapacityController | None = field(default=None, init=False)
+    _replay_engine: ReplayEngine | None = field(default=None, init=False)
 
     # -- State management -------------------------------------------------------
 
@@ -148,6 +150,11 @@ class MedreApp:
     def state(self) -> RuntimeState:
         """Return the current runtime lifecycle state."""
         return self._state
+
+    @property
+    def replay_engine(self) -> ReplayEngine | None:
+        """Return the replay engine, or ``None`` if not wired."""
+        return self._replay_engine
 
     def _set_state(self, new_state: RuntimeState) -> None:
         """Transition to *new_state*, logging the change."""
@@ -360,6 +367,10 @@ class MedreApp:
         # Phase 1: Stop accepting new work.
         if self._capacity_controller is not None:
             self._capacity_controller.stop_accepting()
+        if self._replay_engine is not None:
+            _logger.info(
+                "Runtime stopping — replay engine present, capacity stopped"
+            )
         _logger.info("Runtime stopping — accepting no new work")
 
         # Phase 2: Drain in-flight work with timeout.

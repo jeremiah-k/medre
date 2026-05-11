@@ -148,6 +148,13 @@ _RECONNECT_JITTER_FRACTION: float = 0.25  # ±25 %
 # Outbound delivery retry.
 _SEND_MAX_RETRIES: int = 3
 
+# Maximum tracked outbound deliveries before oldest are evicted.
+# Prevents unbounded dict growth in long-duration runs where
+# fake-mode entries never reach terminal state, or real-mode
+# in-flight deliveries accumulate faster than state callbacks
+# clean them up.
+_MAX_OUTBOUND_DELIVERIES: int = 1000
+
 # Type alias for the inbound message callback.
 # The callback receives a plain dict (normalised native payload),
 # NOT a raw LXMF.LXMessage object.
@@ -392,6 +399,7 @@ class LxmfSession:
         "_diag",
         # Outbound tracking
         "_outbound_deliveries",
+        "_delivery_insert_order",
         # Announce timer
         "_announce_task",
     )
@@ -429,7 +437,46 @@ class LxmfSession:
         self._diag = _SessionDiagnostics()
 
         # Outbound delivery tracking: message_id → _OutboundDelivery
+        # Bounded: oldest entries evicted when _MAX_OUTBOUND_DELIVERIES reached.
         self._outbound_deliveries: dict[str, _OutboundDelivery] = {}
+        # Insertion-order key list for FIFO eviction when bound is hit.
+        self._delivery_insert_order: list[str] = []
+
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    def _track_delivery(self, msg_id: str, delivery: _OutboundDelivery) -> None:
+        """Record an outbound delivery with bounded tracking.
+
+        When the tracking dict exceeds ``_MAX_OUTBOUND_DELIVERIES``,
+        the oldest entry (by insertion order) is evicted.
+        """
+        if len(self._outbound_deliveries) >= _MAX_OUTBOUND_DELIVERIES:
+            # Evict oldest entries to stay under the cap.
+            evict_count = max(1, len(self._outbound_deliveries) - _MAX_OUTBOUND_DELIVERIES + 1)
+            for _ in range(evict_count):
+                if not self._delivery_insert_order:
+                    break
+                oldest_id = self._delivery_insert_order.pop(0)
+                self._outbound_deliveries.pop(oldest_id, None)
+            self._logger.warning(
+                "LxmfSession %s: outbound delivery tracking hit cap "
+                "(%d); evicted %d oldest entries",
+                self._adapter_id,
+                _MAX_OUTBOUND_DELIVERIES,
+                evict_count,
+            )
+        self._outbound_deliveries[msg_id] = delivery
+        self._delivery_insert_order.append(msg_id)
+
+    def _untrack_delivery(self, msg_id: str) -> None:
+        """Remove a delivery from tracking (e.g. on terminal state)."""
+        self._outbound_deliveries.pop(msg_id, None)
+        # Best-effort removal from insert-order list (avoid O(n) scan
+        # on every terminal state — defer full compaction to eviction path).
+        # The stale entry will be skipped during eviction since the dict
+        # pop already removed the key.
 
     # ------------------------------------------------------------------
     # Public properties
@@ -556,6 +603,7 @@ class LxmfSession:
 
         # Clear outbound tracking.
         self._outbound_deliveries.clear()
+        self._delivery_insert_order.clear()
 
         self._diag.connected = False
         self._diag.router_running = False
@@ -614,10 +662,13 @@ class LxmfSession:
             # Fake mode — no real send.  Return honest pending semantics.
             fake_id = f"fake-{id(self)}-{time.monotonic_ns()}"
             state = LxmfDeliveryState.OUTBOUND
-            self._outbound_deliveries[fake_id] = _OutboundDelivery(
-                native_message_id=fake_id,
-                state=state,
-                destination_hash=destination_hash,
+            self._track_delivery(
+                fake_id,
+                _OutboundDelivery(
+                    native_message_id=fake_id,
+                    state=state,
+                    destination_hash=destination_hash,
+                ),
             )
             return fake_id, state
 
@@ -881,7 +932,7 @@ class LxmfSession:
                     ):
                         self._diag.permanent_delivery_failures += 1
                     # Remove from tracking dict to prevent unbounded growth.
-                    self._outbound_deliveries.pop(msg_hash, None)
+                    self._untrack_delivery(msg_hash)
         except Exception as exc:
             self._logger.debug(
                 "LxmfSession %s: error tracking delivery state: %s",
@@ -1079,10 +1130,13 @@ class LxmfSession:
 
                 # Track the delivery.
                 if native_id is not None:
-                    self._outbound_deliveries[native_id] = _OutboundDelivery(
-                        native_message_id=native_id,
-                        state=initial_state,
-                        destination_hash=destination_hash,
+                    self._track_delivery(
+                        native_id,
+                        _OutboundDelivery(
+                            native_message_id=native_id,
+                            state=initial_state,
+                            destination_hash=destination_hash,
+                        ),
                     )
 
                 return native_id, initial_state

@@ -49,6 +49,7 @@ from medre.core.rendering.text import TextRenderer
 from medre.core.routing.router import Router
 from medre.core.routing.stats import RouteStats
 from medre.core.storage.sqlite import SQLiteStorage
+from medre.core.storage.replay import ReplayEngine
 from medre.runtime.app import MedreApp
 from medre.runtime.capacity import CapacityController
 from medre.runtime.errors import RuntimeConfigError
@@ -285,6 +286,14 @@ class RuntimeBuilder:
         capacity_controller = CapacityController(self._config.limits)
         pipeline_runner.set_capacity_controller(capacity_controller)
 
+        # 9.6 ReplayEngine — replay harness with capacity controller wired.
+        replay_engine = ReplayEngine(
+            storage=storage,
+            pipeline=pipeline_runner,
+            capacity_controller=capacity_controller,
+            diagnostician=diagnostician,
+        )
+
         # 10. Construct adapters from RuntimeConfig
         build_failures = self._build_adapters(adapters)
 
@@ -321,8 +330,9 @@ class RuntimeBuilder:
             shutdown_event=shutdown_event,
             build_failures=build_failures,
         )
-        # Wire capacity controller onto the app (non-init field).
+        # Wire capacity controller and replay engine onto the app.
         app._capacity_controller = capacity_controller
+        app._replay_engine = replay_engine
         return app
 
     # -- Storage construction ----------------------------------------------------

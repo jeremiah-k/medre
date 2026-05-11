@@ -1,11 +1,11 @@
 # Contract 54 — Runtime Shutdown Contract
 
-**Status:** v1 Partial Implementation — Drain phase added; per-adapter restart and graceful connection drain deferred to v2
-**Scope:** Shutdown ordering, in-flight work handling, drain timeout behavior, persistence guarantees, and timeout behavior for the MEDRE runtime.
+**Status:** v2 Partial Implementation — CapacityController-based drain with replay participation; per-adapter restart and graceful connection drain deferred
+**Scope:** Shutdown ordering, in-flight work handling, drain timeout behavior, queue drain, replay cancellation, persistence guarantees, and timeout behavior for the MEDRE runtime.
 **Audience:** Runtime builders, adapter authors, operators.
 **References:** Contract 47 (Runtime Assembly), Contract 48 (Runtime Observability), Contract 31 (Session Boundary), Contract 53 (Resource Control).
 
-**v1 non-guarantees (explicit):** The runtime provides no replay deduplication, no exactly-once delivery guarantee, no persistent queue, no per-adapter restart, and no distributed coordination. These are all deferred or out of scope.
+**Non-guarantees (explicit):** MEDRE remains best-effort. The runtime provides no replay deduplication, no exactly-once delivery guarantee, no transactional delivery guarantees, no persistent queue, no per-adapter restart, and no distributed coordination. Radio transports remain probabilistic. No persistent in-flight recovery. No replay resume after shutdown. These are all deferred or out of scope.
 
 
 ## 1. Shutdown Phases
@@ -210,3 +210,93 @@ The following are explicitly out of scope for the current implementation:
 - **Complex graceful drain.** There is no mechanism to wait for in-flight deliveries to complete with per-delivery timeouts, backoff, or partial completion tracking.
 - **Hot restart / zero-downtime restart.** The runtime is a single-process application with no restart coordination.
 - **State migration on shutdown.** In-memory state (route stats, diagnostic counters) is intentionally not persisted.
+
+
+## 12. v2: Queue + Replay Coordination
+
+v2 introduces `CapacityController` (see Contract 53, §15) as the central capacity manager. Shutdown now coordinates delivery drain, replay cancellation, and queue drain through this controller before adapter teardown begins.
+
+**What v2 does not change:** No persistent in-flight recovery. No replay resume after shutdown. MEDRE remains best-effort — no exactly-once guarantees, no transactional delivery guarantees, no persistent queue. Radio transports remain probabilistic.
+
+### 12.1 Replay Cancellation During Shutdown
+
+When `MedreApp.stop()` is called:
+
+1. `capacity_controller.stop_accepting()` is called. This sets `accepting_work = False`.
+2. All subsequent `acquire_replay()` calls return `False` immediately, with the `replay_rejections` counter incremented.
+3. In-flight replay deliveries (those that already acquired a slot) continue executing until they complete or the drain timeout expires.
+4. No new replay work is admitted after this point. The `ReplayEngine` does not have its own shutdown hook — it relies on `CapacityController` to gate new work and on the pipeline teardown to cancel any remaining tasks.
+
+### 12.2 Replay Drain Timeout Participation
+
+The drain loop (step 2 of shutdown) observes **both** delivery and replay in-flight counts via `capacity_controller.snapshot()`:
+
+```
+drain_deadline = now + shutdown_drain_timeout_seconds
+while now < drain_deadline:
+    snap = capacity_controller.snapshot()
+    if snap["delivery_current"] == 0 and snap["replay_current"] == 0:
+        log("In-flight work drained")
+        break
+    await asyncio.sleep(0.1)
+else:
+    log warning with snap["delivery_current"], snap["replay_current"]
+```
+
+Replay work that completes within the drain window produces normal results. Replay work that does not complete is abandoned — no retry, no persistent recovery.
+
+### 12.3 Queue Drain Before Adapter Teardown
+
+The shutdown sequence in v2 is:
+
+| Step | Action | Detail |
+|------|--------|--------|
+| 1 | Stop accepting work | `capacity_controller.stop_accepting()` — blocks new delivery and replay |
+| 2 | Drain in-flight work | Poll `capacity_controller.snapshot()` until both `delivery_current` and `replay_current` reach 0, or timeout |
+| 3 | Signal shutdown | `shutdown_event.set()` — notifies adapters and waiters |
+| 4 | Stop adapters | Reverse start order, each with `shutdown_timeout_seconds` |
+| 5 | Stop pipeline runner | Remove middleware, release resources |
+| 6 | Close storage | Flush and release SQLite resources |
+
+**Key change from v1:** In v1, the pipeline runner's `stop()` awaited in-flight deliveries independently. In v2, the drain happens at the `CapacityController` level *before* adapters are stopped. This ensures that:
+
+- Delivery capacity slots are released before adapters tear down their transport connections.
+- Replay capacity slots are included in the drain check.
+- The diagnostics snapshot captures the drain outcome with accurate in-flight counts.
+
+### 12.4 Diagnostics Report Drain Outcome
+
+The drain phase logs the outcome:
+
+- **Successful drain:** `"In-flight work drained"` — both counters reached 0 before timeout.
+- **Drain timeout:** `"Drain timed out — {delivery_current} delivery, {replay_current} replay in-flight abandoned"` — some work did not complete within the drain window. The `capacity_controller.snapshot()` provides the exact counts of abandoned work.
+
+The runtime diagnostics snapshot (via `MedreApp.diagnostics_snapshot()`) includes:
+
+```json
+{
+  "capacity": {
+    "accepting_work": false,
+    "delivery_current": 0,
+    "delivery_limit": 64,
+    "delivery_rejections": 3,
+    "delivery_timeouts": 1,
+    "replay_current": 0,
+    "replay_limit": 32,
+    "replay_rejections": 2,
+    "replay_timeouts": 0
+  },
+  "shutdown_drain_timeout_seconds": 5.0
+}
+```
+
+This snapshot is available after shutdown completes and can be inspected to determine how many deliveries were rejected or timed out during the shutdown sequence.
+
+### 12.5 No Persistent In-Flight Recovery
+
+In-flight deliveries and replay events that are abandoned at shutdown are **not** recovered on restart. There is no persistent in-flight queue, no replay resume mechanism, and no deduplication on restart. This is an explicit design decision:
+
+- Delivery state is in-memory only.
+- Restart begins with a clean in-flight state.
+- Replay may be re-triggered manually by the operator, but it processes from storage (not from the abandoned in-flight set).
+- Receipts written before shutdown are preserved in storage. Partially-completed deliveries are not retried.

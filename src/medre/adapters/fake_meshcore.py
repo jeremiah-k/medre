@@ -25,6 +25,7 @@ Usage
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from medre.adapters.base import (
@@ -41,6 +42,22 @@ from medre.adapters.meshcore.errors import MeshCoreSendError
 from medre.adapters.meshcore.packet_classifier import MeshCorePacketClassifier
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.rendering.renderer import RenderingResult
+
+_logger = logging.getLogger(__name__)
+
+# Maximum history size for fake adapter tracking lists.
+_MAX_FAKE_HISTORY: int = 1000
+
+
+def _trim(lst: list[Any], maxsize: int = _MAX_FAKE_HISTORY) -> None:
+    """Evict oldest entries from *lst* when it exceeds *maxsize*."""
+    if len(lst) > maxsize:
+        excess = len(lst) - maxsize
+        del lst[:excess]
+        _logger.warning(
+            "Fake adapter history trimmed %d oldest entries (cap=%d)",
+            excess, maxsize,
+        )
 
 
 class FakeMeshCoreClient:
@@ -96,6 +113,7 @@ class FakeMeshCoreClient:
             "dest_id": dest_id,
             "packet_id": packet_id,
         })
+        _trim(self.sent_packets)
         self.sent_count += 1
         return {"packet_id": packet_id}
 
@@ -250,6 +268,7 @@ class FakeMeshCoreAdapter(BaseAdapter):
             raise MeshCoreSendError("FakeMeshCoreAdapter: simulated send failure")
 
         self.delivered_payloads.append(result)
+        _trim(self.delivered_payloads)
 
         text = str(result.payload.get("text", ""))
         channel_index = result.payload.get("channel_index", 0)
@@ -302,6 +321,7 @@ class FakeMeshCoreAdapter(BaseAdapter):
         canonical = self._codec.decode(packet)
         await self.ctx.publish_inbound(canonical)
         self.inbound_events.append(canonical)
+        _trim(self.inbound_events)
 
     # -- Test helpers -------------------------------------------------------
 

@@ -25,6 +25,7 @@ Usage
 """
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Any
 
@@ -44,6 +45,22 @@ from medre.adapters.base import (
     AdapterRole,
     BaseAdapter,
 )
+
+_logger = logging.getLogger(__name__)
+
+# Maximum history size for fake adapter tracking lists.
+_MAX_FAKE_HISTORY: int = 1000
+
+
+def _trim(lst: list[Any], maxsize: int = _MAX_FAKE_HISTORY) -> None:
+    """Evict oldest entries from *lst* when it exceeds *maxsize*."""
+    if len(lst) > maxsize:
+        excess = len(lst) - maxsize
+        del lst[:excess]
+        _logger.warning(
+            "Fake adapter history trimmed %d oldest entries (cap=%d)",
+            excess, maxsize,
+        )
 
 # Default capabilities for the fake Matrix adapter.
 _FAKE_MATRIX_CAPABILITIES = AdapterCapabilities(
@@ -173,6 +190,7 @@ class FakeMatrixAdapter(BaseAdapter):
                 f"the inbound path."
             )
         self.delivered_payloads.append(result)
+        _trim(self.delivered_payloads)
         # Deterministic Matrix-like event ID for test verification.
         fake_event_id = f"$fake_{result.event_id}"
         channel_id = result.target_channel or ""
@@ -205,6 +223,7 @@ class FakeMatrixAdapter(BaseAdapter):
             )
         await self.ctx.publish_inbound(event)
         self.inbound_events.append(event)
+        _trim(self.inbound_events)
 
     def make_event(
         self,

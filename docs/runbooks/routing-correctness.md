@@ -142,6 +142,29 @@ Looping routes are skipped with `loop_warnings` attached to `ReplayRouteAttribut
 
 **Replay route attribution semantics:** `ReplayRouteAttribution` contains only the **filtered** set of routes — routes that survived loop prevention and self-loop filtering. The `route_trace` is the ordered list of matched route IDs, bounded to 16 entries. Metadata on replay results is cleaned to exclude internal pipeline artifacts before surface exposure.
 
+### 2.7 Replay Routing and Capacity Controls
+
+Replay routing participates in the `CapacityController` (see Contract 53, §15) during `BEST_EFFORT` mode:
+
+1. Before each replay delivery, `ReplayEngine._stage_deliver()` acquires a replay slot via `capacity_controller.acquire_replay()`.
+2. If the acquire fails (capacity exhausted or shutdown signaled), the replay result records `status="error"` with `error="replay_capacity_exceeded"`. The route was matched but the delivery was not attempted.
+3. If the acquire succeeds, the replay slot is released after the delivery completes.
+
+Non-delivery replay modes (`RE_RENDER`, `RE_ROUTE`, `DRY_RUN`) do not acquire capacity slots — they are read-only.
+
+During shutdown, `capacity_controller.stop_accepting()` prevents new replay work from starting. In-flight replay deliveries are drained before adapter teardown (see Contract 54, §12). Replay that was in progress but not completed when shutdown began is abandoned — no persistent in-flight recovery, no replay resume on restart.
+
+### 2.8 Queue Rejection and Routing
+
+When the delivery capacity semaphore is exhausted, the `PipelineRunner` rejects the entire delivery batch for a routed event:
+
+- `deliver_to_targets()` calls `capacity_controller.acquire_delivery()`.
+- If the acquire fails, **all** targets for that route receive `DeliveryOutcome` with `status="permanent_failure"` and `error="delivery_capacity_exceeded"`.
+- The route was matched correctly and the delivery plan was created — the failure is a capacity issue, not a routing issue.
+- `RouteStats` records these as failures. The route's `last_error` field will indicate capacity exceeded.
+
+This means a route can be correctly configured and correctly matched, but still produce failed deliveries if the pipeline is under capacity pressure. Check `delivery_timeouts` and `delivery_rejections` in diagnostics to distinguish capacity failures from routing failures.
+
 ### 2.6 Loop Prevention Scope
 
 | Context | Mechanism | Blocks startup? | Blocks delivery? |
@@ -277,6 +300,10 @@ These are things the routing layer explicitly does **not** provide:
 8. **Persistent queue.** Delivery state is in-memory only. In-flight deliveries cancelled on shutdown are lost.
 
 9. **Per-adapter restart.** Only full runtime stop/start is supported. Individual adapters cannot be restarted independently.
+
+10. **Queue-bound delivery completeness.** Capacity semaphores prevent unbounded accumulation but do not guarantee delivery. Under pressure, correctly matched and correctly routed events may be rejected at the delivery stage. This is not a routing failure — it is a capacity backpressure signal.
+
+11. **Exactly-once delivery.** No transport in MEDRE provides exactly-once semantics. MEDRE remains best-effort. Radio transports are probabilistic. Queue bounds prevent unbounded accumulation but not data loss under extreme pressure.
 
 
 ## 7. Quick Reference: Route Matching Rules
