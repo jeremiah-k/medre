@@ -154,16 +154,15 @@ Non-delivery replay modes (`RE_RENDER`, `RE_ROUTE`, `DRY_RUN`) do not acquire ca
 
 During shutdown, `capacity_controller.stop_accepting()` prevents new replay work from starting. In-flight replay deliveries are drained before adapter teardown (see Contract 54, §12). Replay that was in progress but not completed when shutdown began is abandoned — no persistent in-flight recovery, no replay resume on restart.
 
-### 2.8 Queue Rejection and Routing
+### 2.8 Capacity Rejection and Routing
 
-When the delivery capacity semaphore is exhausted, the `PipelineRunner` rejects the entire delivery batch for a routed event:
+Capacity is acquired **per destination, not per route**. Each target in a fan-out independently calls `capacity_controller.acquire_delivery()` before its delivery proceeds:
 
-- `deliver_to_targets()` calls `capacity_controller.acquire_delivery()`.
-- If the acquire fails, **all** targets for that route receive `DeliveryOutcome` with `status="permanent_failure"` and `error="delivery_capacity_exceeded"`.
+- If the acquire fails for a given target, **that target** receives a `DeliveryOutcome` with `status="permanent_failure"`, `failure_kind=DEADLINE_EXCEEDED`, and `error="delivery_capacity_exceeded"`. Other targets may still succeed if they acquire capacity.
 - The route was matched correctly and the delivery plan was created — the failure is a capacity issue, not a routing issue.
-- `RouteStats` records these as failures. The route's `last_error` field will indicate capacity exceeded.
+- `RouteStats.record_failed()` is called on the capacity-rejected target so per-route counters reflect the failure.
 
-This means a route can be correctly configured and correctly matched, but still produce failed deliveries if the pipeline is under capacity pressure. Check `delivery_timeouts` and `delivery_rejections` in diagnostics to distinguish capacity failures from routing failures.
+This means a route can be correctly configured and correctly matched, but still produce failed deliveries if the pipeline is under capacity pressure. Check `delivery_timeouts` and `delivery_rejections` in the `CapacityController` snapshot to distinguish capacity failures from routing failures.
 
 ### 2.6 Loop Prevention Scope
 

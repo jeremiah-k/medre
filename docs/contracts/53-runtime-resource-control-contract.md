@@ -343,7 +343,7 @@ shutdown_timeout_seconds = 10
 [runtime.limits]
 max_inflight_deliveries = 32
 max_inflight_replay_events = 16
-shutdown_drain_timeout_seconds = 5.0
+shutdown_drain_timeout_seconds = 10.0
 delivery_acquire_timeout_seconds = 15.0
 ```
 
@@ -352,7 +352,7 @@ delivery_acquire_timeout_seconds = 15.0
 `PipelineRunner` holds an `asyncio.Semaphore(max_inflight_deliveries)`. Before each **per-target** delivery attempt, the runner acquires the semaphore:
 
 - **Acquire succeeds:** the delivery proceeds normally.
-- **Acquire times out** (after `delivery_acquire_timeout_seconds`): the delivery fails with `status="permanent_failure"` and `failure_kind=TIMEOUT`. A diagnostic counter is incremented. The delivery is not retried — capacity timeout is treated as a backpressure signal, not a transient error.
+- **Acquire times out** (after `delivery_acquire_timeout_seconds`): the delivery fails with `status="permanent_failure"` and `failure_kind=DEADLINE_EXCEEDED`. A capacity counter is incremented. The delivery is not retried — capacity timeout is treated as a backpressure signal, not a transient error.
 
 The semaphore is released after the adapter's `deliver()` returns (success, failure, or skip). This bounds the total number of concurrent adapter `deliver()` calls across all adapters to `max_inflight_deliveries`. Each target in a fan-out independently acquires/releases, so the limit bounds true delivery concurrency, not batch-level throughput.
 
@@ -366,21 +366,25 @@ The replay semaphore is independent of the delivery semaphore. Replay deliveries
 
 When a delivery cannot acquire a semaphore slot within `delivery_acquire_timeout_seconds`:
 
-1. The delivery outcome records `status="permanent_failure"` with `failure_kind=TIMEOUT`.
-2. `Diagnostician` increments `capacity_timeouts_total` (keyed by adapter_id).
+1. The delivery outcome records `status="permanent_failure"` with `failure_kind=DEADLINE_EXCEEDED`.
+2. `CapacityController` increments its `delivery_timeouts` counter (available via `snapshot()`).
 3. No retry is attempted. Capacity timeout is a backpressure signal.
 4. A WARNING log is emitted: `"Capacity timeout: delivery to {adapter_id} timed out waiting for slot ({current}/{limit})"`.
 
 ### 14.5 Diagnostics Counters
 
-The `Diagnostician` tracks resource control events:
+The `CapacityController` exposes runtime capacity counters via its `snapshot()` method. These are **runtime capacity gauges and counters**, not `Diagnostician` counters:
 
-| Counter | Key | Description |
-|---------|-----|-------------|
-| `capacity_timeouts_total` | `adapter_id` | Deliveries that failed to acquire a concurrency slot within the timeout. |
-| `replay_capacity_timeouts_total` | — | Replay events that failed to acquire a replay slot. |
-| `inflight_deliveries` | — | Current gauge of acquired delivery semaphore slots. |
-| `inflight_replay_events` | — | Current gauge of acquired replay semaphore slots. |
+| Snapshot field | Type | Description |
+|----------------|------|-------------|
+| `delivery_current` | gauge | Currently acquired delivery semaphore slots. |
+| `delivery_limit` | gauge | Configured `max_inflight_deliveries` bound. |
+| `delivery_rejections` | counter | Delivery acquire attempts that failed (shutdown or immediate rejection). |
+| `delivery_timeouts` | counter | Delivery acquire attempts that timed out waiting for a slot. |
+| `replay_current` | gauge | Currently acquired replay semaphore slots. |
+| `replay_limit` | gauge | Configured `max_inflight_replay_events` bound. |
+| `replay_rejections` | counter | Replay acquire attempts that failed (shutdown or immediate rejection). |
+| `replay_timeouts` | counter | Replay acquire attempts that timed out waiting for a slot. |
 
 ### 14.6 What v1 Does NOT Implement
 

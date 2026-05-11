@@ -588,6 +588,10 @@ class PipelineRunner:
                 acquired = await self._capacity_controller.acquire_delivery()
                 if not acquired:
                     self._delivery_rejection_count += 1
+                    if self._route_stats is not None:
+                        self._route_stats.record_failed(
+                            route.id, "delivery_capacity_exceeded"
+                        )
                     elapsed = (time.monotonic() - t0) * 1000.0
                     return DeliveryOutcome(
                         event_id=event.event_id,
@@ -598,7 +602,7 @@ class PipelineRunner:
                             route_plan.plan_id if hasattr(route_plan, "plan_id") else ""
                         ),
                         status="permanent_failure",
-                        failure_kind=None,
+                        failure_kind=DeliveryFailureKind.DEADLINE_EXCEEDED,
                         receipt=None,
                         error="delivery_capacity_exceeded",
                         duration_ms=elapsed,

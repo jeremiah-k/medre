@@ -160,7 +160,7 @@ shutdown_timeout_seconds = 10
 [runtime.limits]
 max_inflight_deliveries = 100       # max concurrent delivery coroutines (default: 100)
 max_inflight_replay_events = 100    # max concurrent replay event deliveries (default: 100)
-shutdown_drain_timeout_seconds = 5.0  # seconds to drain in-flight deliveries on shutdown (default: 10)
+shutdown_drain_timeout_seconds = 10.0  # seconds to drain in-flight deliveries on shutdown (default: 10)
 delivery_acquire_timeout_seconds = 1.0   # seconds to wait for a delivery slot (default: 1.0)
 ```
 
@@ -185,9 +185,12 @@ Run `medre diagnostics` to see resource limit gauges:
 
 | Counter | Description |
 |---------|-------------|
-| `capacity_timeouts_total` | Deliveries that timed out waiting for a concurrency slot |
-| `inflight_deliveries` | Current number of acquired delivery semaphore slots |
-| `inflight_replay_events` | Current number of acquired replay semaphore slots |
+| `delivery_rejections` | Delivery acquire attempts that failed immediately (shutdown or capacity exhausted) |
+| `delivery_timeouts` | Delivery acquire attempts that timed out waiting for a slot |
+| `delivery_current` / `delivery_limit` | Current / max concurrent delivery semaphore slots |
+| `replay_rejections` | Replay acquire attempts that failed immediately |
+| `replay_timeouts` | Replay acquire attempts that timed out waiting for a slot |
+| `replay_current` / `replay_limit` | Current / max concurrent replay semaphore slots |
 
 ### Example Configurations
 
