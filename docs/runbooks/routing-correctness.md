@@ -85,9 +85,11 @@ MEDRE provides three layers of loop prevention, operating at different stages.
 
 **How it works:** Before any delivery attempt, the pipeline checks whether `route.id` is already in `event.metadata.routing.route_trace`. If found, the delivery is skipped with `status="skipped"` and `error="loop_prevented: route already in route_trace"`.
 
-**Why it matters:** During replay or multi-hop topologies, a route may be matched again for the same event. The bounded trace ensures each route processes the event at most once per trace lifetime (last 16 entries).
+**Why it matters:** During replay or multi-hop topologies, a route may be matched again for the same event. The bounded trace ensures each route processes the event at most once per trace lifetime (last 16 entries). The bound is enforced by `route_trace` being capped at 16 entries — older entries are dropped when the trace exceeds the limit.
 
 **When it fires:** Every delivery attempt, before the self-loop guard.
+
+**Test coverage:** The real `PipelineRunner` replay path is tested end-to-end in `test_replay_routing.py`, which exercises route matching through the actual `Router`, `ReplayEngine`, and `_filter_replay_loops` code paths. Architectural boundary tests in `test_architectural_boundaries.py` verify that neither the replay engine nor the route engine import transport SDKs.
 
 ### 2.2 Self-Loop Guard (Runtime, Per-Delivery)
 
@@ -137,6 +139,8 @@ During replay, `_filter_replay_loops` applies additional filtering:
 - Previously routed: event's `RoutingMetadata.matched_routes` **or** `route_trace` overlaps with a matched route ID.
 
 Looping routes are skipped with `loop_warnings` attached to `ReplayRouteAttribution`.
+
+**Replay route attribution semantics:** `ReplayRouteAttribution` contains only the **filtered** set of routes — routes that survived loop prevention and self-loop filtering. The `route_trace` is the ordered list of matched route IDs, bounded to 16 entries. Metadata on replay results is cleaned to exclude internal pipeline artifacts before surface exposure.
 
 ### 2.6 Loop Prevention Scope
 

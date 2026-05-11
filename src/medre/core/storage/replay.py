@@ -1458,6 +1458,12 @@ class ReplayEngine:
                 ),
                 None,
             )
+        if not hasattr(self._pipeline, "plan_delivery"):
+            raise RuntimeError(
+                "Pipeline has no deliver_to_targets and no plan_delivery; "
+                "cannot build delivery plans for event_id="
+                + event.event_id
+            )
         try:
             plans = await self._pipeline.plan_delivery(event, route_result)
             return (
@@ -1507,8 +1513,22 @@ class ReplayEngine:
                 duration_ms=_elapsed_ms(t0),
             )
         try:
-            transformed = await self._pipeline.transform_event(event)
-            rendered = await self._pipeline.render_event(transformed)
+            if hasattr(self._pipeline, "transform_event"):
+                transformed = await self._pipeline.transform_event(event)
+            else:
+                self._log.debug(
+                    "Pipeline has no transform_event; skipping transform "
+                    "for event_id=%s", event.event_id,
+                )
+                transformed = event
+            if hasattr(self._pipeline, "render_event"):
+                rendered = await self._pipeline.render_event(transformed)
+            else:
+                self._log.debug(
+                    "Pipeline has no render_event; skipping render "
+                    "for event_id=%s", event.event_id,
+                )
+                rendered = transformed
             return ReplayResult(
                 event_id=event.event_id,
                 stage="render",
