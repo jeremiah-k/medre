@@ -158,10 +158,10 @@ name = "my-bridge"
 shutdown_timeout_seconds = 10
 
 [runtime.limits]
-max_inflight_deliveries = 64        # max concurrent delivery coroutines (default: 100)
-max_inflight_replay_events = 32     # max concurrent replay event deliveries (default: 100)
+max_inflight_deliveries = 100       # max concurrent delivery coroutines (default: 100)
+max_inflight_replay_events = 100    # max concurrent replay event deliveries (default: 100)
 shutdown_drain_timeout_seconds = 5.0  # seconds to drain in-flight deliveries on shutdown (default: 10)
-delivery_acquire_timeout_seconds = 30.0  # seconds to wait for a delivery slot (default: 1.0)
+delivery_acquire_timeout_seconds = 1.0   # seconds to wait for a delivery slot (default: 1.0)
 ```
 
 ### How Delivery Limiting Works
@@ -524,10 +524,10 @@ The `CapacityController` (see Contract 53, §15) manages two independent semapho
 
 | Stream | Config field | Default bound | What it limits |
 |--------|-------------|---------------|----------------|
-| Delivery | `max_inflight_deliveries` | 64 | Concurrent adapter `deliver()` calls across all adapters |
-| Replay | `max_inflight_replay_events` | 32 | Concurrent replay event deliveries |
+| Delivery | `max_inflight_deliveries` | 100 | Concurrent adapter `deliver()` calls across all adapters |
+| Replay | `max_inflight_replay_events` | 100 | Concurrent replay event deliveries |
 
-When a delivery or replay event cannot acquire a slot within `delivery_acquire_timeout_seconds` (default 30.0s), the operation is **rejected** — it returns a failure outcome with diagnostics incremented. No retry is attempted. Capacity timeout is a backpressure signal, not a transient error.
+When a delivery or replay event cannot acquire a slot within `delivery_acquire_timeout_seconds` (default 1.0s), the operation is **rejected** — it returns a failure outcome with diagnostics incremented. No retry is attempted. Capacity timeout is a backpressure signal, not a transient error.
 
 ### Adapter-Level Queue Bounds
 

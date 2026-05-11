@@ -246,10 +246,10 @@ When bridging events across transports with different speed profiles (e.g., Matr
 
 **Delivery capacity pressure:**
 
-- The `CapacityController` bounds concurrent deliveries to `max_inflight_deliveries` (default 64).
+- The `CapacityController` bounds concurrent deliveries to `max_inflight_deliveries` (default 100).
 - When the Meshtastic adapter's transport is slow (LoRa PHY, serial write blocking), delivery slots are held longer.
 - Other adapters (Matrix, LXMF) compete for the same delivery semaphore pool.
-- If delivery acquire times out (`delivery_acquire_timeout_seconds`, default 30.0s), the delivery is permanently failed with `error="delivery_capacity_exceeded"`.
+- If delivery acquire times out (`delivery_acquire_timeout_seconds`, default 1.0s), the delivery is permanently failed with `error="delivery_capacity_exceeded"`.
 
 **Meshtastic outbound queue pressure:**
 
@@ -260,7 +260,7 @@ When bridging events across transports with different speed profiles (e.g., Matr
 
 **Replay pressure:**
 
-- Replay in `BEST_EFFORT` mode acquires a separate replay semaphore (`max_inflight_replay_events`, default 32).
+- Replay in `BEST_EFFORT` mode acquires a separate replay semaphore (`max_inflight_replay_events`, default 100).
 - Replay does not starve real-time delivery — the semaphores are independent.
 - If the replay semaphore is exhausted, replay events are rejected with `error="replay_capacity_exceeded"`.
 
