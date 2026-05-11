@@ -113,6 +113,40 @@ class BridgePolicy:
 
 
 # ---------------------------------------------------------------------------
+# Policy validation helper
+# ---------------------------------------------------------------------------
+
+
+def _reject_unsupported_policy_fields(
+    policy: BridgePolicy, *, route_id: str, section_path: str,
+) -> None:
+    """Raise :class:`ConfigValidationError` for policy fields not enforced at runtime.
+
+    Only ``allowed_event_types`` is currently supported — it maps to
+    :attr:`RouteSource.event_kinds` during expansion.  All other policy
+    fields are reserved placeholders that silently no-op; rejecting them
+    prevents operators from being misled about what is enforced.
+    """
+    unsupported: list[str] = []
+    if policy.sender_allowlist:
+        unsupported.append("sender_allowlist")
+    if policy.allowed_source_adapters:
+        unsupported.append("allowed_source_adapters")
+    if policy.allowed_dest_adapters:
+        unsupported.append("allowed_dest_adapters")
+    if policy.room_allowlist:
+        unsupported.append("room_allowlist")
+    if policy.channel_allowlist:
+        unsupported.append("channel_allowlist")
+    if unsupported:
+        raise ConfigValidationError(
+            f"Route {route_id!r}: policy fields {unsupported} are reserved "
+            f"and not yet supported at runtime. Remove them to proceed.",
+            section_path=f"{section_path}.policy",
+        )
+
+
+# ---------------------------------------------------------------------------
 # Route config
 # ---------------------------------------------------------------------------
 
@@ -243,12 +277,44 @@ class RouteConfig:
                 section_path=section_path,
             )
         filter_hooks = tuple(str(h) for h in raw_hooks)
+        if filter_hooks:
+            raise ConfigValidationError(
+                f"Route {route_id!r}: 'filter_hooks' are reserved and not "
+                f"yet supported. Remove filter_hooks to proceed.",
+                section_path=section_path,
+            )
 
         # --- targeting fields ---
         source_channel: str | None = data.pop("source_channel", None)
         dest_channel: str | None = data.pop("dest_channel", None)
         source_room: str | None = data.pop("source_room", None)
         dest_room: str | None = data.pop("dest_room", None)
+
+        # Room/channel are aliases for the same runtime field.
+        # Reject when both are set to different values.
+        if (source_room is not None and source_channel is not None
+                and source_room != source_channel):
+            raise ConfigValidationError(
+                f"Route {route_id!r}: 'source_room' ({source_room!r}) and "
+                f"'source_channel' ({source_channel!r}) are both set but "
+                f"differ. Use only one — 'source_room' is an alias for "
+                f"'source_channel'.",
+                section_path=section_path,
+            )
+        if (dest_room is not None and dest_channel is not None
+                and dest_room != dest_channel):
+            raise ConfigValidationError(
+                f"Route {route_id!r}: 'dest_room' ({dest_room!r}) and "
+                f"'dest_channel' ({dest_channel!r}) are both set but "
+                f"differ. Use only one — 'dest_room' is an alias for "
+                f"'dest_channel'.",
+                section_path=section_path,
+            )
+        # Alias room → channel when channel is absent.
+        if source_channel is None and source_room is not None:
+            source_channel = source_room
+        if dest_channel is None and dest_room is not None:
+            dest_channel = dest_room
 
         # --- policy ---
         raw_policy = data.pop("policy", None)
@@ -260,6 +326,9 @@ class RouteConfig:
                     section_path=section_path,
                 )
             policy = BridgePolicy.from_toml_dict(raw_policy)
+            _reject_unsupported_policy_fields(
+                policy, route_id=route_id, section_path=section_path,
+            )
 
         # --- self-route check ---
         sources_set = set(source_adapters)

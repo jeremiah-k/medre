@@ -226,6 +226,7 @@ def build_runtime_routes(
     from medre.runtime.routes import RouteDirectionality
 
     all_routes: list[Route] = []
+    expanded_ids: dict[str, str] = {}  # expanded_id → config route_id
 
     for rc in route_config_set.routes:
         if not rc.enabled:
@@ -234,13 +235,28 @@ def build_runtime_routes(
 
         direction = rc.directionality
 
+        new_routes: list[Route] = []
         if direction == RouteDirectionality.SOURCE_TO_DEST:
-            all_routes.extend(_expand_route_config(rc))
+            new_routes = _expand_route_config(rc)
         elif direction == RouteDirectionality.DEST_TO_SOURCE:
-            all_routes.extend(_expand_route_config(rc, swap_direction=True))
+            new_routes = _expand_route_config(rc, swap_direction=True)
         elif direction == RouteDirectionality.BIDIRECTIONAL:
-            all_routes.extend(_expand_route_config(rc))
-            all_routes.extend(_expand_route_config(rc, swap_direction=True))
+            new_routes = _expand_route_config(rc)
+            new_routes.extend(_expand_route_config(rc, swap_direction=True))
+
+        # Validate expanded route IDs are unique before accumulating.
+        for r in new_routes:
+            if r.id in expanded_ids:
+                raise RouteValidationError(
+                    f"Expanded route ID collision: {r.id!r} from route "
+                    f"{rc.route_id!r} conflicts with route "
+                    f"{expanded_ids[r.id]!r}. Route IDs must be unique and "
+                    f"must not match the expansion pattern "
+                    f"'<id>__<N>' or '<id>__rev_<N>'."
+                )
+            expanded_ids[r.id] = rc.route_id
+
+        all_routes.extend(new_routes)
 
     return all_routes
 

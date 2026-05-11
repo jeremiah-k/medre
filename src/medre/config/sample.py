@@ -77,7 +77,6 @@ enabled = false
 #
 # [routes.matrix_to_radio.policy]
 # allowed_event_types = ["message"]
-# sender_allowlist = []
 
 # Example: bidirectional bridge between two Matrix rooms
 # [routes.matrix_bridge]
@@ -85,21 +84,9 @@ enabled = false
 # dest_adapters = ["alt"]
 # directionality = "bidirectional"
 # enabled = true
-# filter_hooks = ["spam_filter"]
 # source_room = "!room_a:example.com"
 # dest_room = "!room_b:example.com"
 #
-# [routes.matrix_to_radio.policy]
+# [routes.matrix_bridge.policy]
 # allowed_event_types = ["message"]
-# sender_allowlist = []
-
-# Example: bidirectional bridge between two Matrix rooms
-# [routes.matrix_bridge]
-# source_adapters = ["main"]
-# dest_adapters = ["alt"]
-# directionality = "bidirectional"
-# enabled = true
-# filter_hooks = ["spam_filter"]
-# source_room = "!room_a:example.com"
-# dest_room = "!room_b:example.com"
 """

@@ -98,14 +98,10 @@ class TestRouteConfigValid:
             "dest_adapters": ["radio", "lxmf_local"],
             "directionality": "bidirectional",
             "enabled": False,
-            "filter_hooks": ["spam_filter", "rate_limiter"],
-            "source_channel": "ch1",
-            "dest_channel": "2",
             "source_room": "!room_a:example.com",
             "dest_room": "!room_b:example.com",
             "policy": {
                 "allowed_event_types": ["message"],
-                "sender_allowlist": ["@bot:example.com"],
             },
         }
         r = RouteConfig.from_toml_dict("full_route", data)
@@ -114,14 +110,15 @@ class TestRouteConfigValid:
         assert r.dest_adapters == ("radio", "lxmf_local")
         assert r.directionality == RouteDirectionality.BIDIRECTIONAL
         assert r.enabled is False
-        assert r.filter_hooks == ("spam_filter", "rate_limiter")
-        assert r.source_channel == "ch1"
-        assert r.dest_channel == "2"
+        assert r.filter_hooks == ()
+        # source_room aliases to source_channel when source_channel is absent
+        assert r.source_channel == "!room_a:example.com"
+        assert r.dest_channel == "!room_b:example.com"
         assert r.source_room == "!room_a:example.com"
         assert r.dest_room == "!room_b:example.com"
         assert r.policy is not None
         assert r.policy.allowed_event_types == ("message",)
-        assert r.policy.sender_allowlist == ("@bot:example.com",)
+        assert r.policy.sender_allowlist == ()
 
     def test_directionality_values(self) -> None:
         base: dict[str, object] = {"source_adapters": ["a"], "dest_adapters": ["b"]}
@@ -231,6 +228,115 @@ class TestRouteConfigValidation:
                 "filter_hooks": "not_a_list",
             })
 
+    # --- filter_hooks rejection (reserved/unsupported) ---
+
+    def test_filter_hooks_nonempty_rejected(self) -> None:
+        with pytest.raises(ConfigValidationError, match="filter_hooks.*reserved"):
+            RouteConfig.from_toml_dict("bad", {
+                "source_adapters": ["a"],
+                "dest_adapters": ["b"],
+                "filter_hooks": ["spam_filter"],
+            })
+
+    # --- room/channel aliasing ---
+
+    def test_source_room_aliases_to_source_channel(self) -> None:
+        r = RouteConfig.from_toml_dict("alias", {
+            "source_adapters": ["a"],
+            "dest_adapters": ["b"],
+            "source_room": "!room:test",
+        })
+        assert r.source_room == "!room:test"
+        assert r.source_channel == "!room:test"
+
+    def test_dest_room_aliases_to_dest_channel(self) -> None:
+        r = RouteConfig.from_toml_dict("alias", {
+            "source_adapters": ["a"],
+            "dest_adapters": ["b"],
+            "dest_room": "!room2:test",
+        })
+        assert r.dest_room == "!room2:test"
+        assert r.dest_channel == "!room2:test"
+
+    def test_room_channel_same_value_ok(self) -> None:
+        r = RouteConfig.from_toml_dict("same", {
+            "source_adapters": ["a"],
+            "dest_adapters": ["b"],
+            "source_room": "!room:test",
+            "source_channel": "!room:test",
+        })
+        assert r.source_channel == "!room:test"
+        assert r.source_room == "!room:test"
+
+    def test_source_room_source_channel_conflict(self) -> None:
+        with pytest.raises(ConfigValidationError, match="source_room.*source_channel.*differ"):
+            RouteConfig.from_toml_dict("conflict", {
+                "source_adapters": ["a"],
+                "dest_adapters": ["b"],
+                "source_room": "!room_a:test",
+                "source_channel": "ch-1",
+            })
+
+    def test_dest_room_dest_channel_conflict(self) -> None:
+        with pytest.raises(ConfigValidationError, match="dest_room.*dest_channel.*differ"):
+            RouteConfig.from_toml_dict("conflict", {
+                "source_adapters": ["a"],
+                "dest_adapters": ["b"],
+                "dest_room": "!room_b:test",
+                "dest_channel": "ch-2",
+            })
+
+    # --- unsupported policy field rejection ---
+
+    def test_sender_allowlist_rejected(self) -> None:
+        with pytest.raises(ConfigValidationError, match="sender_allowlist.*reserved"):
+            RouteConfig.from_toml_dict("bad", {
+                "source_adapters": ["a"],
+                "dest_adapters": ["b"],
+                "policy": {"sender_allowlist": ["@alice:test"]},
+            })
+
+    def test_allowed_source_adapters_rejected(self) -> None:
+        with pytest.raises(ConfigValidationError, match="allowed_source_adapters.*reserved"):
+            RouteConfig.from_toml_dict("bad", {
+                "source_adapters": ["a"],
+                "dest_adapters": ["b"],
+                "policy": {"allowed_source_adapters": ["main"]},
+            })
+
+    def test_allowed_dest_adapters_rejected(self) -> None:
+        with pytest.raises(ConfigValidationError, match="allowed_dest_adapters.*reserved"):
+            RouteConfig.from_toml_dict("bad", {
+                "source_adapters": ["a"],
+                "dest_adapters": ["b"],
+                "policy": {"allowed_dest_adapters": ["radio"]},
+            })
+
+    def test_room_allowlist_rejected(self) -> None:
+        with pytest.raises(ConfigValidationError, match="room_allowlist.*reserved"):
+            RouteConfig.from_toml_dict("bad", {
+                "source_adapters": ["a"],
+                "dest_adapters": ["b"],
+                "policy": {"room_allowlist": ["!room:test"]},
+            })
+
+    def test_channel_allowlist_rejected(self) -> None:
+        with pytest.raises(ConfigValidationError, match="channel_allowlist.*reserved"):
+            RouteConfig.from_toml_dict("bad", {
+                "source_adapters": ["a"],
+                "dest_adapters": ["b"],
+                "policy": {"channel_allowlist": ["1", "2"]},
+            })
+
+    def test_policy_allowed_event_types_still_supported(self) -> None:
+        r = RouteConfig.from_toml_dict("ok", {
+            "source_adapters": ["a"],
+            "dest_adapters": ["b"],
+            "policy": {"allowed_event_types": ["message"]},
+        })
+        assert r.policy is not None
+        assert r.policy.allowed_event_types == ("message",)
+
 
 # ---------------------------------------------------------------------------
 # RouteConfigSet — ordering and validation
@@ -322,11 +428,9 @@ source_adapters = ["radio"]
 dest_adapters = ["lxmf_local"]
 directionality = "dest_to_source"
 enabled = false
-filter_hooks = ["spam_filter"]
 
 [routes.matrix_to_radio.policy]
 allowed_event_types = ["message"]
-sender_allowlist = ["@bot:example.com"]
 """
 
 ROUTES_NO_ROUTES_TOML = """\
@@ -362,10 +466,10 @@ class TestRouteLoaderIntegration:
         assert r.directionality == RouteDirectionality.SOURCE_TO_DEST
         assert r.enabled is True
         assert r.source_room == "!room:example.com"
+        assert r.source_channel == "!room:example.com"  # aliased from source_room
         assert r.dest_channel == "1"
         assert r.policy is not None
         assert r.policy.allowed_event_types == ("message",)
-        assert r.policy.sender_allowlist == ("@bot:example.com",)
 
     def test_second_route_fields(self, tmp_path: Path) -> None:
         p = tmp_path / "config.toml"
@@ -375,7 +479,7 @@ class TestRouteLoaderIntegration:
         assert r.route_id == "radio_to_lxmf"
         assert r.directionality == RouteDirectionality.DEST_TO_SOURCE
         assert r.enabled is False
-        assert r.filter_hooks == ("spam_filter",)
+        assert r.filter_hooks == ()
         assert r.policy is None
 
     def test_no_routes_section(self, tmp_path: Path) -> None:

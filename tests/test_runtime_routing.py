@@ -623,6 +623,52 @@ class TestRouteIdUniqueness:
         ids = [r.id for r in routes]
         assert len(ids) == len(set(ids))
 
+    def test_expanded_id_collision_with_user_id_raises(self) -> None:
+        """User route ID matching expansion pattern causes collision error."""
+        # Route "r1" with 2 sources expands to "r1__0" and "r1__1".
+        # Route "r1__0" with 1 source expands to "r1__0" (single source, no suffix).
+        # Collision: "r1__0" appears from both routes.
+        r1 = RouteConfig.from_toml_dict("r1", {
+            "source_adapters": ["a1", "a2"],
+            "dest_adapters": ["b"],
+        })
+        r1_dunder_0 = RouteConfig.from_toml_dict("r1__0", {
+            "source_adapters": ["c"],
+            "dest_adapters": ["d"],
+        })
+        rcs = RouteConfigSet(routes=(r1, r1_dunder_0))
+        with pytest.raises(RouteValidationError, match="Expanded route ID collision.*r1__0"):
+            build_runtime_routes(rcs)
+
+    def test_bidirectional_collision_with_user_id_raises(self) -> None:
+        """Bidirectional expansion suffix colliding with user route ID raises."""
+        # Route "bridge" with 1 source in bidirectional expands to:
+        #   forward: "bridge"  (single source)
+        #   reverse: "bridge__rev_0"
+        # Route "bridge__rev_0" would collide.
+        r1 = RouteConfig.from_toml_dict("bridge", {
+            "source_adapters": ["a"],
+            "dest_adapters": ["b"],
+            "directionality": "bidirectional",
+        })
+        r2 = RouteConfig.from_toml_dict("bridge__rev_0", {
+            "source_adapters": ["c"],
+            "dest_adapters": ["d"],
+        })
+        rcs = RouteConfigSet(routes=(r1, r2))
+        with pytest.raises(RouteValidationError, match="Expanded route ID collision"):
+            build_runtime_routes(rcs)
+
+    def test_no_collision_across_independent_routes(self) -> None:
+        """Two independent routes with single sources have unique IDs."""
+        rcs = RouteConfigSet(routes=(
+            _rc("alpha", ("a",), ("b",)),
+            _rc("beta", ("c",), ("d",)),
+        ))
+        routes = build_runtime_routes(rcs)
+        ids = [r.id for r in routes]
+        assert len(ids) == len(set(ids))
+
 
 # ===================================================================
 # Multiple route chains

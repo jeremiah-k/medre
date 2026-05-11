@@ -325,6 +325,16 @@ def _routes_validate(config_path: str | None) -> None:
                     f"{section}: no enabled destination adapters"
                 )
 
+    # Validate route expansion and expanded ID uniqueness (matches startup).
+    from medre.runtime.route_engine import (
+        build_runtime_routes as _build_runtime_routes,
+        RouteValidationError as _RVE,
+    )
+    try:
+        _build_runtime_routes(routes)
+    except _RVE as exc:
+        errors.append(str(exc))
+
     # Print route-by-route summary
     for route in route_list:
         status = "enabled" if route.enabled else "disabled"
@@ -405,11 +415,11 @@ def _routes_topology(config_path: str | None) -> None:
         targets: list[str] = []
         if route.source_room:
             targets.append(f"src_room={route.source_room}")
+        elif route.source_channel:
+            targets.append(f"src_ch={route.source_channel}")
         if route.dest_room:
             targets.append(f"dst_room={route.dest_room}")
-        if route.source_channel:
-            targets.append(f"src_ch={route.source_channel}")
-        if route.dest_channel:
+        elif route.dest_channel:
             targets.append(f"dst_ch={route.dest_channel}")
         target_str = f"  [{', '.join(targets)}]" if targets else ""
 
@@ -483,11 +493,11 @@ def _routes_list(config_path: str | None) -> None:
 
         if route.source_room:
             print(f"    source_room:   {route.source_room}")
+        elif route.source_channel:
+            print(f"    source_channel:{route.source_channel}")
         if route.dest_room:
             print(f"    dest_room:     {route.dest_room}")
-        if route.source_channel:
-            print(f"    source_channel:{route.source_channel}")
-        if route.dest_channel:
+        elif route.dest_channel:
             print(f"    dest_channel:  {route.dest_channel}")
 
         if route.filter_hooks:

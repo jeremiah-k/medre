@@ -59,11 +59,9 @@ directionality = "bidirectional"
 enabled = true
 source_room = "!room:test"
 dest_channel = "1"
-filter_hooks = ["spam_filter"]
 
 [routes.bidirectional_bridge.policy]
 allowed_event_types = ["message"]
-sender_allowlist = ["@alice:test"]
 """
 
 CONFIG_NO_ROUTES = """\
@@ -120,14 +118,9 @@ directionality = "bidirectional"
 enabled = true
 source_room = "!room:test"
 dest_room = "!room2:test"
-source_channel = "ch-src"
-dest_channel = "ch-dst"
 
 [routes.targeted_route.policy]
 allowed_event_types = ["message", "reaction"]
-room_allowlist = ["!room:test", "!room2:test"]
-channel_allowlist = ["ch-src", "ch-dst"]
-sender_allowlist = ["@alice:test", "@bob:test"]
 """
 
 CONFIG_ROUTE_UNKNOWN_ADAPTERS = """\
@@ -320,12 +313,11 @@ class TestRoutesTopology:
         output = _run_cli("routes", "topology", "--config", str(config_with_routes))
         assert "policy:" in output
         assert "events=message" in output
-        assert "senders=" in output
 
-    def test_topology_filter_hooks(self, config_with_routes: Path) -> None:
+    def test_topology_no_filter_hooks_shown(self, config_with_routes: Path) -> None:
+        """filter_hooks are rejected at parse time, so they never appear in output."""
         output = _run_cli("routes", "topology", "--config", str(config_with_routes))
-        assert "hooks:" in output
-        assert "spam_filter" in output
+        assert "hooks:" not in output
 
     def test_topology_summary(self, config_with_routes: Path) -> None:
         output = _run_cli("routes", "topology", "--config", str(config_with_routes))
@@ -341,17 +333,12 @@ class TestRoutesTopology:
         output = _run_cli("routes", "topology", "--config", str(config_with_targeting))
         assert "src_room=" in output
         assert "dst_room=" in output
-        assert "src_ch=" in output
-        assert "dst_ch=" in output
 
     def test_topology_full_policy(
         self, config_with_targeting: Path
     ) -> None:
         output = _run_cli("routes", "topology", "--config", str(config_with_targeting))
         assert "events=message,reaction" in output
-        assert "rooms=" in output
-        assert "channels=" in output
-        assert "senders=" in output
 
 
 # ---------------------------------------------------------------------------
@@ -401,14 +388,13 @@ class TestRoutesList:
         output = _run_cli("routes", "list", "--config", str(config_with_routes))
         assert "policy:" in output
         assert "event_types:" in output
-        assert "senders:" in output
 
-    def test_list_shows_filter_hooks(
+    def test_list_no_filter_hooks_shown(
         self, config_with_routes: Path
     ) -> None:
+        """filter_hooks are rejected at parse time, so they never appear in output."""
         output = _run_cli("routes", "list", "--config", str(config_with_routes))
-        assert "filter_hooks:" in output
-        assert "spam_filter" in output
+        assert "filter_hooks:" not in output
 
     def test_list_no_routes(self, config_no_routes: Path) -> None:
         output = _run_cli("routes", "list", "--config", str(config_no_routes))
@@ -420,13 +406,8 @@ class TestRoutesList:
         output = _run_cli("routes", "list", "--config", str(config_with_targeting))
         assert "source_room:" in output
         assert "dest_room:" in output
-        assert "source_channel:" in output
-        assert "dest_channel:" in output
         # Policy fields
         assert "event_types:" in output
-        assert "rooms:" in output
-        assert "channels:" in output
-        assert "senders:" in output
 
 
 # ---------------------------------------------------------------------------
