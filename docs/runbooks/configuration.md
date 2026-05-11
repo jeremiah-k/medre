@@ -118,7 +118,7 @@ encryption_mode = "plaintext"          # plaintext, e2ee_required, e2ee_optional
 
 **Note:** `device_id` and `store_path` are not operator-facing configuration.
 MEDRE derives the device ID from `whoami()` on session start and uses an
-internal store path under the resolved state directory (`{state}/matrix/{adapter_id}/store`).
+internal store path under the resolved state directory (`{state}/adapters/{adapter_id}/matrix/store`).
 These fields exist on `MatrixConfig` for internal use but should not appear in
 operator TOML files.
 
@@ -264,8 +264,11 @@ Data:      $XDG_DATA_HOME/medre/      or  ~/.local/share/medre/
 Cache:     $XDG_CACHE_HOME/medre/     or  ~/.cache/medre/
 Logs:      {state}/logs/
 Database:  {state}/medre.sqlite
-Matrix:    {state}/matrix/<adapter_id>/store/
 Adapters:  {state}/adapters/<adapter_id>/
+Matrix:    {state}/adapters/<adapter_id>/matrix/store/
+LXMF:      {state}/adapters/<adapter_id>/lxmf/
+Meshtastic:{state}/adapters/<adapter_id>/meshtastic/
+MeshCore:  {state}/adapters/<adapter_id>/meshcore/
 ```
 
 The primary config file is at `$XDG_CONFIG_HOME/medre/config.toml`
@@ -287,8 +290,11 @@ Data:      /opt/medre/data/
 Cache:     /opt/medre/cache/
 Logs:      /opt/medre/logs/
 Database:  /opt/medre/state/medre.sqlite
-Matrix:    /opt/medre/state/matrix/<adapter_id>/store/
 Adapters:  /opt/medre/state/adapters/<adapter_id>/
+Matrix:    /opt/medre/state/adapters/<adapter_id>/matrix/store/
+LXMF:      /opt/medre/state/adapters/<adapter_id>/lxmf/
+Meshtastic:/opt/medre/state/adapters/<adapter_id>/meshtastic/
+MeshCore:  /opt/medre/state/adapters/<adapter_id>/meshcore/
 ```
 
 Use this mode when:
@@ -523,10 +529,10 @@ docker run -d \
 ### Matrix E2EE store persistence
 
 The Matrix crypto store is derived automatically under the resolved state
-directory (`{state}/matrix/{adapter_id}/store`). It must persist across
+directory (`{state}/adapters/{adapter_id}/matrix/store`). It must persist across
 restarts for E2EE session keys to survive. Mount the state volume:
 
-With `MEDRE_HOME=/opt/medre`, the store resolves to `/opt/medre/state/matrix/main/store`
+With `MEDRE_HOME=/opt/medre`, the store resolves to `/opt/medre/state/adapters/main/matrix/store`
 for an adapter with `adapter_id="main"`. Ensure the volume is persistent.
 
 

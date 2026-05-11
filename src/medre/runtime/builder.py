@@ -344,9 +344,9 @@ class RuntimeBuilder:
 
         # Derive Matrix E2EE store_path from resolved state directory when
         # not explicitly configured.  Per-adapter isolation:
-        # {state}/matrix/{adapter_id}/store
+        # {state}/adapters/{adapter_id}/matrix/store
         if transport == "matrix" and getattr(config, "store_path", None) is None:
-            derived_store = self._paths.state_dir / "matrix" / adapter_id / "store"
+            derived_store = self._paths.adapter_transport_state_dir(adapter_id, "matrix") / "store"
             config = replace(config, store_path=str(derived_store))
 
         try:

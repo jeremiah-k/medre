@@ -237,7 +237,7 @@ The Matrix adapter manages device identity and crypto store paths internally. Op
 
 **Device identity.** When the adapter starts with a non-plaintext `encryption_mode`, it calls the Matrix `whoami()` endpoint using the access token to discover the device ID associated with that token. No operator configuration is needed. The device ID is stable as long as the access token was created for the same device.
 
-**Crypto store path.** The adapter derives an internal store path (per-adapter isolation) automatically. On the runtime path this is `{state_dir}/matrix/{adapter_id}/store`; the standalone session uses a temp-directory default. The store persists Olm/Megolm session keys and device keys across restarts.
+**Crypto store path.** The adapter derives an internal store path (per-adapter isolation) automatically. On the runtime path this is `{state_dir}/adapters/{adapter_id}/matrix/store`; the standalone session uses a temp-directory default. The store persists Olm/Megolm session keys and device keys across restarts.
 
 **Plaintext mode.** In `plaintext` mode the adapter does not initialise the crypto subsystem. No device ID discovery or store path is needed.
 

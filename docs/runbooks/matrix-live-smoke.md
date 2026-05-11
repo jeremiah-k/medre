@@ -243,7 +243,7 @@ After running tests:
 
 ## E2EE Statement
 
-**E2EE text alpha is now available.** The Matrix adapter supports encrypted rooms for text messages when installed with `pip install -e ".[matrix-e2e]"`. Normal runtime derives `store_path` under the resolved state directory (`{state}/matrix/{adapter_id}/store`) and discovers `device_id` via `whoami()` — no operator configuration needed for either. See the E2EE harness section below for live test instructions.
+**E2EE text alpha is now available.** The Matrix adapter supports encrypted rooms for text messages when installed with `pip install -e ".[matrix-e2e]"`. Normal runtime derives `store_path` under the resolved state directory (`{state}/adapters/{adapter_id}/matrix/store`) and discovers `device_id` via `whoami()` — no operator configuration needed for either. See the E2EE harness section below for live test instructions.
 
 **Plaintext alpha remains the primary path.** Base live smoke tests target **unencrypted rooms only** and work with `pip install -e ".[matrix]"` (no crypto libs). Plaintext rooms work identically in both modes.
 

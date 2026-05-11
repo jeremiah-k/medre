@@ -250,20 +250,21 @@ class MedreApp:
         ]
         # SQLite parent directory (database_path.parent may not exist)
         dirs_to_create.append(self.paths.database_path.parent)
-        # Matrix store parent if storage will use it
+        # Legacy global matrix_store_path parent (kept for backward compat)
         if self.storage is not None:
             dirs_to_create.append(self.paths.matrix_store_path.parent)
 
-        # Configured Matrix adapter store_path directories.
-        # MEDRE derives store paths internally ({state}/matrix/{adapter_id}/store).
-        # The user does not set store_path in config.
+        # Per-adapter state roots and transport-specific subdirs.
+        # Each enabled adapter gets {state}/adapters/{adapter_id}/.
+        # Matrix adapters additionally get {state}/adapters/{adapter_id}/matrix/store.
         for transport, adapter_id, rtc in self.config.adapters.all_configs():
             if not rtc.enabled:
                 continue
-            if transport != "matrix":
-                continue
-            store = self.paths.state_dir / "matrix" / adapter_id / "store"
-            dirs_to_create.append(store)
+            adapter_root = self.paths.adapter_state_dir(adapter_id)
+            dirs_to_create.append(adapter_root)
+            if transport == "matrix":
+                store = self.paths.adapter_transport_state_dir(adapter_id, "matrix") / "store"
+                dirs_to_create.append(store)
 
         for d in dirs_to_create:
             d.mkdir(parents=True, exist_ok=True)

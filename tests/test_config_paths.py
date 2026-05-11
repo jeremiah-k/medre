@@ -270,6 +270,69 @@ class TestAdapterStateDir:
 
 
 # ---------------------------------------------------------------------------
+# adapter_transport_state_dir
+# ---------------------------------------------------------------------------
+
+
+class TestAdapterTransportStateDir:
+    """adapter_transport_state_dir returns state_dir/adapters/{adapter_id}/{transport}."""
+
+    @pytest.fixture()
+    def paths(self) -> MedrePaths:
+        return resolve()
+
+    def test_matrix_transport_dir(self, paths: MedrePaths) -> None:
+        result = paths.adapter_transport_state_dir("bot1", "matrix")
+        assert result == paths.state_dir / "adapters" / "bot1" / "matrix"
+
+    def test_lxmf_transport_dir(self, paths: MedrePaths) -> None:
+        result = paths.adapter_transport_state_dir("node1", "lxmf")
+        assert result == paths.state_dir / "adapters" / "node1" / "lxmf"
+
+    def test_meshtastic_transport_dir(self, paths: MedrePaths) -> None:
+        result = paths.adapter_transport_state_dir("radio1", "meshtastic")
+        assert result == paths.state_dir / "adapters" / "radio1" / "meshtastic"
+
+    def test_meshcore_transport_dir(self, paths: MedrePaths) -> None:
+        result = paths.adapter_transport_state_dir("core1", "meshcore")
+        assert result == paths.state_dir / "adapters" / "core1" / "meshcore"
+
+    def test_derives_from_adapter_state_dir(self, paths: MedrePaths) -> None:
+        """adapter_transport_state_dir is adapter_state_dir / transport."""
+        base = paths.adapter_state_dir("mybot")
+        result = paths.adapter_transport_state_dir("mybot", "matrix")
+        assert result == base / "matrix"
+
+    def test_empty_adapter_id_raises(self, paths: MedrePaths) -> None:
+        with pytest.raises(MedrePathsError, match="non-empty"):
+            paths.adapter_transport_state_dir("", "matrix")
+
+    def test_empty_transport_raises(self, paths: MedrePaths) -> None:
+        with pytest.raises(MedrePathsError, match="non-empty"):
+            paths.adapter_transport_state_dir("bot1", "")
+
+    def test_slash_in_transport_raises(self, paths: MedrePaths) -> None:
+        with pytest.raises(MedrePathsError, match="path separators"):
+            paths.adapter_transport_state_dir("bot1", "mat/rix")
+
+    def test_multiple_adapters_isolated(self, paths: MedrePaths) -> None:
+        """Different adapter IDs produce different paths."""
+        a = paths.adapter_transport_state_dir("alpha", "matrix")
+        b = paths.adapter_transport_state_dir("beta", "matrix")
+        assert a != b
+        assert "alpha" in str(a)
+        assert "beta" in str(b)
+
+    def test_no_tempdir_usage(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Resolved paths should not use system tempdir."""
+        monkeypatch.setenv("MEDRE_HOME", "/opt/medre")
+        paths = resolve()
+        result = paths.adapter_transport_state_dir("bot1", "matrix")
+        import tempfile
+        assert tempfile.gettempdir() not in str(result)
+
+
+# ---------------------------------------------------------------------------
 # to_diagnostics
 # ---------------------------------------------------------------------------
 

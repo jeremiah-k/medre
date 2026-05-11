@@ -615,11 +615,11 @@ class TestMatrixStorePathDerivation:
 
         # The adapter was constructed with a derived store_path.
         # We verify via the config that was passed to the factory.
-        expected = tmp_paths.state_dir / "matrix" / "mybot" / "store"
+        expected = tmp_paths.state_dir / "adapters" / "mybot" / "matrix" / "store"
         assert built_config is not None
 
     def test_store_path_derived_medre_home(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """MEDRE_HOME produces $MEDRE_HOME/state/matrix/<adapter_id>/store."""
+        """MEDRE_HOME produces $MEDRE_HOME/state/adapters/<adapter_id>/matrix/store."""
         medre_home = tmp_path / "medre-root"
         monkeypatch.setenv("MEDRE_HOME", str(medre_home))
         paths = resolve()
@@ -630,12 +630,12 @@ class TestMatrixStorePathDerivation:
         )
         builder = RuntimeBuilder(config, paths)
 
-        expected_store = medre_home / "state" / "matrix" / "e2ee-bot" / "store"
+        expected_store = medre_home / "state" / "adapters" / "e2ee-bot" / "matrix" / "store"
         injected_store_path = self._capture_store_path(builder, rt, "e2ee-bot")
         assert injected_store_path == str(expected_store)
 
     def test_store_path_derived_xdg_state(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """XDG state produces $XDG_STATE_HOME/medre/matrix/<adapter_id>/store."""
+        """XDG state produces $XDG_STATE_HOME/medre/adapters/<adapter_id>/matrix/store."""
         xdg_state = tmp_path / "xdg-state"
         monkeypatch.setenv("XDG_STATE_HOME", str(xdg_state))
         monkeypatch.delenv("MEDRE_HOME", raising=False)
@@ -647,7 +647,7 @@ class TestMatrixStorePathDerivation:
         )
         builder = RuntimeBuilder(config, paths)
 
-        expected_store = xdg_state / "medre" / "matrix" / "xdg-bot" / "store"
+        expected_store = xdg_state / "medre" / "adapters" / "xdg-bot" / "matrix" / "store"
         injected_store_path = self._capture_store_path(builder, rt, "xdg-bot")
         assert injected_store_path == str(expected_store)
 
@@ -689,9 +689,9 @@ class TestMatrixStorePathDerivation:
 
         assert injected_store_path is not None
         # The old pattern was {tempdir}/medre-matrix-store/{adapter_id}
-        # The new pattern is {state_dir}/matrix/{adapter_id}/store
+        # The new pattern is {state_dir}/adapters/{adapter_id}/matrix/store
         assert "medre-matrix-store" not in injected_store_path
-        assert injected_store_path.endswith("matrix/notmp/store")
+        assert injected_store_path.endswith("adapters/notmp/matrix/store")
 
     def _capture_store_path(
         self,
@@ -748,5 +748,5 @@ class TestEnsureDirsMatrixStore:
 
         app._ensure_dirs()
 
-        expected = paths.state_dir / "matrix" / "dirtest" / "store"
+        expected = paths.state_dir / "adapters" / "dirtest" / "matrix" / "store"
         assert expected.is_dir()

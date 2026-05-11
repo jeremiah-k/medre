@@ -123,6 +123,35 @@ class MedrePaths:
             )
         return self.state_dir / "adapters" / adapter_id
 
+    def adapter_transport_state_dir(self, adapter_id: str, transport: str) -> Path:
+        """Return the transport-specific state directory for *adapter_id*.
+
+        Parameters
+        ----------
+        adapter_id:
+            Adapter identifier used as a subdirectory name.
+        transport:
+            Transport name (e.g. ``"matrix"``, ``"lxmf"``).
+
+        Returns
+        -------
+        Path
+            ``state_dir / "adapters" / {adapter_id} / {transport}``
+
+        Raises
+        ------
+        MedrePathsError
+            If *adapter_id* or *transport* is empty or contains path
+            separators.
+        """
+        if not transport:
+            raise MedrePathsError("transport must be non-empty")
+        if os.sep in transport or (os.altsep and os.altsep in transport):
+            raise MedrePathsError(
+                f"transport must not contain path separators: {transport!r}"
+            )
+        return self.adapter_state_dir(adapter_id) / transport
+
     # -- Placeholder expansion ------------------------------------------------
 
     def expand_placeholder(self, value: str) -> Path:

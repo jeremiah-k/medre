@@ -1905,7 +1905,7 @@ user_id = "@bot:example.com"
 access_token = "syt_..."
 room_allowlist = ["!room:example.com"]
 device_id = "MEDREBOT"
-store_path = "{state}/matrix/<name>/store"
+store_path = "{state}/adapters/<name>/matrix/store"
 encryption_mode = "plaintext"
 
 [adapters.meshtastic.<name>]
@@ -1966,7 +1966,7 @@ Type coercion is explicit (bool/int/list). Secrets are redacted in log output.
 | Cache | `$XDG_CACHE_HOME/medre/` or `~/.cache/medre/` | `$MEDRE_HOME/cache/` |
 | Logs | `state_dir/logs` | `$MEDRE_HOME/logs/` |
 | Database | `state_dir/medre.sqlite` | `$MEDRE_HOME/state/medre.sqlite` |
-| Matrix store | `state_dir/matrix/store/` | `$MEDRE_HOME/state/matrix/store/` |
+| Matrix store | `state_dir/adapters/<id>/matrix/store/` | `$MEDRE_HOME/state/adapters/<id>/matrix/store/` |
 | Adapter state | `state_dir/adapters/<id>/` | `$MEDRE_HOME/state/adapters/<id>/` |
 
 Path placeholders `{config}`, `{state}`, `{data}`, `{cache}`, `{logs}` are expanded via `MedrePaths.expand_placeholder()`. Directories are never created by pure path resolution — only during runtime startup.
