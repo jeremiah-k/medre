@@ -48,6 +48,7 @@ from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing.router import Router
 from medre.core.routing.stats import RouteStats
+from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.storage.sqlite import SQLiteStorage
 from medre.core.storage.replay import ReplayEngine
 from medre.runtime.app import MedreApp
@@ -261,6 +262,9 @@ class RuntimeBuilder:
         # 6. Diagnostician
         diagnostician = Diagnostician()
 
+        # 6.5 RuntimeAccounting — process-local bounded event counters.
+        runtime_accounting = RuntimeAccounting()
+
         # 7. RelationResolver (depends on storage)
         relation_resolver = RelationResolver(storage=storage)
 
@@ -279,6 +283,7 @@ class RuntimeBuilder:
             rendering_pipeline=rendering_pipeline,
             diagnostician=diagnostician,
             route_stats=route_stats,
+            runtime_accounting=runtime_accounting,
         )
         pipeline_runner = PipelineRunner(pipeline_config)
 
@@ -333,6 +338,7 @@ class RuntimeBuilder:
         # Wire capacity controller and replay engine onto the app.
         app._capacity_controller = capacity_controller
         app._replay_engine = replay_engine
+        app._runtime_accounting = runtime_accounting
         return app
 
     # -- Storage construction ----------------------------------------------------

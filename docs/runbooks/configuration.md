@@ -85,6 +85,8 @@ path = "{state}/medre.sqlite"   # supports path placeholders
 | `path` | string | `None` | Database file path. Supports [path placeholders](#path-placeholders). When `None`, defaults to `{state}/medre.sqlite`. |
 
 > **Storage model:** MEDRE uses a single configured storage backend (one SQLite database at `{state}/medre.sqlite`). This database holds canonical events, delivery receipts, native references, replay state, and cross-adapter relationships. There is no per-adapter database. Transport-owned local files (e.g. Matrix crypto stores, LXMF identities) live under adapter state roots (`{state}/adapters/<adapter_id>/`).
+>
+> **Persistence scope:** The SQLite database is the authoritative persisted state. Events and delivery receipts survive process crashes and restarts. Runtime counters (delivery timeouts, capacity gauges, route statistics), in-flight deliveries, and active replay runs are process-local and are lost on process termination. Operators are responsible for database backup — MEDRE does not replicate or remotely store its database. See Contract 55 (Runtime Persistence) for the complete persistence contract.
 
 ### `[adapters.matrix.INSTANCE_NAME]`
 

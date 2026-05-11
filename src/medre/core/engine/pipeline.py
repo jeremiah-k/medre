@@ -53,6 +53,7 @@ from medre.core.rendering.text import TextRenderer
 from medre.core.routing.models import Route, RouteTarget
 from medre.core.routing.router import Router
 from medre.core.routing.stats import RouteStats
+from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.storage.backend import StorageBackend
 
 if TYPE_CHECKING:
@@ -112,6 +113,7 @@ class PipelineConfig:
     diagnostician: Diagnostician | None = None
     logger: logging.Logger | None = None
     route_stats: RouteStats | None = None
+    runtime_accounting: RuntimeAccounting | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -226,6 +228,9 @@ class PipelineRunner:
         )
         self._middleware: _PipelineLoggingMiddleware | None = None
         self._route_stats: RouteStats | None = config.route_stats
+        self._runtime_accounting: RuntimeAccounting | None = (
+            config.runtime_accounting
+        )
         self._capacity_controller: CapacityController | None = None
         self._delivery_rejection_count: int = 0
 
@@ -327,6 +332,10 @@ class PipelineRunner:
 
         # Stage 1 – validate
         self._validate_event(event)
+
+        # Accounting: inbound event accepted past validation.
+        if self._runtime_accounting is not None:
+            self._runtime_accounting.record_inbound_accepted()
 
         # Stage 2 – resolve relations (pipeline-owned, not adapter/codec).
         event = await self._resolve_relations(event)
@@ -588,6 +597,8 @@ class PipelineRunner:
                 acquired = await self._capacity_controller.acquire_delivery()
                 if not acquired:
                     self._delivery_rejection_count += 1
+                    if self._runtime_accounting is not None:
+                        self._runtime_accounting.record_capacity_rejection()
                     if self._route_stats is not None:
                         self._route_stats.record_failed(
                             route.id, "delivery_capacity_exceeded"
@@ -620,29 +631,31 @@ class PipelineRunner:
                     trace_count = sum(
                         1 for tid in routing_meta.route_trace if tid == route.id
                     )
-                if trace_count > 1:
-                    self._log.warning(
-                        "loop_prevented: route_id=%s already in route_trace "
-                        "for event_id=%s (trace=%s)",
-                        route.id,
-                        event.event_id,
-                        routing_meta.route_trace,
-                    )
-                    if self._route_stats is not None:
-                        self._route_stats.record_loop_prevented(route.id)
-                    elapsed = (time.monotonic() - t0) * 1000.0
-                    return DeliveryOutcome(
-                        event_id=event.event_id,
-                        target_adapter=adapter_id,
-                        target_channel=target.channel,
-                        route_id=route.id,
-                        delivery_plan_id=route_plan.plan_id,
-                        status="skipped",
-                        failure_kind=None,
-                        receipt=None,
-                        error="loop_prevented: route already traversed in prior routing pass",
-                        duration_ms=elapsed,
-                    )
+                    if trace_count > 1:
+                        self._log.warning(
+                            "loop_prevented: route_id=%s already in route_trace "
+                            "for event_id=%s (trace=%s)",
+                            route.id,
+                            event.event_id,
+                            routing_meta.route_trace,
+                        )
+                        if self._route_stats is not None:
+                            self._route_stats.record_loop_prevented(route.id)
+                        if self._runtime_accounting is not None:
+                            self._runtime_accounting.record_loop_prevented()
+                        elapsed = (time.monotonic() - t0) * 1000.0
+                        return DeliveryOutcome(
+                            event_id=event.event_id,
+                            target_adapter=adapter_id,
+                            target_channel=target.channel,
+                            route_id=route.id,
+                            delivery_plan_id=route_plan.plan_id,
+                            status="skipped",
+                            failure_kind=None,
+                            receipt=None,
+                            error="loop_prevented: route already traversed in prior routing pass",
+                            duration_ms=elapsed,
+                        )
 
                 # Self-loop guard: skip delivery back to the source adapter.
                 if adapter_id and adapter_id == event.source_adapter:
@@ -655,6 +668,8 @@ class PipelineRunner:
                     )
                     if self._route_stats is not None:
                         self._route_stats.record_loop_prevented(route.id)
+                    if self._runtime_accounting is not None:
+                        self._runtime_accounting.record_loop_prevented()
                     elapsed = (time.monotonic() - t0) * 1000.0
                     return DeliveryOutcome(
                         event_id=event.event_id,
@@ -670,10 +685,15 @@ class PipelineRunner:
                     )
 
                 try:
+                    # Accounting: outbound delivery attempt.
+                    if self._runtime_accounting is not None:
+                        self._runtime_accounting.record_outbound_attempt()
                     receipt = await self.deliver_to_target(event, route, route_plan)
                     elapsed = (time.monotonic() - t0) * 1000.0
                     if self._route_stats is not None:
                         self._route_stats.record_delivered(route.id)
+                    if self._runtime_accounting is not None:
+                        self._runtime_accounting.record_outbound_delivered()
                     return DeliveryOutcome(
                         event_id=event.event_id,
                         target_adapter=adapter_id,
@@ -693,6 +713,8 @@ class PipelineRunner:
                     )
                     if self._route_stats is not None:
                         self._route_stats.record_failed(route.id, exc.error)
+                    if self._runtime_accounting is not None:
+                        self._runtime_accounting.record_outbound_failed()
                     # Use pre-classified failure_kind when available (e.g.
                     # TARGET_NOT_FOUND, DEADLINE_EXCEEDED); otherwise classify
                     # based on the original adapter exception.
@@ -728,6 +750,8 @@ class PipelineRunner:
                     elapsed = (time.monotonic() - t0) * 1000.0
                     if self._route_stats is not None:
                         self._route_stats.record_failed(route.id, exc.error)
+                    if self._runtime_accounting is not None:
+                        self._runtime_accounting.record_outbound_failed()
                     return DeliveryOutcome(
                         event_id=event.event_id,
                         target_adapter=adapter_id,
@@ -758,6 +782,8 @@ class PipelineRunner:
                     )
                     if self._route_stats is not None:
                         self._route_stats.record_failed(route.id, error_msg)
+                    if self._runtime_accounting is not None:
+                        self._runtime_accounting.record_outbound_failed()
                     return DeliveryOutcome(
                         event_id=event.event_id,
                         target_adapter=adapter_id,

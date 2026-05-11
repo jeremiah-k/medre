@@ -557,7 +557,13 @@ class TestEdgeCases:
     async def test_empty_runtime_starts_and_stops(
         self, tmp_paths: MedrePaths,
     ) -> None:
-        """Empty runtime starts and stops cleanly."""
+        """Empty runtime (zero adapters) raises RuntimeStartupError.
+
+        Per Wave 2 startup semantics, zero adapters started is a total
+        failure — the runtime cannot route any events.
+        """
+        from medre.runtime.errors import RuntimeStartupError
+
         config = RuntimeConfig(
             runtime=RuntimeOptions(name="test-empty-lifecycle"),
             logging=LoggingConfig(),
@@ -565,9 +571,9 @@ class TestEdgeCases:
         )
         builder = RuntimeBuilder(config, tmp_paths)
         app = builder.build()
-        await app.start()
+        with pytest.raises(RuntimeStartupError, match="Total startup failure"):
+            await app.start()
         assert len(app.adapters) == 0
-        await app.stop()
 
     def test_disabled_adapters_not_started(
         self, tmp_paths: MedrePaths,

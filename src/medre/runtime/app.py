@@ -27,6 +27,16 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from medre.runtime.errors import AdapterStartupError, RuntimeShutdownError, RuntimeStartupError
+from medre.core.runtime.accounting import RuntimeAccounting
+from medre.core.runtime.supervision import (
+    RuntimeHealth,
+    StartupOutcome,
+    classify_runtime_health,
+    classify_startup_outcome,
+    runtime_supervision_snapshot,
+)
+from medre.core.lifecycle.states import AdapterState
+from medre.runtime.boot_summary import BootSummary, build_boot_summary
 
 if TYPE_CHECKING:
     from medre.adapters.base import AdapterContext, BaseAdapter
@@ -143,6 +153,12 @@ class MedreApp:
     _state: RuntimeState = field(default=RuntimeState.INITIALIZED, init=False)
     _capacity_controller: CapacityController | None = field(default=None, init=False)
     _replay_engine: ReplayEngine | None = field(default=None, init=False)
+    _runtime_accounting: RuntimeAccounting | None = field(default=None, init=False)
+    _startup_wall: str | None = field(default=None, init=False)
+    _startup_monotonic: float | None = field(default=None, init=False)
+    _health_state: dict[str, Any] | None = field(default=None, init=False)
+    _boot_summary: BootSummary | None = field(default=None, init=False)
+    _failed_adapter_ids: list[str] = field(default_factory=list, init=False)
 
     # -- State management -------------------------------------------------------
 
@@ -155,6 +171,11 @@ class MedreApp:
     def replay_engine(self) -> ReplayEngine | None:
         """Return the replay engine, or ``None`` if not wired."""
         return self._replay_engine
+
+    @property
+    def boot_summary(self) -> BootSummary | None:
+        """Return the boot summary, or ``None`` if not yet started."""
+        return self._boot_summary
 
     def _set_state(self, new_state: RuntimeState) -> None:
         """Transition to *new_state*, logging the change."""
@@ -208,15 +229,21 @@ class MedreApp:
         catastrophic core subsystem failure, any already-started adapters
         are stopped in reverse order.
 
+        Startup semantics
+        -----------------
+        * **Zero adapters started** → ``RuntimeStartupError`` (total failure).
+        * **Partial adapter startup** → allowed; runtime enters ``RUNNING``
+          with ``DEGRADED`` health.  Callers should inspect
+          :attr:`boot_summary` for details.
+        * **All adapters started** → ``RUNNING`` with ``HEALTHY`` health.
+
         Raises
         ------
         RuntimeError
             If the app has already been started or is shutting down.
         RuntimeStartupError
-            If a core subsystem (storage, pipeline runner) fails to start.
-        AdapterStartupError
-            If an individual adapter fails to start.  Only the *first*
-            adapter error is re-raised; all others are logged.
+            If a core subsystem (storage, pipeline runner) fails to start,
+            or if zero adapters started.
         """
         if self._state is not RuntimeState.INITIALIZED:
             raise RuntimeError(
@@ -225,6 +252,10 @@ class MedreApp:
 
         self._set_state(RuntimeState.STARTING)
         _logger.info("Starting MEDRE runtime %s", self.config.runtime.name)
+
+        # Record startup timestamps.
+        self._startup_wall = _utc_now().isoformat()
+        self._startup_monotonic = _time.monotonic()
 
         # 0. Create required directories.
         self._ensure_dirs()
@@ -261,7 +292,7 @@ class MedreApp:
             ", ".join(adapter_ids) if adapter_ids else "(none)",
         )
 
-        first_error: AdapterStartupError | None = None
+        failed_adapter_ids: list[str] = []
         try:
             for adapter_id in adapter_ids:
                 adapter = self.adapters[adapter_id]
@@ -290,10 +321,7 @@ class MedreApp:
                     )
                 except Exception as exc:
                     elapsed = _monotonic_ms() - t0
-                    error = AdapterStartupError(
-                        adapter_id,
-                        f"failed after {elapsed:.0f}ms: {exc}",
-                    )
+                    failed_adapter_ids.append(adapter_id)
                     _logger.error(
                         "Adapter %s.%s failed to start (%.0fms): %s",
                         transport,
@@ -301,8 +329,6 @@ class MedreApp:
                         elapsed,
                         exc,
                     )
-                    if first_error is None:
-                        first_error = error
         except Exception:
             # Catastrophic failure during the loop itself (not an adapter
             # failure).  Clean up already-started adapters in reverse order.
@@ -310,10 +336,70 @@ class MedreApp:
             self._set_state(RuntimeState.FAILED)
             raise
 
-        # Summary logging.
+        # Store failed adapter IDs for diagnostics.
+        self._failed_adapter_ids = failed_adapter_ids
+
+        # -- Classify startup outcome -----------------------------------------
         started_count = len(self.started_adapter_ids)
-        failed_count = total - started_count
+        failed_count = len(failed_adapter_ids)
         build_failed = len(self.build_failures)
+        outcome = classify_startup_outcome(started_count, failed_count, total)
+
+        # -- Classify runtime health from adapter states ----------------------
+        # Started adapters are READY; failed adapters are FAILED.
+        adapter_states: list[AdapterState] = []
+        for _aid in self.started_adapter_ids:
+            adapter_states.append(AdapterState.READY)
+        for _aid in failed_adapter_ids:
+            adapter_states.append(AdapterState.FAILED)
+        health = classify_runtime_health(adapter_states)
+
+        # Store health state (supervision snapshot) for downstream consumers.
+        self._health_state = runtime_supervision_snapshot(adapter_states)
+
+        # -- Persisted events count -------------------------------------------
+        persisted_count: int | None = None
+        if self.storage is not None and hasattr(self.storage, "count_events"):
+            try:
+                persisted_count = await self.storage.count_events()
+            except Exception:
+                persisted_count = None
+
+        # -- Count disabled adapters ------------------------------------------
+        disabled_count = 0
+        for _transport, _adapter_id, rtc in self.config.adapters.all_configs():
+            if not rtc.enabled:
+                disabled_count += 1
+
+        # -- Route count ------------------------------------------------------
+        route_count = len(self.config.routes.routes) if self.config.routes else 0
+
+        # -- Storage backend name ---------------------------------------------
+        storage_backend = "none"
+        if self.storage is not None:
+            storage_backend = getattr(
+                self.config.storage, "backend", "unknown"
+            )
+
+        # -- Build boot summary -----------------------------------------------
+        self._boot_summary = build_boot_summary(
+            startup_timestamp=self._startup_wall,
+            startup_outcome=outcome.value,
+            runtime_health=health.value,
+            adapters_started=started_count,
+            adapters_failed=failed_count,
+            adapters_total=total,
+            adapters_disabled=disabled_count,
+            build_failure_count=build_failed,
+            failed_adapter_ids=failed_adapter_ids,
+            started_adapter_ids=list(self.started_adapter_ids),
+            route_count=route_count,
+            storage_backend=storage_backend,
+            replay_available=self._replay_engine is not None,
+            persisted_events_count=persisted_count,
+        )
+
+        # -- Summary logging --------------------------------------------------
         if failed_count > 0 or build_failed > 0:
             _logger.info(
                 "Runtime started with %d/%d adapter(s)%s (%d start failed, %d build failed)",
@@ -330,9 +416,22 @@ class MedreApp:
                 total,
             )
 
-        if first_error is not None:
+        # -- Handle startup outcome -------------------------------------------
+        if outcome == StartupOutcome.TOTAL_FAILURE:
             self._set_state(RuntimeState.FAILED)
-            raise first_error
+            raise RuntimeStartupError(
+                f"Total startup failure: 0 of {total} adapter(s) started"
+            )
+
+        if outcome == StartupOutcome.PARTIAL:
+            _logger.warning(
+                "Runtime running in DEGRADED mode: %d/%d adapter(s) started, "
+                "%d failed [%s]",
+                started_count,
+                total,
+                failed_count,
+                ", ".join(failed_adapter_ids),
+            )
 
         self._set_state(RuntimeState.RUNNING)
 

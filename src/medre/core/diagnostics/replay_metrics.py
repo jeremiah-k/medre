@@ -83,6 +83,7 @@ class ReplayMetrics:
         # Track 6+7 diagnostics: backlog, rejection, cancellation counters.
         self._backlog_estimate: int = 0
         self._rejection_count: int = 0
+        self._cancellation_count: int = 0
         self._last_cancelled_at: float | None = None
 
     # -- Helpers ---------------------------------------------------------------
@@ -179,6 +180,7 @@ class ReplayMetrics:
 
     def record_cancellation(self) -> None:
         """Record a replay cancellation, capturing the current timestamp."""
+        self._cancellation_count += 1
         self._last_cancelled_at = _time.monotonic()
 
     # -- Snapshot --------------------------------------------------------------
@@ -237,6 +239,7 @@ class ReplayMetrics:
                 "replay_skipped_by_loop": total_loop,
                 "backlog_estimate": self._backlog_estimate,
                 "rejection_count": self._rejection_count,
+                "cancellation_count": self._cancellation_count,
                 "last_cancelled_at": self._last_cancelled_at,
             },
             "by_route": by_route,

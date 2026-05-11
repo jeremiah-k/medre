@@ -126,6 +126,23 @@ CREATE TABLE IF NOT EXISTS plugin_state (
     updated_at TEXT NOT NULL,
     PRIMARY KEY(plugin_id, key)
 );
+
+CREATE TABLE IF NOT EXISTS _medre_schema_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+"""
+
+# ---------------------------------------------------------------------------
+# Schema versioning
+# ---------------------------------------------------------------------------
+
+_EXPECTED_SCHEMA_VERSION: int = 1
+"""Current storage schema version.  Bumped when the DDL shape changes.
+
+If an existing database has a different version, :meth:`SQLiteStorage.initialize`
+raises :class:`StorageInitializationError` instead of silently modifying the
+schema or performing a migration.
 """
 
 # ---------------------------------------------------------------------------
@@ -375,7 +392,15 @@ class SQLiteStorage:
     # -- Lifecycle ----------------------------------------------------------
 
     async def initialize(self) -> None:
-        """Open the database, enable WAL mode, and create the schema."""
+        """Open the database, enable WAL mode, create schema, and verify version.
+
+        Raises
+        ------
+        StorageInitializationError
+            If the database schema version does not match the expected
+            version.  The operator must resolve the mismatch manually
+            (no silent migration or reset).
+        """
         if self._use_aiosqlite:
             db = await aiosqlite.connect(self._db_path)  # type: ignore[union-attr]
             db.row_factory = sqlite3.Row
@@ -385,6 +410,47 @@ class SQLiteStorage:
             self._db = db
         else:
             self._db = await asyncio.to_thread(self._sync_open)
+
+        # Verify schema version after DDL.
+        await self._verify_schema_version()
+
+    async def _verify_schema_version(self) -> None:
+        """Check that the stored schema version matches the expected version.
+
+        On a fresh database the version row does not exist, so we insert it.
+        If it exists but mismatches, raise immediately.
+        """
+        row = await self._read_one(
+            "SELECT value FROM _medre_schema_meta WHERE key = 'schema_version'"
+        )
+        if row is None:
+            # Fresh database — stamp the current version.
+            await self._write(
+                "INSERT INTO _medre_schema_meta (key, value) VALUES ('schema_version', ?)",
+                (str(_EXPECTED_SCHEMA_VERSION),),
+            )
+            return
+
+        stored_version = row["value"]
+        try:
+            stored_int = int(stored_version)
+        except (ValueError, TypeError):
+            raise StorageInitializationError(
+                f"Storage schema version is not an integer: {stored_version!r}. "
+                f"Expected {_EXPECTED_SCHEMA_VERSION}. "
+                f"Resolve the mismatch manually — no auto-migration is performed."
+            )
+
+        if stored_int != _EXPECTED_SCHEMA_VERSION:
+            raise StorageInitializationError(
+                f"Storage schema version mismatch: database has version "
+                f"{stored_int}, but this version of medre expects version "
+                f"{_EXPECTED_SCHEMA_VERSION}. "
+                f"Resolve the mismatch manually — no auto-migration or "
+                f"silent reset is performed.  Options: export data, delete "
+                f"the database file, and restart; or downgrade medre to "
+                f"match the database version."
+            )
 
     def _sync_open(self) -> sqlite3.Connection:
         """Synchronous counterpart of :meth:`initialize` for the fallback path."""
@@ -405,6 +471,19 @@ class SQLiteStorage:
             await db.close()
         else:
             await asyncio.to_thread(self._sync_close, db)
+
+    async def count_events(self) -> int:
+        """Return the total number of persisted canonical events.
+
+        Returns
+        -------
+        int
+            Count of rows in ``canonical_events``.
+        """
+        row = await self._read_one("SELECT COUNT(*) AS cnt FROM canonical_events")
+        if row is not None:
+            return int(row["cnt"])
+        return 0
 
     @staticmethod
     def _sync_close(db: sqlite3.Connection) -> None:

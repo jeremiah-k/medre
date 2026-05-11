@@ -284,7 +284,42 @@ During bridge operation, monitor these signals:
 **Important:** MEDRE remains best-effort. Queue bounds prevent unbounded accumulation but do not prevent data loss under extreme pressure. No exactly-once guarantees. No transactional delivery guarantees. Radio transports remain probabilistic. The soak harness validates stability patterns for CI — it is not a substitute for operational monitoring with live transports.
 
 
-## 12. Explicit Non-Guarantees
+## 12. Persistence of Bridge State
+
+Bridge delivery state has a clear persistence boundary. This section describes what bridge operators can rely on and what is ephemeral. For the full contract, see Contract 55 (Runtime Persistence).
+
+### What Persists Across Restarts
+
+- **Delivery receipts** — every receipt written to SQLite survives crash and restart. Receipts include `route_id` attribution, `attempt_number`, retry lineage, and adapter-reported native IDs.
+- **Canonical events** — every event that entered the pipeline was stored in SQLite before delivery began. These survive.
+- **E2EE sessions** — Matrix crypto keys on disk survive restart. Bridging resumes without re-verification.
+- **Logs** — all log entries written before the crash are in `{state}/logs/medre.log`.
+
+### What Does NOT Persist
+
+- **In-flight bridge deliveries** — if the runtime crashes while a Matrix-to-Meshtastic bridge delivery is in progress, the delivery is lost. The source event exists in SQLite (it was stored before delivery), but there is no receipt for the interrupted delivery. The operator cannot distinguish "delivery was attempted but crashed" from "delivery was never attempted."
+- **Runtime bridge counters** — `delivery_timeouts`, `delivery_rejections`, per-route delivery counts: all reset to zero on restart. There is no persistent metric store.
+- **Active replay deliveries** — if a `BEST_EFFORT` replay was bridging historical events when the crash occurred, the replay run is lost. Completed deliveries from that replay run (those that produced receipts) are preserved. Remaining events must be re-replayed manually.
+
+### Bridge Crash Recovery Example
+
+After a hard crash during active Matrix-to-Meshtastic bridging:
+
+1. Restart the runtime. Both adapters reconnect.
+2. Check for orphaned events (stored but not delivered):
+   ```sql
+   SELECT e.event_id, e.source_adapter, e.created_at
+   FROM canonical_events e
+   LEFT JOIN delivery_receipts r ON e.event_id = r.event_id
+   WHERE r.event_id IS NULL
+     AND e.source_adapter = 'bridge'
+   ORDER BY e.created_at DESC;
+   ```
+3. Decide whether to replay the orphaned events. Use `DRY_RUN` first to verify route matching, then `BEST_EFFORT` if re-delivery is warranted.
+4. Expect possible duplicate deliveries — replay does not deduplicate.
+
+
+## 13. Explicit Non-Guarantees
 
 The bridge operation layer explicitly does **not** provide:
 

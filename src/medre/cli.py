@@ -8,6 +8,7 @@ Usage::
     medre paths                     Print resolved MEDRE paths
     medre version                   Print MEDRE version
     medre adapters                  List available and configured adapters
+    medre diagnostics [--config]    Print runtime snapshot JSON (no server)
     medre routes validate [--config]  Validate route configuration
     medre routes topology [--config]  Print route topology preview
     medre routes list [--config]      List configured routes
@@ -117,16 +118,38 @@ def _paths() -> None:
     try:
         config, _source, _paths = load_config(None)
         adapter_roots = []
+        enabled_count = 0
+        disabled_count = 0
         for transport, adapter_id, rtc in config.adapters.all_configs():
             if rtc.enabled:
+                enabled_count += 1
                 adapter_roots.append(
                     f"{transport}.{adapter_id}: {paths.adapter_state_dir(adapter_id)}"
                 )
+            else:
+                disabled_count += 1
+                adapter_roots.append(
+                    f"{transport}.{adapter_id}: (disabled)"
+                )
         if adapter_roots:
             print()
-            print("Adapter state roots:")
+            print(f"Adapter inventory ({enabled_count} enabled, {disabled_count} disabled):")
             for line in adapter_roots:
                 print(f"  {line}")
+        # Show storage backend and limits.
+        storage_backend = config.storage.backend if config.storage else "none"
+        limits = config.limits
+        print()
+        print(f"Storage backend: {storage_backend}")
+        print(f"Runtime limits:")
+        print(f"  max_inflight_deliveries = {limits.max_inflight_deliveries}")
+        print(f"  max_inflight_replay_events = {limits.max_inflight_replay_events}")
+        print(f"  drain_timeout = {limits.shutdown_drain_timeout_seconds}s")
+        # Show route count.
+        route_list = config.routes.routes if config.routes else []
+        if route_list:
+            route_enabled = sum(1 for r in route_list if r.enabled)
+            print(f"Routes: {route_enabled}/{len(route_list)} active")
     except Exception:
         pass  # No config available — skip adapter roots.
 
@@ -205,6 +228,10 @@ def _config_check(config_path: str | None) -> None:
     print()
     print(f"Global DB: {paths.database_path}")
 
+    # --- Storage backend ---
+    storage_backend = config.storage.backend if config.storage else "none"
+    print(f"Storage backend: {storage_backend}")
+
     # --- Runtime limits ---
     limits = config.limits
     print()
@@ -251,6 +278,27 @@ def _config_check(config_path: str | None) -> None:
     if route_list:
         route_enabled = sum(1 for r in route_list if r.enabled)
         print(f"  {route_enabled}/{len(route_list)} route(s) active")
+    print(f"  Storage: {storage_backend}")
+
+    # --- Startup topology preview ---
+    if enabled_count > 0:
+        print()
+        print("Startup preview:")
+        enabled_ids = sorted(
+            aid for _t, aid, rtc in config.adapters.all_configs() if rtc.enabled
+        )
+        print(f"  Adapters that will start: {', '.join(enabled_ids)}")
+        if route_list:
+            enabled_route_ids = sorted(
+                r.route_id for r in route_list if r.enabled
+            )
+            if enabled_route_ids:
+                print(f"  Routes that will activate: {', '.join(enabled_route_ids)}")
+        limits = config.limits
+        print(
+            f"  Limits: max_inflight_deliveries={limits.max_inflight_deliveries}, "
+            f"max_inflight_replay_events={limits.max_inflight_replay_events}"
+        )
 
 
 def _adapters() -> None:
@@ -564,6 +612,48 @@ def _routes_list(config_path: str | None) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Diagnostics command
+# ---------------------------------------------------------------------------
+
+
+def _diagnostics(config_path: str | None) -> None:
+    """Print runtime snapshot JSON using local config/process construction only.
+
+    This command builds the runtime from configuration but does **not** start
+    adapters, storage, or any I/O.  It produces a pre-flight snapshot showing
+    what the runtime *would* look like: adapter inventory, route topology,
+    limits, and config state.  No server, socket, or API is involved.
+    """
+    import json
+    from datetime import datetime, timezone
+    from medre.runtime.snapshot import build_runtime_snapshot
+
+    try:
+        config, source, paths = load_config(config_path)
+    except Exception as exc:
+        print(f"Config error: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    config = apply_env_overrides(config, paths)
+
+    from medre.runtime.builder import RuntimeBuilder
+    builder = RuntimeBuilder(config, paths)
+    app = builder.build()
+
+    # Use fixed timestamps for deterministic output.
+    fixed_now = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+    fixed_mono = 0.0
+
+    snapshot = build_runtime_snapshot(
+        app,
+        now_fn=lambda: fixed_now,
+        monotonic_fn=lambda: fixed_mono,
+    )
+
+    print(json.dumps(snapshot, sort_keys=True, indent=2))
+
+
+# ---------------------------------------------------------------------------
 # Run command (async)
 # ---------------------------------------------------------------------------
 
@@ -600,11 +690,46 @@ async def _run(config_path: str | None) -> None:
     logger.info("Config path: %s", paths.config_file)
     logger.info("State dir:   %s", paths.state_dir)
 
-    # Print startup header to console
+    # Print startup header to console with adapter inventory.
     print(f"Runtime starting with {len(enabled_adapters)} adapter(s): {', '.join(adapter_ids)}")
+
+    # Show disabled adapters for visibility.
+    all_cfgs = config.adapters.all_configs()
+    disabled = [(t, aid) for t, aid, rtc in all_cfgs if not rtc.enabled]
+    if disabled:
+        print(f"  Disabled adapters: {', '.join(f'{t}.{aid}' for t, aid in disabled)}")
 
     builder = RuntimeBuilder(config, paths)
     app = builder.build()
+
+    # Report build failures before startup.
+    if app.build_failures:
+        print(f"  Build failures ({len(app.build_failures)}):")
+        for bf in app.build_failures:
+            print(f"    \u2717 {bf.transport}.{bf.adapter_id}: {bf.error}")
+
+    # Show route inventory.
+    route_list = config.routes.routes if config.routes else []
+    enabled_routes = [r for r in route_list if r.enabled]
+    disabled_routes = [r for r in route_list if not r.enabled]
+    if route_list:
+        print(
+            f"  Routes: {len(enabled_routes)} enabled, "
+            f"{len(disabled_routes)} disabled "
+            f"({len(route_list)} total)"
+        )
+
+    # Show storage backend.
+    storage_backend = config.storage.backend if config.storage else "none"
+    print(f"  Storage: {storage_backend}")
+
+    # Show runtime limits.
+    limits = config.limits
+    print(
+        f"  Limits: max_inflight_deliveries={limits.max_inflight_deliveries}, "
+        f"max_inflight_replay_events={limits.max_inflight_replay_events}, "
+        f"drain_timeout={limits.shutdown_drain_timeout_seconds}s"
+    )
 
     # Install signal handlers for clean shutdown
     signal.signal(signal.SIGINT, _request_shutdown)
@@ -616,62 +741,63 @@ async def _run(config_path: str | None) -> None:
 
     try:
         await app.start()
-        # After app.start() succeeds, all adapters started.
-        # Build startup summary from adapter list.
-        for adapter_id in app.adapters:
-            dur = time.monotonic() - run_start
-            startup_results.append((adapter_id, _transport_for_adapter(adapter_id, config), True, dur, None))
-
     except Exception as exc:
-        # If startup partially succeeded, report which adapters started.
-        # The exception typically carries the adapter that failed.
-        from medre.runtime.errors import AdapterStartupError
-        failed_id: str | None = None
-        failed_msg: str | None = None
-        if isinstance(exc, AdapterStartupError):
-            failed_id = exc.adapter_id
-            failed_msg = str(exc)
+        # RuntimeStartupError means total failure (zero adapters).
+        # Print what we know and re-raise.
+        from medre.runtime.errors import RuntimeStartupError
 
-        # Report successful adapters
-        for adapter_id in app.adapters:
+        # Report per-adapter results from app state.
+        for adapter_id in app.started_adapter_ids:
             dur = time.monotonic() - run_start
             startup_results.append(
                 (adapter_id, _transport_for_adapter(adapter_id, config), True, dur, None)
             )
-
-        # Report failed adapter
-        if failed_id:
+        for adapter_id in app._failed_adapter_ids:
             dur = time.monotonic() - run_start
             startup_results.append(
-                (failed_id, _transport_for_adapter(failed_id, config), False, dur, failed_msg)
+                (adapter_id, _transport_for_adapter(adapter_id, config), False, dur, str(exc))
             )
-        else:
-            logger.error("Runtime startup failed: %s", exc)
-            raise
 
-        # Print startup summary with failures
         summary = startup_summary(startup_results)
         print(summary)
+        if isinstance(exc, RuntimeStartupError):
+            print(f"\nRuntime startup failed: {exc}")
         raise
+
+    # Build startup results from app state (supports partial startup).
+    for adapter_id in app.started_adapter_ids:
+        dur = time.monotonic() - run_start
+        startup_results.append(
+            (adapter_id, _transport_for_adapter(adapter_id, config), True, dur, None)
+        )
+    for adapter_id in app._failed_adapter_ids:
+        dur = time.monotonic() - run_start
+        startup_results.append(
+            (adapter_id, _transport_for_adapter(adapter_id, config), False, dur, "failed during startup")
+        )
 
     # Print startup summary
     summary = startup_summary(startup_results)
     print(summary)
 
-    # Print runtime limits summary
-    limits = config.limits
-    print(
-        f"Runtime limits: max_inflight_deliveries={limits.max_inflight_deliveries}, "
-        f"max_inflight_replay_events={limits.max_inflight_replay_events}, "
-        f"drain_timeout={limits.shutdown_drain_timeout_seconds}s"
-    )
+    # Print boot summary diagnostics if available.
+    if app.boot_summary is not None:
+        bs = app.boot_summary
+        if bs.runtime_health == "degraded":
+            print(f"  \u26a0 Runtime is DEGRADED: {bs.adapters_started}/{bs.adapters_total} adapter(s) started")
+            if bs.failed_adapter_ids:
+                print(f"    Failed adapters: {', '.join(bs.failed_adapter_ids)}")
+        if bs.persisted_events_count is not None:
+            print(f"  Persisted events: {bs.persisted_events_count}")
+        if bs.adapters_disabled > 0:
+            print(f"  Disabled adapters: {bs.adapters_disabled}")
 
     # Log structured startup
     logger.info(
         "Runtime started — %d adapter(s) in %s",
-        len(app.adapters),
+        len(app.started_adapter_ids),
         format_duration_ms(run_start),
-        extra=sanitize_for_log({"adapter_count": len(app.adapters)}),
+        extra=sanitize_for_log({"adapter_count": len(app.started_adapter_ids)}),
     )
 
     try:
@@ -779,6 +905,10 @@ def _build_parser() -> argparse.ArgumentParser:
     # adapters
     sub.add_parser("adapters", help="List available and configured adapters")
 
+    # diagnostics
+    diag_p = sub.add_parser("diagnostics", help="Print runtime snapshot JSON (no server)")
+    diag_p.add_argument("--config", default=None, help="Path to config file")
+
     # routes (with sub-subcommands)
     routes_p = sub.add_parser("routes", help="Route management commands")
     routes_sub = routes_p.add_subparsers(dest="routes_command", required=True)
@@ -820,6 +950,8 @@ def main(argv: list[str] | None = None) -> None:
         _version()
     elif args.command == "adapters":
         _adapters()
+    elif args.command == "diagnostics":
+        _diagnostics(args.config)
     elif args.command == "routes":
         if args.routes_command == "validate":
             _routes_validate(args.config)

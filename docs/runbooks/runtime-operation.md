@@ -392,6 +392,65 @@ INFO  medre.runtime: Shutdown complete in 70ms
 After a clean shutdown, restarting with the same config resumes normal operation. No state reset, cache clear, or manual intervention is needed.
 
 
+## Persistence and Crash Semantics
+
+This section summarizes what MEDRE state survives restarts and what is lost. For the full contract, see Contract 55 (Runtime Persistence).
+
+### What Is Persisted (Survives Crash and Restart)
+
+| State | Location | Notes |
+|-------|----------|-------|
+| Canonical events | SQLite (`{state}/medre.sqlite`) | Written before delivery begins |
+| Delivery receipts | SQLite | Written after each delivery attempt completes |
+| Route attribution on receipts | SQLite (`receipt.route_id`) | Persists with the receipt |
+| Matrix E2EE crypto keys | `{state}/adapters/{id}/matrix/store/` | SDK-managed |
+| LXMF identities | `{state}/adapters/{id}/lxmf/` | Transport-managed |
+| Log history | `{state}/logs/medre.log` | Append-only |
+| Configuration | Operator-managed file | Unchanged |
+
+### What Is NOT Persisted (Lost on Process Termination)
+
+| State | Nature | Impact |
+|-------|--------|--------|
+| In-flight deliveries | Lost on crash or cancellation | No receipt, no retry, no recovery |
+| Active replay runs | Lost on crash or shutdown | Must re-initiate manually |
+| Runtime counters (`delivery_timeouts`, etc.) | Process-local only | Reset to zero on every startup |
+| RouteStats per-route counters | Process-local only | No historical route statistics |
+| CapacityController gauges | Process-local only | Reset on startup |
+| Adapter health/connection state | Process-local only | Adapters reconnect from scratch |
+
+### Crash Recovery
+
+On hard crash (`kill -9`, OOM, power loss):
+
+1. No graceful shutdown. No shutdown logs.
+2. SQLite database is preserved (WAL mode). Events and committed receipts survive.
+3. In-flight deliveries are lost — the corresponding events exist in SQLite but have no receipt.
+4. All runtime counters are lost.
+5. Restart with the same config. Adapters reconnect autonomously.
+6. Adapters may replay or suppress stale messages based on their `startup_backlog_suppress_seconds` setting.
+
+To identify events that were stored but never delivered (orphaned by a crash):
+
+```sql
+SELECT e.event_id, e.source_adapter, e.created_at
+FROM canonical_events e
+LEFT JOIN delivery_receipts r ON e.event_id = r.event_id
+WHERE r.event_id IS NULL
+ORDER BY e.created_at DESC;
+```
+
+### Persistence Is Single-Machine
+
+MEDRE persists state to a local SQLite database and local filesystem. There is no replication, no remote backup, and no distributed coordination. Operators are responsible for:
+
+- Database backup and disaster recovery.
+- Log rotation and log aggregation.
+- External monitoring of disk space (a full disk stops event persistence).
+
+See Contract 55 for the complete persistence contract.
+
+
 ## Failure Expectations
 
 ### Adapter Failure During Startup
