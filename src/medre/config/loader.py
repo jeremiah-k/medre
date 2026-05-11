@@ -29,6 +29,7 @@ from medre.config.model import (
     MeshCoreRuntimeConfig,
     LxmfRuntimeConfig,
 )
+from medre.runtime.routes import RouteConfigSet
 from medre.config.paths import MedrePaths, resolve, MedrePathsError
 
 
@@ -229,8 +230,12 @@ def _parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
     # Validate adapter config consistency (duplicate IDs, etc.)
     adapters.validate()
 
+    # [routes.*] sections
+    routes = RouteConfigSet.from_toml_dict(data)
+
     return RuntimeConfig(
-        runtime=runtime, logging=logging, storage=storage, adapters=adapters
+        runtime=runtime, logging=logging, storage=storage, adapters=adapters,
+        routes=routes,
     )
 
 

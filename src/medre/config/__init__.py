@@ -22,6 +22,14 @@ from medre.config.model import (
     LxmfRuntimeConfig,
 )
 
+# -- routes (config-level route models) --
+from medre.runtime.routes import (
+    BridgePolicy,
+    RouteConfig,
+    RouteConfigSet,
+    RouteDirectionality,
+)
+
 # -- errors --
 from medre.config.errors import (
     ConfigError,
@@ -65,6 +73,11 @@ __all__ = [
     "MeshtasticRuntimeConfig",
     "MeshCoreRuntimeConfig",
     "LxmfRuntimeConfig",
+    # routes
+    "BridgePolicy",
+    "RouteConfig",
+    "RouteConfigSet",
+    "RouteDirectionality",
     # errors
     "ConfigError",
     "ConfigNotFoundError",

@@ -12,13 +12,16 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass, field
-from typing import Any, Self, get_type_hints, get_args
+from typing import TYPE_CHECKING, Any, Self, get_type_hints, get_args
 
 from medre.adapters.matrix.config import MatrixConfig
 from medre.adapters.meshtastic.config import MeshtasticConfig
 from medre.adapters.meshcore.config import MeshCoreConfig
 from medre.adapters.lxmf.config import LxmfConfig
 from medre.config.errors import ConfigValidationError
+
+if TYPE_CHECKING:
+    from medre.runtime.routes import RouteConfigSet
 
 
 # ---------------------------------------------------------------------------
@@ -365,3 +368,4 @@ class RuntimeConfig:
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     storage: StorageConfig = field(default_factory=StorageConfig)
     adapters: AdapterConfigSet = field(default_factory=AdapterConfigSet)
+    routes: RouteConfigSet = field(default_factory=RouteConfigSet)
