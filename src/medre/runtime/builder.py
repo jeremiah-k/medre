@@ -342,6 +342,13 @@ class RuntimeBuilder:
                 f"Adapter {adapter_id!r} ({transport}) is enabled but has no config"
             )
 
+        # Derive Matrix E2EE store_path from resolved state directory when
+        # not explicitly configured.  Per-adapter isolation:
+        # {state}/matrix/{adapter_id}/store
+        if transport == "matrix" and getattr(config, "store_path", None) is None:
+            derived_store = self._paths.state_dir / "matrix" / adapter_id / "store"
+            config = replace(config, store_path=str(derived_store))
+
         try:
             adapter = factory.build(config)
         except Exception as exc:

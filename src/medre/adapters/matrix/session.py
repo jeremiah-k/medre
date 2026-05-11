@@ -8,18 +8,17 @@ session object.
 E2EE support: when ``HAS_E2EE`` is ``True`` the session enables crypto
 via nio's built-in encryption.  When ``device_id`` is not explicitly
 configured the session discovers it via ``whoami()`` after setting the
-access token.  When ``store_path`` is not configured the session derives
-an internal default under a temp directory.  Operators do not need to
-set either field.  Decrypted inbound text events pass through the normal
-message callback; undecryptable encrypted events are counted and logged
-but not forwarded.
+access token.  ``store_path`` is derived by the runtime builder under
+the resolved state directory (``{state}/matrix/{adapter_id}/store``).
+Operators do not need to set either field.  Decrypted inbound text
+events pass through the normal message callback; undecryptable encrypted
+events are counted and logged but not forwarded.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
 import random
-import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -41,20 +40,6 @@ _MAX_RECONNECT_ATTEMPTS: int = 10
 _BACKOFF_BASE: float = 1.0
 _BACKOFF_CAP: float = 60.0
 _BACKOFF_JITTER_FRACTION: float = 0.25
-
-# Default store-path template used when config.store_path is not set.
-# Each adapter gets an isolated directory under the system temp dir.
-_DEFAULT_STORE_DIR_TEMPLATE = "medre-matrix-store"
-
-
-def _default_store_path(adapter_id: str) -> str:
-    """Derive an internal crypto-store path for *adapter_id*.
-
-    Returns ``{tempdir}/medre-matrix-store/{adapter_id}`` ensuring
-    per-adapter isolation.  The caller is responsible for creating
-    the directory.
-    """
-    return str(Path(tempfile.gettempdir()) / _DEFAULT_STORE_DIR_TEMPLATE / adapter_id)
 
 
 @dataclass(frozen=True)
@@ -261,8 +246,9 @@ class MatrixSession:
 
         * ``plaintext`` — standard client, no crypto.
         * ``e2ee_required`` — asserts ``HAS_E2EE`` and enables encryption.
-          ``store_path`` defaults to an internal temp directory;
-          ``device_id`` is discovered via ``whoami()`` when not set.
+          ``store_path`` is derived by the runtime builder under the
+          resolved state directory; ``device_id`` is discovered via
+          ``whoami()`` when not set.
         * ``e2ee_optional`` — enables crypto when deps are present;
           falls back to plaintext otherwise.
 
@@ -337,13 +323,10 @@ class MatrixSession:
 
         Pre-conditions:
         * ``HAS_E2EE`` is ``True`` (checked)
-        * ``store_path`` and ``device_id`` are derived internally when
-          not explicitly configured.
-
-        When ``store_path`` is not set, an internal default is derived
-        under the system temp directory.  When ``device_id`` is not set
-        the session discovers it via ``whoami()`` after establishing the
-        access token context.
+        * ``store_path`` is set by the runtime builder under the resolved
+          state directory (``{state}/matrix/{adapter_id}/store``).  When
+          ``device_id`` is not set the session discovers it via ``whoami()``
+          after establishing the access token context.
 
         Enables crypto via ``nio.AsyncClient(encryption_enabled=True)``.
         """
@@ -355,11 +338,13 @@ class MatrixSession:
 
         import nio
 
-        # Resolve store_path — use configured value or derive internal default.
-        store_path = (
-            self._config.store_path
-            or _default_store_path(self._config.adapter_id)
-        )
+        store_path = self._config.store_path
+        if not store_path:
+            raise MatrixConnectionError(
+                "E2EE requires a store_path — the runtime builder derives "
+                "this from the resolved state directory.  When constructing "
+                "MatrixConfig directly, set store_path explicitly."
+            )
 
         # Ensure the store directory exists.
         Path(store_path).mkdir(parents=True, exist_ok=True)

@@ -173,10 +173,11 @@ class TestMatrixConfigEncryption:
         config.validate()
 
     def test_e2ee_required_without_store_path_ok(self) -> None:
-        """e2ee_required does not require store_path — derived internally."""
+        """e2ee_required does not require store_path at validation time —
+        the runtime builder injects it before session construction."""
         config = _make_config(encryption_mode="e2ee_required")
         assert config.store_path is None
-        config.validate()  # no error — session derives store_path
+        config.validate()  # no error — builder injects store_path later
 
     def test_e2ee_required_without_device_id_ok(self) -> None:
         """e2ee_required does not require device_id — discovered via whoami."""
@@ -240,21 +241,25 @@ class TestMatrixConfigEncryption:
 
 
 class TestE2EEDefaultDerivation:
-    """e2ee_required works without operator-supplied device_id/store_path."""
+    """e2ee_required works without operator-supplied device_id (store_path from builder)."""
 
-    async def test_e2ee_required_without_configured_store_or_device(
-        self, mock_nio
+    async def test_e2ee_required_without_device_id_discovers_it(
+        self, mock_nio, tmp_path
     ) -> None:
-        """e2ee_required starts with internally derived store_path and
-        discovered device_id when neither is configured."""
+        """e2ee_required starts with store_path set and discovers device_id
+        via whoami() when device_id is not configured."""
         import medre.adapters.matrix.compat as compat
 
         original = compat.HAS_E2EE
         try:
             compat.HAS_E2EE = True
-            # No store_path, no device_id — session must derive/discover
-            config = _make_config(encryption_mode="e2ee_required")
-            assert config.store_path is None
+            store = tmp_path / "matrix-store"
+            # store_path set (as the builder would inject), no device_id
+            config = _make_config(
+                encryption_mode="e2ee_required",
+                store_path=str(store),
+            )
+            assert config.store_path is not None
             assert config.device_id is None
 
             session = MatrixSession(config)
@@ -266,6 +271,25 @@ class TestE2EEDefaultDerivation:
                 mock_nio.AsyncClient.return_value.whoami.assert_awaited_once()
             finally:
                 await session.stop()
+        finally:
+            compat.HAS_E2EE = original
+
+    async def test_e2ee_required_without_store_path_raises(self, mock_nio) -> None:
+        """e2ee_required without store_path raises — no tempdir fallback."""
+        import medre.adapters.matrix.compat as compat
+
+        original = compat.HAS_E2EE
+        try:
+            compat.HAS_E2EE = True
+            config = _make_config(encryption_mode="e2ee_required")
+            assert config.store_path is None
+
+            session = MatrixSession(config)
+            with pytest.raises(
+                MatrixConnectionError,
+                match="E2EE requires a store_path",
+            ):
+                await session.start()
         finally:
             compat.HAS_E2EE = original
 
@@ -294,25 +318,28 @@ class TestE2EEDefaultDerivation:
         finally:
             compat.HAS_E2EE = original
 
-    def test_default_store_path_derivation(self) -> None:
-        """_default_store_path returns a non-empty path per adapter_id."""
-        from medre.adapters.matrix.session import _default_store_path
+    def test_no_default_store_path_function(self) -> None:
+        """_default_store_path has been removed; no tempdir fallback."""
+        import medre.adapters.matrix.session as session_mod
 
-        path = _default_store_path("my-adapter")
-        assert "my-adapter" in path
-        assert "medre-matrix-store" in path
+        assert not hasattr(session_mod, "_default_store_path")
+        assert not hasattr(session_mod, "_DEFAULT_STORE_DIR_TEMPLATE")
 
-    async def test_e2ee_optional_attempts_crypto_without_config(
-        self, mock_nio
+    async def test_e2ee_optional_attempts_crypto_without_device(
+        self, mock_nio, tmp_path
     ) -> None:
-        """e2ee_optional with HAS_E2EE=True and no store/device
-        configuration still attempts crypto (derives defaults)."""
+        """e2ee_optional with HAS_E2EE=True, store_path set, no device_id
+        attempts crypto and discovers device_id via whoami()."""
         import medre.adapters.matrix.compat as compat
 
         original = compat.HAS_E2EE
         try:
             compat.HAS_E2EE = True
-            config = _make_config(encryption_mode="e2ee_optional")
+            store = tmp_path / "matrix-store"
+            config = _make_config(
+                encryption_mode="e2ee_optional",
+                store_path=str(store),
+            )
             session = MatrixSession(config)
             try:
                 await session.start()

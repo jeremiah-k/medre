@@ -228,7 +228,7 @@ After running tests:
 
 1. **No persistent state is created by plaintext tests.** Test messages are sent to the room but no files, databases, or configuration are written by the test harness.
 
-2. **E2EE tests create a crypto store.** The `MATRIX_STORE_PATH` directory will contain a SQLite database after E2EE tests run. This is the nio crypto store. Deleting it means the next run will create a new crypto identity.
+2. **E2EE tests create a crypto store.** The `MATRIX_STORE_PATH` directory (live harness) or derived state directory (normal runtime) will contain a SQLite database after E2EE tests run. This is the nio crypto store. Deleting it means the next run will create a new crypto identity.
 
 3. **Test messages remain in the room.** You may optionally redact them via your Matrix client.
 
@@ -243,7 +243,7 @@ After running tests:
 
 ## E2EE Statement
 
-**E2EE text alpha is now available.** The Matrix adapter supports encrypted rooms for text messages when installed with `pip install -e ".[matrix-e2e]"` and configured with `store_path` + `device_id`. See the E2EE harness section below for live test instructions.
+**E2EE text alpha is now available.** The Matrix adapter supports encrypted rooms for text messages when installed with `pip install -e ".[matrix-e2e]"`. Normal runtime derives `store_path` under the resolved state directory (`{state}/matrix/{adapter_id}/store`) and discovers `device_id` via `whoami()` — no operator configuration needed for either. See the E2EE harness section below for live test instructions.
 
 **Plaintext alpha remains the primary path.** Base live smoke tests target **unencrypted rooms only** and work with `pip install -e ".[matrix]"` (no crypto libs). Plaintext rooms work identically in both modes.
 
@@ -257,7 +257,7 @@ After running tests:
 - Reactions, edits, media, attachments.
 - Cross-signing, key backup, key import/export.
 - Interactive device verification (emoji/QR).
-- Unverified device policy: `ignore_unverified_devices` is now an explicit `MatrixConfig` field (default `False`). Live E2EE tests set `ignore_unverified_devices=True` in config.
+- Unverified device policy: MEDRE internally passes the required nio `ignore_unverified_devices=True` flag for non-plaintext sends. There is no operator toggle for this. This is required by upstream nio limitations (no cross-signing or programmatic verification support).
 
 **Implemented in E2EE text alpha:**
 - Undecryptable event handling: `MegolmEvent` callback counts events, logs warning (event_id/room_id only, no session_id), does not forward to canonical pipeline.

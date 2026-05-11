@@ -264,7 +264,7 @@ Data:      $XDG_DATA_HOME/medre/      or  ~/.local/share/medre/
 Cache:     $XDG_CACHE_HOME/medre/     or  ~/.cache/medre/
 Logs:      {state}/logs/
 Database:  {state}/medre.sqlite
-Matrix:    {state}/matrix/store/
+Matrix:    {state}/matrix/<adapter_id>/store/
 Adapters:  {state}/adapters/<adapter_id>/
 ```
 
@@ -287,7 +287,7 @@ Data:      /opt/medre/data/
 Cache:     /opt/medre/cache/
 Logs:      /opt/medre/logs/
 Database:  /opt/medre/state/medre.sqlite
-Matrix:    /opt/medre/state/matrix/store/
+Matrix:    /opt/medre/state/matrix/<adapter_id>/store/
 Adapters:  /opt/medre/state/adapters/<adapter_id>/
 ```
 
@@ -327,7 +327,7 @@ Example usage:
 path = "{state}/medre.sqlite"
 
 [adapters.matrix.main]
-store_path = "{state}/matrix/main/store"
+encryption_mode = "e2ee_required"
 
 [adapters.lxmf.local]
 identity_path = "{state}/lxmf/identity"
@@ -373,9 +373,18 @@ Boolean env vars accept: `1`, `true`, `yes` (truthy) and `0`, `false`, `no`
 | `MEDRE_MATRIX_USER_ID` | string | `user_id` | *(required)* |
 | `MEDRE_MATRIX_ACCESS_TOKEN` | string | `access_token` | `""` |
 | `MEDRE_MATRIX_ROOM_ALLOWLIST` | comma-separated list | `room_allowlist` | `None` (all rooms) |
-| `MEDRE_MATRIX_DEVICE_ID` | string | `device_id` | `None` (**internal/test only** — derived via `whoami()`) |
-| `MEDRE_MATRIX_STORE_PATH` | string | `store_path` | `None` (**internal/test only** — derived under state dir) |
 | `MEDRE_MATRIX_ENCRYPTION_MODE` | string | `encryption_mode` | `"plaintext"` |
+
+#### Internal/test-only overrides
+
+The following Matrix environment variables exist for test harnesses and
+internal use.  Normal runtime operation derives these automatically and
+operators should not set them.
+
+| Variable | Type | Target field | Default |
+|----------|------|---------|---------|
+| `MEDRE_MATRIX_DEVICE_ID` | string | `device_id` | `None` (derived via `whoami()`) |
+| `MEDRE_MATRIX_STORE_PATH` | string | `store_path` | `None` (derived under state dir) |
 
 ### Meshtastic
 
@@ -513,16 +522,12 @@ docker run -d \
 
 ### Matrix E2EE store persistence
 
-The Matrix crypto store must persist across restarts for E2EE session keys to
-survive. Mount the state volume:
+The Matrix crypto store is derived automatically under the resolved state
+directory (`{state}/matrix/{adapter_id}/store`). It must persist across
+restarts for E2EE session keys to survive. Mount the state volume:
 
-```toml
-[adapters.matrix.main]
-store_path = "{state}/matrix/main/store"
-```
-
-With `MEDRE_HOME=/opt/medre`, this resolves to `/opt/medre/state/matrix/main/store`.
-Ensure the volume is persistent.
+With `MEDRE_HOME=/opt/medre`, the store resolves to `/opt/medre/state/matrix/main/store`
+for an adapter with `adapter_id="main"`. Ensure the volume is persistent.
 
 
 ## Library Usage vs Runtime Usage
