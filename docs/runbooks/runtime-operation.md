@@ -158,26 +158,26 @@ name = "my-bridge"
 shutdown_timeout_seconds = 10
 
 [runtime.limits]
-max_inflight_deliveries = 64        # max concurrent delivery coroutines (default: 64)
-max_inflight_replay_events = 32     # max concurrent replay event deliveries (default: 32)
-shutdown_drain_timeout_seconds = 5.0  # seconds to drain in-flight deliveries on shutdown (default: 5.0)
-delivery_acquire_timeout_seconds = 30.0  # seconds to wait for a delivery slot (default: 30.0)
+max_inflight_deliveries = 64        # max concurrent delivery coroutines (default: 100)
+max_inflight_replay_events = 32     # max concurrent replay event deliveries (default: 100)
+shutdown_drain_timeout_seconds = 5.0  # seconds to drain in-flight deliveries on shutdown (default: 10)
+delivery_acquire_timeout_seconds = 30.0  # seconds to wait for a delivery slot (default: 1.0)
 ```
 
 ### How Delivery Limiting Works
 
-The pipeline runner uses an `asyncio.Semaphore` to bound the number of concurrent adapter `deliver()` calls. When a delivery is about to start:
+The pipeline runner uses an `asyncio.Semaphore` to bound the number of concurrent adapter `deliver()` calls. Capacity is acquired **per delivery target** — each target in a fan-out independently acquires and releases a slot. When a per-target delivery is about to start:
 
-1. The runner attempts to acquire a semaphore slot.
+1. The per-target coroutine attempts to acquire a semaphore slot.
 2. If a slot is available immediately, the delivery proceeds.
-3. If all slots are occupied, the runner waits up to `delivery_acquire_timeout_seconds`.
-4. If the wait times out, the delivery fails with `status="permanent_failure"` and `failure_kind=TIMEOUT`. A diagnostic counter is incremented. **No retry** — capacity timeout is a backpressure signal.
+3. If all slots are occupied, the coroutine waits up to `delivery_acquire_timeout_seconds`.
+4. If the wait times out, the delivery fails with `status="permanent_failure"` and `error="delivery_capacity_exceeded"`. A diagnostic counter is incremented. **No retry** — capacity timeout is a backpressure signal.
 
-This prevents unbounded memory growth from concurrent deliveries.
+This prevents unbounded memory growth from concurrent deliveries. Fan-out is correct: if 10 targets are matched and `max_inflight_deliveries=1`, only one target acquires capacity at a time while the rest wait on the semaphore.
 
 ### How Replay Limiting Works
 
-The replay engine has a separate semaphore (`max_inflight_replay_events`) that bounds how many replay events can be processed concurrently. This prevents replay from consuming the entire delivery budget and starving real-time traffic. Replay deliveries that pass the replay limiter still acquire a slot on the delivery semaphore via the pipeline runner.
+The replay engine has a separate semaphore (`max_inflight_replay_events`) that bounds how many replay events can be in their **delivery phase** concurrently. This limits the number of replay deliveries actively executing at once, not all replay event processing (re-routing, re-rendering, and dry-run modes do not consume replay capacity). This prevents replay from consuming the entire delivery budget and starving real-time traffic. Replay deliveries that pass the replay limiter still acquire a slot on the delivery semaphore via the pipeline runner's per-target capacity guard.
 
 ### Diagnostics
 
@@ -351,10 +351,10 @@ INFO  medre.adapters.matrix.bridge: adapter_started transport=matrix adapter_id=
 INFO  medre.adapters.meshtastic.radio: adapter_starting transport=meshtastic adapter_id=radio
 INFO  medre.adapters.meshtastic.radio: adapter_started transport=meshtastic adapter_id=radio duration_ms=145
 INFO  medre.runtime: Assembly complete: 2/2 adapters started in 457ms
-INFO  medre.runtime: Resource limits: max_inflight_deliveries=64 max_inflight_replay=32 drain_timeout=5.0s delivery_acquire_timeout=30.0s
+INFO  medre.runtime: Resource limits: max_inflight_deliveries=100 max_inflight_replay=100 drain_timeout=10s delivery_acquire_timeout=1.0s
 ```
 
-Adapters start in deterministic order: sorted by `(transport, adapter_id)`. Resource limits are logged at startup with their resolved values (explicit or default). Queue bounds are enforced by the `CapacityController` — delivery concurrency is bounded by `max_inflight_deliveries`, replay concurrency by `max_inflight_replay_events`, and adapter-level queues (e.g., Meshtastic outbound queue) apply their own `maxlen` bounds.
+Adapters start in deterministic order: sorted by `(transport, adapter_id)`. Resource limits are logged at startup with their resolved values (explicit or default). Capacity bounds are enforced by the `CapacityController` — delivery concurrency is bounded by `max_inflight_deliveries`, replay concurrency by `max_inflight_replay_events`, and adapter-level queues (e.g., Meshtastic outbound queue) apply their own `maxlen` bounds.
 
 
 ## Expected Shutdown Output
@@ -516,7 +516,7 @@ MEDRE does not rotate logs internally. Use external log rotation (logrotate, Doc
 
 ## Queue Discipline
 
-The MEDRE pipeline uses bounded capacity to prevent unbounded memory accumulation. This section describes how queue bounds work, what happens when capacity is exhausted, and what operators should expect.
+The MEDRE pipeline uses bounded capacity to prevent unbounded memory accumulation. This section describes how capacity bounds work, what happens when capacity is exhausted, and what operators should expect.
 
 ### Capacity Bounding
 
@@ -638,9 +638,9 @@ When a single inbound event routes to multiple targets (fan-out), each target ge
 - A success on one target does not guarantee the other.
 - Partial delivery is a normal outcome, not an error.
 
-### Queue Bounds Are Not Delivery Guarantees
+### Capacity Bounds Are Not Delivery Guarantees
 
-Queue bounds (capacity semaphores, adapter-level queues) prevent unbounded memory accumulation. They do **not** prevent data loss:
+Capacity bounds (semaphores, adapter-level queues) prevent unbounded memory accumulation. They do **not** prevent data loss:
 
 - When the capacity semaphore is exhausted, new deliveries are rejected (permanently failed).
 - When an adapter-level queue overflows, items are dropped silently (drop-oldest).

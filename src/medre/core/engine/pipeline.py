@@ -267,8 +267,9 @@ class PipelineRunner:
     def set_capacity_controller(self, cc: CapacityController) -> None:
         """Wire a :class:`~medre.runtime.capacity.CapacityController`.
 
-        When set, :meth:`deliver_to_targets` acquires a delivery slot
-        before processing and releases it on completion.
+        When set, each per-target delivery inside :meth:`_deliver_to_targets_inner`
+        acquires a delivery slot before processing and releases it on
+        completion (success, failure, or skip).
         """
         self._capacity_controller = cc
 
@@ -566,37 +567,8 @@ class PipelineRunner:
             One :class:`DeliveryOutcome` per target, preserving the
             order of *route_targets*.
         """
-        # Capacity guard: acquire a delivery slot before processing.
-        if self._capacity_controller is not None:
-            acquired = await self._capacity_controller.acquire_delivery()
-            if not acquired:
-                self._delivery_rejection_count += 1
-                return [
-                    DeliveryOutcome(
-                        event_id=event.event_id,
-                        target_adapter=(
-                            p.target.adapter if hasattr(p, "target") else ""
-                        ),
-                        target_channel=(
-                            p.target.channel if hasattr(p, "target") else None
-                        ),
-                        route_id=r.id,
-                        delivery_plan_id=(
-                            p.plan_id if hasattr(p, "plan_id") else ""
-                        ),
-                        status="permanent_failure",
-                        failure_kind=None,
-                        receipt=None,
-                        error="delivery_capacity_exceeded",
-                        duration_ms=0.0,
-                    )
-                    for r, p in route_targets
-                ]
-        try:
-            return await self._deliver_to_targets_inner(event, route_targets)
-        finally:
-            if self._capacity_controller is not None:
-                await self._capacity_controller.release_delivery()
+        # Per-target capacity acquire/release happens inside _deliver_one().
+        return await self._deliver_to_targets_inner(event, route_targets)
 
     async def _deliver_to_targets_inner(
         self,
@@ -605,172 +577,198 @@ class PipelineRunner:
     ) -> list[DeliveryOutcome]:
 
         async def _deliver_one(
-            route: Route, plan: DeliveryPlan
+            route: Route, route_plan: DeliveryPlan
         ) -> DeliveryOutcome:
-            target = plan.target
+            target = route_plan.target
             adapter_id = target.adapter or ""
             t0 = time.monotonic()
 
-            # Route-trace loop prevention: skip if this route has already
-            # been traversed in a *prior* routing pass.  The first occurrence
-            # of a route ID in the trace is the current pass — allow it.
-            # A second or later occurrence means the event was re-routed
-            # through the same route (e.g. during replay or multi-hop
-            # topologies).
-            routing_meta = event.metadata.routing
-            trace_count = 0
-            if routing_meta is not None:
-                trace_count = sum(1 for tid in routing_meta.route_trace if tid == route.id)
-            if trace_count > 1:
-                self._log.warning(
-                    "loop_prevented: route_id=%s already in route_trace "
-                    "for event_id=%s (trace=%s)",
-                    route.id,
-                    event.event_id,
-                    routing_meta.route_trace,
-                )
-                if self._route_stats is not None:
-                    self._route_stats.record_loop_prevented(route.id)
-                elapsed = (time.monotonic() - t0) * 1000.0
-                return DeliveryOutcome(
-                    event_id=event.event_id,
-                    target_adapter=adapter_id,
-                    target_channel=target.channel,
-                    route_id=route.id,
-                    delivery_plan_id=plan.plan_id,
-                    status="skipped",
-                    failure_kind=None,
-                    receipt=None,
-                    error="loop_prevented: route already traversed in prior routing pass",
-                    duration_ms=elapsed,
-                )
-
-            # Self-loop guard: skip delivery back to the source adapter.
-            if adapter_id and adapter_id == event.source_adapter:
-                self._log.warning(
-                    "loop_prevented: skipping delivery of event_id=%s "
-                    "back to source_adapter=%s (route=%s)",
-                    event.event_id,
-                    adapter_id,
-                    route.id,
-                )
-                if self._route_stats is not None:
-                    self._route_stats.record_loop_prevented(route.id)
-                elapsed = (time.monotonic() - t0) * 1000.0
-                return DeliveryOutcome(
-                    event_id=event.event_id,
-                    target_adapter=adapter_id,
-                    target_channel=target.channel,
-                    route_id=route.id,
-                    delivery_plan_id=plan.plan_id,
-                    status="skipped",
-                    failure_kind=None,
-                    receipt=None,
-                    error="loop_prevented",
-                    duration_ms=elapsed,
-                )
-
-            try:
-                receipt = await self.deliver_to_target(event, route, plan)
-                elapsed = (time.monotonic() - t0) * 1000.0
-                if self._route_stats is not None:
-                    self._route_stats.record_delivered(route.id)
-                return DeliveryOutcome(
-                    event_id=event.event_id,
-                    target_adapter=adapter_id,
-                    target_channel=target.channel,
-                    route_id=route.id,
-                    delivery_plan_id=plan.plan_id,
-                    status="success",
-                    failure_kind=None,
-                    receipt=receipt,
-                    error=None,
-                    duration_ms=elapsed,
-                )
-            except _AdapterDeliveryError as exc:
-                elapsed = (time.monotonic() - t0) * 1000.0
-                self._diagnostician.record_adapter_failure(
-                    event.event_id, adapter_id, exc.error
-                )
-                if self._route_stats is not None:
-                    self._route_stats.record_failed(route.id, exc.error)
-                # Use pre-classified failure_kind when available (e.g.
-                # TARGET_NOT_FOUND, DEADLINE_EXCEEDED); otherwise classify
-                # based on the original adapter exception.
-                if exc.failure_kind is not None:
-                    failure_kind = exc.failure_kind
-                elif exc.original is not None:
-                    failure_kind = RetryExecutor.classify_failure(
-                        exc.original,
-                        adapter_registered=True,
+            # Per-target capacity guard: acquire a slot before any work.
+            if self._capacity_controller is not None:
+                acquired = await self._capacity_controller.acquire_delivery()
+                if not acquired:
+                    self._delivery_rejection_count += 1
+                    elapsed = (time.monotonic() - t0) * 1000.0
+                    return DeliveryOutcome(
+                        event_id=event.event_id,
+                        target_adapter=adapter_id,
+                        target_channel=target.channel,
+                        route_id=route.id,
+                        delivery_plan_id=(
+                            route_plan.plan_id if hasattr(route_plan, "plan_id") else ""
+                        ),
+                        status="permanent_failure",
+                        failure_kind=None,
+                        receipt=None,
+                        error="delivery_capacity_exceeded",
+                        duration_ms=elapsed,
                     )
-                else:
-                    failure_kind = DeliveryFailureKind.ADAPTER_TRANSIENT
-                outcome_status: Literal[
-                    "transient_failure", "permanent_failure"
-                ] = (
-                    "transient_failure"
-                    if failure_kind.is_retryable
-                    else "permanent_failure"
-                )
-                return DeliveryOutcome(
-                    event_id=event.event_id,
-                    target_adapter=adapter_id,
-                    target_channel=target.channel,
-                    route_id=route.id,
-                    delivery_plan_id=plan.plan_id,
-                    status=outcome_status,
-                    failure_kind=failure_kind,
-                    receipt=None,
-                    error=exc.error,
-                    duration_ms=elapsed,
-                )
-            except _RendererDeliveryError as exc:
-                elapsed = (time.monotonic() - t0) * 1000.0
-                if self._route_stats is not None:
-                    self._route_stats.record_failed(route.id, exc.error)
-                return DeliveryOutcome(
-                    event_id=event.event_id,
-                    target_adapter=adapter_id,
-                    target_channel=target.channel,
-                    route_id=route.id,
-                    delivery_plan_id=plan.plan_id,
-                    status="permanent_failure",
-                    failure_kind=DeliveryFailureKind.RENDERER_FAILURE,
-                    receipt=None,
-                    error=exc.error,
-                    duration_ms=elapsed,
-                )
-            except Exception as exc:
-                elapsed = (time.monotonic() - t0) * 1000.0
-                exc_type = type(exc)
-                failure_kind = RetryExecutor.classify_failure(
-                    exc,
-                    adapter_registered=(adapter_id in self._config.adapters),
-                )
-                status = (
-                    "transient_failure"
-                    if failure_kind.is_retryable
-                    else "permanent_failure"
-                )
-                error_msg = f"{exc_type.__name__}: {exc}"
-                self._diagnostician.record_adapter_failure(
-                    event.event_id, adapter_id, error_msg
-                )
-                if self._route_stats is not None:
-                    self._route_stats.record_failed(route.id, error_msg)
-                return DeliveryOutcome(
-                    event_id=event.event_id,
-                    target_adapter=adapter_id,
-                    target_channel=target.channel,
-                    route_id=route.id,
-                    delivery_plan_id=plan.plan_id,
-                    status=status,
-                    failure_kind=failure_kind,
-                    receipt=None,
-                    error=error_msg,
-                    duration_ms=elapsed,
-                )
+            try:
+                # Route-trace loop prevention: skip if this route has already
+                # been traversed in a *prior* routing pass.  The first occurrence
+                # of a route ID in the trace is the current pass — allow it.
+                # A second or later occurrence means the event was re-routed
+                # through the same route (e.g. during replay or multi-hop
+                # topologies).
+                routing_meta = event.metadata.routing
+                trace_count = 0
+                if routing_meta is not None:
+                    trace_count = sum(
+                        1 for tid in routing_meta.route_trace if tid == route.id
+                    )
+                if trace_count > 1:
+                    self._log.warning(
+                        "loop_prevented: route_id=%s already in route_trace "
+                        "for event_id=%s (trace=%s)",
+                        route.id,
+                        event.event_id,
+                        routing_meta.route_trace,
+                    )
+                    if self._route_stats is not None:
+                        self._route_stats.record_loop_prevented(route.id)
+                    elapsed = (time.monotonic() - t0) * 1000.0
+                    return DeliveryOutcome(
+                        event_id=event.event_id,
+                        target_adapter=adapter_id,
+                        target_channel=target.channel,
+                        route_id=route.id,
+                        delivery_plan_id=route_plan.plan_id,
+                        status="skipped",
+                        failure_kind=None,
+                        receipt=None,
+                        error="loop_prevented: route already traversed in prior routing pass",
+                        duration_ms=elapsed,
+                    )
+
+                # Self-loop guard: skip delivery back to the source adapter.
+                if adapter_id and adapter_id == event.source_adapter:
+                    self._log.warning(
+                        "loop_prevented: skipping delivery of event_id=%s "
+                        "back to source_adapter=%s (route=%s)",
+                        event.event_id,
+                        adapter_id,
+                        route.id,
+                    )
+                    if self._route_stats is not None:
+                        self._route_stats.record_loop_prevented(route.id)
+                    elapsed = (time.monotonic() - t0) * 1000.0
+                    return DeliveryOutcome(
+                        event_id=event.event_id,
+                        target_adapter=adapter_id,
+                        target_channel=target.channel,
+                        route_id=route.id,
+                        delivery_plan_id=route_plan.plan_id,
+                        status="skipped",
+                        failure_kind=None,
+                        receipt=None,
+                        error="loop_prevented",
+                        duration_ms=elapsed,
+                    )
+
+                try:
+                    receipt = await self.deliver_to_target(event, route, route_plan)
+                    elapsed = (time.monotonic() - t0) * 1000.0
+                    if self._route_stats is not None:
+                        self._route_stats.record_delivered(route.id)
+                    return DeliveryOutcome(
+                        event_id=event.event_id,
+                        target_adapter=adapter_id,
+                        target_channel=target.channel,
+                        route_id=route.id,
+                        delivery_plan_id=route_plan.plan_id,
+                        status="success",
+                        failure_kind=None,
+                        receipt=receipt,
+                        error=None,
+                        duration_ms=elapsed,
+                    )
+                except _AdapterDeliveryError as exc:
+                    elapsed = (time.monotonic() - t0) * 1000.0
+                    self._diagnostician.record_adapter_failure(
+                        event.event_id, adapter_id, exc.error
+                    )
+                    if self._route_stats is not None:
+                        self._route_stats.record_failed(route.id, exc.error)
+                    # Use pre-classified failure_kind when available (e.g.
+                    # TARGET_NOT_FOUND, DEADLINE_EXCEEDED); otherwise classify
+                    # based on the original adapter exception.
+                    if exc.failure_kind is not None:
+                        failure_kind = exc.failure_kind
+                    elif exc.original is not None:
+                        failure_kind = RetryExecutor.classify_failure(
+                            exc.original,
+                            adapter_registered=True,
+                        )
+                    else:
+                        failure_kind = DeliveryFailureKind.ADAPTER_TRANSIENT
+                    outcome_status: Literal[
+                        "transient_failure", "permanent_failure"
+                    ] = (
+                        "transient_failure"
+                        if failure_kind.is_retryable
+                        else "permanent_failure"
+                    )
+                    return DeliveryOutcome(
+                        event_id=event.event_id,
+                        target_adapter=adapter_id,
+                        target_channel=target.channel,
+                        route_id=route.id,
+                        delivery_plan_id=route_plan.plan_id,
+                        status=outcome_status,
+                        failure_kind=failure_kind,
+                        receipt=None,
+                        error=exc.error,
+                        duration_ms=elapsed,
+                    )
+                except _RendererDeliveryError as exc:
+                    elapsed = (time.monotonic() - t0) * 1000.0
+                    if self._route_stats is not None:
+                        self._route_stats.record_failed(route.id, exc.error)
+                    return DeliveryOutcome(
+                        event_id=event.event_id,
+                        target_adapter=adapter_id,
+                        target_channel=target.channel,
+                        route_id=route.id,
+                        delivery_plan_id=route_plan.plan_id,
+                        status="permanent_failure",
+                        failure_kind=DeliveryFailureKind.RENDERER_FAILURE,
+                        receipt=None,
+                        error=exc.error,
+                        duration_ms=elapsed,
+                    )
+                except Exception as exc:
+                    elapsed = (time.monotonic() - t0) * 1000.0
+                    exc_type = type(exc)
+                    failure_kind = RetryExecutor.classify_failure(
+                        exc,
+                        adapter_registered=(adapter_id in self._config.adapters),
+                    )
+                    status = (
+                        "transient_failure"
+                        if failure_kind.is_retryable
+                        else "permanent_failure"
+                    )
+                    error_msg = f"{exc_type.__name__}: {exc}"
+                    self._diagnostician.record_adapter_failure(
+                        event.event_id, adapter_id, error_msg
+                    )
+                    if self._route_stats is not None:
+                        self._route_stats.record_failed(route.id, error_msg)
+                    return DeliveryOutcome(
+                        event_id=event.event_id,
+                        target_adapter=adapter_id,
+                        target_channel=target.channel,
+                        route_id=route.id,
+                        delivery_plan_id=route_plan.plan_id,
+                        status=status,
+                        failure_kind=failure_kind,
+                        receipt=None,
+                        error=error_msg,
+                        duration_ms=elapsed,
+                    )
+            finally:
+                if self._capacity_controller is not None:
+                    await self._capacity_controller.release_delivery()
 
         return list(
             await asyncio.gather(

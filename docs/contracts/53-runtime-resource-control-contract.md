@@ -1,13 +1,15 @@
 # Contract 53 — Runtime Resource Control Contract
 
 **Status:** v2 Partial Implementation — CapacityController wired; adapter-level queue bounds in Meshtastic; design sections 2–13 remain as reference
-**Scope:** Resource control for the MEDRE runtime: delivery concurrency limits, replay event limiting, shutdown drain, capacity timeout behavior, queue overflow behavior, and diagnostics. Sections 2–13 are design reference — some decisions deferred. Section 14 describes the v1 implementation. Section 15 describes the v2 implementation.
+**Scope:** Resource control for the MEDRE runtime: delivery concurrency limits, replay event limiting, shutdown drain, capacity timeout behavior, capacity exhaustion behavior, and diagnostics. Sections 2–13 are design reference — some decisions deferred. Section 14 describes the v1 implementation. Section 15 describes the v2 implementation.
 **Audience:** Runtime builders, adapter authors, operators, future implementors.
 **References:** Contract 47 (Runtime Assembly), Contract 48 (Runtime Observability), Contract 31 (Session Boundary), Contract 49 (Routing and Bridge).
 
-Every agent or document that references MEDRE queue depth limits, backpressure semantics, delivery throttling, or resource containment must defer to this contract.
+Every agent or document that references MEDRE capacity limits, backpressure semantics, delivery throttling, or resource containment must defer to this contract.
 
 **Non-guarantees (explicit):** MEDRE remains best-effort. The runtime provides no replay deduplication, no exactly-once delivery guarantee, no transactional delivery guarantees, no persistent queue, no per-adapter restart, and no distributed coordination. Radio transports remain probabilistic. Queue bounds prevent unbounded accumulation but do not prevent data loss under extreme pressure. These are all deferred or out of scope.
+
+**Terminology note:** The v2 implementation uses semaphore-based **capacity limiting** (in-flight bounds), not a queue staging system. The `CapacityController` bounds the number of concurrently executing delivery/replay operations. It does not buffer, enqueue, or reorder work. The word "queue" in this document refers either to (a) the design reference for future per-adapter bounded structures, (b) adapter-local bounded structures like the Meshtastic deque, or (c) the conceptual pipeline stages in §2. "Capacity" and "in-flight bounds" refer to the semaphore-based limiter implemented in v1/v2.
 
 
 ## 1. Scope
@@ -324,10 +326,10 @@ The `[runtime.limits]` TOML section controls concurrency:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `max_inflight_deliveries` | `int` | `64` | Maximum concurrent delivery coroutines across all adapters. Enforced by a `Semaphore` in `PipelineRunner`. |
-| `max_inflight_replay_events` | `int` | `32` | Maximum concurrent replay event deliveries. Enforced by a `Semaphore` in `ReplayEngine`. |
-| `shutdown_drain_timeout_seconds` | `float` | `5.0` | Seconds to wait for in-flight deliveries to complete during shutdown before cancelling. |
-| `delivery_acquire_timeout_seconds` | `float` | `30.0` | Maximum seconds a delivery attempt will wait to acquire a concurrency slot before failing with a timeout error. |
+| `max_inflight_deliveries` | `int` | `100` | Maximum concurrent delivery coroutines across all adapters. Enforced by a `Semaphore` in `PipelineRunner`. Each target in a fan-out independently acquires a slot. |
+| `max_inflight_replay_events` | `int` | `100` | Maximum concurrent replay event **delivery-phase** operations. Enforced by a `Semaphore` in `ReplayEngine`. Re-routing, re-rendering, and dry-run modes do not consume replay capacity. |
+| `shutdown_drain_timeout_seconds` | `float` | `10` | Seconds to wait for in-flight deliveries to complete during shutdown before cancelling. |
+| `delivery_acquire_timeout_seconds` | `float` | `1.0` | Maximum seconds a delivery attempt will wait to acquire a concurrency slot before failing with a timeout error. |
 
 If `[runtime.limits]` is absent from TOML, all fields use their defaults.
 
@@ -347,12 +349,12 @@ delivery_acquire_timeout_seconds = 15.0
 
 ### 14.2 Delivery Limiter (PipelineRunner)
 
-`PipelineRunner` holds an `asyncio.Semaphore(max_inflight_deliveries)`. Before each delivery attempt, the runner acquires the semaphore:
+`PipelineRunner` holds an `asyncio.Semaphore(max_inflight_deliveries)`. Before each **per-target** delivery attempt, the runner acquires the semaphore:
 
 - **Acquire succeeds:** the delivery proceeds normally.
 - **Acquire times out** (after `delivery_acquire_timeout_seconds`): the delivery fails with `status="permanent_failure"` and `failure_kind=TIMEOUT`. A diagnostic counter is incremented. The delivery is not retried — capacity timeout is treated as a backpressure signal, not a transient error.
 
-The semaphore is released after the adapter's `deliver()` returns (success or failure). This bounds the total number of concurrent adapter `deliver()` calls across all adapters to `max_inflight_deliveries`.
+The semaphore is released after the adapter's `deliver()` returns (success, failure, or skip). This bounds the total number of concurrent adapter `deliver()` calls across all adapters to `max_inflight_deliveries`. Each target in a fan-out independently acquires/releases, so the limit bounds true delivery concurrency, not batch-level throughput.
 
 ### 14.3 Replay Limiter (ReplayEngine)
 
@@ -399,7 +401,7 @@ The following from the design sections (2–13) are **deferred to v2**:
 - **Distributed coordination.** Limits and state are local to the process.
 
 
-## 15. v2 Implementation — CapacityController and Queue Discipline
+## 15. v2 Implementation — CapacityController and Capacity Bounds
 
 v2 introduces `CapacityController` as a centralized capacity manager, wires `ReplayEngine` into `RuntimeBuilder` with capacity and shutdown participation, and adds bounded adapter-level queues where applicable. The design sections (2–13) described per-adapter outbound queues with backpressure policies; v2 delivers this through a combination of the global `CapacityController` (reject-with-diagnostics default) and adapter-level bounding (drop-oldest for Meshtastic).
 
@@ -429,7 +431,9 @@ Both use the same acquire-timeout (`delivery_acquire_timeout_seconds`) for timed
 ```
 acquire_delivery() / acquire_replay()
   ├── accepting_work == False  →  increment rejection counter; return False
-  ├── await semaphore (timeout) →  increment current; return True
+  ├── await semaphore (timeout)
+  │   ├── accepting_work == False (re-check)  →  release semaphore; increment rejection counter; return False
+  │   └── accepting_work == True  →  increment current; return True
   └── TimeoutError             →  increment timeout counter; return False
 
 release_delivery() / release_replay()
@@ -469,17 +473,17 @@ Matrix, LXMF, and MeshCore adapters do not currently have explicit bounded queue
 
 ### 15.4 Bounded Staging in the Pipeline
 
-The `PipelineRunner` uses `CapacityController` to gate delivery execution. Before each delivery, the runner calls `acquire_delivery()`. If the controller rejects the acquire (work stopped or timeout), the runner returns `DeliveryOutcome` with:
+The `PipelineRunner` uses `CapacityController` to gate delivery execution **per target**. Before each per-target delivery inside `_deliver_to_targets_inner`, the runner calls `acquire_delivery()`. If the controller rejects the acquire (work stopped or timeout), the runner returns `DeliveryOutcome` with:
 
 - `status="permanent_failure"`
 - `error="delivery_capacity_exceeded"`
 - `_delivery_rejection_count` incremented
 
-The capacity slot is released in a `finally` block after the delivery completes (success or failure). This ensures forward progress: the pipeline never blocks indefinitely on capacity — it either proceeds within the timeout or rejects with diagnostics.
+The capacity slot is released in a `finally` block after the per-target delivery completes (success, failure, or skip). This ensures forward progress: the pipeline never blocks indefinitely on capacity — it either proceeds within the timeout or rejects with diagnostics. Fan-out is correct: each target independently acquires/releases, so `max_inflight_deliveries` bounds the true concurrency of adapter `deliver()` calls.
 
 ### 15.5 Replay Capacity Participation
 
-The `ReplayEngine` participates in capacity control during `BEST_EFFORT` mode:
+The `ReplayEngine` participates in capacity control during `BEST_EFFORT` mode. The replay semaphore limits **delivery-phase** concurrency only — non-delivery replay modes do not consume replay capacity:
 
 1. Before delivery, `_stage_deliver()` calls `capacity_controller.acquire_replay()`.
 2. If the acquire fails (work stopped or timeout), the replay result records:
@@ -489,7 +493,7 @@ The `ReplayEngine` participates in capacity control during `BEST_EFFORT` mode:
 
 Non-delivery replay modes (`RE_RENDER`, `RE_ROUTE`, `DRY_RUN`) do not acquire replay slots — they are read-only and do not consume delivery capacity.
 
-### 15.6 Queue Overflow Behavior
+### 15.6 Capacity Exhaustion Behavior
 
 When capacity is exhausted, the system applies one of three behaviors depending on the subsystem:
 
@@ -502,7 +506,7 @@ When capacity is exhausted, the system applies one of three behaviors depending 
 
 **Default: reject with diagnostics increment.** The `CapacityController` rejects work when capacity is exhausted or when shutdown has been signaled. Each rejection increments a counter visible in `snapshot()`. The caller records the failure in its outcome (delivery or replay) and moves on. No retry is attempted — capacity rejection is a backpressure signal, not a transient error.
 
-### 15.7 Queue Rejection Metrics
+### 15.7 Capacity Rejection Metrics
 
 The `CapacityController` tracks the following counters, all visible via `snapshot()`:
 

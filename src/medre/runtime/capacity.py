@@ -104,7 +104,13 @@ class CapacityController:
                 self._delivery_sem.acquire(),
                 timeout=self._delivery_timeout,
             )
+            # Re-check accepting_work after semaphore wait — it may have
+            # changed to False while we were blocked on the semaphore.
             async with self._lock:
+                if not self._accepting_work:
+                    self._delivery_sem.release()
+                    self._delivery_rejections += 1
+                    return False
                 self._delivery_current += 1
             return True
         except asyncio.TimeoutError:
@@ -136,7 +142,13 @@ class CapacityController:
                 self._replay_sem.acquire(),
                 timeout=self._delivery_timeout,
             )
+            # Re-check accepting_work after semaphore wait — it may have
+            # changed to False while we were blocked on the semaphore.
             async with self._lock:
+                if not self._accepting_work:
+                    self._replay_sem.release()
+                    self._replay_rejections += 1
+                    return False
                 self._replay_current += 1
             return True
         except asyncio.TimeoutError:
