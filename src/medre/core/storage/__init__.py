@@ -12,7 +12,8 @@ Re-exported symbols
 * :class:`SchemaValidationError` – schema validation failure.
 * From :mod:`~medre.core.storage.replay`:
   ``ReplayMode``, ``ReplayRequest``, ``ReplayResult``, ``ReplayEngine``,
-  ``ReplaySummary``, ``collect_replay_summary``, ``_build_summary``.
+  ``ReplayRouteAttribution``, ``ReplaySummary``, ``collect_replay_summary``,
+  ``_build_summary``.
 """
 
 from medre.core.storage.backend import (
@@ -29,6 +30,7 @@ from medre.core.storage.replay import (
     ReplayMode,
     ReplayRequest,
     ReplayResult,
+    ReplayRouteAttribution,
     ReplaySummary,
     _build_summary,
     collect_replay_summary,
@@ -42,6 +44,7 @@ __all__ = [
     "ReplayMode",
     "ReplayRequest",
     "ReplayResult",
+    "ReplayRouteAttribution",
     "ReplaySummary",
     "SchemaValidationError",
     "SQLiteStorage",

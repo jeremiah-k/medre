@@ -67,13 +67,27 @@ identity_path = "{state}/lxmf/identity"
 # order they appear in this file.
 
 # Example: bridge Matrix room to Meshtastic radio channel
-# [routes.matrix_to_radio]
-# source_adapters = ["main"]
-# dest_adapters = ["radio"]
-# directionality = "source_to_dest"
-# enabled = true
+[routes.matrix_to_radio]
+source_adapters = ["main"]
+dest_adapters = ["radio"]
+directionality = "source_to_dest"
+enabled = false
 # source_room = "!room:example.com"
 # dest_channel = "1"
+#
+# [routes.matrix_to_radio.policy]
+# allowed_event_types = ["message"]
+# sender_allowlist = []
+
+# Example: bidirectional bridge between two Matrix rooms
+# [routes.matrix_bridge]
+# source_adapters = ["main"]
+# dest_adapters = ["alt"]
+# directionality = "bidirectional"
+# enabled = true
+# filter_hooks = ["spam_filter"]
+# source_room = "!room_a:example.com"
+# dest_room = "!room_b:example.com"
 #
 # [routes.matrix_to_radio.policy]
 # allowed_event_types = ["message"]

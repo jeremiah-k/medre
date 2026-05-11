@@ -36,6 +36,7 @@ Public symbols
 * :func:`collect_replay_summary` – consume results into a :class:`ReplaySummary`.
 * :func:`_build_summary` – construct a :class:`ReplaySummary` from materialised results.
 * :class:`ReplayEngine` – the main replay orchestrator.
+* :class:`ReplayRouteAttribution` – route attribution captured during route-aware replay.
 """
 
 from __future__ import annotations
@@ -313,6 +314,55 @@ class ReplayResult:
     error: str | None = None
     duration_ms: float = 0.0
     lineage: list[str] = field(default_factory=list)
+    route_attribution: ReplayRouteAttribution | None = None
+
+
+@dataclass(frozen=True)
+class ReplayRouteAttribution:
+    """Route attribution captured during route-aware replay.
+
+    Stored in :attr:`ReplayResult.route_attribution` as namespaced metadata
+    alongside the route-target pairs.  This preserves route attribution
+    without altering the canonical event schema.
+
+    Determinism guarantee: for the same stored event and route
+    configuration, the attribution is identical across replay runs.
+
+    Attributes
+    ----------
+    route_ids:
+        Identifiers of the routes that matched this event during replay.
+    source_adapter:
+        The ``source_adapter`` of the replayed canonical event.
+    target_adapters:
+        Adapter names of all resolved targets across matched routes.
+    replay_mode:
+        The :class:`ReplayMode` used for this replay.
+    is_replay:
+        Always ``True`` – distinguishes replay attribution from
+        live-routing metadata.
+    loop_warnings:
+        Tuple of human-readable loop-prevention warnings, if any routes
+        were skipped.  Empty when no loops were detected.
+    """
+
+    route_ids: tuple[str, ...] = ()
+    source_adapter: str = ""
+    target_adapters: tuple[str, ...] = ()
+    replay_mode: str = ""
+    is_replay: bool = True
+    loop_warnings: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-safe, deterministic representation."""
+        return {
+            "is_replay": self.is_replay,
+            "loop_warnings": list(self.loop_warnings),
+            "replay_mode": self.replay_mode,
+            "route_ids": list(self.route_ids),
+            "source_adapter": self.source_adapter,
+            "target_adapters": list(self.target_adapters),
+        }
 
 
 @dataclass
@@ -939,7 +989,9 @@ class ReplayEngine:
             if stage == "store":
                 result = await self._stage_store(event)
             elif stage == "route":
-                result, route_result = await self._stage_route(event)
+                result, route_result = await self._stage_route(
+                    event, mode=mode,
+                )
             elif stage == "plan":
                 result, plan_result = await self._stage_plan(
                     event, route_result,
@@ -1025,7 +1077,7 @@ class ReplayEngine:
             )
 
     async def _stage_route(
-        self, event: CanonicalEvent,
+        self, event: CanonicalEvent, *, mode: ReplayMode = ReplayMode.STRICT,
     ) -> tuple[ReplayResult, list[tuple[Any, list[Any]]] | None]:
         """Route *event* against current routes.
 
@@ -1034,6 +1086,12 @@ class ReplayEngine:
         is ``"failed"`` and the route data is an empty list (not None)
         so downstream stages can distinguish "no routes" from "routing
         not attempted".
+
+        Route-aware replay adds :class:`ReplayRouteAttribution` to the
+        result and filters out routes that would create replay loops.
+        A replay loop is detected when a route would deliver back to the
+        event's ``source_adapter`` or when the event's lineage / routing
+        metadata indicates it was already routed through the same route.
         """
         t0 = time.monotonic()
         if self._pipeline is None:
@@ -1054,6 +1112,10 @@ class ReplayEngine:
                     self._diagnostician.record_replay_skip(
                         event.event_id, "No routes matched",
                     )
+                attribution = ReplayRouteAttribution(
+                    source_adapter=event.source_adapter,
+                    replay_mode=mode.value,
+                )
                 return (
                     ReplayResult(
                         event_id=event.event_id,
@@ -1061,18 +1123,66 @@ class ReplayEngine:
                         status="failed",
                         output=[],
                         duration_ms=_elapsed_ms(t0),
+                        route_attribution=attribution,
                     ),
                     routes,
                 )
+
+            # Route-aware loop prevention: filter routes that would
+            # deliver back to the event's source adapter or match routes
+            # the event was already routed through.
+            loop_warnings, filtered_routes = _filter_replay_loops(
+                event, routes,
+            )
+
+            # Build route attribution for this replay.
+            route_ids = tuple(
+                r.id for r, _ in filtered_routes
+                if hasattr(r, "id")
+            )
+            target_adapters: list[str] = []
+            for _, targets in filtered_routes:
+                for t in targets:
+                    adapter = getattr(t, "adapter", None)
+                    if adapter is not None and adapter not in target_adapters:
+                        target_adapters.append(adapter)
+
+            attribution = ReplayRouteAttribution(
+                route_ids=route_ids,
+                source_adapter=event.source_adapter,
+                target_adapters=tuple(target_adapters),
+                replay_mode=mode.value,
+                loop_warnings=tuple(loop_warnings),
+            )
+
+            if not filtered_routes:
+                if self._diagnostician is not None:
+                    self._diagnostician.record_replay_skip(
+                        event.event_id,
+                        "All routes filtered by replay loop prevention",
+                    )
+                return (
+                    ReplayResult(
+                        event_id=event.event_id,
+                        stage="route",
+                        status="failed",
+                        output=[],
+                        duration_ms=_elapsed_ms(t0),
+                        route_attribution=attribution,
+                    ),
+                    [],
+                )
+
             return (
                 ReplayResult(
                     event_id=event.event_id,
                     stage="route",
                     status="passed",
-                    output=routes,
+                    output=filtered_routes,
                     duration_ms=_elapsed_ms(t0),
+                    route_attribution=attribution,
                 ),
-                routes,
+                filtered_routes,
             )
         except Exception as exc:
             if self._diagnostician is not None:
@@ -1208,6 +1318,13 @@ class ReplayEngine:
         adapters.  Only executed in :attr:`ReplayMode.BEST_EFFORT` mode.
         In :attr:`ReplayMode.DRY_RUN` mode the delivery is suppressed
         and the result is ``"skipped"``.
+
+        Delivery metadata honesty: the output wraps adapter results in a
+        replay delivery envelope that marks the delivery as originating
+        from replay.  The adapter's original result is preserved as-is;
+        queued / best-effort results are **not** promoted to delivered /
+        final.  Downstream consumers can inspect ``output["replay"]``
+        to distinguish replay deliveries from live ones.
         """
         t0 = time.monotonic()
         mode = request.mode
@@ -1261,11 +1378,15 @@ class ReplayEngine:
 
         try:
             receipts = await self._pipeline.deliver(event, plan_result)
+            # Wrap adapter results in a replay delivery envelope.
+            # The adapter's original result is preserved without
+            # promotion: queued/best-effort stays queued/best-effort.
+            replay_output = _replay_delivery_envelope(receipts)
             return ReplayResult(
                 event_id=event.event_id,
                 stage="deliver",
                 status="passed",
-                output=receipts,
+                output=replay_output,
                 duration_ms=_elapsed_ms(t0),
             )
         except Exception as exc:
@@ -1280,6 +1401,97 @@ class ReplayEngine:
                 error=str(exc),
                 duration_ms=_elapsed_ms(t0),
             )
+
+
+# ---------------------------------------------------------------------------
+# Replay loop prevention
+# ---------------------------------------------------------------------------
+
+
+def _filter_replay_loops(
+    event: CanonicalEvent,
+    routes: list[tuple[Any, list[Any]]],
+) -> tuple[list[str], list[tuple[Any, list[Any]]]]:
+    """Filter routes that would create a replay routing loop.
+
+    A replay loop is detected when:
+
+    1. A route would deliver an event back to its own ``source_adapter``.
+    2. The event's existing ``RoutingMetadata.matched_routes`` overlaps
+       with a matched route ID, indicating the event was previously
+       routed through the same route.
+
+    Returns a tuple of ``(loop_warnings, filtered_routes)``.  Loop-causing
+    routes are removed from the filtered list and a warning string is
+    added for each.
+    """
+    source = event.source_adapter
+    warnings: list[str] = []
+    filtered: list[tuple[Any, list[Any]]] = []
+
+    # Pre-compute previously matched routes from event metadata (if any).
+    prev_matched: set[str] = set()
+    routing_meta = event.metadata.routing
+    if routing_meta is not None and routing_meta.matched_routes:
+        prev_matched = set(routing_meta.matched_routes)
+
+    for route, targets in routes:
+        route_id = getattr(route, "id", None)
+
+        # Check 1: would this route deliver back to the source?
+        target_adapters = {
+            getattr(t, "adapter", None) for t in targets
+        }
+        if source in target_adapters:
+            warnings.append(
+                f"Route {route_id!r} would deliver back to source "
+                f"adapter {source!r}; skipped to prevent replay loop"
+            )
+            continue
+
+        # Check 2: was this event already routed through this route?
+        if route_id is not None and route_id in prev_matched:
+            warnings.append(
+                f"Event was previously routed through route "
+                f"{route_id!r}; skipped to prevent replay loop"
+            )
+            continue
+
+        filtered.append((route, targets))
+
+    return warnings, filtered
+
+
+# ---------------------------------------------------------------------------
+# Replay delivery envelope
+# ---------------------------------------------------------------------------
+
+
+def _replay_delivery_envelope(receipts: Any) -> dict[str, Any]:
+    """Wrap adapter delivery results in a replay delivery envelope.
+
+    The envelope marks the delivery as originating from replay and
+    preserves the adapter's original results without promotion:
+    queued/best-effort stays queued/best-effort.  Downstream consumers
+    can inspect ``output["replay"]`` to distinguish replay deliveries
+    from live ones.
+
+    Parameters
+    ----------
+    receipts:
+        The original adapter delivery results (list of receipts,
+        :class:`AdapterDeliveryResult` instances, or any other
+        pipeline output).
+
+    Returns
+    -------
+    dict
+        Envelope with ``"replay": True`` and ``"adapter_results"`` key.
+    """
+    return {
+        "replay": True,
+        "adapter_results": receipts,
+    }
 
 
 # ---------------------------------------------------------------------------

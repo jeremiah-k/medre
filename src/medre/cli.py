@@ -8,6 +8,9 @@ Usage::
     medre paths                     Print resolved MEDRE paths
     medre version                   Print MEDRE version
     medre adapters                  List available and configured adapters
+    medre routes validate [--config]  Validate route configuration
+    medre routes topology [--config]  Print route topology preview
+    medre routes list [--config]      List configured routes
 
 The module also supports ``python -m medre.cli`` via the ``__main__`` block
 at the bottom of this file.
@@ -29,6 +32,7 @@ from medre.config.loader import load_config, ConfigSource
 from medre.config.sample import generate_sample_config
 from medre.config.paths import resolve, MedrePaths
 from medre.config.env import apply_env_overrides
+from medre.config.errors import ConfigValidationError
 from medre.logging import (
     adapter_logger,
     format_duration_ms,
@@ -36,6 +40,7 @@ from medre.logging import (
     startup_summary,
     shutdown_summary,
 )
+from medre.runtime.routes import RouteConfigSet, RouteDirectionality
 
 logger = logging.getLogger("medre")
 
@@ -200,6 +205,21 @@ def _config_check(config_path: str | None) -> None:
     print()
     print(f"Global DB: {paths.database_path}")
 
+    # --- Route inventory ---
+    routes = config.routes
+    route_list = routes.routes
+    print()
+    print("Route inventory:")
+    if not route_list:
+        print("  (no routes configured)")
+    else:
+        for route in route_list:
+            status = "enabled" if route.enabled else "disabled"
+            direction = route.directionality.value
+            sources = ", ".join(route.source_adapters)
+            dests = ", ".join(route.dest_adapters)
+            print(f"  {route.route_id}: {status}  ({sources} --{direction}--> {dests})")
+
     # --- Summary ---
     print()
     if validation_errors:
@@ -207,6 +227,9 @@ def _config_check(config_path: str | None) -> None:
     else:
         print("Config valid")
     print(f"  {enabled_count}/{total} adapter(s) enabled")
+    route_enabled = sum(1 for r in route_list if r.enabled)
+    if route_list:
+        print(f"  {route_enabled}/{len(route_list)} route(s) active")
 
 
 def _adapters() -> None:
@@ -241,6 +264,249 @@ def _adapters() -> None:
             print(f"  {transport}.{adapter_id}: {status} (kind={kind})")
     except Exception:
         print("No config found — run 'medre config sample' to generate one.")
+
+
+# ---------------------------------------------------------------------------
+# Routes commands
+# ---------------------------------------------------------------------------
+
+
+def _routes_validate(config_path: str | None) -> None:
+    """Load config and validate route definitions, printing a summary."""
+    try:
+        config, source, paths = load_config(config_path)
+    except Exception as exc:
+        print(f"Config error: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    routes: RouteConfigSet = config.routes
+    route_list = routes.routes
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    if not route_list:
+        print("No routes configured.")
+        return
+
+    # Collect adapter IDs from config for reference validation.
+    known_adapter_ids: set[str] = set()
+    for _transport, adapter_id, rtc in config.adapters.all_configs():
+        known_adapter_ids.add(adapter_id)
+
+    for route in route_list:
+        rid = route.route_id
+        section = f"routes.{rid}"
+
+        # Check source adapters exist in config
+        for sa in route.source_adapters:
+            if sa not in known_adapter_ids:
+                warnings.append(
+                    f"{section}: source adapter {sa!r} not found in configured adapters"
+                )
+
+        # Check dest adapters exist in config
+        for da in route.dest_adapters:
+            if da not in known_adapter_ids:
+                warnings.append(
+                    f"{section}: dest adapter {da!r} not found in configured adapters"
+                )
+
+        # Check enabled routes have at least one enabled source and dest
+        if route.enabled:
+            enabled_ids = {aid for aid, rtc in config.adapters.all_enabled()}
+            has_enabled_source = any(a in enabled_ids for a in route.source_adapters)
+            has_enabled_dest = any(a in enabled_ids for a in route.dest_adapters)
+            if not has_enabled_source:
+                warnings.append(
+                    f"{section}: no enabled source adapters"
+                )
+            if not has_enabled_dest:
+                warnings.append(
+                    f"{section}: no enabled destination adapters"
+                )
+
+    # Print route-by-route summary
+    for route in route_list:
+        status = "enabled" if route.enabled else "disabled"
+        direction = route.directionality.value
+        sources = ", ".join(route.source_adapters)
+        dests = ", ".join(route.dest_adapters)
+        print(f"  {route.route_id}: {status}  ({sources} --{direction}--> {dests})")
+
+    if warnings:
+        print()
+        print("Warnings:")
+        for w in warnings:
+            print(f"  \u26a0 {w}")
+
+    if errors:
+        print()
+        print("Errors:")
+        for e in errors:
+            print(f"  \u2717 {e}")
+        sys.exit(1)
+    elif warnings:
+        print()
+        print(f"Routes valid with {len(warnings)} warning(s)")
+    else:
+        print()
+        print("Routes valid")
+
+
+def _routes_topology(config_path: str | None) -> None:
+    """Load config and print a deterministic topology preview of routes."""
+    try:
+        config, source, paths = load_config(config_path)
+    except Exception as exc:
+        print(f"Config error: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    routes: RouteConfigSet = config.routes
+    route_list = routes.routes
+
+    if not route_list:
+        print("No routes configured.")
+        return
+
+    # Build adapter inventory for context
+    adapter_map: dict[str, str] = {}  # adapter_id → transport
+    for transport, adapter_id, rtc in config.adapters.all_configs():
+        adapter_map[adapter_id] = transport
+
+    print("Route topology:")
+
+    for route in route_list:
+        rid = route.route_id
+        direction = route.directionality
+
+        # Format source side
+        source_labels: list[str] = []
+        for sa in route.source_adapters:
+            t = adapter_map.get(sa, "?")
+            source_labels.append(f"{sa}({t})")
+        source_str = ", ".join(source_labels)
+
+        # Format dest side
+        dest_labels: list[str] = []
+        for da in route.dest_adapters:
+            t = adapter_map.get(da, "?")
+            dest_labels.append(f"{da}({t})")
+        dest_str = ", ".join(dest_labels)
+
+        # Direction arrow
+        if direction == RouteDirectionality.SOURCE_TO_DEST:
+            arrow = "-->"
+        elif direction == RouteDirectionality.DEST_TO_SOURCE:
+            arrow = "<--"
+        else:
+            arrow = "<->"
+
+        # Targeting info
+        targets: list[str] = []
+        if route.source_room:
+            targets.append(f"src_room={route.source_room}")
+        if route.dest_room:
+            targets.append(f"dst_room={route.dest_room}")
+        if route.source_channel:
+            targets.append(f"src_ch={route.source_channel}")
+        if route.dest_channel:
+            targets.append(f"dst_ch={route.dest_channel}")
+        target_str = f"  [{', '.join(targets)}]" if targets else ""
+
+        status_mark = "" if route.enabled else "  (disabled)"
+
+        print(f"  [{rid}]{status_mark}")
+        print(f"    {source_str} {arrow} {dest_str}{target_str}")
+
+        # Policy summary
+        if route.policy and any(
+            (
+                route.policy.allowed_event_types,
+                route.policy.sender_allowlist,
+                route.policy.room_allowlist,
+                route.policy.channel_allowlist,
+            )
+        ):
+            policy_parts: list[str] = []
+            if route.policy.allowed_event_types:
+                policy_parts.append(f"events={','.join(route.policy.allowed_event_types)}")
+            if route.policy.sender_allowlist:
+                policy_parts.append(f"senders={','.join(route.policy.sender_allowlist)}")
+            if route.policy.room_allowlist:
+                policy_parts.append(f"rooms={','.join(route.policy.room_allowlist)}")
+            if route.policy.channel_allowlist:
+                policy_parts.append(f"channels={','.join(route.policy.channel_allowlist)}")
+            print(f"    policy: {', '.join(policy_parts)}")
+
+        # Filter hooks
+        if route.filter_hooks:
+            print(f"    hooks: {', '.join(route.filter_hooks)}")
+
+    # Summary
+    enabled_count = sum(1 for r in route_list if r.enabled)
+    print()
+    print(f"  {enabled_count}/{len(route_list)} route(s) active")
+
+
+def _routes_list(config_path: str | None) -> None:
+    """Load config and list all configured routes with status details."""
+    try:
+        config, source, paths = load_config(config_path)
+    except Exception as exc:
+        print(f"Config error: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    routes: RouteConfigSet = config.routes
+    route_list = routes.routes
+
+    if not route_list:
+        print("No routes configured.")
+        return
+
+    # Build adapter inventory for cross-reference
+    adapter_map: dict[str, str] = {}
+    for transport, adapter_id, rtc in config.adapters.all_configs():
+        adapter_map[adapter_id] = transport
+
+    print("Configured routes:")
+    for route in route_list:
+        status = "enabled" if route.enabled else "disabled"
+        direction = route.directionality.value
+        sources = ", ".join(route.source_adapters)
+        dests = ", ".join(route.dest_adapters)
+
+        print(f"  {route.route_id}:")
+        print(f"    status:        {status}")
+        print(f"    direction:     {direction}")
+        print(f"    sources:       [{sources}]")
+        print(f"    destinations:  [{dests}]")
+
+        if route.source_room:
+            print(f"    source_room:   {route.source_room}")
+        if route.dest_room:
+            print(f"    dest_room:     {route.dest_room}")
+        if route.source_channel:
+            print(f"    source_channel:{route.source_channel}")
+        if route.dest_channel:
+            print(f"    dest_channel:  {route.dest_channel}")
+
+        if route.filter_hooks:
+            print(f"    filter_hooks:  [{', '.join(route.filter_hooks)}]")
+
+        if route.policy:
+            print(f"    policy:")
+            if route.policy.allowed_event_types:
+                print(f"      event_types:  [{', '.join(route.policy.allowed_event_types)}]")
+            if route.policy.allowed_source_adapters:
+                print(f"      src_adapters: [{', '.join(route.policy.allowed_source_adapters)}]")
+            if route.policy.allowed_dest_adapters:
+                print(f"      dst_adapters: [{', '.join(route.policy.allowed_dest_adapters)}]")
+            if route.policy.room_allowlist:
+                print(f"      rooms:        [{', '.join(route.policy.room_allowlist)}]")
+            if route.policy.channel_allowlist:
+                print(f"      channels:     [{', '.join(route.policy.channel_allowlist)}]")
+            if route.policy.sender_allowlist:
+                print(f"      senders:      [{', '.join(route.policy.sender_allowlist)}]")
 
 
 # ---------------------------------------------------------------------------
@@ -434,6 +700,16 @@ def _build_parser() -> argparse.ArgumentParser:
     # adapters
     sub.add_parser("adapters", help="List available and configured adapters")
 
+    # routes (with sub-subcommands)
+    routes_p = sub.add_parser("routes", help="Route management commands")
+    routes_sub = routes_p.add_subparsers(dest="routes_command", required=True)
+    routes_validate_p = routes_sub.add_parser("validate", help="Validate route configuration")
+    routes_validate_p.add_argument("--config", default=None, help="Path to config file")
+    routes_topology_p = routes_sub.add_parser("topology", help="Print route topology preview")
+    routes_topology_p.add_argument("--config", default=None, help="Path to config file")
+    routes_list_p = routes_sub.add_parser("list", help="List configured routes")
+    routes_list_p.add_argument("--config", default=None, help="Path to config file")
+
     return parser
 
 
@@ -465,6 +741,13 @@ def main(argv: list[str] | None = None) -> None:
         _version()
     elif args.command == "adapters":
         _adapters()
+    elif args.command == "routes":
+        if args.routes_command == "validate":
+            _routes_validate(args.config)
+        elif args.routes_command == "topology":
+            _routes_topology(args.config)
+        elif args.routes_command == "list":
+            _routes_list(args.config)
 
 
 if __name__ == "__main__":

@@ -29,12 +29,15 @@ from medre.adapters.base import (
 from medre.core.events.bus import EventBus
 from medre.core.lifecycle.states import AdapterState
 from medre.core.rendering.renderer import RenderingPipeline
+from medre.core.routing.models import Route, RouteSource, RouteTarget
+from medre.core.routing.router import Router
 
 _diagnostics: Any = importlib.import_module("medre.core.runtime.diagnostics")
 RuntimeSnapshot = _diagnostics.RuntimeSnapshot
 _AdapterHealthInput = _diagnostics._AdapterHealthInput
 _NOT_YET_IMPLEMENTED = _diagnostics._NOT_YET_IMPLEMENTED
 capture_runtime_snapshot = _diagnostics.capture_runtime_snapshot
+capture_route_topology = _diagnostics.capture_route_topology
 
 
 # ---------------------------------------------------------------------------
@@ -412,6 +415,7 @@ class TestSnapshotStructure:
             "event_bus_status",
             "storage_backend_status",
             "replay_backend_status",
+            "route_topology",
             "queue_status",
             "backpressure_status",
             "task_status",
@@ -587,3 +591,315 @@ class TestEndToEndCapture:
         text = json.dumps(result, sort_keys=True)
         parsed = json.loads(text)
         assert parsed == result
+
+
+# ===================================================================
+# Route topology — capture_route_topology
+# ===================================================================
+
+
+def _make_route(
+    route_id: str = "r1",
+    source_adapter: str | None = None,
+    event_kinds: tuple[str, ...] = (),
+    source_channel: str | None = None,
+    target_adapter: str | None = "discord",
+    target_channel: str | None = "general",
+    enabled: bool = True,
+    ownership: str = "shared",
+    fanout_strategy: str = "broadcast",
+) -> Route:
+    """Build a Route with sensible defaults for testing."""
+    return Route(
+        id=route_id,
+        source=RouteSource(
+            adapter=source_adapter,
+            event_kinds=event_kinds,
+            channel=source_channel,
+        ),
+        targets=[
+            RouteTarget(adapter=target_adapter, channel=target_channel),
+        ],
+        enabled=enabled,
+        ownership=ownership,
+        fanout_strategy=fanout_strategy,
+    )
+
+
+class TestCaptureRouteTopologyBasic:
+    """Basic topology capture from a Router."""
+
+    def test_empty_router(self) -> None:
+        router = Router()
+        topo = capture_route_topology(router)
+        assert topo["routes"] == []
+        assert topo["route_health_summary"] == {
+            "enabled": 0,
+            "disabled": 0,
+            "total": 0,
+        }
+        assert topo["adapter_route_map"] == {}
+
+    def test_single_enabled_route(self) -> None:
+        route = _make_route(
+            route_id="r1",
+            source_adapter="matrix",
+            event_kinds=("message.text",),
+            target_adapter="discord",
+        )
+        router = Router(routes=[route])
+        topo = capture_route_topology(router)
+
+        assert len(topo["routes"]) == 1
+        r = topo["routes"][0]
+        assert r["route_id"] == "r1"
+        assert r["enabled"] is True
+        assert r["ownership"] == "shared"
+        assert r["fanout_strategy"] == "broadcast"
+        assert r["source"]["adapter"] == "matrix"
+        assert r["source"]["event_kinds"] == ["message.text"]
+        assert r["source"]["channel"] is None
+        assert r["target_count"] == 1
+        assert r["target_adapters"] == ["discord"]
+        assert r["error_count"] == 0
+        assert r["event_count"] == 0
+
+    def test_disabled_route_counted(self) -> None:
+        route = _make_route(route_id="r-disabled", enabled=False)
+        router = Router(routes=[route])
+        topo = capture_route_topology(router)
+
+        assert topo["route_health_summary"]["enabled"] == 0
+        assert topo["route_health_summary"]["disabled"] == 1
+        assert topo["route_health_summary"]["total"] == 1
+        assert topo["routes"][0]["enabled"] is False
+
+    def test_routes_sorted_by_id(self) -> None:
+        routes = [
+            _make_route(route_id="z-route"),
+            _make_route(route_id="a-route"),
+            _make_route(route_id="m-route"),
+        ]
+        router = Router(routes=routes)
+        topo = capture_route_topology(router)
+        ids = [r["route_id"] for r in topo["routes"]]
+        assert ids == sorted(ids)
+
+    def test_multiple_routes_mixed_enabled(self) -> None:
+        routes = [
+            _make_route(route_id="r1", enabled=True),
+            _make_route(route_id="r2", enabled=False),
+            _make_route(route_id="r3", enabled=True),
+        ]
+        router = Router(routes=routes)
+        topo = capture_route_topology(router)
+
+        assert topo["route_health_summary"]["enabled"] == 2
+        assert topo["route_health_summary"]["disabled"] == 1
+        assert topo["route_health_summary"]["total"] == 3
+
+
+class TestRouteTopologyAdapterMap:
+    """Adapter-route relationship mapping."""
+
+    def test_source_adapter_mapped(self) -> None:
+        route = _make_route(
+            route_id="r1",
+            source_adapter="matrix",
+            target_adapter="discord",
+        )
+        router = Router(routes=[route])
+        topo = capture_route_topology(router)
+
+        assert "matrix" in topo["adapter_route_map"]
+        assert topo["adapter_route_map"]["matrix"]["source_of"] == ["r1"]
+        assert topo["adapter_route_map"]["matrix"]["target_of"] == []
+
+    def test_target_adapter_mapped(self) -> None:
+        route = _make_route(
+            route_id="r1",
+            source_adapter="matrix",
+            target_adapter="discord",
+        )
+        router = Router(routes=[route])
+        topo = capture_route_topology(router)
+
+        assert "discord" in topo["adapter_route_map"]
+        assert topo["adapter_route_map"]["discord"]["target_of"] == ["r1"]
+        assert topo["adapter_route_map"]["discord"]["source_of"] == []
+
+    def test_adapter_both_source_and_target(self) -> None:
+        route = _make_route(
+            route_id="r1",
+            source_adapter="matrix",
+            target_adapter="matrix",
+        )
+        router = Router(routes=[route])
+        topo = capture_route_topology(router)
+
+        arm = topo["adapter_route_map"]["matrix"]
+        assert arm["source_of"] == ["r1"]
+        assert arm["target_of"] == ["r1"]
+
+    def test_multiple_routes_same_adapter(self) -> None:
+        routes = [
+            _make_route(route_id="r1", source_adapter="matrix", target_adapter="discord"),
+            _make_route(route_id="r2", source_adapter="matrix", target_adapter="meshtastic"),
+        ]
+        router = Router(routes=routes)
+        topo = capture_route_topology(router)
+
+        arm = topo["adapter_route_map"]["matrix"]
+        assert sorted(arm["source_of"]) == ["r1", "r2"]
+
+    def test_adapter_map_sorted(self) -> None:
+        routes = [
+            _make_route(route_id="r1", source_adapter="zebra", target_adapter="alpha"),
+        ]
+        router = Router(routes=routes)
+        topo = capture_route_topology(router)
+        keys = list(topo["adapter_route_map"].keys())
+        assert keys == sorted(keys)
+
+    def test_null_adapter_not_in_map(self) -> None:
+        """Routes with None source/target adapter are not in adapter map."""
+        route = _make_route(
+            route_id="r1",
+            source_adapter=None,
+            target_adapter=None,
+        )
+        router = Router(routes=[route])
+        topo = capture_route_topology(router)
+        assert topo["adapter_route_map"] == {}
+
+
+class TestRouteTopologyTargets:
+    """Per-route target details in topology snapshot."""
+
+    def test_target_adapters_sorted(self) -> None:
+        route = Route(
+            id="r1",
+            source=RouteSource(adapter=None, event_kinds=(), channel=None),
+            targets=[
+                RouteTarget(adapter="zebra", channel="ch1"),
+                RouteTarget(adapter="alpha", channel="ch2"),
+            ],
+        )
+        router = Router(routes=[route])
+        topo = capture_route_topology(router)
+
+        assert topo["routes"][0]["target_adapters"] == ["alpha", "zebra"]
+
+    def test_target_dicts_included(self) -> None:
+        route = _make_route(
+            route_id="r1",
+            target_adapter="discord",
+            target_channel="general",
+        )
+        router = Router(routes=[route])
+        topo = capture_route_topology(router)
+
+        targets = topo["routes"][0]["targets"]
+        assert len(targets) == 1
+        assert targets[0]["adapter"] == "discord"
+        assert targets[0]["channel"] == "general"
+
+    def test_empty_event_kinds(self) -> None:
+        route = _make_route(route_id="r1", event_kinds=())
+        router = Router(routes=[route])
+        topo = capture_route_topology(router)
+        assert topo["routes"][0]["source"]["event_kinds"] == []
+
+
+class TestRouteTopologyDeterminism:
+    """Topology output is deterministic and JSON-safe."""
+
+    def test_deterministic_across_calls(self) -> None:
+        routes = [
+            _make_route(route_id="b-route", source_adapter="m2", target_adapter="d2"),
+            _make_route(route_id="a-route", source_adapter="m1", target_adapter="d1"),
+        ]
+        router = Router(routes=routes)
+        topo1 = capture_route_topology(router)
+        topo2 = capture_route_topology(router)
+        assert topo1 == topo2
+
+    def test_json_serialisable(self) -> None:
+        route = _make_route(
+            route_id="r1",
+            source_adapter="matrix",
+            event_kinds=("message.text",),
+            target_adapter="discord",
+        )
+        router = Router(routes=[route])
+        topo = capture_route_topology(router)
+        text = json.dumps(topo, sort_keys=True)
+        parsed = json.loads(text)
+        assert parsed == topo
+
+    def test_all_values_json_safe(self) -> None:
+        route = _make_route(route_id="r1", source_adapter="m", target_adapter="d")
+        router = Router(routes=[route])
+        topo = capture_route_topology(router)
+        _assert_json_safe(topo)
+
+    def test_no_raw_sdk_objects(self) -> None:
+        """Snapshot contains no Route/RouteSource/RouteTarget objects."""
+        route = _make_route(route_id="r1", source_adapter="m", target_adapter="d")
+        router = Router(routes=[route])
+        topo = capture_route_topology(router)
+        text = json.dumps(topo)
+        assert "RouteSource" not in text
+        assert "RouteTarget" not in text
+        assert "<medre" not in text
+
+
+class TestRouteTopologyViaRuntimeSnapshot:
+    """Route topology integration with capture_runtime_snapshot."""
+
+    def test_no_router_gives_placeholder(self) -> None:
+        snap = capture_runtime_snapshot()
+        result = snap.to_dict()
+        assert result["route_topology"] == {"status": "not_yet_implemented"}
+
+    def test_with_router_includes_topology(self) -> None:
+        route = _make_route(
+            route_id="r1",
+            source_adapter="matrix",
+            target_adapter="discord",
+        )
+        router = Router(routes=[route])
+        snap = capture_runtime_snapshot(router=router)
+        result = snap.to_dict()
+
+        assert "route_topology" in result
+        assert len(result["route_topology"]["routes"]) == 1
+        assert result["route_topology"]["routes"][0]["route_id"] == "r1"
+
+    def test_full_snapshot_includes_route_topology(self) -> None:
+        bus = EventBus()
+        pipeline = RenderingPipeline()
+        route = _make_route(route_id="r1")
+        router = Router(routes=[route])
+
+        snap = capture_runtime_snapshot(
+            adapter_healths=[_make_health_input()],
+            renderer_pipeline=pipeline,
+            event_bus=bus,
+            router=router,
+        )
+        result = snap.to_dict()
+
+        assert "route_topology" in result
+        assert result["route_topology"]["route_health_summary"]["total"] == 1
+        assert result["route_topology"]["routes"][0]["route_id"] == "r1"
+
+    def test_zeroed_counters_present(self) -> None:
+        """Per-route error_count and event_count are zeroed placeholders."""
+        route = _make_route(route_id="r1")
+        router = Router(routes=[route])
+        topo = capture_route_topology(router)
+
+        r = topo["routes"][0]
+        assert r["error_count"] == 0
+        assert r["event_count"] == 0

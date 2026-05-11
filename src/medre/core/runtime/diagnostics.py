@@ -14,6 +14,10 @@ The snapshot contains:
 * **Storage / replay backend status** – placeholder summaries.
 * **Event bus status** – from
   :class:`~medre.core.events.bus.EventBus.status_summary`.
+* **Route topology** – topology-aware route diagnostics from
+  :class:`~medre.core.routing.router.Router`, including per-route
+  identity, source/target topology, enabled/disabled counts,
+  adapter-route relationships, and zeroed error/event counters.
 * **Queue / backpressure / task placeholders** – sentinel-only
   ``{"status": "not_yet_implemented"}`` dicts (no real infrastructure).
 
@@ -21,6 +25,7 @@ Public symbols
 --------------
 * :class:`RuntimeSnapshot` – frozen snapshot with :meth:`to_dict`.
 * :func:`capture_runtime_snapshot` – pure function that builds a snapshot.
+* :func:`capture_route_topology` – pure function that builds route topology.
 """
 
 from __future__ import annotations
@@ -29,6 +34,10 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
 from medre.core.runtime.health import normalize_adapter_health
+
+# Forward-reference type alias for Router; imported lazily inside
+# capture_route_topology to avoid hard coupling at module load.
+_RouterLike = Any
 
 
 # ---------------------------------------------------------------------------
@@ -98,6 +107,8 @@ class RuntimeSnapshot:
         Placeholder or summary for the storage backend.
     replay_backend_status:
         Placeholder or summary for the replay backend.
+    route_topology:
+        Topology-aware route diagnostics from the Router, or placeholder.
     queue_status:
         Placeholder (not yet implemented).
     backpressure_status:
@@ -111,6 +122,9 @@ class RuntimeSnapshot:
     event_bus_status: dict[str, Any]
     storage_backend_status: dict[str, Any]
     replay_backend_status: dict[str, Any]
+    route_topology: dict[str, Any] = field(
+        default_factory=lambda: dict(_NOT_YET_IMPLEMENTED),
+    )
     queue_status: dict[str, str] = field(
         default_factory=lambda: dict(_NOT_YET_IMPLEMENTED),
     )
@@ -133,6 +147,7 @@ class RuntimeSnapshot:
             "event_bus_status": _sorted_dict(self.event_bus_status),
             "storage_backend_status": _sorted_dict(self.storage_backend_status),
             "replay_backend_status": _sorted_dict(self.replay_backend_status),
+            "route_topology": _sorted_dict(self.route_topology),
             "queue_status": _sorted_dict(self.queue_status),
             "backpressure_status": _sorted_dict(self.backpressure_status),
             "task_status": _sorted_dict(self.task_status),
@@ -163,6 +178,7 @@ def capture_runtime_snapshot(
     event_bus: Any | None = None,
     storage_status: dict[str, Any] | None = None,
     replay_status: dict[str, Any] | None = None,
+    router: _RouterLike | None = None,
 ) -> RuntimeSnapshot:
     """Build a deterministic runtime diagnostic snapshot.
 
@@ -188,6 +204,10 @@ def capture_runtime_snapshot(
     replay_status:
         Optional dict summarising the replay backend.  Defaults to a
         placeholder when not provided.
+    router:
+        Optional :class:`~medre.core.routing.router.Router`.  When
+        provided, :func:`capture_route_topology` builds a topology-aware
+        snapshot of all registered routes.
 
     Returns
     -------
@@ -223,13 +243,160 @@ def capture_runtime_snapshot(
     storage_summary = storage_status if storage_status is not None else dict(_NOT_YET_IMPLEMENTED)
     replay_summary = replay_status if replay_status is not None else dict(_NOT_YET_IMPLEMENTED)
 
+    # -- Route topology -----------------------------------------------------
+    if router is not None:
+        route_topology_dict = capture_route_topology(router)
+    else:
+        route_topology_dict = dict(_NOT_YET_IMPLEMENTED)
+
     return RuntimeSnapshot(
         adapters=tuple(adapter_entries),
         renderer_registry=renderer_summary,
         event_bus_status=bus_summary,
         storage_backend_status=storage_summary,
         replay_backend_status=replay_summary,
+        route_topology=route_topology_dict,
     )
+
+
+# ---------------------------------------------------------------------------
+# Route topology snapshot
+# ---------------------------------------------------------------------------
+
+
+def _route_source_to_dict(source: Any) -> dict[str, Any]:
+    """Convert a :class:`RouteSource` to a JSON-safe dict."""
+    return {
+        "adapter": getattr(source, "adapter", None),
+        "event_kinds": list(getattr(source, "event_kinds", ()) or ()),
+        "channel": getattr(source, "channel", None),
+    }
+
+
+def _route_target_to_dict(target: Any) -> dict[str, Any]:
+    """Convert a :class:`RouteTarget` to a JSON-safe dict."""
+    result: dict[str, Any] = {
+        "adapter": getattr(target, "adapter", None),
+        "channel": getattr(target, "channel", None),
+    }
+    dest = getattr(target, "destination", None)
+    if dest is not None:
+        result["destination"] = {
+            "kind": getattr(dest, "kind", None),
+            "destination_hash": getattr(dest, "destination_hash", None),
+            "destination_name": getattr(dest, "destination_name", None),
+        }
+    return result
+
+
+def capture_route_topology(router: _RouterLike) -> dict[str, Any]:
+    """Build a deterministic, JSON-safe route topology snapshot.
+
+    This is a **pure, observational** function: it reads the current
+    route registration state from *router* and returns a frozen-style
+    dictionary.  It does **not** modify the router, perform I/O, or
+    create new mutable global state.
+
+    Because the :class:`~medre.core.routing.router.Router` does not
+    currently track live event dispatch counters or error counters,
+    this function exposes:
+
+    * **Static topology** – route identities, source specs, target
+      adapters, enabled/disabled state, ownership, and fanout strategy.
+    * **Derived health summary** – counts of enabled, disabled, and
+      total routes.
+    * **Adapter-route map** – which adapters appear as sources or
+      targets of which routes.
+    * **Zeroed counters** – ``error_count`` and ``event_count`` per
+      route, always ``0``, reserved for future live instrumentation.
+
+    Parameters
+    ----------
+    router:
+        A :class:`~medre.core.routing.router.Router` instance.  Must
+        have a ``_routes`` attribute mapping route IDs to
+        :class:`~medre.core.routing.models.Route` objects.
+
+    Returns
+    -------
+    dict[str, Any]
+        Deterministic topology snapshot suitable for JSON serialisation.
+    """
+    raw_routes: dict[str, Any] = getattr(router, "_routes", {})
+
+    per_route: list[dict[str, Any]] = []
+    enabled_count = 0
+    disabled_count = 0
+    # adapter_name -> {"source_of": [...], "target_of": [...]}
+    adapter_map: dict[str, dict[str, list[str]]] = {}
+
+    for route_id in sorted(raw_routes):
+        route = raw_routes[route_id]
+        rid = getattr(route, "id", route_id)
+        enabled = bool(getattr(route, "enabled", True))
+        ownership = getattr(route, "ownership", "shared")
+        fanout = getattr(route, "fanout_strategy", "broadcast")
+
+        if enabled:
+            enabled_count += 1
+        else:
+            disabled_count += 1
+
+        source = getattr(route, "source", None)
+        source_dict = _route_source_to_dict(source) if source is not None else {}
+        targets = getattr(route, "targets", [])
+        target_dicts = [_route_target_to_dict(t) for t in targets]
+
+        # Collect target adapter names
+        target_adapters: list[str | None] = [
+            getattr(t, "adapter", None) for t in targets
+        ]
+
+        route_entry: dict[str, Any] = {
+            "route_id": rid,
+            "enabled": enabled,
+            "ownership": ownership,
+            "fanout_strategy": fanout,
+            "source": source_dict,
+            "targets": target_dicts,
+            "target_count": len(targets),
+            "target_adapters": sorted(
+                a for a in target_adapters if a is not None
+            ),
+            "error_count": 0,
+            "event_count": 0,
+        }
+        per_route.append(route_entry)
+
+        # Build adapter-route relationships
+        src_adapter = getattr(source, "adapter", None) if source is not None else None
+        if src_adapter is not None:
+            adapter_map.setdefault(src_adapter, {"source_of": [], "target_of": []})
+            adapter_map[src_adapter]["source_of"].append(rid)
+
+        for ta in target_adapters:
+            if ta is not None:
+                adapter_map.setdefault(ta, {"source_of": [], "target_of": []})
+                adapter_map[ta]["target_of"].append(rid)
+
+    # Sort adapter map deterministically
+    sorted_adapter_map: dict[str, dict[str, list[str]]] = {}
+    for adapter_name in sorted(adapter_map):
+        entry = adapter_map[adapter_name]
+        sorted_adapter_map[adapter_name] = {
+            "source_of": sorted(entry["source_of"]),
+            "target_of": sorted(entry["target_of"]),
+        }
+
+    return _sorted_dict({
+        "routes": per_route,
+        "route_health_summary": {
+            "enabled": enabled_count,
+            "disabled": disabled_count,
+            "total": enabled_count + disabled_count,
+        },
+        "adapter_route_map": sorted_adapter_map,
+    })
 
 
 # ---------------------------------------------------------------------------

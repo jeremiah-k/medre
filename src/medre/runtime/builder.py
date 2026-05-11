@@ -288,6 +288,12 @@ class RuntimeBuilder:
                 "Adapter build failures (%d): %s", len(build_failures), failed_ids
             )
 
+        # 10.5. Register configured routes on the Router.
+        #       Validates adapter references against built adapters first.
+        from medre.runtime.route_engine import register_routes
+        adapter_ids = frozenset(adapters.keys())
+        register_routes(router, self._config.routes, adapter_ids)
+
         # 11. Shutdown event
         shutdown_event = asyncio.Event()
 

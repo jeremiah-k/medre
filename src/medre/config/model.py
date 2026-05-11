@@ -24,6 +24,12 @@ if TYPE_CHECKING:
     from medre.runtime.routes import RouteConfigSet
 
 
+def _default_route_config_set() -> RouteConfigSet:
+    """Deferred import to avoid circular dependency with runtime.routes."""
+    from medre.runtime.routes import RouteConfigSet as _RCS
+    return _RCS()
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -368,4 +374,4 @@ class RuntimeConfig:
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     storage: StorageConfig = field(default_factory=StorageConfig)
     adapters: AdapterConfigSet = field(default_factory=AdapterConfigSet)
-    routes: RouteConfigSet = field(default_factory=RouteConfigSet)
+    routes: RouteConfigSet = field(default_factory=_default_route_config_set)
