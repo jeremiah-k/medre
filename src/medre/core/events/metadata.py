@@ -168,10 +168,15 @@ class RoutingMetadata(msgspec.Struct, frozen=True):
         List of route identifiers that matched this event.
     fanout_group:
         Name of the fanout group, if the event was broadcast.
+    route_trace:
+        Ordered tuple of route IDs recorded per event delivery.
+        Populated by the pipeline after route matching as attribution
+        metadata.  Defaults to an empty tuple.
     """
 
     matched_routes: tuple[str, ...] = ()
     fanout_group: str | None = None
+    route_trace: tuple[str, ...] = ()
 
 
 class RadioMetadata(msgspec.Struct, frozen=True):

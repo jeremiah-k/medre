@@ -25,6 +25,7 @@ from medre.core.planning.delivery_plan import DeliveryOutcome
 from medre.core.rendering.renderer import RenderingPipeline, RenderingResult
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.routing.stats import RouteCounters, RouteStats
 from medre.core.storage import SQLiteStorage
 from medre.core.storage.backend import StorageBackend
 
@@ -2294,5 +2295,256 @@ class TestRelationResolutionInPipeline:
             assert stored.relations[0].target_event_id is None
             assert stored.relations[0].target_native_ref is not None
             assert stored.relations[0].target_native_ref.native_message_id == "$unknown-msg"
+        finally:
+            await runner.stop()
+
+
+# ===================================================================
+# Wave A: Self-loop guard, route attribution, route_stats
+# ===================================================================
+
+
+class TestSelfLoopGuard:
+    """Self-loop guard skips delivery back to source_adapter."""
+
+    async def test_self_loop_skipped(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Event from adapter_a routed back to adapter_a is skipped."""
+        pres_a = FakePresentationAdapter(adapter_id="adapter_a")
+
+        # Route that would create a self-loop: adapter_a -> adapter_a
+        route = Route(
+            id="loop-route",
+            source=RouteSource(
+                adapter="adapter_a", event_kinds=("message.created",), channel="ch-0"
+            ),
+            targets=[RouteTarget(adapter="adapter_a")],
+        )
+        router = Router(routes=[route])
+
+        config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={"adapter_a": pres_a},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = _make_event(
+            event_id="self-loop-001",
+            source_adapter="adapter_a",
+        )
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+
+            # Outcome should be skipped, not delivered
+            assert len(outcomes) == 1
+            assert outcomes[0].status == "skipped"
+            assert outcomes[0].error == "loop_prevented"
+            assert outcomes[0].route_id == "loop-route"
+
+            # Adapter should NOT have received anything
+            assert len(pres_a.delivered_payloads) == 0
+        finally:
+            await runner.stop()
+
+    async def test_self_loop_with_other_targets(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Self-loop target is skipped but other targets still deliver."""
+        pres_a = FakePresentationAdapter(adapter_id="adapter_a")
+        pres_b = FakePresentationAdapter(adapter_id="adapter_b")
+
+        # Route with two targets: one self-loop, one valid
+        route = Route(
+            id="mixed-route",
+            source=RouteSource(
+                adapter="adapter_a", event_kinds=("message.created",), channel="ch-0"
+            ),
+            targets=[
+                RouteTarget(adapter="adapter_a"),  # self-loop
+                RouteTarget(adapter="adapter_b"),  # valid
+            ],
+        )
+        router = Router(routes=[route])
+
+        config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={"adapter_a": pres_a, "adapter_b": pres_b},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = _make_event(
+            event_id="mixed-001",
+            source_adapter="adapter_a",
+        )
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+
+            assert len(outcomes) == 2
+            # Self-loop skipped
+            skipped = [o for o in outcomes if o.status == "skipped"]
+            assert len(skipped) == 1
+            assert skipped[0].target_adapter == "adapter_a"
+
+            # Valid target delivered
+            success = [o for o in outcomes if o.status == "success"]
+            assert len(success) == 1
+            assert success[0].target_adapter == "adapter_b"
+        finally:
+            await runner.stop()
+
+
+class TestRouteAttribution:
+    """Route attribution metadata and route_id on receipts."""
+
+    async def test_route_trace_populated(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """route_trace is populated on the event after routing."""
+        pres = FakePresentationAdapter(adapter_id="pres")
+
+        route = Route(
+            id="attr-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel="ch-0"
+            ),
+            targets=[RouteTarget(adapter="pres")],
+        )
+        router = Router(routes=[route])
+
+        config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={"pres": pres},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = _make_event(event_id="attr-001", source_adapter="src")
+
+        try:
+            # Use route_event directly to check the returned event
+            routed_event, deliveries = await runner.route_event(event)
+            assert len(deliveries) == 1
+            assert routed_event.metadata.routing is not None
+            assert routed_event.metadata.routing.route_trace == ("attr-route",)
+        finally:
+            await runner.stop()
+
+    async def test_route_id_on_receipt(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """DeliveryReceipt carries the route_id of the matched route."""
+        pres = FakePresentationAdapter(adapter_id="pres")
+
+        route = Route(
+            id="receipt-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel="ch-0"
+            ),
+            targets=[RouteTarget(adapter="pres")],
+        )
+        router = Router(routes=[route])
+
+        config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={"pres": pres},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = _make_event(event_id="receipt-001", source_adapter="src")
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+            assert len(outcomes) == 1
+            assert outcomes[0].status == "success"
+            assert outcomes[0].receipt is not None
+            assert outcomes[0].receipt.route_id == "receipt-route"
+        finally:
+            await runner.stop()
+
+    async def test_route_stats_delivered(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """RouteStats records successful deliveries."""
+        pres = FakePresentationAdapter(adapter_id="pres")
+        stats = RouteStats()
+
+        route = Route(
+            id="stats-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel="ch-0"
+            ),
+            targets=[RouteTarget(adapter="pres")],
+        )
+        router = Router(routes=[route])
+
+        config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={"pres": pres},
+        )
+        config.route_stats = stats
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = _make_event(event_id="stats-001", source_adapter="src")
+
+        try:
+            await runner.handle_ingress(event)
+            snap = stats.snapshot()
+            assert "stats-route" in snap
+            assert snap["stats-route"]["delivered"] == 1
+            assert snap["stats-route"]["failed"] == 0
+        finally:
+            await runner.stop()
+
+    async def test_route_stats_loop_prevented_counter(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """RouteStats records loop_prevented when self-loop guard fires."""
+        pres = FakePresentationAdapter(adapter_id="a")
+        stats = RouteStats()
+
+        route = Route(
+            id="loop-stats-route",
+            source=RouteSource(
+                adapter="a", event_kinds=("message.created",), channel="ch-0"
+            ),
+            targets=[RouteTarget(adapter="a")],
+        )
+        router = Router(routes=[route])
+
+        config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={"a": pres},
+        )
+        config.route_stats = stats
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = _make_event(event_id="loop-stats-001", source_adapter="a")
+
+        try:
+            await runner.handle_ingress(event)
+            snap = stats.snapshot()
+            assert "loop-stats-route" in snap
+            assert snap["loop-stats-route"]["loop_prevented"] == 1
+            assert snap["loop-stats-route"]["delivered"] == 0
         finally:
             await runner.stop()

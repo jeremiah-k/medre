@@ -267,15 +267,15 @@ def build_runtime_routes(
 
 
 def check_route_loops(routes: list[Route]) -> list[str]:
-    """Detect direct routing loops among the given routes.
+    """Detect routing loops among the given routes.
 
-    A direct loop exists when route A delivers from adapter X to adapter Y,
-    and route B delivers from adapter Y to adapter X.  This means an event
-    from X would be forwarded to Y, then immediately forwarded back to X.
+    Two levels of detection:
 
-    This check only detects *direct* two-adapter loops.  Multi-hop cycles
-    (X→Y→Z→X) are not detected here — they require graph-cycle analysis
-    that is outside the scope of this runtime component.
+    1. **Fast path** — direct two-adapter loops (A↔B).
+    2. **Slow path** — multi-hop cycles via DFS on the directed
+       adapter adjacency graph (X→Y→Z→X).
+
+    Both levels log warnings but do **not** block startup.
 
     Returns
     -------
@@ -299,6 +299,8 @@ def check_route_loops(routes: list[Route]) -> list[str]:
             edges.setdefault(key, []).append(route.id)
 
     loops: list[str] = []
+
+    # -- Fast path: direct A↔B loops ---------------------------------------
     checked: set[tuple[str, str]] = set()
     for (src, dst), route_ids in edges.items():
         if (dst, src) in edges and (src, dst) not in checked:
@@ -310,6 +312,40 @@ def check_route_loops(routes: list[Route]) -> list[str]:
             )
             checked.add((src, dst))
             checked.add((dst, src))
+
+    # -- Slow path: multi-hop cycle detection via DFS ----------------------
+    # Build adjacency list: source_adapter → [dest_adapter, ...]
+    adj: dict[str, list[str]] = {}
+    for (src, dst) in edges:
+        adj.setdefault(src, []).append(dst)
+
+    visited: set[str] = set()
+    rec_stack: set[str] = set()
+    path: list[str] = []
+
+    def _dfs(node: str) -> None:
+        visited.add(node)
+        rec_stack.add(node)
+        path.append(node)
+
+        for neighbour in adj.get(node, []):
+            if neighbour not in visited:
+                _dfs(neighbour)
+            elif neighbour in rec_stack:
+                # Found a cycle — extract the cycle portion from path.
+                cycle_start = path.index(neighbour)
+                cycle = path[cycle_start:] + [neighbour]
+                cycle_str = " -> ".join(cycle)
+                loops.append(
+                    f"Route cycle detected: {cycle_str}"
+                )
+
+        path.pop()
+        rec_stack.remove(node)
+
+    for node in sorted(adj):
+        if node not in visited:
+            _dfs(node)
 
     return loops
 

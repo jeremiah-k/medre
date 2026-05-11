@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 import pytest
 
 from medre.core.events import CanonicalEvent, EventMetadata
+from medre.core.events.metadata import RoutingMetadata
 from medre.core.routing import (
     Route,
     RouteConflictError,
@@ -313,3 +314,52 @@ class TestRouteDestination:
         target = RouteTarget(adapter="matrix", destination=dest)
         assert target.destination is not None
         assert target.destination.kind == "channel"
+
+
+# ===================================================================
+# RoutingMetadata route_trace
+# ===================================================================
+
+
+class TestRoutingMetadataRouteTrace:
+    """RoutingMetadata.route_trace default and setting."""
+
+    def test_default_empty_tuple(self) -> None:
+        """Default route_trace is an empty tuple."""
+        rm = RoutingMetadata()
+        assert rm.route_trace == ()
+
+    def test_route_trace_with_values(self) -> None:
+        """route_trace can be set at construction."""
+        rm = RoutingMetadata(route_trace=("r1", "r2"))
+        assert rm.route_trace == ("r1", "r2")
+
+    def test_route_trace_preserved_in_event(self) -> None:
+        """route_trace survives round-trip through EventMetadata."""
+        routing = RoutingMetadata(
+            matched_routes=("r1",), route_trace=("r1", "r2"),
+        )
+        meta = EventMetadata(routing=routing)
+        event = _make_event()
+        event2 = CanonicalEvent(
+            event_id=event.event_id,
+            event_kind=event.event_kind,
+            schema_version=event.schema_version,
+            timestamp=event.timestamp,
+            source_adapter=event.source_adapter,
+            source_transport_id=event.source_transport_id,
+            source_channel_id=event.source_channel_id,
+            parent_event_id=event.parent_event_id,
+            lineage=event.lineage,
+            relations=event.relations,
+            payload=event.payload,
+            metadata=meta,
+        )
+        assert event2.metadata.routing is not None
+        assert event2.metadata.routing.route_trace == ("r1", "r2")
+
+    def test_route_trace_frozen(self) -> None:
+        """route_trace is immutable on frozen struct."""
+        rm = RoutingMetadata(route_trace=("r1",))
+        with pytest.raises((TypeError, AttributeError)):
+            rm.route_trace = ("r2",)  # type: ignore[misc]

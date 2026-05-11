@@ -22,6 +22,7 @@ Pipeline stages
 
 from __future__ import annotations
 
+import msgspec
 import asyncio
 import logging
 import time
@@ -51,6 +52,7 @@ from medre.core.rendering.renderer import RenderingPipeline, RenderingResult
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing.models import Route, RouteTarget
 from medre.core.routing.router import Router
+from medre.core.routing.stats import RouteStats
 from medre.core.storage.backend import StorageBackend
 
 if TYPE_CHECKING:
@@ -109,6 +111,7 @@ class PipelineConfig:
     rendering_pipeline: RenderingPipeline | None = None
     diagnostician: Diagnostician | None = None
     logger: logging.Logger | None = None
+    route_stats: RouteStats | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -222,6 +225,7 @@ class PipelineRunner:
             config.rendering_pipeline or _default_rendering_pipeline()
         )
         self._middleware: _PipelineLoggingMiddleware | None = None
+        self._route_stats: RouteStats | None = config.route_stats
 
     # -- Lifecycle ----------------------------------------------------------
 
@@ -324,7 +328,7 @@ class PipelineRunner:
 
         # Stages 5-6 – route, plan, deliver
         try:
-            deliveries = await self.route_event(event)
+            event, deliveries = await self.route_event(event)
         except Exception as exc:
             self._diagnostician.record_planner_failure(
                 event.event_id, f"{type(exc).__name__}: {exc}"
@@ -450,11 +454,13 @@ class PipelineRunner:
     async def route_event(
         self,
         event: CanonicalEvent,
-    ) -> list[tuple[Route, DeliveryPlan]]:
+    ) -> tuple[CanonicalEvent, list[tuple[Route, DeliveryPlan]]]:
         """Match *event* against routes and produce delivery plans.
 
         For each matched route, resolves its targets and creates a
         :class:`DeliveryPlan` per target using the fallback resolver.
+        Populates :attr:`RoutingMetadata.route_trace` on the returned
+        event with the matched route IDs.
 
         Parameters
         ----------
@@ -463,8 +469,9 @@ class PipelineRunner:
 
         Returns
         -------
-        list[tuple[Route, DeliveryPlan]]
-            Paired routes and their per-target delivery plans.
+        tuple[CanonicalEvent, list[tuple[Route, DeliveryPlan]]]
+            The event (with route_trace populated) and paired routes
+            with their per-target delivery plans.
         """
         matched_routes = self._config.router.match(event)
 
@@ -474,7 +481,22 @@ class PipelineRunner:
                 event.event_id,
                 event.event_kind,
             )
-            return []
+            return event, []
+
+        # Populate route_trace on the event's routing metadata.
+        route_ids = tuple(r.id for r in matched_routes)
+        existing_routing = event.metadata.routing
+        if existing_routing is not None:
+            new_routing = msgspec.structs.replace(
+                existing_routing, route_trace=route_ids,
+            )
+        else:
+            from medre.core.events.metadata import RoutingMetadata
+            new_routing = RoutingMetadata(route_trace=route_ids)
+        new_metadata = msgspec.structs.replace(
+            event.metadata, routing=new_routing,
+        )
+        event = msgspec.structs.replace(event, metadata=new_metadata)
 
         results: list[tuple[Route, DeliveryPlan]] = []
 
@@ -494,7 +516,7 @@ class PipelineRunner:
                     plan.plan_id,
                 )
 
-        return results
+        return event, results
 
     # -- Stage 5-6: Delivery + Receipts ------------------------------------
 
@@ -531,9 +553,37 @@ class PipelineRunner:
             target = plan.target
             adapter_id = target.adapter or ""
             t0 = time.monotonic()
+
+            # Self-loop guard: skip delivery back to the source adapter.
+            if adapter_id and adapter_id == event.source_adapter:
+                self._log.warning(
+                    "loop_prevented: skipping delivery of event_id=%s "
+                    "back to source_adapter=%s (route=%s)",
+                    event.event_id,
+                    adapter_id,
+                    route.id,
+                )
+                if self._route_stats is not None:
+                    self._route_stats.record_loop_prevented(route.id)
+                elapsed = (time.monotonic() - t0) * 1000.0
+                return DeliveryOutcome(
+                    event_id=event.event_id,
+                    target_adapter=adapter_id,
+                    target_channel=target.channel,
+                    route_id=route.id,
+                    delivery_plan_id=plan.plan_id,
+                    status="skipped",
+                    failure_kind=None,
+                    receipt=None,
+                    error="loop_prevented",
+                    duration_ms=elapsed,
+                )
+
             try:
                 receipt = await self.deliver_to_target(event, route, plan)
                 elapsed = (time.monotonic() - t0) * 1000.0
+                if self._route_stats is not None:
+                    self._route_stats.record_delivered(route.id)
                 return DeliveryOutcome(
                     event_id=event.event_id,
                     target_adapter=adapter_id,
@@ -551,6 +601,8 @@ class PipelineRunner:
                 self._diagnostician.record_adapter_failure(
                     event.event_id, adapter_id, exc.error
                 )
+                if self._route_stats is not None:
+                    self._route_stats.record_failed(route.id, exc.error)
                 # Use pre-classified failure_kind when available (e.g.
                 # TARGET_NOT_FOUND, DEADLINE_EXCEEDED); otherwise classify
                 # based on the original adapter exception.
@@ -584,6 +636,8 @@ class PipelineRunner:
                 )
             except _RendererDeliveryError as exc:
                 elapsed = (time.monotonic() - t0) * 1000.0
+                if self._route_stats is not None:
+                    self._route_stats.record_failed(route.id, exc.error)
                 return DeliveryOutcome(
                     event_id=event.event_id,
                     target_adapter=adapter_id,
@@ -612,6 +666,8 @@ class PipelineRunner:
                 self._diagnostician.record_adapter_failure(
                     event.event_id, adapter_id, error_msg
                 )
+                if self._route_stats is not None:
+                    self._route_stats.record_failed(route.id, error_msg)
                 return DeliveryOutcome(
                     event_id=event.event_id,
                     target_adapter=adapter_id,
@@ -728,6 +784,7 @@ class PipelineRunner:
                 event_id=event.event_id,
                 delivery_plan_id=plan.plan_id,
                 target_adapter=adapter_id or "",
+                route_id=route.id,
                 status="failed",
                 error=f"Adapter {adapter_id!r} not registered",
                 created_at=now,
@@ -749,6 +806,7 @@ class PipelineRunner:
                 event_id=event.event_id,
                 delivery_plan_id=plan.plan_id,
                 target_adapter=adapter_id or "",
+                route_id=route.id,
                 status="failed",
                 error="Delivery deadline exceeded",
                 created_at=now,
@@ -786,6 +844,7 @@ class PipelineRunner:
                 event_id=event.event_id,
                 delivery_plan_id=plan.plan_id,
                 target_adapter=adapter_id or "",
+                route_id=route.id,
                 status="failed",
                 error=rendering_error,
                 created_at=now,
@@ -845,6 +904,7 @@ class PipelineRunner:
             event_id=event.event_id,
             delivery_plan_id=plan.plan_id,
             target_adapter=adapter_id or "",
+            route_id=route.id,
             status=status,
             error=error,
             created_at=now,

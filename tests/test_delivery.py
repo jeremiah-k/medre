@@ -30,6 +30,7 @@ from medre.core.planning.delivery_plan import (
     RetryExecutor,
 )
 from medre.core.routing import RouteTarget
+from medre.core.routing.stats import RouteCounters, RouteStats
 
 
 def _make_event(
@@ -1055,3 +1056,93 @@ class TestRetryDeadLetterObservability:
         assert RetryExecutor.classify_failure(
             RuntimeError("business error"),
         ) is DeliveryFailureKind.ADAPTER_PERMANENT
+
+
+# ===================================================================
+# RouteStats / RouteCounters
+# ===================================================================
+
+
+class TestRouteCounters:
+    """RouteCounters frozen dataclass."""
+
+    def test_default_zeros(self) -> None:
+        c = RouteCounters()
+        assert c.delivered == 0
+        assert c.failed == 0
+        assert c.skipped == 0
+        assert c.loop_prevented == 0
+
+    def test_custom_values(self) -> None:
+        c = RouteCounters(delivered=5, failed=1, skipped=2, loop_prevented=3)
+        assert c.delivered == 5
+        assert c.loop_prevented == 3
+
+    def test_frozen(self) -> None:
+        c = RouteCounters()
+        with pytest.raises((TypeError, AttributeError)):
+            c.delivered = 99  # type: ignore[misc]
+
+
+class TestRouteStats:
+    """RouteStats: recording, snapshot determinism."""
+
+    def test_record_delivered(self) -> None:
+        stats = RouteStats()
+        stats.record_delivered("r1")
+        stats.record_delivered("r1")
+        stats.record_delivered("r2")
+        snap = stats.snapshot()
+        assert snap["r1"]["delivered"] == 2
+        assert snap["r2"]["delivered"] == 1
+
+    def test_record_failed(self) -> None:
+        stats = RouteStats()
+        stats.record_failed("r1", "timeout")
+        snap = stats.snapshot()
+        assert snap["r1"]["failed"] == 1
+        assert snap["r1"]["last_error"] == "timeout"
+
+    def test_record_skipped(self) -> None:
+        stats = RouteStats()
+        stats.record_skipped("r1")
+        snap = stats.snapshot()
+        assert snap["r1"]["skipped"] == 1
+
+    def test_record_loop_prevented(self) -> None:
+        stats = RouteStats()
+        stats.record_loop_prevented("r1")
+        stats.record_loop_prevented("r1")
+        snap = stats.snapshot()
+        assert snap["r1"]["loop_prevented"] == 2
+
+    def test_snapshot_deterministic_order(self) -> None:
+        """Snapshot keys are sorted alphabetically."""
+        stats = RouteStats()
+        stats.record_delivered("zebra")
+        stats.record_delivered("alpha")
+        stats.record_delivered("mid")
+        snap = stats.snapshot()
+        assert list(snap.keys()) == ["alpha", "mid", "zebra"]
+
+    def test_snapshot_empty(self) -> None:
+        stats = RouteStats()
+        assert stats.snapshot() == {}
+
+    def test_snapshot_no_last_error_when_none(self) -> None:
+        """No last_error key when only successes recorded."""
+        stats = RouteStats()
+        stats.record_delivered("r1")
+        snap = stats.snapshot()
+        assert "last_error" not in snap["r1"]
+
+    def test_counters_independent_per_route(self) -> None:
+        """Each route has independent counters."""
+        stats = RouteStats()
+        stats.record_delivered("r1")
+        stats.record_failed("r2", "err")
+        stats.record_loop_prevented("r3")
+        snap = stats.snapshot()
+        assert snap["r1"] == {"delivered": 1, "failed": 0, "skipped": 0, "loop_prevented": 0}
+        assert snap["r2"]["failed"] == 1
+        assert snap["r3"]["loop_prevented"] == 1

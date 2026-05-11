@@ -211,6 +211,7 @@ class DeliveryReceipt(msgspec.Struct, frozen=True):
     event_id: str = ""
     delivery_plan_id: str = ""
     target_adapter: str = ""
+    route_id: str = ""
     status: Literal[
         "accepted",
         "queued",

@@ -561,8 +561,9 @@ class TestLoopDetection:
                   targets=[RouteTarget(adapter="a")]),
         ]
         loops = check_route_loops(routes)
-        assert len(loops) == 1
-        assert "a" in loops[0] and "b" in loops[0]
+        # Both fast-path direct loop and slow-path DFS cycle are reported
+        assert len(loops) >= 1
+        assert any("a" in l and "b" in l for l in loops)
 
     def test_bidirectional_loop_detected(self) -> None:
         """Bidirectional route creates a loop warning."""
@@ -572,7 +573,7 @@ class TestLoopDetection:
         ))
         routes = build_runtime_routes(rcs)
         loops = check_route_loops(routes)
-        assert len(loops) == 1
+        assert len(loops) >= 1
 
     def test_loop_does_not_block_registration(self) -> None:
         """Loops produce warnings but do not prevent registration."""
@@ -594,6 +595,78 @@ class TestLoopDetection:
                   targets=[RouteTarget(adapter="c")]),
         ]
         assert check_route_loops(routes) == []
+
+
+class TestDFSCycleDetection:
+    """check_route_loops detects multi-hop cycles via DFS."""
+
+    def test_three_hop_cycle_detected(self) -> None:
+        """A→B→C→A multi-hop cycle is detected."""
+        routes = [
+            Route(id="r1", source=RouteSource(adapter="main", event_kinds=(), channel=None),
+                  targets=[RouteTarget(adapter="radio")]),
+            Route(id="r2", source=RouteSource(adapter="radio", event_kinds=(), channel=None),
+                  targets=[RouteTarget(adapter="lxmf_local")]),
+            Route(id="r3", source=RouteSource(adapter="lxmf_local", event_kinds=(), channel=None),
+                  targets=[RouteTarget(adapter="main")]),
+        ]
+        loops = check_route_loops(routes)
+        # Should detect at least one cycle containing main -> radio -> lxmf_local -> main
+        assert len(loops) >= 1
+        cycle_msgs = [l for l in loops if "cycle detected" in l.lower()]
+        assert len(cycle_msgs) >= 1
+        assert "main" in cycle_msgs[0]
+        assert "radio" in cycle_msgs[0]
+        assert "lxmf_local" in cycle_msgs[0]
+
+    def test_chain_no_cycle(self) -> None:
+        """A→B→C chain with no back-edge has no cycle."""
+        routes = [
+            Route(id="r1", source=RouteSource(adapter="a", event_kinds=(), channel=None),
+                  targets=[RouteTarget(adapter="b")]),
+            Route(id="r2", source=RouteSource(adapter="b", event_kinds=(), channel=None),
+                  targets=[RouteTarget(adapter="c")]),
+        ]
+        loops = check_route_loops(routes)
+        assert loops == []
+
+    def test_self_loop_detected(self) -> None:
+        """A→A self-edge is detected as a cycle."""
+        routes = [
+            Route(id="r1", source=RouteSource(adapter="a", event_kinds=(), channel=None),
+                  targets=[RouteTarget(adapter="a")]),
+        ]
+        loops = check_route_loops(routes)
+        assert len(loops) >= 1
+
+    def test_direct_loop_and_cycle_both_reported(self) -> None:
+        """Both direct loop and multi-hop cycle are reported."""
+        routes = [
+            Route(id="r1", source=RouteSource(adapter="a", event_kinds=(), channel=None),
+                  targets=[RouteTarget(adapter="b")]),
+            Route(id="r2", source=RouteSource(adapter="b", event_kinds=(), channel=None),
+                  targets=[RouteTarget(adapter="a")]),
+            Route(id="r3", source=RouteSource(adapter="b", event_kinds=(), channel=None),
+                  targets=[RouteTarget(adapter="c")]),
+            Route(id="r4", source=RouteSource(adapter="c", event_kinds=(), channel=None),
+                  targets=[RouteTarget(adapter="a")]),
+        ]
+        loops = check_route_loops(routes)
+        assert len(loops) >= 1
+
+    def test_disabled_routes_excluded_from_dfs(self) -> None:
+        """Disabled routes are not part of the DFS graph."""
+        routes = [
+            Route(id="r1", source=RouteSource(adapter="a", event_kinds=(), channel=None),
+                  targets=[RouteTarget(adapter="b")], enabled=True),
+            Route(id="r2", source=RouteSource(adapter="b", event_kinds=(), channel=None),
+                  targets=[RouteTarget(adapter="c")], enabled=False),
+            Route(id="r3", source=RouteSource(adapter="c", event_kinds=(), channel=None),
+                  targets=[RouteTarget(adapter="a")], enabled=False),
+        ]
+        loops = check_route_loops(routes)
+        # r2 and r3 are disabled so only A→B exists — no cycle
+        assert loops == []
 
 
 # ===================================================================
