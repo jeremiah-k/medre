@@ -168,3 +168,29 @@ Adapters receive `CanonicalEvent` and `DeliveryPlan` for delivery. They do not c
 ### 6.3 Attribution Does Not Cross Process Boundaries
 
 Route attribution is local to the MEDRE process. It is not propagated to external systems, radio packets, or Matrix rooms. Attribution is an internal observability and audit mechanism.
+
+
+## 7. Explicit Non-Guarantees
+
+### 7.1 No Exactly-Once Delivery
+
+MEDRE explicitly does **not** provide exactly-once delivery semantics. Replay modes (especially `BEST_EFFORT`) may intentionally re-deliver events that were previously delivered. The `route_trace` mechanism prevents re-routing through the **same** route within a bounded window (16 entries), but it does not prevent the same event from producing multiple deliveries to the same adapter through different routes or different replay invocations.
+
+### 7.2 Replay May Intentionally Redeliver
+
+`BEST_EFFORT` replay exists to re-deliver historical events. This is intentional. Use `DRY_RUN` or `RE_ROUTE` to preview matching without side effects.
+
+### 7.3 `DeliveryReceipt.route_id` Persists Through Replay
+
+When replay produces a new delivery (in `BEST_EFFORT` mode), the resulting `DeliveryReceipt` carries the same `route_id` as the original delivery. This allows operators to correlate replay receipts with the original route, even though the receipt itself is a new record with a new `attempt_number`.
+
+### 7.4 `ReplayRouteAttribution` Is a Filtered Set
+
+`ReplayRouteAttribution.route_ids` contains only routes that **survived** loop prevention filtering. Routes that would produce self-loops or were already present in `route_trace` are excluded from the attribution set and recorded in `loop_warnings` instead.
+
+### 7.5 `route_trace` Semantics
+
+- `route_trace` is an ordered tuple of route IDs that were matched during routing passes, preserved in match order.
+- It is **bounded to 16 entries**. When the trace exceeds 16, older entries are dropped.
+- Loop prevention checks `route.id in event.metadata.routing.route_trace` before each delivery. This uses counting semantics: each route ID appears at most once per trace window, and the bound of 16 prevents unbounded trace growth.
+- `matched_routes` records routes matched in the **current** routing pass. `route_trace` is the cumulative bounded history across passes (e.g. live + replay).

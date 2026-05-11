@@ -216,3 +216,55 @@ When a single event routes to multiple targets (fan-out), each target gets an in
 ### 7.5 Replay Re-Delivery
 
 `BEST_EFFORT` replay produces new outbound messages on all matched targets. This is intentional duplication for re-delivery. Always verify with `DRY_RUN` or `RE_ROUTE` before running `BEST_EFFORT`.
+
+
+## 8. Delivery Outcome Semantics
+
+### 8.1 Per-Route, Per-Adapter Results
+
+Each `DeliveryOutcome` is scoped to exactly one route and one adapter target. When a single event matches multiple routes (fan-out), or a single route targets multiple adapters (one-to-many), each (route, adapter) pair produces an independent outcome:
+
+```
+Route "hub": source=[bot1], dest=[radio_a, radio_b]
+Route "aux": source=[bot1], dest=[radio_c]
+
+Outcomes:
+  (hub, radio_a) -> DeliveryOutcome(status="success", ...)
+  (hub, radio_b) -> DeliveryOutcome(status="transient_failure", ...)
+  (aux, radio_c) -> DeliveryOutcome(status="success", ...)
+```
+
+No outcome is shared, aggregated, or coalesced.
+
+### 8.2 Success/Failure/Skip Semantics
+
+| Status | Meaning | Receipt created? | Retryable? |
+|--------|---------|-----------------|------------|
+| `success` | Adapter reported successful handoff. The transport accepted the message. | Yes | N/A |
+| `transient_failure` | Adapter reported a recoverable error (timeout, connection reset). | Yes | Yes, per `RetryPolicy` |
+| `permanent_failure` | Adapter reported an unrecoverable error, or delivery exhausted retries. | Yes (last attempt) | No |
+| `skipped` | Delivery was skipped before adapter invocation. Reason recorded in `error` field. | No | No |
+
+`skipped` outcomes are produced by: self-loop guard, route-trace loop prevention, or policy filtering. No adapter call is made for skipped deliveries.
+
+### 8.3 Route Attribution in Delivery Results
+
+Every `DeliveryOutcome` carries `route_id` and `target_adapter` fields, regardless of status. This ensures that even failed and skipped deliveries are attributable to a specific routing decision.
+
+```
+DeliveryOutcome(
+    route_id="matrix_to_radio",
+    target_adapter="longfast",
+    status="skipped",
+    error="loop_prevented: route already in route_trace",
+    ...
+)
+```
+
+### 8.4 Radio Transports Remain Probabilistic
+
+The routing layer does not alter the probabilistic nature of radio transports. A `success` status for Meshtastic or MeshCore means the local node accepted the packet. No remote-node confirmation is implied. This is a transport-layer constraint, not a routing-layer limitation.
+
+### 8.5 No Distributed Loop Prevention
+
+Loop prevention (self-loop guard, route-trace check, `_filter_replay_loops`) operates within a single MEDRE process only. If two MEDRE instances bridge the same transports in opposite directions, neither detects the cross-instance loop. There is no shared loop-prevention state between instances.

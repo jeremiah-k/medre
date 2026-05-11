@@ -1236,6 +1236,13 @@ class ReplayEngine:
                 None,
             )
         try:
+            # Save routing metadata *before* route_event enriches the event.
+            # _filter_replay_loops must check original routing to avoid
+            # false positives — route_event populates matched_routes and
+            # route_trace with the *current* pass, which should not be
+            # treated as "previously matched".
+            original_routing = event.metadata.routing
+
             result = await self._pipeline.route_event(event)
             # Unwrap real pipeline return: (CanonicalEvent, list[tuple[Route, DeliveryPlan]])
             # Use the enriched event (may have route_trace metadata).
@@ -1296,9 +1303,11 @@ class ReplayEngine:
 
             # Route-aware loop prevention: filter routes that would
             # deliver back to the event's source adapter or match routes
-            # the event was already routed through.
+            # the event was already routed through.  Pass the original
+            # (pre-enrichment) routing metadata so that the current
+            # routing pass is not mistaken for a previous one.
             loop_warnings, filtered_routes = _filter_replay_loops(
-                event, routes,
+                event, routes, previous_routing=original_routing,
             )
 
             # Clean enriched event metadata to reflect only the routes
@@ -1418,6 +1427,20 @@ class ReplayEngine:
                 None,
             )
 
+        # Empty route_result means routes were filtered out (e.g. loop
+        # prevention) — nothing to plan.
+        if not route_result:
+            return (
+                ReplayResult(
+                    event_id=event.event_id,
+                    stage="plan",
+                    status="skipped",
+                    error="No routes matched after filtering",
+                    duration_ms=_elapsed_ms(t0),
+                ),
+                None,
+            )
+
         # If route_result items already contain DeliveryPlan objects
         # (real pipeline returns list[tuple[Route, DeliveryPlan]]),
         # preserve the route–plan pairs.  For stub pipelines where the
@@ -1516,7 +1539,7 @@ class ReplayEngine:
             if hasattr(self._pipeline, "transform_event"):
                 transformed = await self._pipeline.transform_event(event)
             else:
-                self._log.debug(
+                _logger.debug(
                     "Pipeline has no transform_event; skipping transform "
                     "for event_id=%s", event.event_id,
                 )
@@ -1524,7 +1547,7 @@ class ReplayEngine:
             if hasattr(self._pipeline, "render_event"):
                 rendered = await self._pipeline.render_event(transformed)
             else:
-                self._log.debug(
+                _logger.debug(
                     "Pipeline has no render_event; skipping render "
                     "for event_id=%s", event.event_id,
                 )
@@ -1707,6 +1730,9 @@ def _clean_routing_metadata(
     return msgspec.structs.replace(event, metadata=new_metadata)
 
 
+_UNSET = object()
+
+
 # ---------------------------------------------------------------------------
 # Replay loop prevention
 # ---------------------------------------------------------------------------
@@ -1715,6 +1741,8 @@ def _clean_routing_metadata(
 def _filter_replay_loops(
     event: CanonicalEvent,
     routes: list[tuple[Any, Any]],
+    *,
+    previous_routing: Any = _UNSET,
 ) -> tuple[list[str], list[tuple[Any, Any]]]:
     """Filter routes that would create a replay routing loop.
 
@@ -1727,6 +1755,19 @@ def _filter_replay_loops(
     3. The event's ``RoutingMetadata.route_trace`` contains a matched
        route ID, indicating a historical traversal through the same route.
 
+    Parameters
+    ----------
+    event:
+        The event being replayed (enriched by route_event).
+    routes:
+        Matched route–plan pairs from the current routing pass.
+    previous_routing:
+        The routing metadata from *before* route_event enriched the
+        event.  When provided (including ``None`` for a fresh event),
+        loop detection uses this value.  When left as the default
+        sentinel, falls back to ``event.metadata.routing`` for backward
+        compatibility with callers that do not track pre-enrichment state.
+
     Returns a tuple of ``(loop_warnings, filtered_routes)``.  Loop-causing
     routes are removed from the filtered list and a warning string is
     added for each.
@@ -1735,9 +1776,16 @@ def _filter_replay_loops(
     warnings: list[str] = []
     filtered: list[tuple[Any, Any]] = []
 
-    # Pre-compute previously matched routes from event metadata (if any).
+    # Pre-compute previously matched routes.  When previous_routing is
+    # explicitly provided (called from _stage_route), use it — even if
+    # it is None (fresh event, no prior routing).  When left as the
+    # default sentinel, fall back to the event's current routing
+    # metadata for backward compatibility with unit tests.
     prev_matched: set[str] = set()
-    routing_meta = event.metadata.routing
+    if previous_routing is _UNSET:
+        routing_meta = event.metadata.routing
+    else:
+        routing_meta = previous_routing
     if routing_meta is not None and routing_meta.matched_routes:
         prev_matched = set(routing_meta.matched_routes)
     # Also check route_trace for historical traversal.  A route ID that
