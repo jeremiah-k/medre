@@ -43,7 +43,7 @@ encryption_mode = "plaintext"
 # encryption_mode = "e2ee_required"
 
 [adapters.meshtastic.radio]
-enabled = false
+enabled = true
 connection_type = "serial"
 serial_port = "/dev/ttyACM0"
 meshnet_name = "MyMesh"
@@ -65,28 +65,82 @@ identity_path = "{state}/lxmf/identity"
 # Each [routes.<id>] section defines a static route from one or more source
 # adapters to one or more destination adapters.  Routes are evaluated in the
 # order they appear in this file.
+#
+# Required fields:
+#   source_adapters  — list of adapter IDs that originate messages
+#   dest_adapters    — list of adapter IDs that receive messages
+#
+# Optional fields:
+#   directionality   — "source_to_dest" (default), "dest_to_source", or
+#                       "bidirectional"
+#   enabled          — true (default) or false
+#   source_room      — Matrix room ID on the source side (alias for
+#                       source_channel)
+#   source_channel   — channel/conversation ID on the source side
+#   dest_room        — Matrix room ID on the dest side (alias for
+#                       dest_channel)
+#   dest_channel     — channel/conversation ID on the dest side
+#
+# Policy ([routes.<id>.policy]):
+#   allowed_event_types — list of event kinds to permit (e.g. ["message"])
+#   NOTE: Other policy fields (sender_allowlist, room_allowlist,
+#   channel_allowlist, allowed_source_adapters, allowed_dest_adapters) are
+#   reserved and not yet enforced. Do not set them.
 
-# Example: bridge Matrix room to Meshtastic radio channel
-[routes.matrix_to_radio]
+# --- Active route: Matrix <-> Meshtastic bridge ---
+# Bridges the Matrix room !room:example.com to Meshtastic radio channel 1.
+# Messages flow in both directions.
+[routes.matrix_radio_bridge]
 source_adapters = ["main"]
 dest_adapters = ["radio"]
-directionality = "source_to_dest"
-enabled = false
-# source_room = "!room:example.com"
-# dest_channel = "1"
-#
-# [routes.matrix_to_radio.policy]
-# allowed_event_types = ["message"]
+directionality = "bidirectional"
+enabled = true
+source_room = "!room:example.com"
+dest_channel = "1"
 
-# Example: bidirectional bridge between two Matrix rooms
-# [routes.matrix_bridge]
-# source_adapters = ["main"]
-# dest_adapters = ["alt"]
-# directionality = "bidirectional"
+# Only bridge "message" events (not reactions, edits, etc.)
+[routes.matrix_radio_bridge.policy]
+allowed_event_types = ["message"]
+
+# --- Disabled route example ---
+# This route is defined but will not be activated at startup.
+# Set enabled = true to activate it.
+# [routes.radio_to_matrix]
+# source_adapters = ["radio"]
+# dest_adapters = ["main"]
+# directionality = "source_to_dest"
+# enabled = false
+# source_channel = "1"
+# dest_room = "!room:example.com"
+
+# --- Hub fan-out example ---
+# One Matrix room fanning out to two Meshtastic radios.
+# Uncomment and adjust adapter IDs to match your setup.
+# [adapters.meshtastic.radio2]
 # enabled = true
-# source_room = "!room_a:example.com"
-# dest_room = "!room_b:example.com"
+# connection_type = "tcp"
+# host = "192.168.1.50"
+# port = 4403
+# meshnet_name = "MyMesh"
+
+# [routes.matrix_fanout]
+# source_adapters = ["main"]
+# dest_adapters = ["radio", "radio2"]
+# directionality = "source_to_dest"
+# enabled = true
+# source_room = "!room:example.com"
+
+# --- Route with channel/room targeting ---
+# Demonstrates targeting specific channels and rooms.
+# Uncomment and adjust to match your setup.
+# [routes.targeted_bridge]
+# source_adapters = ["main"]
+# dest_adapters = ["radio"]
+# directionality = "source_to_dest"
+# enabled = true
+# source_room = "!specific:example.com"
+# dest_channel = "2"
 #
-# [routes.matrix_bridge.policy]
+# [routes.targeted_bridge.policy]
 # allowed_event_types = ["message"]
 """

@@ -8,10 +8,15 @@ Also provides :class:`Diagnostician`, which records structured diagnostic
 events emitted during delivery failures, replay skips, and correlation
 misses.
 
+And :class:`RouteMetrics`, which tracks per-route delivery counters
+(``delivered``, ``failed``, ``skipped``, ``loop_prevented``) for
+observability.
+
 Public symbols
 --------------
 * :class:`EventMetrics` – per-stage counters with snapshot support.
 * :class:`Diagnostician` – structured failure and diagnostic event recorder.
+* :class:`RouteMetrics` – per-route delivery counters with snapshot support.
 """
 
 from __future__ import annotations
@@ -262,3 +267,77 @@ class Diagnostician:
             "replay_downgrades": dict(self.replay_downgrades),
             "correlation_misses": dict(self.correlation_misses),
         }
+
+
+# ---------------------------------------------------------------------------
+# Per-route delivery metrics
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class RouteMetrics:
+    """Per-route delivery counters for observability.
+
+    Tracks ``delivered``, ``failed``, ``skipped``, and
+    ``loop_prevented`` counts per route ID using
+    :class:`collections.Counter`.
+
+    Example
+    -------
+    >>> rm = RouteMetrics()
+    >>> rm.record_delivered("route-a")
+    >>> rm.record_failed("route-b", "timeout")
+    >>> rm.snapshot()
+    {'route-a': {'delivered': 1, 'failed': 0, 'skipped': 0, 'loop_prevented': 0}, ...}
+    """
+
+    route_delivered: Counter = field(default_factory=Counter)
+    route_failed: Counter = field(default_factory=Counter)
+    route_skipped: Counter = field(default_factory=Counter)
+    route_loop_prevented: Counter = field(default_factory=Counter)
+
+    # -- Recording methods --------------------------------------------------
+
+    def record_delivered(self, route_id: str) -> None:
+        """Record a successful delivery for *route_id*."""
+        self.route_delivered[route_id] += 1
+
+    def record_failed(self, route_id: str, error: str = "") -> None:
+        """Record a failed delivery for *route_id*."""
+        self.route_failed[route_id] += 1
+
+    def record_skipped(self, route_id: str) -> None:
+        """Record a skipped delivery for *route_id*."""
+        self.route_skipped[route_id] += 1
+
+    def record_loop_prevented(self, route_id: str) -> None:
+        """Record a loop-prevented skip for *route_id*."""
+        self.route_loop_prevented[route_id] += 1
+
+    # -- Reporting ----------------------------------------------------------
+
+    def snapshot(self) -> dict[str, dict[str, int]]:
+        """Return a deterministic per-route snapshot of all counters.
+
+        Returns
+        -------
+        dict
+            Keys are route IDs sorted alphabetically.  Each value is a
+            dict with ``delivered``, ``failed``, ``skipped``, and
+            ``loop_prevented`` counts.
+        """
+        all_ids: set[str] = set()
+        all_ids.update(self.route_delivered)
+        all_ids.update(self.route_failed)
+        all_ids.update(self.route_skipped)
+        all_ids.update(self.route_loop_prevented)
+
+        result: dict[str, dict[str, int]] = {}
+        for route_id in sorted(all_ids):
+            result[route_id] = {
+                "delivered": self.route_delivered.get(route_id, 0),
+                "failed": self.route_failed.get(route_id, 0),
+                "skipped": self.route_skipped.get(route_id, 0),
+                "loop_prevented": self.route_loop_prevented.get(route_id, 0),
+            }
+        return result

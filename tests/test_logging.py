@@ -23,8 +23,13 @@ from medre.core.observability.logging import (
     _JsonFormatter,
     _redact_context,
     _redact_value,
+    _sanitize_error,
     diagnostic_event,
     get_logger,
+    log_route_delivered,
+    log_route_failed,
+    log_route_loop_prevented,
+    log_route_matched,
     setup_logging,
 )
 
@@ -427,3 +432,175 @@ class TestSetupLoggingIntegration:
         # All keys should be redacted in the parsed extra
         for key in sensitive_pairs:
             assert parsed["extra"][key] == _REDACTED
+
+
+# ---------------------------------------------------------------------------
+# Route-aware logging
+# ---------------------------------------------------------------------------
+
+
+class TestRouteLogging:
+    """Tests for route-aware structured logging functions."""
+
+    @pytest.fixture()
+    def _capture_route(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> Generator[StringIO, None, None]:
+        """Wire up the medre.route logger to a StringIO stream."""
+        buf = StringIO()
+        handler = logging.StreamHandler(buf)
+        handler.setFormatter(logging.Formatter("%(levelname)s %(message)s"))
+        route_logger = logging.getLogger("medre.route")
+        route_logger.handlers.clear()
+        route_logger.addHandler(handler)
+        route_logger.setLevel(logging.DEBUG)
+        yield buf
+        route_logger.handlers.clear()
+
+    def test_log_route_matched(self, _capture_route: StringIO) -> None:
+        from medre.core.observability.logging import log_route_matched
+
+        log_route_matched(route_id="r1", event_id="evt-1")
+        output = _capture_route.getvalue()
+        assert "DEBUG" in output
+        assert "route_matched" in output
+        assert "route_id=r1" in output
+        assert "event_id=evt-1" in output
+
+    def test_log_route_delivered(self, _capture_route: StringIO) -> None:
+        from medre.core.observability.logging import log_route_delivered
+
+        log_route_delivered(route_id="r1", event_id="evt-1")
+        output = _capture_route.getvalue()
+        assert "DEBUG" in output
+        assert "route_delivered" in output
+
+    def test_log_route_failed(self, _capture_route: StringIO) -> None:
+        from medre.core.observability.logging import log_route_failed
+
+        log_route_failed(route_id="r1", event_id="evt-1", error="timeout")
+        output = _capture_route.getvalue()
+        assert "WARNING" in output
+        assert "route_failed" in output
+        assert "timeout" in output
+
+    def test_log_route_failed_sanitizes_secret(self, _capture_route: StringIO) -> None:
+        from medre.core.observability.logging import log_route_failed
+
+        log_route_failed(
+            route_id="r1",
+            event_id="evt-1",
+            error="Connection failed token=sk_live_abc123",
+        )
+        output = _capture_route.getvalue()
+        assert "sk_live_abc123" not in output
+        assert "[REDACTED]" in output
+
+    def test_log_route_loop_prevented(self, _capture_route: StringIO) -> None:
+        from medre.core.observability.logging import log_route_loop_prevented
+
+        log_route_loop_prevented(route_id="r1", event_id="evt-1")
+        output = _capture_route.getvalue()
+        assert "WARNING" in output
+        assert "route_loop_prevented" in output
+
+    def test_route_log_no_raw_sdk_objects(self, _capture_route: StringIO) -> None:
+        """Log output must not contain repr of SDK/adapter objects."""
+        from medre.core.observability.logging import log_route_failed
+
+        log_route_failed(route_id="r1", event_id="evt-1", error="simple error")
+        output = _capture_route.getvalue()
+        assert "<" not in output.split("error=")[-1] or "simple error" in output
+
+
+# ---------------------------------------------------------------------------
+# RouteMetrics
+# ---------------------------------------------------------------------------
+
+
+class TestRouteMetrics:
+    """Tests for per-route delivery counters in RouteMetrics."""
+
+    def test_initial_snapshot_is_empty(self) -> None:
+        from medre.core.observability.metrics import RouteMetrics
+
+        rm = RouteMetrics()
+        assert rm.snapshot() == {}
+
+    def test_record_delivered(self) -> None:
+        from medre.core.observability.metrics import RouteMetrics
+
+        rm = RouteMetrics()
+        rm.record_delivered("route-a")
+        rm.record_delivered("route-a")
+        snap = rm.snapshot()
+        assert snap["route-a"]["delivered"] == 2
+
+    def test_record_failed(self) -> None:
+        from medre.core.observability.metrics import RouteMetrics
+
+        rm = RouteMetrics()
+        rm.record_failed("route-b", "timeout")
+        snap = rm.snapshot()
+        assert snap["route-b"]["failed"] == 1
+        assert snap["route-b"]["delivered"] == 0
+
+    def test_record_skipped(self) -> None:
+        from medre.core.observability.metrics import RouteMetrics
+
+        rm = RouteMetrics()
+        rm.record_skipped("route-c")
+        snap = rm.snapshot()
+        assert snap["route-c"]["skipped"] == 1
+
+    def test_record_loop_prevented(self) -> None:
+        from medre.core.observability.metrics import RouteMetrics
+
+        rm = RouteMetrics()
+        rm.record_loop_prevented("route-d")
+        snap = rm.snapshot()
+        assert snap["route-d"]["loop_prevented"] == 1
+
+    def test_multiple_routes(self) -> None:
+        from medre.core.observability.metrics import RouteMetrics
+
+        rm = RouteMetrics()
+        rm.record_delivered("r1")
+        rm.record_delivered("r1")
+        rm.record_failed("r2", "err")
+        rm.record_loop_prevented("r2")
+
+        snap = rm.snapshot()
+        assert snap["r1"]["delivered"] == 2
+        assert snap["r1"]["failed"] == 0
+        assert snap["r2"]["delivered"] == 0
+        assert snap["r2"]["failed"] == 1
+        assert snap["r2"]["loop_prevented"] == 1
+
+    def test_snapshot_sorted_by_route_id(self) -> None:
+        from medre.core.observability.metrics import RouteMetrics
+
+        rm = RouteMetrics()
+        rm.record_delivered("z-route")
+        rm.record_delivered("a-route")
+        rm.record_delivered("m-route")
+
+        keys = list(rm.snapshot().keys())
+        assert keys == sorted(keys)
+
+    def test_mixed_counters_per_route(self) -> None:
+        from medre.core.observability.metrics import RouteMetrics
+
+        rm = RouteMetrics()
+        rm.record_delivered("r1")
+        rm.record_delivered("r1")
+        rm.record_failed("r1", "err")
+        rm.record_skipped("r1")
+        rm.record_loop_prevented("r1")
+
+        snap = rm.snapshot()
+        entry = snap["r1"]
+        assert entry["delivered"] == 2
+        assert entry["failed"] == 1
+        assert entry["skipped"] == 1
+        assert entry["loop_prevented"] == 1

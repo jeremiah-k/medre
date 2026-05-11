@@ -91,6 +91,7 @@ class TestReplaySummaryToDict:
         summary = ReplaySummary()
         d = summary.to_dict()
         assert d == {
+            "by_route": {},
             "by_stage": {},
             "by_status": {"error": 0, "failed": 0, "passed": 0, "skipped": 0},
             "elapsed_ms": 0.0,
@@ -100,6 +101,7 @@ class TestReplaySummaryToDict:
             "failure_count": 0,
             "mode": None,
             "route_resolution_count": 0,
+            "run_id": "",
             "skipped_count": 0,
         }
 

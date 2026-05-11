@@ -159,9 +159,19 @@ class TestRouteConfigValidation:
         with pytest.raises(ConfigValidationError, match="'source_adapters' must not be empty"):
             RouteConfig.from_toml_dict("bad", {"source_adapters": [], "dest_adapters": ["b"]})
 
+    def test_empty_source_adapters_names_route(self) -> None:
+        """Empty source_adapters error names the route."""
+        with pytest.raises(ConfigValidationError, match="Route 'empty_src'"):
+            RouteConfig.from_toml_dict("empty_src", {"source_adapters": [], "dest_adapters": ["b"]})
+
     def test_empty_dest_adapters(self) -> None:
         with pytest.raises(ConfigValidationError, match="'dest_adapters' must not be empty"):
             RouteConfig.from_toml_dict("bad", {"source_adapters": ["a"], "dest_adapters": []})
+
+    def test_empty_dest_adapters_names_route(self) -> None:
+        """Empty dest_adapters error names the route."""
+        with pytest.raises(ConfigValidationError, match="Route 'empty_dst'"):
+            RouteConfig.from_toml_dict("empty_dst", {"source_adapters": ["a"], "dest_adapters": []})
 
     def test_invalid_directionality(self) -> None:
         with pytest.raises(ConfigValidationError, match="invalid directionality"):
@@ -277,6 +287,19 @@ class TestRouteConfigValidation:
                 "source_channel": "ch-1",
             })
 
+    def test_source_room_source_channel_conflict_names_values(self) -> None:
+        """Conflicting alias error names both fields and their values."""
+        with pytest.raises(ConfigValidationError) as exc_info:
+            RouteConfig.from_toml_dict("conflict", {
+                "source_adapters": ["a"],
+                "dest_adapters": ["b"],
+                "source_room": "!room_a:test",
+                "source_channel": "ch-1",
+            })
+        msg = str(exc_info.value)
+        assert "'!room_a:test'" in msg
+        assert "'ch-1'" in msg
+
     def test_dest_room_dest_channel_conflict(self) -> None:
         with pytest.raises(ConfigValidationError, match="dest_room.*dest_channel.*differ"):
             RouteConfig.from_toml_dict("conflict", {
@@ -286,6 +309,19 @@ class TestRouteConfigValidation:
                 "dest_channel": "ch-2",
             })
 
+    def test_dest_room_dest_channel_conflict_names_values(self) -> None:
+        """Conflicting alias error names both fields and their values."""
+        with pytest.raises(ConfigValidationError) as exc_info:
+            RouteConfig.from_toml_dict("conflict", {
+                "source_adapters": ["a"],
+                "dest_adapters": ["b"],
+                "dest_room": "!room_b:test",
+                "dest_channel": "ch-2",
+            })
+        msg = str(exc_info.value)
+        assert "'!room_b:test'" in msg
+        assert "'ch-2'" in msg
+
     # --- unsupported policy field rejection ---
 
     def test_sender_allowlist_rejected(self) -> None:
@@ -294,6 +330,26 @@ class TestRouteConfigValidation:
                 "source_adapters": ["a"],
                 "dest_adapters": ["b"],
                 "policy": {"sender_allowlist": ["@alice:test"]},
+            })
+
+    def test_unsupported_policy_fields_names_field(self) -> None:
+        """Unsupported policy field error names the specific field."""
+        with pytest.raises(ConfigValidationError) as exc_info:
+            RouteConfig.from_toml_dict("bad", {
+                "source_adapters": ["a"],
+                "dest_adapters": ["b"],
+                "policy": {"sender_allowlist": ["@alice:test"]},
+            })
+        msg = str(exc_info.value)
+        assert "sender_allowlist" in msg
+
+    def test_unsupported_policy_fields_names_route(self) -> None:
+        """Unsupported policy field error names the route."""
+        with pytest.raises(ConfigValidationError, match="Route 'bad'"):
+            RouteConfig.from_toml_dict("bad", {
+                "source_adapters": ["a"],
+                "dest_adapters": ["b"],
+                "policy": {"room_allowlist": ["!room:test"]},
             })
 
     def test_allowed_source_adapters_rejected(self) -> None:

@@ -663,6 +663,10 @@ class TestCaptureRouteTopologyBasic:
         assert r["target_adapters"] == ["discord"]
         assert r["error_count"] == 0
         assert r["event_count"] == 0
+        assert r["delivered"] == 0
+        assert r["failed"] == 0
+        assert r["skipped"] == 0
+        assert r["loop_prevented"] == 0
 
     def test_disabled_route_counted(self) -> None:
         route = _make_route(route_id="r-disabled", enabled=False)
@@ -903,3 +907,170 @@ class TestRouteTopologyViaRuntimeSnapshot:
         r = topo["routes"][0]
         assert r["error_count"] == 0
         assert r["event_count"] == 0
+        assert r["delivered"] == 0
+        assert r["failed"] == 0
+        assert r["skipped"] == 0
+        assert r["loop_prevented"] == 0
+        assert "last_error" not in r
+
+
+# ===================================================================
+# Route topology with live RouteStats
+# ===================================================================
+
+
+class TestCaptureRouteTopologyWithStats:
+    """Route topology enriched with live RouteStats counters."""
+
+    def _make_stats(self) -> Any:
+        from medre.core.routing.stats import RouteStats
+
+        return RouteStats()
+
+    def test_enriched_counters_with_route_stats(self) -> None:
+        route = _make_route(route_id="r1")
+        router = Router(routes=[route])
+        stats = self._make_stats()
+        stats.record_delivered("r1")
+        stats.record_delivered("r1")
+        stats.record_failed("r1", "timeout")
+
+        topo = capture_route_topology(router, route_stats=stats)
+        r = topo["routes"][0]
+
+        assert r["delivered"] == 2
+        assert r["failed"] == 1
+        assert r["skipped"] == 0
+        assert r["loop_prevented"] == 0
+        assert r["error_count"] == 1
+        assert r["event_count"] == 2
+        assert r["last_error"] == "timeout"
+
+    def test_no_route_stats_gives_zeroed_counters(self) -> None:
+        route = _make_route(route_id="r1")
+        router = Router(routes=[route])
+        topo = capture_route_topology(router, route_stats=None)
+
+        r = topo["routes"][0]
+        assert r["delivered"] == 0
+        assert r["failed"] == 0
+        assert r["skipped"] == 0
+        assert r["loop_prevented"] == 0
+        assert "last_error" not in r
+
+    def test_unknown_route_in_stats_ignored(self) -> None:
+        """Stats for a route not in the router are silently ignored."""
+        route = _make_route(route_id="r1")
+        router = Router(routes=[route])
+        stats = self._make_stats()
+        stats.record_delivered("ghost-route")
+
+        topo = capture_route_topology(router, route_stats=stats)
+        r = topo["routes"][0]
+
+        assert r["delivered"] == 0
+        assert len(topo["routes"]) == 1
+
+    def test_multiple_routes_with_mixed_stats(self) -> None:
+        routes = [
+            _make_route(route_id="r1", source_adapter="m", target_adapter="d"),
+            _make_route(route_id="r2", source_adapter="m", target_adapter="d2"),
+        ]
+        router = Router(routes=routes)
+        stats = self._make_stats()
+        stats.record_delivered("r1")
+        stats.record_loop_prevented("r2")
+        stats.record_skipped("r2")
+
+        topo = capture_route_topology(router, route_stats=stats)
+        r1 = topo["routes"][0]
+        r2 = topo["routes"][1]
+
+        assert r1["delivered"] == 1
+        assert r1["failed"] == 0
+        assert r1["loop_prevented"] == 0
+        assert "last_error" not in r1
+
+        assert r2["delivered"] == 0
+        assert r2["loop_prevented"] == 1
+        assert r2["skipped"] == 1
+
+    def test_deterministic_with_route_stats(self) -> None:
+        route = _make_route(route_id="r1")
+        router = Router(routes=[route])
+        stats = self._make_stats()
+        stats.record_delivered("r1")
+        stats.record_failed("r1", "err")
+
+        topo1 = capture_route_topology(router, route_stats=stats)
+        topo2 = capture_route_topology(router, route_stats=stats)
+        assert topo1 == topo2
+
+    def test_json_safe_with_route_stats(self) -> None:
+        route = _make_route(route_id="r1")
+        router = Router(routes=[route])
+        stats = self._make_stats()
+        stats.record_delivered("r1")
+        stats.record_failed("r1", "timeout")
+
+        topo = capture_route_topology(router, route_stats=stats)
+        text = json.dumps(topo, sort_keys=True)
+        parsed = json.loads(text)
+        assert parsed == topo
+
+    def test_last_error_absent_when_no_failure(self) -> None:
+        """last_error key is absent when route has no failures."""
+        route = _make_route(route_id="r1")
+        router = Router(routes=[route])
+        stats = self._make_stats()
+        stats.record_delivered("r1")
+
+        topo = capture_route_topology(router, route_stats=stats)
+        assert "last_error" not in topo["routes"][0]
+
+
+class TestRuntimeSnapshotWithRouteStats:
+    """capture_runtime_snapshot passes route_stats through."""
+
+    def _make_stats(self) -> Any:
+        from medre.core.routing.stats import RouteStats
+
+        return RouteStats()
+
+    def test_snapshot_with_router_and_route_stats(self) -> None:
+        route = _make_route(route_id="r1")
+        router = Router(routes=[route])
+        stats = self._make_stats()
+        stats.record_delivered("r1")
+        stats.record_failed("r1", "err")
+
+        snap = capture_runtime_snapshot(router=router, route_stats=stats)
+        result = snap.to_dict()
+        r = result["route_topology"]["routes"][0]
+
+        assert r["delivered"] == 1
+        assert r["failed"] == 1
+        assert r["last_error"] == "err"
+
+    def test_snapshot_with_router_no_stats_zeroed(self) -> None:
+        route = _make_route(route_id="r1")
+        router = Router(routes=[route])
+
+        snap = capture_runtime_snapshot(router=router)
+        result = snap.to_dict()
+        r = result["route_topology"]["routes"][0]
+
+        assert r["delivered"] == 0
+        assert r["failed"] == 0
+        assert "last_error" not in r
+
+    def test_snapshot_deterministic_with_route_stats(self) -> None:
+        route = _make_route(route_id="r1")
+        router = Router(routes=[route])
+        stats = self._make_stats()
+        stats.record_delivered("r1")
+
+        snap = capture_runtime_snapshot(router=router, route_stats=stats)
+        d1 = snap.to_dict()
+        d2 = snap.to_dict()
+        assert d1 == d2

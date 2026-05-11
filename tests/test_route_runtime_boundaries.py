@@ -10,8 +10,11 @@ topology layer, complementing the cross-transport boundary tests:
 5. Codecs must remain pure (must not import routing or runtime).
 6. Renderers must not route (must not import routing modules).
 7. Runtime route models must remain transport-agnostic (no SDK imports).
+8. Route stats (RouteStats/RouteCounters) must not import SDKs or concrete adapters.
+9. Route attribution metadata must not leak into adapter/SDK boundaries.
 
-See: Contract 49 (Routing and Bridge), Contract 50 (Runtime Topology).
+See: Contract 49 (Routing and Bridge), Contract 50 (Runtime Topology),
+     Contract 51 (Route Attribution), Contract 52 (Routed Delivery Result).
 """
 
 from __future__ import annotations
@@ -499,3 +502,194 @@ class TestRouteModelTransportAgnosticism:
                 f"{route_model_module.__name__} references nio "
                 f"in: {line!r}"
             )
+
+
+# ===================================================================
+# Boundary 8: Route stats must not import SDKs or concrete adapters
+# ===================================================================
+
+
+class TestRouteStatsBoundary:
+    """RouteStats / RouteCounters must not import SDKs or concrete adapters."""
+
+    _STATS_MODULE = "medre.core.routing.stats"
+
+    @pytest.fixture()
+    def stats_module(self):
+        mod = _load_module(self._STATS_MODULE)
+        if mod is None:
+            pytest.skip(f"{self._STATS_MODULE} not importable")
+        return mod
+
+    def test_stats_does_not_import_sdks(self, stats_module) -> None:
+        """stats.py must not import transport SDK packages."""
+        source = _read_module_source(stats_module)
+        for line in _import_lines(source):
+            for sdk in _SDK_PACKAGES:
+                assert not (
+                    line.startswith(f"import {sdk}")
+                    or line.startswith(f"from {sdk}")
+                ), (
+                    f"{stats_module.__name__} imports SDK {sdk!r} "
+                    f"in: {line!r}"
+                )
+
+    def test_stats_does_not_import_concrete_adapters(
+        self, stats_module
+    ) -> None:
+        """stats.py must not import concrete adapter packages."""
+        source = _read_module_source(stats_module)
+        for line in _import_lines(source):
+            for prefix in _CONCRETE_ADAPTER_PREFIXES:
+                assert prefix not in line, (
+                    f"{stats_module.__name__} imports concrete adapter "
+                    f"in: {line!r}"
+                )
+
+    def test_stats_does_not_import_adapter_base(
+        self, stats_module
+    ) -> None:
+        """stats.py must not import medre.adapters.* at all."""
+        source = _read_module_source(stats_module)
+        for line in _import_lines(source):
+            assert "medre.adapters" not in line, (
+                f"{stats_module.__name__} imports adapter module "
+                f"in: {line!r}"
+            )
+
+    def test_stats_classes_exist_and_accept_strings(
+        self, stats_module
+    ) -> None:
+        """RouteStats and RouteCounters must be importable and use plain strings."""
+        assert hasattr(stats_module, "RouteStats"), (
+            f"{stats_module.__name__} has no RouteStats class"
+        )
+        assert hasattr(stats_module, "RouteCounters"), (
+            f"{stats_module.__name__} has no RouteCounters class"
+        )
+
+        # RouteStats.record_* methods accept plain str route_id.
+        rs = stats_module.RouteStats()
+        rs.record_delivered("test_route")
+        rs.record_failed("test_route", "some error")
+        rs.record_skipped("test_route")
+        rs.record_loop_prevented("test_route")
+
+        snap = rs.snapshot()
+        assert "test_route" in snap
+        assert snap["test_route"]["delivered"] == 1
+        assert snap["test_route"]["failed"] == 1
+        assert snap["test_route"]["skipped"] == 1
+        assert snap["test_route"]["loop_prevented"] == 1
+        assert snap["test_route"]["last_error"] == "some error"
+
+
+# ===================================================================
+# Boundary 9: Route attribution must not leak into adapter boundaries
+# ===================================================================
+
+
+_ATTRIBUTION_FIELDS = (
+    "route_trace",
+    "route_id",
+    "matched_routes",
+    "ReplayRouteAttribution",
+    "route_attribution",
+)
+"""Route attribution field / class names that must not appear in adapter imports."""
+
+
+class TestAttributionLeakageBoundary:
+    """Route attribution metadata must not leak into adapter/SDK boundaries.
+
+    Adapters must not import or reference routing attribution types from
+    the routing or metadata modules.  Attribution is orchestration-layer
+    metadata consumed by the pipeline, not by adapters.
+    """
+
+    @pytest.fixture(params=_ADAPTER_TRANSPORTS)
+    def transport(self, request):
+        return request.param
+
+    def test_adapter_modules_do_not_import_routing_metadata(
+        self, transport
+    ) -> None:
+        """Adapter modules must not import RoutingMetadata directly."""
+        modules = _adapter_modules(transport)
+        violations: list[str] = []
+        for mod_name in modules:
+            mod = _load_module(mod_name)
+            if mod is None:
+                continue
+            source = _read_module_source(mod)
+            for line in _import_lines(source):
+                if "RoutingMetadata" in line:
+                    violations.append(
+                        f"{mod_name} imports RoutingMetadata in: {line!r}"
+                    )
+        assert not violations, (
+            "Adapter RoutingMetadata import violations:\n"
+            + "\n".join(violations)
+        )
+
+    def test_adapter_modules_do_not_import_route_stats(
+        self, transport
+    ) -> None:
+        """Adapter modules must not import RouteStats or RouteCounters."""
+        modules = _adapter_modules(transport)
+        violations: list[str] = []
+        for mod_name in modules:
+            mod = _load_module(mod_name)
+            if mod is None:
+                continue
+            source = _read_module_source(mod)
+            for line in _import_lines(source):
+                if "RouteStats" in line or "RouteCounters" in line:
+                    violations.append(
+                        f"{mod_name} references route stats in: {line!r}"
+                    )
+        assert not violations, (
+            "Adapter route stats import violations:\n"
+            + "\n".join(violations)
+        )
+
+    def test_adapter_base_does_not_reference_route_trace(
+        self,
+    ) -> None:
+        """medre.adapters.base must not reference route_trace attribution."""
+        mod = _load_module("medre.adapters.base")
+        if mod is None:
+            pytest.skip("medre.adapters.base not importable")
+        source = _read_module_source(mod)
+        # Only check import lines — the word may appear in docstrings.
+        for line in _import_lines(source):
+            assert "route_trace" not in line, (
+                f"adapters.base references route_trace in: {line!r}"
+            )
+            assert "route_attribution" not in line, (
+                f"adapters.base references route_attribution in: {line!r}"
+            )
+
+    def test_adapter_delivery_result_does_not_carry_route_id(
+        self,
+    ) -> None:
+        """AdapterDeliveryResult must not have a route_id field.
+
+        Route attribution is added by the pipeline on DeliveryReceipt and
+        DeliveryOutcome, not on AdapterDeliveryResult returned by adapters.
+        """
+        mod = _load_module("medre.adapters.base")
+        if mod is None:
+            pytest.skip("medre.adapters.base not importable")
+        assert hasattr(mod, "AdapterDeliveryResult"), (
+            "medre.adapters.base has no AdapterDeliveryResult"
+        )
+        result = mod.AdapterDeliveryResult()
+        assert not hasattr(result, "route_id"), (
+            "AdapterDeliveryResult must not carry route_id — "
+            "attribution belongs on DeliveryReceipt / DeliveryOutcome"
+        )
+        assert not hasattr(result, "route_trace"), (
+            "AdapterDeliveryResult must not carry route_trace — "
+            "attribution belongs on RoutingMetadata"
+        )

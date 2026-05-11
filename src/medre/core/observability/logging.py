@@ -8,6 +8,10 @@ Public symbols
 --------------
 * :func:`setup_logging` – configure the root framework logger.
 * :func:`get_logger` – obtain a child logger within the framework namespace.
+* :func:`log_route_matched` – log that a route was matched for an event.
+* :func:`log_route_delivered` – log successful delivery to a route.
+* :func:`log_route_failed` – log failed delivery to a route.
+* :func:`log_route_loop_prevented` – log loop-prevention skip.
 """
 
 from __future__ import annotations
@@ -226,4 +230,110 @@ def diagnostic_event(
         " ".join(f"{k}={v!r}" for k, v in safe_context.items())
         if safe_context
         else "",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Route-aware logging
+# ---------------------------------------------------------------------------
+
+
+_route_logger = logging.getLogger("medre.route")
+
+
+def _sanitize_error(error: str) -> str:
+    """Return a sanitized version of *error* safe for log output.
+
+    Strips any value that looks like a token, API key, or password from
+    the error string.  This is a best-effort, string-level guard that
+    complements the structured-field redaction in :func:`_redact_context`.
+    """
+    import re as _re
+
+    sanitized = error
+    for pattern in (
+        r"token[=:]\s*\S+",
+        r"api_key[=:]\s*\S+",
+        r"password[=:]\s*\S+",
+        r"secret[=:]\s*\S+",
+        r"credential[=:]\s*\S+",
+    ):
+        sanitized = _re.sub(pattern, "[REDACTED]", sanitized, flags=_re.IGNORECASE)
+    return sanitized
+
+
+def log_route_matched(*, route_id: str, event_id: str) -> None:
+    """Log that an event was matched to a route.
+
+    Parameters
+    ----------
+    route_id:
+        The route that matched.
+    event_id:
+        The canonical event ID being dispatched.
+    """
+    _route_logger.debug(
+        "route_matched route_id=%s event_id=%s",
+        route_id,
+        event_id,
+    )
+
+
+def log_route_delivered(*, route_id: str, event_id: str) -> None:
+    """Log successful delivery to a route.
+
+    Parameters
+    ----------
+    route_id:
+        The route that was delivered to.
+    event_id:
+        The canonical event ID that was delivered.
+    """
+    _route_logger.debug(
+        "route_delivered route_id=%s event_id=%s",
+        route_id,
+        event_id,
+    )
+
+
+def log_route_failed(
+    *,
+    route_id: str,
+    event_id: str,
+    error: str,
+) -> None:
+    """Log a failed delivery to a route.
+
+    Parameters
+    ----------
+    route_id:
+        The route that failed.
+    event_id:
+        The canonical event ID that failed.
+    error:
+        Human-readable error description.  Sanitised before logging.
+    """
+    safe_error = _sanitize_error(error)
+    _route_logger.warning(
+        "route_failed route_id=%s event_id=%s error=%s",
+        route_id,
+        event_id,
+        safe_error,
+    )
+
+
+def log_route_loop_prevented(*, route_id: str, event_id: str) -> None:
+    """Log that a delivery was skipped due to loop prevention.
+
+    Parameters
+    ----------
+    route_id:
+        The route whose delivery was prevented.
+    event_id:
+        The canonical event ID that triggered the loop guard.
+    """
+    _route_logger.warning(
+        "route_loop_prevented route_id=%s event_id=%s",
+        route_id,
+        event_id,
     )

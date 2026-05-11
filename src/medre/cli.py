@@ -218,7 +218,13 @@ def _config_check(config_path: str | None) -> None:
             direction = route.directionality.value
             sources = ", ".join(route.source_adapters)
             dests = ", ".join(route.dest_adapters)
-            print(f"  {route.route_id}: {status}  ({sources} --{direction}--> {dests})")
+            on_off = "[ON]" if route.enabled else "[OFF]"
+            print(f"  {on_off} {route.route_id}: {status}  ({sources} --{direction}--> {dests})")
+
+        route_enabled = sum(1 for r in route_list if r.enabled)
+        route_disabled = len(route_list) - route_enabled
+        print()
+        print(f"  {len(route_list)} route(s) configured ({route_enabled} enabled, {route_disabled} disabled)")
 
     # --- Summary ---
     print()
@@ -227,8 +233,8 @@ def _config_check(config_path: str | None) -> None:
     else:
         print("Config valid")
     print(f"  {enabled_count}/{total} adapter(s) enabled")
-    route_enabled = sum(1 for r in route_list if r.enabled)
     if route_list:
+        route_enabled = sum(1 for r in route_list if r.enabled)
         print(f"  {route_enabled}/{len(route_list)} route(s) active")
 
 
@@ -293,22 +299,32 @@ def _routes_validate(config_path: str | None) -> None:
     for _transport, adapter_id, rtc in config.adapters.all_configs():
         known_adapter_ids.add(adapter_id)
 
+    # Group issues by route for clearer per-route reporting.
+    route_warnings: dict[str, list[str]] = {}
+    route_errors: dict[str, list[str]] = {}
+
     for route in route_list:
         rid = route.route_id
         section = f"routes.{rid}"
+        rw: list[str] = []
+        re_list: list[str] = []
 
         # Check source adapters exist in config
         for sa in route.source_adapters:
             if sa not in known_adapter_ids:
-                warnings.append(
-                    f"{section}: source adapter {sa!r} not found in configured adapters"
+                rw.append(
+                    f"source adapter {sa!r} is not defined in any "
+                    f"[adapters.<transport>.{sa}] section. "
+                    f"Known adapter IDs: {sorted(known_adapter_ids) or '(none)'}"
                 )
 
         # Check dest adapters exist in config
         for da in route.dest_adapters:
             if da not in known_adapter_ids:
-                warnings.append(
-                    f"{section}: dest adapter {da!r} not found in configured adapters"
+                rw.append(
+                    f"dest adapter {da!r} is not defined in any "
+                    f"[adapters.<transport>.{da}] section. "
+                    f"Known adapter IDs: {sorted(known_adapter_ids) or '(none)'}"
                 )
 
         # Check enabled routes have at least one enabled source and dest
@@ -317,13 +333,18 @@ def _routes_validate(config_path: str | None) -> None:
             has_enabled_source = any(a in enabled_ids for a in route.source_adapters)
             has_enabled_dest = any(a in enabled_ids for a in route.dest_adapters)
             if not has_enabled_source:
-                warnings.append(
-                    f"{section}: no enabled source adapters"
+                rw.append(
+                    "no enabled source adapters — all source adapter(s) are disabled"
                 )
             if not has_enabled_dest:
-                warnings.append(
-                    f"{section}: no enabled destination adapters"
+                rw.append(
+                    "no enabled destination adapters — all dest adapter(s) are disabled"
                 )
+
+        if rw:
+            route_warnings[rid] = rw
+        if re_list:
+            route_errors[rid] = re_list
 
     # Validate route expansion and expanded ID uniqueness (matches startup).
     from medre.runtime.route_engine import (
@@ -337,27 +358,35 @@ def _routes_validate(config_path: str | None) -> None:
 
     # Print route-by-route summary
     for route in route_list:
+        rid = route.route_id
         status = "enabled" if route.enabled else "disabled"
         direction = route.directionality.value
         sources = ", ".join(route.source_adapters)
         dests = ", ".join(route.dest_adapters)
-        print(f"  {route.route_id}: {status}  ({sources} --{direction}--> {dests})")
+        marker = "[ON]" if route.enabled else "[OFF]"
+        print(f"  {marker} {rid}: {status}  ({sources} --{direction}--> {dests})")
 
-    if warnings:
-        print()
-        print("Warnings:")
-        for w in warnings:
-            print(f"  \u26a0 {w}")
+        # Print per-route warnings grouped under the route
+        if rid in route_warnings:
+            for w in route_warnings[rid]:
+                print(f"       \u26a0 {w}")
 
+    # Print cross-route errors (e.g. expansion failures)
     if errors:
         print()
         print("Errors:")
         for e in errors:
             print(f"  \u2717 {e}")
+
+    all_warnings = [w for ws in route_warnings.values() for w in ws]
+    total_warnings = len(all_warnings)
+    total_errors = len(errors)
+
+    if total_errors:
         sys.exit(1)
-    elif warnings:
+    elif total_warnings:
         print()
-        print(f"Routes valid with {len(warnings)} warning(s)")
+        print(f"Routes valid with {total_warnings} warning(s)")
     else:
         print()
         print("Routes valid")
@@ -423,9 +452,9 @@ def _routes_topology(config_path: str | None) -> None:
             targets.append(f"dst_ch={route.dest_channel}")
         target_str = f"  [{', '.join(targets)}]" if targets else ""
 
-        status_mark = "" if route.enabled else "  (disabled)"
+        on_off = "[ON]" if route.enabled else "[OFF]"
 
-        print(f"  [{rid}]{status_mark}")
+        print(f"  {on_off} {rid}")
         print(f"    {source_str} {arrow} {dest_str}{target_str}")
 
         # Policy summary

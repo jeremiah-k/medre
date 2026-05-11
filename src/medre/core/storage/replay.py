@@ -264,6 +264,21 @@ class ReplayRequest:
         include the ``deliver`` stage (BEST_EFFORT, DRY_RUN).  Events
         whose delivery plans target adapters not in this list have their
         deliver stage result set to ``"skipped"``.
+    route_ids:
+        Restrict routing to only these route IDs.  ``()`` (empty) means
+        all routes are considered (backward compatible).  When non-empty,
+        only routes whose ``id`` appears in this tuple are used during
+        replay.  If a requested route ID is disabled or does not match
+        the event, a warning is recorded in the route attribution.
+    run_id:
+        Optional operator-assigned identifier for this replay execution.
+        When set, it is recorded in :class:`ReplayRouteAttribution` and
+        :class:`ReplaySummary` so operators can correlate replay runs.
+
+        **Idempotency note:** Replay may intentionally redeliver events.
+        Duplicate-send risk exists by design for mesh/radio transports
+        where at-least-once delivery is the norm.  Operators should use
+        ``run_id`` to track and deduplicate at the application layer.
     """
 
     time_start: datetime | None = None
@@ -275,6 +290,8 @@ class ReplayRequest:
     mode: ReplayMode = ReplayMode.STRICT
     limit: int = 1000
     target_adapters: list[str] | None = None
+    route_ids: tuple[str, ...] = ()
+    run_id: str = ""
 
 
 @dataclass
@@ -344,6 +361,11 @@ class ReplayRouteAttribution:
     loop_warnings:
         Tuple of human-readable loop-prevention warnings, if any routes
         were skipped.  Empty when no loops were detected.
+    run_id:
+        Operator-assigned identifier for the replay execution that
+        produced this attribution.  Empty string when not provided.
+        Use this to correlate replay runs and deduplicate at the
+        application layer.
     """
 
     route_ids: tuple[str, ...] = ()
@@ -352,6 +374,7 @@ class ReplayRouteAttribution:
     replay_mode: str = ""
     is_replay: bool = True
     loop_warnings: tuple[str, ...] = ()
+    run_id: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-safe, deterministic representation."""
@@ -360,6 +383,7 @@ class ReplayRouteAttribution:
             "loop_warnings": list(self.loop_warnings),
             "replay_mode": self.replay_mode,
             "route_ids": list(self.route_ids),
+            "run_id": self.run_id,
             "source_adapter": self.source_adapter,
             "target_adapters": list(self.target_adapters),
         }
@@ -490,6 +514,16 @@ class ReplaySummary:
         :data:`_MAX_SUMMARY_ERRORS` entries, each capped at
         :data:`_MAX_ERROR_LENGTH` characters).  Empty list when no
         errors occurred.
+    by_route:
+        Per-route event counts.  Maps route_id to a dict with keys
+        ``"events"`` (total events replayed through this route),
+        ``"succeeded"`` (route-stage status ``"passed"``), and
+        ``"failed"`` (route-stage status ``"failed"`` or ``"error"``).
+        Empty when no route-stage results were produced.
+    run_id:
+        Operator-assigned identifier for this replay execution.
+        Empty string when not provided.  Matches the ``run_id`` in
+        :class:`ReplayRouteAttribution` for cross-referencing.
     mode:
         The :class:`ReplayMode` used, if known.  ``None`` when not
         provided.
@@ -504,6 +538,8 @@ class ReplaySummary:
     by_status: dict[str, int] = field(default_factory=dict)
     by_stage: dict[str, int] = field(default_factory=dict)
     errors: tuple[str, ...] = ()
+    by_route: dict[str, dict[str, int]] = field(default_factory=dict)
+    run_id: str = ""
     mode: ReplayMode | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -513,6 +549,10 @@ class ReplaySummary:
         sort_keys=True)`` and has stable key ordering.
         """
         return {
+            "by_route": {
+                rid: dict(sorted(counts.items()))
+                for rid, counts in sorted(self.by_route.items())
+            },
             "by_stage": dict(sorted(self.by_stage.items())),
             "by_status": {
                 "error": self.by_status.get("error", 0),
@@ -527,6 +567,7 @@ class ReplaySummary:
             "failure_count": self.failure_count,
             "mode": self.mode.value if self.mode is not None else None,
             "route_resolution_count": self.route_resolution_count,
+            "run_id": self.run_id,
             "skipped_count": self.skipped_count,
         }
 
@@ -537,6 +578,7 @@ def _build_summary(
     events_scanned: int = 0,
     elapsed_ms: float = 0.0,
     mode: ReplayMode | None = None,
+    run_id: str = "",
 ) -> ReplaySummary:
     """Build an immutable :class:`ReplaySummary` from a list of results.
 
@@ -555,11 +597,15 @@ def _build_summary(
         Wall-clock duration in milliseconds.  ``0.0`` if unknown.
     mode:
         The replay mode used.  ``None`` if unknown.
+    run_id:
+        Operator-assigned identifier for this replay.  ``""`` if
+        unknown.
     """
     by_status: dict[str, int] = {"passed": 0, "skipped": 0, "failed": 0, "error": 0}
     by_stage: dict[str, int] = {}
     errors: list[str] = []
     route_resolution_count = 0
+    by_route: dict[str, dict[str, int]] = {}
 
     for result in results:
         # Status counts
@@ -583,6 +629,20 @@ def _build_summary(
                 if isinstance(result.output, list) and len(result.output) > 0:
                     route_resolution_count += 1
 
+        # Per-route counts from route_attribution.
+        if result.stage == "route" and result.route_attribution is not None:
+            attr = result.route_attribution
+            is_success = result.status == "passed"
+            is_failure = result.status in ("failed", "error")
+            for rid in attr.route_ids:
+                if rid not in by_route:
+                    by_route[rid] = {"events": 0, "succeeded": 0, "failed": 0}
+                by_route[rid]["events"] += 1
+                if is_success:
+                    by_route[rid]["succeeded"] += 1
+                elif is_failure:
+                    by_route[rid]["failed"] += 1
+
     events_replayed = len(results)
     skipped_count = by_status["skipped"]
     failure_count = by_status["failed"] + by_status["error"]
@@ -597,6 +657,8 @@ def _build_summary(
         by_status=by_status,
         by_stage=by_stage,
         errors=tuple(errors),
+        by_route=by_route,
+        run_id=run_id,
         mode=mode,
     )
 
@@ -607,6 +669,7 @@ async def collect_replay_summary(
     events_scanned: int | None = None,
     elapsed_ms: float | None = None,
     mode: ReplayMode | None = None,
+    run_id: str = "",
 ) -> ReplaySummary:
     """Consume *results* and return an immutable :class:`ReplaySummary`.
 
@@ -624,6 +687,9 @@ async def collect_replay_summary(
         Wall-clock duration in milliseconds.  ``None`` → ``0.0``.
     mode:
         The :class:`ReplayMode` used.  ``None`` if unknown.
+    run_id:
+        Operator-assigned identifier for this replay.  ``""`` if
+        unknown.
 
     Returns
     -------
@@ -648,6 +714,7 @@ async def collect_replay_summary(
         events_scanned=events_scanned_val,
         elapsed_ms=elapsed_ms if elapsed_ms is not None else 0.0,
         mode=mode,
+        run_id=run_id,
     )
 
 
@@ -724,12 +791,20 @@ def _verify_immutability(original: CanonicalEvent, event_id: str) -> None:
     historical canonical events during replay.  Since ``CanonicalEvent``
     uses ``frozen=True`` (msgspec Struct), any in-place mutation raises
     ``FrozenInstanceError`` at the point of attempted mutation.  This
-    function provides an explicit checkpoint for diagnostic purposes.
+    function provides an explicit checkpoint for diagnostic purposes
+    and verifies that key identity fields remain stable.
+
+    Replay must never mutate historical CanonicalEvents.  This guarantee
+    holds across all replay modes — even BEST_EFFORT reads events from
+    storage without modification.
     """
     # The frozen=True on CanonicalEvent prevents mutation at the
-    # Python level.  This function serves as a documentation point
-    # and future hook for deep-comparison checks if needed.
-    pass
+    # Python level.  This function verifies key identity fields are
+    # present as an additional guard.
+    assert original.event_id == event_id, (
+        f"Event ID mismatch during immutability check: "
+        f"{original.event_id!r} != {event_id!r}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -990,7 +1065,7 @@ class ReplayEngine:
                 result = await self._stage_store(event)
             elif stage == "route":
                 result, route_result = await self._stage_route(
-                    event, mode=mode,
+                    event, request=request,
                 )
             elif stage == "plan":
                 result, plan_result = await self._stage_plan(
@@ -1077,7 +1152,7 @@ class ReplayEngine:
             )
 
     async def _stage_route(
-        self, event: CanonicalEvent, *, mode: ReplayMode = ReplayMode.STRICT,
+        self, event: CanonicalEvent, *, request: ReplayRequest,
     ) -> tuple[ReplayResult, list[tuple[Any, list[Any]]] | None]:
         """Route *event* against current routes.
 
@@ -1092,8 +1167,22 @@ class ReplayEngine:
         A replay loop is detected when a route would deliver back to the
         event's ``source_adapter`` or when the event's lineage / routing
         metadata indicates it was already routed through the same route.
+
+        When ``request.route_ids`` is non-empty, only routes whose IDs
+        appear in the set are used.  If a requested route ID was not
+        found among the matched routes (e.g. because it is disabled or
+        does not match the event's source), a warning is recorded in
+        the route attribution's ``loop_warnings``.
+
+        Disabled routes are automatically excluded by the router's
+        ``match()`` method.  When a route is explicitly requested via
+        ``route_ids`` but is disabled, a warning is emitted since the
+        router will not return it.
         """
         t0 = time.monotonic()
+        mode = request.mode
+        requested_route_ids = request.route_ids
+        run_id = request.run_id
         if self._pipeline is None:
             return (
                 ReplayResult(
@@ -1107,6 +1196,31 @@ class ReplayEngine:
             )
         try:
             routes = await self._pipeline.route_event(event)
+
+            # Filter by explicit route_ids when provided.
+            if requested_route_ids:
+                allowed = set(requested_route_ids)
+                routes = [
+                    (r, t) for r, t in routes
+                    if getattr(r, "id", None) in allowed
+                ]
+                # Warn about requested route IDs not found among matched
+                # routes.  This covers disabled routes (the router won't
+                # return them) and routes that don't match the event's
+                # source filter.
+                found_ids = {
+                    getattr(r, "id", None) for r, _ in routes
+                }
+                missing = allowed - found_ids
+                if missing and self._diagnostician is not None:
+                    for mid in sorted(missing):
+                        self._diagnostician.record_replay_skip(
+                            event.event_id,
+                            f"Requested route_id {mid!r} not found in "
+                            f"matched routes (may be disabled or "
+                            f"source filter mismatch)",
+                        )
+
             if not routes:
                 if self._diagnostician is not None:
                     self._diagnostician.record_replay_skip(
@@ -1115,6 +1229,7 @@ class ReplayEngine:
                 attribution = ReplayRouteAttribution(
                     source_adapter=event.source_adapter,
                     replay_mode=mode.value,
+                    run_id=run_id,
                 )
                 return (
                     ReplayResult(
@@ -1125,7 +1240,7 @@ class ReplayEngine:
                         duration_ms=_elapsed_ms(t0),
                         route_attribution=attribution,
                     ),
-                    routes,
+                    routes if routes else [],
                 )
 
             # Route-aware loop prevention: filter routes that would
@@ -1153,6 +1268,7 @@ class ReplayEngine:
                 target_adapters=tuple(target_adapters),
                 replay_mode=mode.value,
                 loop_warnings=tuple(loop_warnings),
+                run_id=run_id,
             )
 
             if not filtered_routes:

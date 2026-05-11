@@ -243,6 +243,12 @@ class TestRoutesValidate:
         assert "bidirectional_bridge: enabled" in output
         assert "Routes valid" in output
 
+    def test_validate_shows_on_off_markers(self, config_with_routes: Path) -> None:
+        """Validate output includes [ON]/[OFF] per route."""
+        output = _run_cli("routes", "validate", "--config", str(config_with_routes))
+        assert "[ON]" in output
+        assert "[OFF]" in output
+
     def test_validate_no_routes(self, config_no_routes: Path) -> None:
         output = _run_cli("routes", "validate", "--config", str(config_no_routes))
         assert "No routes configured" in output
@@ -256,13 +262,53 @@ class TestRoutesValidate:
         self, config_unknown_adapters: Path
     ) -> None:
         output = _run_cli("routes", "validate", "--config", str(config_unknown_adapters))
-        assert "Warning" in output
+        assert "Warning" in output or "\u26a0" in output
         assert "nonexistent" in output
         assert "also_missing" in output
+        # Improved: should mention the route and section path
+        assert "routes.orphan_route" in output or "orphan_route" in output
+
+    def test_validate_unknown_adapter_names_specific_id(
+        self, config_unknown_adapters: Path
+    ) -> None:
+        """Unknown adapter warnings name the specific adapter ID."""
+        output = _run_cli("routes", "validate", "--config", str(config_unknown_adapters))
+        # Should mention 'nonexistent' as a source adapter problem
+        assert "source adapter" in output or "source" in output
+        assert "'nonexistent'" in output
+        # Should mention 'also_missing' as a dest adapter problem
+        assert "dest adapter" in output or "dest" in output
+        assert "'also_missing'" in output
+
+    def test_validate_shows_known_adapter_ids(
+        self, config_unknown_adapters: Path
+    ) -> None:
+        """Unknown adapter warnings mention the known adapter IDs for guidance."""
+        output = _run_cli("routes", "validate", "--config", str(config_unknown_adapters))
+        assert "Known adapter IDs" in output
+        assert "main" in output
 
     def test_validate_minimal_config(self, config_minimal: Path) -> None:
         output = _run_cli("routes", "validate", "--config", str(config_minimal))
         assert "No routes configured" in output
+
+    def test_validate_groups_warnings_by_route(
+        self, config_unknown_adapters: Path
+    ) -> None:
+        """Warnings are shown grouped under their route, not flat-listed."""
+        output = _run_cli("routes", "validate", "--config", str(config_unknown_adapters))
+        lines = output.splitlines()
+        # Find the orphan_route line
+        orphan_line_idx = None
+        for i, line in enumerate(lines):
+            if "orphan_route" in line:
+                orphan_line_idx = i
+                break
+        assert orphan_line_idx is not None
+        # The next lines should contain the warnings for this route
+        following = "\n".join(lines[orphan_line_idx:])
+        assert "nonexistent" in following
+        assert "also_missing" in following
 
     def test_validate_missing_config_file(self, tmp_path: Path) -> None:
         with pytest.raises(SystemExit):
@@ -299,8 +345,17 @@ class TestRoutesTopology:
 
     def test_topology_disabled_route(self, config_with_routes: Path) -> None:
         output = _run_cli("routes", "topology", "--config", str(config_with_routes))
-        # radio_to_matrix is disabled
-        assert "disabled" in output
+        # radio_to_matrix is disabled — should show [OFF] marker
+        assert "[OFF]" in output
+        assert "disabled" not in output or "radio_to_matrix" in output
+
+    def test_topology_enabled_disabled_markers(
+        self, config_with_routes: Path
+    ) -> None:
+        """Topology uses [ON] and [OFF] prefixes for routes."""
+        output = _run_cli("routes", "topology", "--config", str(config_with_routes))
+        assert "[ON]" in output
+        assert "[OFF]" in output
 
     def test_topology_targeting_fields(
         self, config_with_routes: Path
@@ -425,11 +480,26 @@ class TestConfigCheckRoutes:
         assert "radio_to_matrix: disabled" in output
         assert "Config valid" in output
 
+    def test_config_check_route_on_off_markers(
+        self, config_with_routes: Path
+    ) -> None:
+        """Config check route inventory shows [ON]/[OFF] markers."""
+        output = _run_cli("config", "check", "--config", str(config_with_routes))
+        assert "[ON]" in output
+        assert "[OFF]" in output
+
     def test_config_check_route_summary_count(
         self, config_with_routes: Path
     ) -> None:
         output = _run_cli("config", "check", "--config", str(config_with_routes))
         assert "2/3 route(s) active" in output
+
+    def test_config_check_route_enabled_disabled_summary(
+        self, config_with_routes: Path
+    ) -> None:
+        """Config check includes N route(s) configured (M enabled, K disabled)."""
+        output = _run_cli("config", "check", "--config", str(config_with_routes))
+        assert "3 route(s) configured (2 enabled, 1 disabled)" in output
 
     def test_config_check_no_routes(self, config_no_routes: Path) -> None:
         output = _run_cli("config", "check", "--config", str(config_no_routes))
@@ -486,3 +556,42 @@ class TestSampleConfig:
         assert "source_adapters" in output
         assert "dest_adapters" in output
         assert "directionality" in output
+
+    def test_sample_includes_active_bridge_example(self) -> None:
+        """Sample includes a clear Matrix <-> Meshtastic bridge example."""
+        output = _run_cli("config", "sample")
+        assert "matrix_radio_bridge" in output
+        assert "bidirectional" in output
+
+    def test_sample_includes_disabled_route_example(self) -> None:
+        """Sample includes a commented-out disabled route example."""
+        output = _run_cli("config", "sample")
+        assert "enabled = false" in output
+
+    def test_sample_includes_fanout_example(self) -> None:
+        """Sample includes a commented-out Matrix hub fan-out example."""
+        output = _run_cli("config", "sample")
+        assert "fanout" in output
+
+    def test_sample_includes_targeting_example(self) -> None:
+        """Sample includes a commented-out route with channel/room targeting."""
+        output = _run_cli("config", "sample")
+        assert "dest_channel" in output
+        assert "source_room" in output
+
+    def test_sample_routes_field_documentation(self) -> None:
+        """Sample documents required vs optional route fields."""
+        output = _run_cli("config", "sample")
+        assert "Required fields" in output or "required" in output.lower()
+
+    def test_sample_no_yaml(self) -> None:
+        """Sample must not contain YAML syntax markers."""
+        output = _run_cli("config", "sample")
+        # The sample uses TOML array syntax, not YAML "- " list markers
+        # at the start of lines for route data.
+        for line in output.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("- ") and "=" not in stripped:
+                # YAML list items won't have "=" in them; TOML arrays are
+                # inline like ["a", "b"]
+                pytest.fail(f"Sample appears to contain YAML-style list: {line!r}")

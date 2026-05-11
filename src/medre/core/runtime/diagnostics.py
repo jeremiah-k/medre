@@ -17,7 +17,9 @@ The snapshot contains:
 * **Route topology** – topology-aware route diagnostics from
   :class:`~medre.core.routing.router.Router`, including per-route
   identity, source/target topology, enabled/disabled counts,
-  adapter-route relationships, and zeroed error/event counters.
+  adapter-route relationships, and live delivery counters when
+  :class:`~medre.core.routing.stats.RouteStats` is provided (or
+  zeroed defaults when absent).
 * **Queue / backpressure / task placeholders** – sentinel-only
   ``{"status": "not_yet_implemented"}`` dicts (no real infrastructure).
 
@@ -108,7 +110,8 @@ class RuntimeSnapshot:
     replay_backend_status:
         Placeholder or summary for the replay backend.
     route_topology:
-        Topology-aware route diagnostics from the Router, or placeholder.
+        Topology-aware route diagnostics from the Router, including
+        live per-route counters when RouteStats is provided.
     queue_status:
         Placeholder (not yet implemented).
     backpressure_status:
@@ -179,6 +182,7 @@ def capture_runtime_snapshot(
     storage_status: dict[str, Any] | None = None,
     replay_status: dict[str, Any] | None = None,
     router: _RouterLike | None = None,
+    route_stats: Any | None = None,
 ) -> RuntimeSnapshot:
     """Build a deterministic runtime diagnostic snapshot.
 
@@ -208,6 +212,10 @@ def capture_runtime_snapshot(
         Optional :class:`~medre.core.routing.router.Router`.  When
         provided, :func:`capture_route_topology` builds a topology-aware
         snapshot of all registered routes.
+    route_stats:
+        Optional :class:`~medre.core.routing.stats.RouteStats`.  When
+        provided alongside *router*, live per-route counters are
+        included in the route topology snapshot.
 
     Returns
     -------
@@ -245,7 +253,7 @@ def capture_runtime_snapshot(
 
     # -- Route topology -----------------------------------------------------
     if router is not None:
-        route_topology_dict = capture_route_topology(router)
+        route_topology_dict = capture_route_topology(router, route_stats=route_stats)
     else:
         route_topology_dict = dict(_NOT_YET_IMPLEMENTED)
 
@@ -289,7 +297,10 @@ def _route_target_to_dict(target: Any) -> dict[str, Any]:
     return result
 
 
-def capture_route_topology(router: _RouterLike) -> dict[str, Any]:
+def capture_route_topology(
+    router: _RouterLike,
+    route_stats: Any | None = None,
+) -> dict[str, Any]:
     """Build a deterministic, JSON-safe route topology snapshot.
 
     This is a **pure, observational** function: it reads the current
@@ -297,9 +308,7 @@ def capture_route_topology(router: _RouterLike) -> dict[str, Any]:
     dictionary.  It does **not** modify the router, perform I/O, or
     create new mutable global state.
 
-    Because the :class:`~medre.core.routing.router.Router` does not
-    currently track live event dispatch counters or error counters,
-    this function exposes:
+    This function exposes:
 
     * **Static topology** – route identities, source specs, target
       adapters, enabled/disabled state, ownership, and fanout strategy.
@@ -307,8 +316,12 @@ def capture_route_topology(router: _RouterLike) -> dict[str, Any]:
       total routes.
     * **Adapter-route map** – which adapters appear as sources or
       targets of which routes.
-    * **Zeroed counters** – ``error_count`` and ``event_count`` per
-      route, always ``0``, reserved for future live instrumentation.
+    * **Live counters** – when *route_stats* (a
+      :class:`~medre.core.routing.stats.RouteStats`) is provided, each
+      per-route entry is enriched with ``delivered``, ``failed``,
+      ``skipped``, ``loop_prevented``, and ``last_error`` from the live
+      counters.  When *route_stats* is ``None``, counters remain zeroed
+      and ``last_error`` is omitted.
 
     Parameters
     ----------
@@ -316,6 +329,9 @@ def capture_route_topology(router: _RouterLike) -> dict[str, Any]:
         A :class:`~medre.core.routing.router.Router` instance.  Must
         have a ``_routes`` attribute mapping route IDs to
         :class:`~medre.core.routing.models.Route` objects.
+    route_stats:
+        Optional :class:`~medre.core.routing.stats.RouteStats` instance.
+        When provided, live counter values replace the zeroed defaults.
 
     Returns
     -------
@@ -323,6 +339,11 @@ def capture_route_topology(router: _RouterLike) -> dict[str, Any]:
         Deterministic topology snapshot suitable for JSON serialisation.
     """
     raw_routes: dict[str, Any] = getattr(router, "_routes", {})
+
+    # Build live stats lookup when route_stats is provided.
+    stats_snapshot: dict[str, dict] = {}
+    if route_stats is not None and hasattr(route_stats, "snapshot"):
+        stats_snapshot = route_stats.snapshot()
 
     per_route: list[dict[str, Any]] = []
     enabled_count = 0
@@ -352,6 +373,21 @@ def capture_route_topology(router: _RouterLike) -> dict[str, Any]:
             getattr(t, "adapter", None) for t in targets
         ]
 
+        # Determine per-route counters from RouteStats or zeroed defaults.
+        live = stats_snapshot.get(rid)
+        if live is not None:
+            delivered = live.get("delivered", 0)
+            failed = live.get("failed", 0)
+            skipped = live.get("skipped", 0)
+            loop_prevented = live.get("loop_prevented", 0)
+            last_error = live.get("last_error")
+        else:
+            delivered = 0
+            failed = 0
+            skipped = 0
+            loop_prevented = 0
+            last_error = None
+
         route_entry: dict[str, Any] = {
             "route_id": rid,
             "enabled": enabled,
@@ -363,9 +399,15 @@ def capture_route_topology(router: _RouterLike) -> dict[str, Any]:
             "target_adapters": sorted(
                 a for a in target_adapters if a is not None
             ),
-            "error_count": 0,
-            "event_count": 0,
+            "delivered": delivered,
+            "failed": failed,
+            "skipped": skipped,
+            "loop_prevented": loop_prevented,
+            "error_count": failed,
+            "event_count": delivered,
         }
+        if last_error is not None:
+            route_entry["last_error"] = last_error
         per_route.append(route_entry)
 
         # Build adapter-route relationships
