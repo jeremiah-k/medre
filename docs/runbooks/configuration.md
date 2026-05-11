@@ -264,14 +264,23 @@ Config:    $XDG_CONFIG_HOME/medre/    or  ~/.config/medre/
 State:     $XDG_STATE_HOME/medre/     or  ~/.local/state/medre/
 Data:      $XDG_DATA_HOME/medre/      or  ~/.local/share/medre/
 Cache:     $XDG_CACHE_HOME/medre/     or  ~/.cache/medre/
-Logs:      {state}/logs/
-Database:  {state}/medre.sqlite
-Adapters:  {state}/adapters/<adapter_id>/
-Matrix:    {state}/adapters/<adapter_id>/matrix/store/
-LXMF:      {state}/adapters/<adapter_id>/lxmf/
-Meshtastic:{state}/adapters/<adapter_id>/meshtastic/
-MeshCore:  {state}/adapters/<adapter_id>/meshcore/
 ```
+
+Runtime paths derived from the resolved state directory (`{state}`):
+
+| Path | Description |
+|------|-------------|
+| `{state}/medre.sqlite` | Single global storage backend (canonical events, delivery receipts, native refs, replay state, cross-adapter relationships, runtime metadata) |
+| `{state}/logs/medre.log` | Global log file |
+| `{state}/adapters/{adapter_id}/` | Per-adapter state root |
+| `{state}/adapters/{adapter_id}/matrix/store/` | Matrix E2EE crypto store (nio Olm/Megolm keys; created for non-plaintext encryption modes only) |
+| `{state}/adapters/{adapter_id}/meshtastic/` | Meshtastic transport state (future) |
+| `{state}/adapters/{adapter_id}/meshcore/` | MeshCore transport state (future) |
+| `{state}/adapters/{adapter_id}/lxmf/` | LXMF transport state (future) |
+
+There are **no per-adapter databases**. Adapter-local filesystem state is
+transport-owned (e.g., Matrix crypto store, LXMF identity files), not
+MEDRE-owned. All canonical data flows through the single global database.
 
 The primary config file is at `$XDG_CONFIG_HOME/medre/config.toml`
 (`~/.config/medre/config.toml` by default).
@@ -290,14 +299,19 @@ Config:    /opt/medre/config.toml
 State:     /opt/medre/state/
 Data:      /opt/medre/data/
 Cache:     /opt/medre/cache/
-Logs:      /opt/medre/logs/
-Database:  /opt/medre/state/medre.sqlite
-Adapters:  /opt/medre/state/adapters/<adapter_id>/
-Matrix:    /opt/medre/state/adapters/<adapter_id>/matrix/store/
-LXMF:      /opt/medre/state/adapters/<adapter_id>/lxmf/
-Meshtastic:/opt/medre/state/adapters/<adapter_id>/meshtastic/
-MeshCore:  /opt/medre/state/adapters/<adapter_id>/meshcore/
 ```
+
+Runtime paths derived from the state directory:
+
+| Path | Description |
+|------|-------------|
+| `/opt/medre/state/medre.sqlite` | Single global storage backend |
+| `/opt/medre/state/logs/medre.log` | Global log file |
+| `/opt/medre/state/adapters/{adapter_id}/` | Per-adapter state root |
+| `/opt/medre/state/adapters/{adapter_id}/matrix/store/` | Matrix E2EE crypto store |
+| `/opt/medre/state/adapters/{adapter_id}/meshtastic/` | Meshtastic transport state (future) |
+| `/opt/medre/state/adapters/{adapter_id}/meshcore/` | MeshCore transport state (future) |
+| `/opt/medre/state/adapters/{adapter_id}/lxmf/` | LXMF transport state (future) |
 
 Use this mode when:
 

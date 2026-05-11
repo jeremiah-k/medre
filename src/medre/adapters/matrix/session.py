@@ -324,7 +324,7 @@ class MatrixSession:
         Pre-conditions:
         * ``HAS_E2EE`` is ``True`` (checked)
         * ``store_path`` is set by the runtime builder under the resolved
-          state directory (``{state}/matrix/{adapter_id}/store``).  When
+          state directory (``{state}/adapters/{adapter_id}/matrix/store``).  When
           ``device_id`` is not set the session discovers it via ``whoami()``
           after establishing the access token context.
 
