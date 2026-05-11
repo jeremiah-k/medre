@@ -59,6 +59,7 @@ from medre.config.model import (
     MeshCoreRuntimeConfig,
     MeshtasticRuntimeConfig,
     RuntimeConfig,
+    RuntimeLimits,
 )
 from medre.adapters.matrix.config import MatrixConfig
 from medre.adapters.meshtastic.config import MeshtasticConfig
@@ -80,6 +81,10 @@ CORE_ENV_NAMES: frozenset[str] = frozenset({
     "MEDRE_CONFIG",
     "MEDRE_DB_PATH",
     "MEDRE_LOG_LEVEL",
+    "MEDRE_RUNTIME_MAX_INFLIGHT_DELIVERIES",
+    "MEDRE_RUNTIME_MAX_INFLIGHT_REPLAY_EVENTS",
+    "MEDRE_RUNTIME_SHUTDOWN_DRAIN_TIMEOUT_SECONDS",
+    "MEDRE_RUNTIME_DELIVERY_ACQUIRE_TIMEOUT_SECONDS",
 })
 
 MATRIX_ENV_NAMES: frozenset[str] = frozenset({
@@ -169,6 +174,20 @@ def _coerce_int(raw: str, env_name: str) -> int:
         ) from exc
 
 
+def _coerce_float(raw: str, env_name: str) -> float:
+    """Parse a float env-var value.
+
+    Raises :class:`~medre.config.errors.ConfigValidationError` on invalid input.
+    """
+    try:
+        return float(raw.strip())
+    except (ValueError, TypeError) as exc:
+        raise ConfigValidationError(
+            f"Environment variable {env_name!r} must be a number, "
+            f"got {raw!r}"
+        ) from exc
+
+
 def _coerce_set(raw: str) -> set[str]:
     """Parse a comma-separated env-var value into a ``set[str]``.
 
@@ -225,6 +244,11 @@ _ENV_FIELD_MAP: dict[str, str] = {
     "MEDRE_CONFIG": "config_path",
     "MEDRE_DB_PATH": "db_path",
     "MEDRE_LOG_LEVEL": "log_level",
+    # Runtime limits
+    "MEDRE_RUNTIME_MAX_INFLIGHT_DELIVERIES": "max_inflight_deliveries",
+    "MEDRE_RUNTIME_MAX_INFLIGHT_REPLAY_EVENTS": "max_inflight_replay_events",
+    "MEDRE_RUNTIME_SHUTDOWN_DRAIN_TIMEOUT_SECONDS": "shutdown_drain_timeout_seconds",
+    "MEDRE_RUNTIME_DELIVERY_ACQUIRE_TIMEOUT_SECONDS": "delivery_acquire_timeout_seconds",
     # Matrix
     "MEDRE_MATRIX_ENABLED": "matrix_enabled",
     "MEDRE_MATRIX_ADAPTER_ID": "matrix_adapter_id",
@@ -322,6 +346,12 @@ class MedreEnvConfig:
     config_path: str | None = None
     db_path: str | None = None
     log_level: str | None = None
+
+    # -- Runtime limits --
+    max_inflight_deliveries: str | None = None
+    max_inflight_replay_events: str | None = None
+    shutdown_drain_timeout_seconds: str | None = None
+    delivery_acquire_timeout_seconds: str | None = None
 
     # -- Matrix --
     matrix_enabled: str | None = None
@@ -780,6 +810,43 @@ def apply_env_overrides(
         new_storage = dataclasses.replace(config.storage, path=env.db_path)
 
     # ------------------------------------------------------------------
+    # Runtime limits overrides
+    # ------------------------------------------------------------------
+    new_limits = config.limits
+    has_limits_override = any(
+        getattr(env, f) is not None
+        for f in (
+            "max_inflight_deliveries",
+            "max_inflight_replay_events",
+            "shutdown_drain_timeout_seconds",
+            "delivery_acquire_timeout_seconds",
+        )
+    )
+    if has_limits_override:
+        limits_kwargs: dict[str, Any] = {}
+        if env.max_inflight_deliveries is not None:
+            limits_kwargs["max_inflight_deliveries"] = _coerce_int(
+                env.max_inflight_deliveries,
+                "MEDRE_RUNTIME_MAX_INFLIGHT_DELIVERIES",
+            )
+        if env.max_inflight_replay_events is not None:
+            limits_kwargs["max_inflight_replay_events"] = _coerce_int(
+                env.max_inflight_replay_events,
+                "MEDRE_RUNTIME_MAX_INFLIGHT_REPLAY_EVENTS",
+            )
+        if env.shutdown_drain_timeout_seconds is not None:
+            limits_kwargs["shutdown_drain_timeout_seconds"] = _coerce_int(
+                env.shutdown_drain_timeout_seconds,
+                "MEDRE_RUNTIME_SHUTDOWN_DRAIN_TIMEOUT_SECONDS",
+            )
+        if env.delivery_acquire_timeout_seconds is not None:
+            limits_kwargs["delivery_acquire_timeout_seconds"] = _coerce_float(
+                env.delivery_acquire_timeout_seconds,
+                "MEDRE_RUNTIME_DELIVERY_ACQUIRE_TIMEOUT_SECONDS",
+            )
+        new_limits = dataclasses.replace(config.limits, **limits_kwargs).validate()
+
+    # ------------------------------------------------------------------
     # Adapter overrides — use target resolution to find the right adapter
     # ------------------------------------------------------------------
     matrix_dict = dict(config.adapters.matrix)
@@ -831,5 +898,6 @@ def apply_env_overrides(
         config,
         logging=new_logging,
         storage=new_storage,
+        limits=new_limits,
         adapters=new_adapters,
     )

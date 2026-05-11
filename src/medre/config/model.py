@@ -11,6 +11,7 @@ type holds a reference to the existing adapter config dataclass from
 from __future__ import annotations
 
 import dataclasses
+import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Self, get_type_hints, get_args
 
@@ -19,6 +20,8 @@ from medre.adapters.meshtastic.config import MeshtasticConfig
 from medre.adapters.meshcore.config import MeshCoreConfig
 from medre.adapters.lxmf.config import LxmfConfig
 from medre.config.errors import ConfigValidationError
+
+_logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from medre.runtime.routes import RouteConfigSet
@@ -131,6 +134,74 @@ class StorageConfig:
 
     backend: str = "sqlite"
     path: str | None = None  # None → use default: {state}/medre.sqlite
+
+
+@dataclass(frozen=True)
+class RuntimeLimits:
+    """Runtime resource limits controlling throughput and drain behaviour.
+
+    Fields
+    ------
+    max_inflight_deliveries:
+        Maximum number of deliveries that may be in-flight concurrently.
+    max_inflight_replay_events:
+        Maximum number of replay events that may be processed concurrently.
+    shutdown_drain_timeout_seconds:
+        Maximum time (in seconds) to wait for in-flight work to drain
+        during graceful shutdown before forcing termination.
+    delivery_acquire_timeout_seconds:
+        Timeout (in seconds) for acquiring a delivery slot when the
+        in-flight limit is reached.
+    """
+
+    max_inflight_deliveries: int = 100
+    max_inflight_replay_events: int = 100
+    shutdown_drain_timeout_seconds: int = 10
+    delivery_acquire_timeout_seconds: float = 1.0
+
+    def validate(self) -> Self:
+        """Validate runtime limits.
+
+        Raises
+        ------
+        ConfigValidationError
+            If any limit is non-positive.
+        """
+        if self.max_inflight_deliveries <= 0:
+            raise ConfigValidationError(
+                f"max_inflight_deliveries must be > 0, got {self.max_inflight_deliveries}"
+            )
+        if self.max_inflight_replay_events <= 0:
+            raise ConfigValidationError(
+                f"max_inflight_replay_events must be > 0, got {self.max_inflight_replay_events}"
+            )
+        if self.shutdown_drain_timeout_seconds <= 0:
+            raise ConfigValidationError(
+                f"shutdown_drain_timeout_seconds must be > 0, "
+                f"got {self.shutdown_drain_timeout_seconds}"
+            )
+        if self.delivery_acquire_timeout_seconds <= 0:
+            raise ConfigValidationError(
+                f"delivery_acquire_timeout_seconds must be > 0, "
+                f"got {self.delivery_acquire_timeout_seconds}"
+            )
+        # Reasonable upper-bound warnings (not hard failures).
+        _UPPER_BOUND = 10_000
+        if self.max_inflight_deliveries > _UPPER_BOUND:
+            _logger.warning(
+                "max_inflight_deliveries=%d exceeds recommended upper bound (%d); "
+                "high concurrency may degrade performance",
+                self.max_inflight_deliveries,
+                _UPPER_BOUND,
+            )
+        if self.max_inflight_replay_events > _UPPER_BOUND:
+            _logger.warning(
+                "max_inflight_replay_events=%d exceeds recommended upper bound (%d); "
+                "high concurrency may degrade performance",
+                self.max_inflight_replay_events,
+                _UPPER_BOUND,
+            )
+        return self
 
 
 # ---------------------------------------------------------------------------
@@ -373,5 +444,6 @@ class RuntimeConfig:
     runtime: RuntimeOptions = field(default_factory=RuntimeOptions)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     storage: StorageConfig = field(default_factory=StorageConfig)
+    limits: RuntimeLimits = field(default_factory=RuntimeLimits)
     adapters: AdapterConfigSet = field(default_factory=AdapterConfigSet)
     routes: RouteConfigSet = field(default_factory=_default_route_config_set)

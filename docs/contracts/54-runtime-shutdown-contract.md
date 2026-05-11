@@ -1,9 +1,11 @@
 # Contract 54 — Runtime Shutdown Contract
 
-**Status:** Partial Implementation
-**Scope:** Shutdown ordering, in-flight work handling, persistence guarantees, and timeout behavior for the MEDRE runtime.
+**Status:** v1 Partial Implementation — Drain phase added; per-adapter restart and graceful connection drain deferred to v2
+**Scope:** Shutdown ordering, in-flight work handling, drain timeout behavior, persistence guarantees, and timeout behavior for the MEDRE runtime.
 **Audience:** Runtime builders, adapter authors, operators.
 **References:** Contract 47 (Runtime Assembly), Contract 48 (Runtime Observability), Contract 31 (Session Boundary), Contract 53 (Resource Control).
+
+**v1 non-guarantees (explicit):** The runtime provides no replay deduplication, no exactly-once delivery guarantee, no persistent queue, no per-adapter restart, and no distributed coordination. These are all deferred or out of scope.
 
 
 ## 1. Shutdown Phases
@@ -14,7 +16,7 @@ Shutdown proceeds through five ordered phases. Each phase must complete (or time
 |-------|------|-------------|
 | 1 | **Signal** | `shutdown_event.set()` — notifies all waiters that shutdown has begun. New event ingestion stops. |
 | 2 | **Stop accepting** | Adapters stop ingesting new events from their transports. In-flight receives are cancelled. |
-| 3 | **Drain** | Pending deliveries in the pipeline are completed or abandoned per per-phase timeout. *(Not yet implemented.)* |
+| 3 | **Drain** | Pending deliveries in the pipeline are completed or abandoned per per-phase timeout. Controlled by `shutdown_drain_timeout_seconds` in `[runtime.limits]`. |
 | 4 | **Persist** | Receipts, counters, and diagnostic state are flushed to durable storage. |
 | 5 | **Release** | Transport connections, SDK clients, and file handles are released. |
 
@@ -52,31 +54,29 @@ Sessions are stopped as part of their adapter's `stop()` method; there is no sep
 
 When shutdown begins, the following categories of in-flight work exist:
 
-| Category | Current Behavior | Target Behavior |
-|----------|-----------------|-----------------|
-| Events being received by adapters | Cancelled (task cancellation) | Cancelled; receipt not written |
-| Events being routed by pipeline | Completed or cancelled | Completed within timeout |
-| Events being delivered to adapters | **No drain** — `stop()` is called immediately | Drain with per-delivery timeout |
-| Replay events in progress | Not tracked | Cancelled; receipts preserved for completed deliveries |
+| Category | v1 Behavior | Notes |
+|----------|-------------|-------|
+| Events being received by adapters | Cancelled (task cancellation) | Receipt not written |
+| Events being routed by pipeline | Completed or cancelled within drain timeout | Bounded by `shutdown_drain_timeout_seconds` |
+| Events being delivered to adapters | **Drained** — `PipelineRunner` awaits in-flight deliveries up to `shutdown_drain_timeout_seconds`, then cancels remaining | Delivery semaphore slots are released on cancel |
+| Replay events in progress | Cancelled; receipts preserved for completed deliveries | Replay semaphore released on cancel |
 
 **What is drained vs abandoned:**
 
-- **Drained:** Nothing currently. The runtime stops adapters immediately without waiting for pending deliveries to complete.
-- **Abandoned:** All in-flight adapter deliveries, active sync loops, pending route executions.
-
-A future implementation should add a drain phase between "stop accepting" and "persist" that completes pending deliveries up to a configurable timeout.
+- **Drained:** In-flight adapter deliveries. The `PipelineRunner.stop()` method awaits all in-flight delivery tasks for up to `shutdown_drain_timeout_seconds` before cancelling them. Deliveries that complete within the drain window produce normal receipts and outcomes.
+- **Abandoned after timeout:** Deliveries that do not complete within the drain window are cancelled. No retry is attempted for cancelled deliveries. The delivery outcome is recorded as a failure in diagnostics.
 
 
 ## 5. Timeout Behavior
 
 ### Per-phase max time
 
-| Phase | Timeout | Current |
-|-------|---------|---------|
+| Phase | Timeout | Status |
+|-------|---------|--------|
 | Adapter stop | `shutdown_timeout_seconds` (default from config) | Implemented |
 | Pipeline runner stop | Same global timeout | Implemented |
+| Delivery drain | `shutdown_drain_timeout_seconds` (from `[runtime.limits]`, default 5.0s) | Implemented |
 | Storage close | Same global timeout | Implemented |
-| Drain | N/A | Not implemented |
 
 ### Overall shutdown budget
 
@@ -133,27 +133,73 @@ A future enhancement may support per-adapter restart without shutting down the e
 This is not implemented in the current tranche. The current runtime only supports full start/stop cycles.
 
 
-## 10. Current State
+## 10. v1 Implementation
 
-### What works
+### What v1 implements
 
-- `stop()` exists on `MedreApp` and stops subsystems in reverse dependency order.
+- `stop()` exists on `MedreApp` and stops subsystems in reverse dependency order: adapters → pipeline runner → storage.
 - Adapters are stopped in reverse start order with per-adapter timeout.
 - Individual adapter stop failures are logged and collected; a `RuntimeShutdownError` is raised if any subsystem fails.
-- Pipeline runner has a `stop()` method.
+- Pipeline runner has a `stop()` method that removes middleware from the event bus.
 - Storage has a `close()` method that flushes and releases resources.
 - `shutdown_event` is set before adapter shutdown begins, allowing waiters to react.
 - Signal handlers (SIGINT, SIGTERM) set the shutdown event in the runner.
 - Task cancellation works: adapter receive loops and sync loops respond to cancellation.
 
-### What does not exist yet
+### v1 Shutdown State Machine
 
-- **No drain phase.** Adapters are stopped immediately; pending deliveries are not awaited.
-- **No per-adapter restart.** Only full runtime stop/start is supported.
-- **No complex graceful drain implementation.** The shutdown does not wait for in-flight deliveries to complete before proceeding to the persist phase.
-- **No explicit replay cancellation during shutdown.** Replay relies on pipeline teardown.
-- **No per-phase independent timeouts.** A single `shutdown_timeout_seconds` covers the entire stop sequence.
-- **No persistent route statistics.** `RouteStats` and `Diagnostician` counters are in-memory only.
+The `MedreApp` shutdown progresses through these runtime states:
+
+```
+RUNNING → SHUTDOWN_SIGNALLED → ADAPTERS_STOPPING → PIPELINE_STOPPING → STORAGE_CLOSING → STOPPED
+```
+
+| State | Description |
+|-------|-------------|
+| `RUNNING` | Normal operation. All adapters active. |
+| `SHUTDOWN_SIGNALLED` | `shutdown_event.set()` called. New event ingestion should stop. |
+| `ADAPTERS_STOPPING` | Adapters stopped in reverse start order. Each has `shutdown_timeout_seconds`. |
+| `PIPELINE_STOPPING` | `PipelineRunner.stop()` removes middleware, awaits in-flight deliveries up to `shutdown_drain_timeout_seconds`. |
+| `STORAGE_CLOSING` | Storage `close()` flushes and releases. |
+| `STOPPED` | Shutdown complete. |
+
+### v1 Drain Timeout Behavior
+
+When shutdown begins with in-flight deliveries:
+
+1. `shutdown_event.set()` is called. This signals adapters to stop ingesting new events.
+2. Adapters are stopped in reverse start order. Each adapter's `stop()` is called with a timeout.
+3. `PipelineRunner.stop()` is called. The runner:
+   - Removes pipeline middleware from the event bus.
+   - Awaits any in-flight delivery tasks for up to `shutdown_drain_timeout_seconds` (default 5.0s).
+   - After the drain timeout expires, remaining in-flight deliveries are cancelled.
+4. Storage is closed.
+
+Deliveries that complete during the drain window produce normal receipts and outcomes. Deliveries cancelled after the drain window are recorded as failures in diagnostics.
+
+### v1 Diagnostics and Logging
+
+During shutdown, the following is logged:
+
+- **INFO:** `"Stopping MEDRE runtime {name} (timeout={timeout}s)"` — at the start of shutdown.
+- **INFO:** `"Adapter {transport}.{adapter_id} stopped"` — per adapter.
+- **WARNING:** `"Drain timeout exceeded: {n} deliveries cancelled"` — if deliveries remain after drain timeout.
+- **ERROR:** `"Error stopping adapter {transport}.{adapter_id}: {exc}"` — per adapter failure.
+- **ERROR:** `"Error stopping pipeline runner: {exc}"` — if pipeline stop fails.
+- **ERROR:** `"Error closing storage: {exc}"` — if storage close fails.
+- **INFO:** `"Runtime stopped"` — on successful completion.
+
+### What v1 does NOT implement (deferred to v2)
+
+- **Per-adapter restart.** Only full runtime stop/start is supported. Individual adapters cannot be restarted independently.
+- **Graceful connection drain.** Adapters do not drain pending transport-level operations (e.g., Matrix sync responses, Meshtastic pending packets) before disconnecting. The adapter's `stop()` cancels ongoing operations immediately.
+- **Per-phase independent timeouts.** A single `shutdown_timeout_seconds` covers the overall stop sequence. The drain phase has its own `shutdown_drain_timeout_seconds`, but adapter stop and storage close share the global timeout.
+- **Persistent route statistics.** `RouteStats` and `Diagnostician` counters are in-memory only and lost on shutdown.
+- **Explicit replay cancellation during shutdown.** Replay relies on pipeline teardown; there is no separate replay shutdown hook.
+- **Replay deduplication.** No deduplication on restart or during replay.
+- **Exactly-once delivery guarantee.** Not provided.
+- **Persistent queue.** Delivery state is in-memory only.
+- **Distributed coordination.** Shutdown is local to the process.
 
 
 ## 11. Explicit Non-Goals

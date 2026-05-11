@@ -13,6 +13,7 @@ from medre.config.paths import MedrePaths, MedrePathsError
 from medre.config.model import (
     RuntimeConfig,
     RuntimeOptions,
+    RuntimeLimits,
     LoggingConfig,
     StorageConfig,
     AdapterConfigSet,
@@ -66,6 +67,7 @@ __all__ = [
     # model
     "RuntimeConfig",
     "RuntimeOptions",
+    "RuntimeLimits",
     "LoggingConfig",
     "StorageConfig",
     "AdapterConfigSet",

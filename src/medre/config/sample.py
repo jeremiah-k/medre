@@ -18,6 +18,18 @@ def generate_sample_config() -> str:
 name = "medre"
 shutdown_timeout_seconds = 10
 
+# Resource limits for the runtime engine.
+# These control concurrency and drain behaviour during shutdown.
+[runtime.limits]
+# Maximum number of deliveries that may be in-flight concurrently.
+max_inflight_deliveries = 100
+# Maximum number of replay events that may be processed concurrently.
+max_inflight_replay_events = 100
+# Maximum time (seconds) to wait for in-flight work to drain during shutdown.
+shutdown_drain_timeout_seconds = 10
+# Timeout (seconds) for acquiring a delivery slot when the in-flight limit is reached.
+delivery_acquire_timeout_seconds = 1.0
+
 [logging]
 level = "INFO"
 format = "text"

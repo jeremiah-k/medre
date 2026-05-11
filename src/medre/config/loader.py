@@ -21,6 +21,7 @@ from medre.config.errors import ConfigError, ConfigNotFoundError, ConfigFileErro
 from medre.config.model import (
     RuntimeConfig,
     RuntimeOptions,
+    RuntimeLimits,
     LoggingConfig,
     StorageConfig,
     AdapterConfigSet,
@@ -193,6 +194,15 @@ def _parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
         shutdown_timeout_seconds=runtime_data.get("shutdown_timeout_seconds", 10),
     )
 
+    # [runtime.limits] section (nested under [runtime])
+    limits_data = runtime_data.get("limits", {})
+    limits = RuntimeLimits(
+        max_inflight_deliveries=limits_data.get("max_inflight_deliveries", 100),
+        max_inflight_replay_events=limits_data.get("max_inflight_replay_events", 100),
+        shutdown_drain_timeout_seconds=limits_data.get("shutdown_drain_timeout_seconds", 10),
+        delivery_acquire_timeout_seconds=limits_data.get("delivery_acquire_timeout_seconds", 1.0),
+    ).validate()
+
     # [logging] section
     log_data = data.get("logging", {})
     logging = LoggingConfig(
@@ -234,8 +244,8 @@ def _parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
     routes = RouteConfigSet.from_toml_dict(data)
 
     return RuntimeConfig(
-        runtime=runtime, logging=logging, storage=storage, adapters=adapters,
-        routes=routes,
+        runtime=runtime, logging=logging, storage=storage, limits=limits,
+        adapters=adapters, routes=routes,
     )
 
 

@@ -89,7 +89,7 @@ MEDRE provides three layers of loop prevention, operating at different stages.
 
 **When it fires:** Every delivery attempt, before the self-loop guard.
 
-**Test coverage:** The real `PipelineRunner` replay path is tested end-to-end in `test_replay_routing.py`, which exercises route matching through the actual `Router`, `ReplayEngine`, and `_filter_replay_loops` code paths. Architectural boundary tests in `test_architectural_boundaries.py` verify that neither the replay engine nor the route engine import transport SDKs.
+**Test coverage:** The real `PipelineRunner` replay path is tested end-to-end in `test_replay_pipeline_integration.py`, which exercises the full pipeline replay flow. Route matching through the actual `Router`, `ReplayEngine`, and `_filter_replay_loops` code paths is covered by `test_replay_routing.py`. Architectural boundary tests in `test_architectural_boundaries.py` verify that neither the replay engine nor the route engine import transport SDKs.
 
 ### 2.2 Self-Loop Guard (Runtime, Per-Delivery)
 
@@ -271,6 +271,12 @@ These are things the routing layer explicitly does **not** provide:
 5. **Automatic route reconfiguration.** Route changes require a restart. There is no hot-reload mechanism.
 
 6. **Delivery ordering guarantees.** Events are matched and delivered in route registration order, but async adapter delivery means actual outbound ordering depends on transport latency.
+
+7. **Replay deduplication.** Replay processes events without deduplication. Replayed events may be delivered again if they match current routes.
+
+8. **Persistent queue.** Delivery state is in-memory only. In-flight deliveries cancelled on shutdown are lost.
+
+9. **Per-adapter restart.** Only full runtime stop/start is supported. Individual adapters cannot be restarted independently.
 
 
 ## 7. Quick Reference: Route Matching Rules

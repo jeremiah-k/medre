@@ -146,6 +146,114 @@ channel_mapping = {0 = "general"}
 Startup order: `matrix.bridge` first (alphabetical by transport), then `meshtastic.radio`.
 
 
+## Resource Limits
+
+The `[runtime.limits]` section controls concurrency and drain behavior for the pipeline and replay engine. If this section is absent, all limits use their defaults.
+
+### Configuration
+
+```toml
+[runtime]
+name = "my-bridge"
+shutdown_timeout_seconds = 10
+
+[runtime.limits]
+max_inflight_deliveries = 64        # max concurrent delivery coroutines (default: 64)
+max_inflight_replay_events = 32     # max concurrent replay event deliveries (default: 32)
+shutdown_drain_timeout_seconds = 5.0  # seconds to drain in-flight deliveries on shutdown (default: 5.0)
+delivery_acquire_timeout_seconds = 30.0  # seconds to wait for a delivery slot (default: 30.0)
+```
+
+### How Delivery Limiting Works
+
+The pipeline runner uses an `asyncio.Semaphore` to bound the number of concurrent adapter `deliver()` calls. When a delivery is about to start:
+
+1. The runner attempts to acquire a semaphore slot.
+2. If a slot is available immediately, the delivery proceeds.
+3. If all slots are occupied, the runner waits up to `delivery_acquire_timeout_seconds`.
+4. If the wait times out, the delivery fails with `status="permanent_failure"` and `failure_kind=TIMEOUT`. A diagnostic counter is incremented. **No retry** — capacity timeout is a backpressure signal.
+
+This prevents unbounded memory growth from concurrent deliveries.
+
+### How Replay Limiting Works
+
+The replay engine has a separate semaphore (`max_inflight_replay_events`) that bounds how many replay events can be processed concurrently. This prevents replay from consuming the entire delivery budget and starving real-time traffic. Replay deliveries that pass the replay limiter still acquire a slot on the delivery semaphore via the pipeline runner.
+
+### Diagnostics
+
+Run `medre diagnostics` to see resource limit gauges:
+
+| Counter | Description |
+|---------|-------------|
+| `capacity_timeouts_total` | Deliveries that timed out waiting for a concurrency slot |
+| `inflight_deliveries` | Current number of acquired delivery semaphore slots |
+| `inflight_replay_events` | Current number of acquired replay semaphore slots |
+
+### Example Configurations
+
+**Conservative (low-resource device):**
+```toml
+[runtime.limits]
+max_inflight_deliveries = 8
+max_inflight_replay_events = 4
+delivery_acquire_timeout_seconds = 10.0
+shutdown_drain_timeout_seconds = 3.0
+```
+
+**High-throughput (server):**
+```toml
+[runtime.limits]
+max_inflight_deliveries = 128
+max_inflight_replay_events = 64
+delivery_acquire_timeout_seconds = 60.0
+shutdown_drain_timeout_seconds = 10.0
+```
+
+
+## Shutdown Behavior
+
+MEDRE shuts down in reverse dependency order: adapters → pipeline runner → storage.
+
+### Drain Phase
+
+When shutdown begins (SIGTERM, SIGINT, or programmatic):
+
+1. `shutdown_event` is set — signals all adapters and waiters.
+2. Adapters are stopped in reverse start order. Each adapter's `stop()` is called with `shutdown_timeout_seconds` from the `[runtime]` section.
+3. The pipeline runner stops. It awaits any in-flight delivery tasks for up to `shutdown_drain_timeout_seconds` (from `[runtime.limits]`). Deliveries completing within this window produce normal receipts. After the timeout, remaining deliveries are cancelled.
+4. Storage is closed (flushes and releases SQLite resources).
+
+### What Gets Drained vs Cancelled
+
+| Category | Behavior |
+|----------|----------|
+| In-flight adapter deliveries | **Drained** — awaited up to `shutdown_drain_timeout_seconds`, then cancelled |
+| Adapter receive loops | Cancelled immediately on adapter `stop()` |
+| Replay events | Cancelled; completed delivery receipts are preserved |
+| Route statistics, diagnostic counters | **Lost** — in-memory only |
+
+### Shutdown Timeout
+
+The overall shutdown budget is `shutdown_timeout_seconds` from `RuntimeConfig`. Individual subsystem timeouts share this budget:
+
+```
+Total budget: shutdown_timeout_seconds
+├── Adapter stops (reverse order, each uses the full timeout)
+├── Pipeline runner stop (drain timeout = shutdown_drain_timeout_seconds)
+└── Storage close (uses remaining budget)
+```
+
+If the overall budget is exceeded, `RuntimeShutdownError` is raised with a summary of which subsystems failed.
+
+### What Shutdown Does NOT Do
+
+- **No per-adapter restart.** Shutdown stops the entire runtime. Individual adapters cannot be restarted independently.
+- **No graceful connection drain.** Adapters do not wait for pending transport-level operations (e.g., Matrix sync responses, Meshtastic pending packets) before disconnecting.
+- **No replay deduplication on restart.** If the runtime restarts, replayed events may be delivered again.
+- **No persistent queue.** Delivery state is in-memory only. In-flight deliveries that are cancelled on shutdown are lost.
+- **No distributed coordination.** Shutdown is local to the process.
+
+
 ## Docker Deployment
 
 ### Using docker.env.example
@@ -243,9 +351,10 @@ INFO  medre.adapters.matrix.bridge: adapter_started transport=matrix adapter_id=
 INFO  medre.adapters.meshtastic.radio: adapter_starting transport=meshtastic adapter_id=radio
 INFO  medre.adapters.meshtastic.radio: adapter_started transport=meshtastic adapter_id=radio duration_ms=145
 INFO  medre.runtime: Assembly complete: 2/2 adapters started in 457ms
+INFO  medre.runtime: Resource limits: max_inflight_deliveries=64 max_inflight_replay=32 drain_timeout=5.0s delivery_acquire_timeout=30.0s
 ```
 
-Adapters start in deterministic order: sorted by `(transport, adapter_id)`.
+Adapters start in deterministic order: sorted by `(transport, adapter_id)`. Resource limits are logged at startup with their resolved values (explicit or default).
 
 
 ## Expected Shutdown Output
@@ -253,11 +362,15 @@ Adapters start in deterministic order: sorted by `(transport, adapter_id)`.
 On SIGTERM or SIGINT, the runtime shuts down in reverse start order:
 
 ```
-INFO  medre.runtime: Shutting down 2 adapters
+INFO  medre.runtime: Shutting down 2 adapters (timeout=10s drain=5.0s)
 INFO  medre.adapters.meshtastic.radio: adapter_stopping transport=meshtastic adapter_id=radio
 INFO  medre.adapters.meshtastic.radio: adapter_stopped transport=meshtastic adapter_id=radio duration_ms=42
 INFO  medre.adapters.matrix.bridge: adapter_stopping transport=matrix adapter_id=bridge
 INFO  medre.adapters.matrix.bridge: adapter_stopped transport=matrix adapter_id=bridge duration_ms=28
+INFO  medre.runtime: Pipeline draining in-flight deliveries (timeout=5.0s)
+INFO  medre.runtime: Pipeline drain complete: 0 deliveries in-flight
+INFO  medre.runtime: Pipeline runner stopped
+INFO  medre.runtime: Storage closed
 INFO  medre.runtime: Shutdown complete in 70ms
 ```
 

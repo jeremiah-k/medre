@@ -1,16 +1,20 @@
 # Contract 53 — Runtime Resource Control Contract
 
-**Status:** Design Only — No Implementation in This Tranche
-**Scope:** Design contract for queue management, backpressure policies, resource limits, and delivery flow control in the MEDRE runtime. This document specifies intended behavior; none of it is implemented yet.
+**Status:** v1 Partial Implementation — Design sections remain as reference
+**Scope:** Resource control for the MEDRE runtime: delivery concurrency limits, replay event limiting, shutdown drain, capacity timeout behavior, and diagnostics. Sections 2–13 are design reference — some decisions deferred to v2. Section 14 describes the v1 implementation.
 **Audience:** Runtime builders, adapter authors, operators, future implementors.
 **References:** Contract 47 (Runtime Assembly), Contract 48 (Runtime Observability), Contract 31 (Session Boundary), Contract 49 (Routing and Bridge).
 
-Every agent or document that references MEDRE queue depth limits, backpressure semantics, delivery throttling, or resource containment must defer to this contract once implemented.
+Every agent or document that references MEDRE queue depth limits, backpressure semantics, delivery throttling, or resource containment must defer to this contract.
+
+**v1 non-guarantees (explicit):** The runtime provides no replay deduplication, no exactly-once delivery guarantee, no persistent queue, no per-adapter restart, and no distributed coordination. These are all deferred or out of scope.
 
 
 ## 1. Scope
 
-This is a **design contract**. It describes the intended architecture for resource control in the MEDRE runtime. No code in this contract has been implemented. The purpose of this document is to:
+> **Note:** Sections 1–13 are design reference — some decisions deferred to v2. See Section 14 for what v1 actually implements.
+
+This is a **design contract**. It describes the intended architecture for resource control in the MEDRE runtime. The design sections below record vocabulary, tradeoffs, transport caveats, and pre/post-beta boundaries. No implementation work was authorized under the design-only sections. Section 14 describes the v1 implementation.
 
 - Establish vocabulary for queue types and backpressure policies.
 - Define the tradeoffs that inform future implementation decisions.
@@ -309,6 +313,87 @@ Some resource control behavior is inherently transport-specific and should not b
 
 The queue/backpressure system must provide **policy hooks** (drop/block/fail) and **transport-specific defaults**, but must never attempt to abstract away the physical and protocol-level constraints that differ fundamentally between transports.
 
----
 
-**Implementation Status:** None. This contract is design only. No queue structures, backpressure logic, or resource control code has been written. All references to queue behavior in this document describe intended future behavior.
+## 14. v1 Implementation
+
+v1 implements a **global concurrency limit** model (not per-adapter queues). The implementation uses semaphores and timeouts to bound in-flight work and prevent unbounded resource growth.
+
+### 14.1 Runtime Limit Configuration
+
+The `[runtime.limits]` TOML section controls concurrency:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `max_inflight_deliveries` | `int` | `64` | Maximum concurrent delivery coroutines across all adapters. Enforced by a `Semaphore` in `PipelineRunner`. |
+| `max_inflight_replay_events` | `int` | `32` | Maximum concurrent replay event deliveries. Enforced by a `Semaphore` in `ReplayEngine`. |
+| `shutdown_drain_timeout_seconds` | `float` | `5.0` | Seconds to wait for in-flight deliveries to complete during shutdown before cancelling. |
+| `delivery_acquire_timeout_seconds` | `float` | `30.0` | Maximum seconds a delivery attempt will wait to acquire a concurrency slot before failing with a timeout error. |
+
+If `[runtime.limits]` is absent from TOML, all fields use their defaults.
+
+Example configuration:
+
+```toml
+[runtime]
+name = "my-bridge"
+shutdown_timeout_seconds = 10
+
+[runtime.limits]
+max_inflight_deliveries = 32
+max_inflight_replay_events = 16
+shutdown_drain_timeout_seconds = 5.0
+delivery_acquire_timeout_seconds = 15.0
+```
+
+### 14.2 Delivery Limiter (PipelineRunner)
+
+`PipelineRunner` holds an `asyncio.Semaphore(max_inflight_deliveries)`. Before each delivery attempt, the runner acquires the semaphore:
+
+- **Acquire succeeds:** the delivery proceeds normally.
+- **Acquire times out** (after `delivery_acquire_timeout_seconds`): the delivery fails with `status="permanent_failure"` and `failure_kind=TIMEOUT`. A diagnostic counter is incremented. The delivery is not retried — capacity timeout is treated as a backpressure signal, not a transient error.
+
+The semaphore is released after the adapter's `deliver()` returns (success or failure). This bounds the total number of concurrent adapter `deliver()` calls across all adapters to `max_inflight_deliveries`.
+
+### 14.3 Replay Limiter (ReplayEngine)
+
+`ReplayEngine` holds a separate `asyncio.Semaphore(max_inflight_replay_events)`. During BEST_EFFORT replay, each replay delivery acquires the replay semaphore before delivery. This prevents replay from consuming the entire delivery budget and starving real-time traffic.
+
+The replay semaphore is independent of the delivery semaphore. Replay deliveries that proceed past the replay limiter still acquire a slot on the delivery semaphore via the `PipelineRunner`.
+
+### 14.4 Capacity Timeout Behavior
+
+When a delivery cannot acquire a semaphore slot within `delivery_acquire_timeout_seconds`:
+
+1. The delivery outcome records `status="permanent_failure"` with `failure_kind=TIMEOUT`.
+2. `Diagnostician` increments `capacity_timeouts_total` (keyed by adapter_id).
+3. No retry is attempted. Capacity timeout is a backpressure signal.
+4. A WARNING log is emitted: `"Capacity timeout: delivery to {adapter_id} timed out waiting for slot ({current}/{limit})"`.
+
+### 14.5 Diagnostics Counters
+
+The `Diagnostician` tracks resource control events:
+
+| Counter | Key | Description |
+|---------|-----|-------------|
+| `capacity_timeouts_total` | `adapter_id` | Deliveries that failed to acquire a concurrency slot within the timeout. |
+| `replay_capacity_timeouts_total` | — | Replay events that failed to acquire a replay slot. |
+| `inflight_deliveries` | — | Current gauge of acquired delivery semaphore slots. |
+| `inflight_replay_events` | — | Current gauge of acquired replay semaphore slots. |
+
+### 14.6 What v1 Does NOT Implement
+
+The following from the design sections (2–13) are **deferred to v2**:
+
+- **Per-adapter outbound queues.** v1 uses a global semaphore, not per-adapter queue structures.
+- **Per-adapter queue depth limits.** No per-adapter isolation; the global limit is the only bound.
+- **Backpressure policies** (drop oldest, drop newest, block, fail). v1 uses semaphore-based capacity control with timeout.
+- **Replay rate limiting** (producer-side throttle). v1 bounds replay concurrency but does not rate-limit replay event production.
+- **Per-route queues.** Delivery remains inline within the pipeline runner.
+- **Block policy with per-adapter delivery tasks.** Requires architectural changes to PipelineRunner.
+- **Operator-configurable backpressure policy.** Defaults are hardcoded; the only operator knob is `max_inflight_deliveries`.
+- **Queue depth metrics, high-water marks, histograms.** v1 provides semaphore gauges and timeout counters only.
+- **Replay deduplication.** Replay processes events without deduplication.
+- **Exactly-once delivery guarantee.** Not provided by any MEDRE component.
+- **Persistent queue.** Delivery state is in-memory only.
+- **Per-adapter restart.** Only full runtime stop/start is supported.
+- **Distributed coordination.** Limits and state are local to the process.

@@ -19,6 +19,7 @@ Lifecycle
 from __future__ import annotations
 
 import asyncio
+import enum
 import logging
 import time as _time
 from dataclasses import dataclass, field
@@ -42,9 +43,27 @@ if TYPE_CHECKING:
     from medre.core.storage.sqlite import SQLiteStorage
     from medre.runtime.builder import AdapterBuildFailure
 
-__all__ = ["MedreApp"]
+__all__ = ["MedreApp", "RuntimeState"]
 
 _logger = logging.getLogger(__name__)
+
+
+class RuntimeState(enum.Enum):
+    """Deterministic lifecycle states for the MEDRE runtime.
+
+    Transitions::
+
+        INITIALIZED → STARTING → RUNNING → STOPPING → STOPPED
+                                ↘ FAILED
+        Any state → FAILED on unrecoverable error.
+    """
+
+    INITIALIZED = "initialized"
+    STARTING = "starting"
+    RUNNING = "running"
+    STOPPING = "stopping"
+    STOPPED = "stopped"
+    FAILED = "failed"
 
 
 def _utc_now() -> datetime:
@@ -119,6 +138,38 @@ class MedreApp:
     build_failures: list[AdapterBuildFailure] = field(default_factory=list)
     adapter_start_times: dict[str, float] = field(default_factory=dict)
     started_adapter_ids: list[str] = field(default_factory=list)
+    _state: RuntimeState = field(default=RuntimeState.INITIALIZED, init=False)
+
+    # -- State management -------------------------------------------------------
+
+    @property
+    def state(self) -> RuntimeState:
+        """Return the current runtime lifecycle state."""
+        return self._state
+
+    def _set_state(self, new_state: RuntimeState) -> None:
+        """Transition to *new_state*, logging the change."""
+        old_state = self._state
+        if old_state is new_state:
+            return
+        _logger.debug(
+            "Runtime state transition: %s → %s",
+            old_state.value,
+            new_state.value,
+        )
+        self._state = new_state
+
+    # -- Diagnostics ------------------------------------------------------------
+
+    def diagnostic_snapshot(self) -> dict[str, Any]:
+        """Return a diagnostics dict including the current runtime state.
+
+        This augments the subsystem-level diagnostics (route stats, replay
+        metrics) with runtime-level metadata.
+        """
+        return {
+            "runtime_state": self._state.value,
+        }
 
     # -- Lifecycle ---------------------------------------------------------------
 
@@ -135,12 +186,20 @@ class MedreApp:
 
         Raises
         ------
+        RuntimeError
+            If the app has already been started or is shutting down.
         RuntimeStartupError
             If a core subsystem (storage, pipeline runner) fails to start.
         AdapterStartupError
             If an individual adapter fails to start.  Only the *first*
             adapter error is re-raised; all others are logged.
         """
+        if self._state is not RuntimeState.INITIALIZED:
+            raise RuntimeError(
+                f"App is already started or in state {self._state.value!r}"
+            )
+
+        self._set_state(RuntimeState.STARTING)
         _logger.info("Starting MEDRE runtime %s", self.config.runtime.name)
 
         # 0. Create required directories.
@@ -152,6 +211,7 @@ class MedreApp:
                 await self.storage.initialize()
                 _logger.info("Storage initialised")
             except Exception as exc:
+                self._set_state(RuntimeState.FAILED)
                 raise RuntimeStartupError(
                     f"Failed to initialise storage: {exc}"
                 ) from exc
@@ -161,6 +221,7 @@ class MedreApp:
             await self.pipeline_runner.start()
             _logger.info("Pipeline runner started")
         except Exception as exc:
+            self._set_state(RuntimeState.FAILED)
             raise RuntimeStartupError(
                 f"Failed to start pipeline runner: {exc}"
             ) from exc
@@ -222,6 +283,7 @@ class MedreApp:
             # Catastrophic failure during the loop itself (not an adapter
             # failure).  Clean up already-started adapters in reverse order.
             await self._cleanup_started_adapters()
+            self._set_state(RuntimeState.FAILED)
             raise
 
         # Summary logging.
@@ -245,7 +307,10 @@ class MedreApp:
             )
 
         if first_error is not None:
+            self._set_state(RuntimeState.FAILED)
             raise first_error
+
+        self._set_state(RuntimeState.RUNNING)
 
     async def stop(self) -> None:
         """Stop all subsystems in reverse dependency order.
@@ -256,11 +321,18 @@ class MedreApp:
         failures are logged but do not prevent other subsystems from
         shutting down.
 
+        This method is idempotent: calling it when the runtime is in
+        ``INITIALIZED`` or ``STOPPED`` state returns immediately.
+
         Raises
         ------
         RuntimeShutdownError
             If one or more subsystems fail to shut down cleanly.
         """
+        if self._state in (RuntimeState.STOPPED, RuntimeState.INITIALIZED):
+            return
+
+        self._set_state(RuntimeState.STOPPING)
         timeout = self.config.runtime.shutdown_timeout_seconds
         _logger.info(
             "Stopping MEDRE runtime %s (timeout=%ds)",
@@ -333,10 +405,12 @@ class MedreApp:
             summary = "; ".join(
                 f"{name}: {exc}" for name, exc in errors
             )
+            self._set_state(RuntimeState.FAILED)
             raise RuntimeShutdownError(
                 f"Errors during shutdown: {summary}"
             )
 
+        self._set_state(RuntimeState.STOPPED)
         _logger.info("Runtime stopped")
 
     async def wait_for_shutdown(self, timeout: float | None = None) -> None:
