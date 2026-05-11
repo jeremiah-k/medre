@@ -49,12 +49,15 @@ from datetime import datetime
 from enum import Enum
 from typing import (
     TYPE_CHECKING,
+    AbstractSet,
     Any,
     AsyncIterator,
     Literal,
     Protocol,
     runtime_checkable,
 )
+
+import msgspec
 
 from medre.core.events import CanonicalEvent, is_registered
 from medre.core.storage.backend import EventFilter, StorageBackend
@@ -173,9 +176,14 @@ class _PipelineProtocol(Protocol):
     route_event:
         Match an event against current routes and resolve targets.
     plan_delivery:
-        Build delivery plans from routing results.
+        Build delivery plans from routing results.  (Stub pipelines only;
+        real pipelines return plans directly from ``route_event``.)
     deliver:
-        Execute delivery plans to adapters.
+        Execute delivery plans to adapters.  (Stub pipelines only; real
+        pipelines use ``deliver_to_targets`` instead.)
+    deliver_to_targets:
+        Deliver an event to route–plan pairs.  (Real PipelineRunner only;
+        stub pipelines use ``deliver`` instead.)
     """
 
     async def transform_event(self, event: CanonicalEvent) -> CanonicalEvent:
@@ -195,6 +203,24 @@ class _PipelineProtocol(Protocol):
         is a list of ``(route, plan)`` pairs.
         """
         ...
+
+    async def deliver_to_targets(
+        self,
+        event: CanonicalEvent,
+        route_targets: list[tuple[Any, Any]],
+    ) -> list[Any]:
+        """Deliver *event* to every target and return outcomes.
+
+        Each target is attempted independently; one target's failure
+        never prevents delivery to sibling targets.
+        """
+        ...
+
+    # -- Stub-pipeline methods (not on real PipelineRunner) ----------------
+    # These are kept so that test stub pipelines that only implement
+    # ``plan_delivery`` / ``deliver`` continue to work.  The replay
+    # engine uses ``hasattr`` detection to branch between real and
+    # stub pipelines at runtime.
 
     async def plan_delivery(
         self,
@@ -1058,6 +1084,7 @@ class ReplayEngine:
         mode = request.mode
         route_result: list[tuple[Any, Any]] | None = None
         plan_result: list[Any] | None = None
+        enriched_event: CanonicalEvent | None = None
 
         # Immutability guard: checkpoint event identity before processing.
         _verify_immutability(event, event.event_id)
@@ -1066,18 +1093,18 @@ class ReplayEngine:
             if stage == "store":
                 result = await self._stage_store(event)
             elif stage == "route":
-                result, route_result = await self._stage_route(
+                result, route_result, enriched_event = await self._stage_route(
                     event, request=request,
                 )
             elif stage == "plan":
                 result, plan_result = await self._stage_plan(
-                    event, route_result,
+                    enriched_event or event, route_result,
                 )
             elif stage == "render":
                 result = await self._stage_render(event, mode)
             elif stage == "deliver":
                 result = await self._stage_deliver(
-                    event, plan_result, request,
+                    enriched_event or event, plan_result, request,
                 )
             else:
                 result = ReplayResult(
@@ -1155,18 +1182,24 @@ class ReplayEngine:
 
     async def _stage_route(
         self, event: CanonicalEvent, *, request: ReplayRequest,
-    ) -> tuple[ReplayResult, list[tuple[Any, Any]] | None]:
+    ) -> tuple[ReplayResult, list[tuple[Any, Any]] | None, CanonicalEvent | None]:
         """Route *event* against current routes.
 
-        Returns the :class:`ReplayResult` and the route–plan pairs for
-        use by downstream stages.  If no routes match, the result status
-        is ``"failed"`` and the route data is an empty list (not None)
-        so downstream stages can distinguish "no routes" from "routing
-        not attempted".
+        Returns the :class:`ReplayResult`, the route–plan pairs for
+        use by downstream stages, and the enriched event (or ``None``
+        if routing failed before enrichment).  If no routes match, the
+        result status is ``"failed"`` and the route data is an empty
+        list (not None) so downstream stages can distinguish "no routes"
+        from "routing not attempted".
 
         The pipeline's ``route_event`` returns
         ``(enriched_event, list[tuple[Route, DeliveryPlan]])``.  The
-        enriched event is used for loop detection and attribution.
+        enriched event carries :class:`RoutingMetadata` with
+        ``matched_routes`` and ``route_trace`` and is returned so
+        that downstream stages (plan, deliver) operate on the
+        pipeline-enriched event rather than the original.  After
+        filtering by ``route_ids``, the enriched event's metadata is
+        cleaned to contain only the retained routes.
 
         Route-aware replay adds :class:`ReplayRouteAttribution` to the
         result and filters out routes that would create replay loops.
@@ -1200,6 +1233,7 @@ class ReplayEngine:
                     duration_ms=_elapsed_ms(t0),
                 ),
                 None,
+                None,
             )
         try:
             result = await self._pipeline.route_event(event)
@@ -1217,6 +1251,9 @@ class ReplayEngine:
                     (r, p) for r, p in routes
                     if getattr(r, "id", None) in allowed
                 ]
+                # Clean enriched event metadata so filtered-out routes
+                # don't leak into matched_routes / route_trace.
+                event = _clean_routing_metadata(event, allowed)
                 # Warn about requested route IDs not found among matched
                 # routes.  This covers disabled routes (the router won't
                 # return them) and routes that don't match the event's
@@ -1254,6 +1291,7 @@ class ReplayEngine:
                         route_attribution=attribution,
                     ),
                     routes if routes else [],
+                    event,
                 )
 
             # Route-aware loop prevention: filter routes that would
@@ -1262,6 +1300,14 @@ class ReplayEngine:
             loop_warnings, filtered_routes = _filter_replay_loops(
                 event, routes,
             )
+
+            # Clean enriched event metadata to reflect only the routes
+            # that survived loop prevention filtering.
+            if filtered_routes and len(filtered_routes) < len(routes):
+                surviving_ids = {
+                    getattr(r, "id", None) for r, _ in filtered_routes
+                }
+                event = _clean_routing_metadata(event, surviving_ids)
 
             # Build route attribution for this replay.
             route_ids = tuple(
@@ -1308,6 +1354,7 @@ class ReplayEngine:
                         route_attribution=attribution,
                     ),
                     [],
+                    event,
                 )
 
             return (
@@ -1320,6 +1367,7 @@ class ReplayEngine:
                     route_attribution=attribution,
                 ),
                 filtered_routes,
+                event,
             )
         except Exception as exc:
             if self._diagnostician is not None:
@@ -1335,6 +1383,7 @@ class ReplayEngine:
                     duration_ms=_elapsed_ms(t0),
                 ),
                 None,
+                None,
             )
 
     async def _stage_plan(
@@ -1348,8 +1397,13 @@ class ReplayEngine:
         by downstream stages.
 
         When *route_result* already contains ``DeliveryPlan`` objects
-        (i.e. from the real PipelineRunner), the plans are extracted
-        directly without calling ``plan_delivery`` again.
+        (i.e. from the real PipelineRunner), the route–plan pairs are
+        preserved as ``list[tuple[Route, DeliveryPlan]]`` so that
+        :meth:`_stage_deliver` can call ``deliver_to_targets``.
+        For stub pipelines where the second element is not a
+        ``DeliveryPlan``, the ``plan_delivery`` fallback path is used
+        and bare plans are returned for backward compatibility with the
+        ``deliver()`` method.
         """
         t0 = time.monotonic()
         if route_result is None:
@@ -1366,12 +1420,16 @@ class ReplayEngine:
 
         # If route_result items already contain DeliveryPlan objects
         # (real pipeline returns list[tuple[Route, DeliveryPlan]]),
-        # extract plans directly without re-planning.
+        # preserve the route–plan pairs.  For stub pipelines where the
+        # second element is not a DeliveryPlan, we fall through to the
+        # plan_delivery path below.
         plans: list[Any] = []
         all_delivery_plans = True
-        for _, plan_or_target in route_result:
+        for route, plan_or_target in route_result:
             if hasattr(plan_or_target, "target") and hasattr(plan_or_target, "plan_id"):
-                plans.append(plan_or_target)
+                # Preserve route–plan pairs so that _stage_deliver can
+                # call deliver_to_targets with the correct shape.
+                plans.append((route, plan_or_target))
             else:
                 all_delivery_plans = False
                 break
@@ -1544,11 +1602,27 @@ class ReplayEngine:
             plan_result = filtered
 
         try:
-            receipts = await self._pipeline.deliver(event, plan_result)
-            # Wrap adapter results in a replay delivery envelope.
-            # The adapter's original result is preserved without
-            # promotion: queued/best-effort stays queued/best-effort.
-            replay_output = _replay_delivery_envelope(receipts)
+            # Detect real pipeline by data format: if plan_result contains
+            # (Route, DeliveryPlan) tuples, use deliver_to_targets.  This
+            # avoids false-positives from AsyncMock which auto-creates every
+            # attribute (making hasattr unreliable).
+            _has_route_plan_pairs = (
+                bool(plan_result)
+                and isinstance(plan_result[0], tuple)
+                and len(plan_result[0]) == 2
+                and hasattr(plan_result[0][1], "target")
+                and hasattr(plan_result[0][1], "plan_id")
+            )
+            if _has_route_plan_pairs:
+                # Real pipeline: plan_result is list[tuple[Route, DeliveryPlan]].
+                outcomes = await self._pipeline.deliver_to_targets(
+                    event, plan_result,
+                )
+                replay_output = _replay_delivery_envelope(outcomes)
+            else:
+                # Stub pipeline: plan_result is list[Any] (bare plans).
+                receipts = await self._pipeline.deliver(event, plan_result)
+                replay_output = _replay_delivery_envelope(receipts)
             return ReplayResult(
                 event_id=event.event_id,
                 stage="deliver",
@@ -1568,6 +1642,49 @@ class ReplayEngine:
                 error=str(exc),
                 duration_ms=_elapsed_ms(t0),
             )
+
+
+# ---------------------------------------------------------------------------
+# Routing metadata cleanup
+# ---------------------------------------------------------------------------
+
+
+def _clean_routing_metadata(
+    event: CanonicalEvent,
+    allowed_route_ids: AbstractSet[str | None],
+) -> CanonicalEvent:
+    """Remove filtered-out route IDs from the enriched event's RoutingMetadata.
+
+    After ``route_event`` populates ``matched_routes`` and ``route_trace``
+    with ALL matched routes, this function narrows them to only the routes
+    that survive replay filtering (explicit ``route_ids`` or loop
+    prevention).  Because :class:`RoutingMetadata` is frozen, a new
+    struct is built via ``msgspec.structs.replace`` and a new
+    :class:`CanonicalEvent` is returned.
+    """
+    routing_meta = event.metadata.routing
+    if routing_meta is None:
+        return event
+
+    cleaned_matched = tuple(
+        rid for rid in routing_meta.matched_routes
+        if rid in allowed_route_ids
+    )
+    cleaned_trace = tuple(
+        rid for rid in routing_meta.route_trace
+        if rid in allowed_route_ids
+    )
+
+    if cleaned_matched == routing_meta.matched_routes and cleaned_trace == routing_meta.route_trace:
+        return event
+
+    new_routing = msgspec.structs.replace(
+        routing_meta,
+        matched_routes=cleaned_matched,
+        route_trace=cleaned_trace,
+    )
+    new_metadata = msgspec.structs.replace(event.metadata, routing=new_routing)
+    return msgspec.structs.replace(event, metadata=new_metadata)
 
 
 # ---------------------------------------------------------------------------
@@ -1691,18 +1808,25 @@ def _filter_plans_by_adapter(
 ) -> list[Any]:
     """Filter delivery plans to those targeting adapters in *target_adapters*.
 
-    Plans that do not expose a ``target`` attribute with an ``adapter``
-    field are passed through (conservative: include rather than exclude
-    when the plan structure is opaque).
+    Accepts both bare plan lists and ``list[tuple[Route, DeliveryPlan]]``
+    (as produced when the real pipeline is in use).  Plans that do not
+    expose a ``target`` attribute with an ``adapter`` field are passed
+    through (conservative: include rather than exclude when the plan
+    structure is opaque).
     """
     allowed = set(target_adapters)
     result: list[Any] = []
-    for plan in plans:
+    for item in plans:
+        # Unwrap tuple (Route, DeliveryPlan) if present.
+        if isinstance(item, tuple) and len(item) == 2:
+            plan = item[1]
+        else:
+            plan = item
         target = getattr(plan, "target", None)
         adapter = getattr(target, "adapter", None) if target is not None else None
         if adapter is None:
             # Opaque plan structure – include conservatively.
-            result.append(plan)
+            result.append(item)
         elif adapter in allowed:
-            result.append(plan)
+            result.append(item)
     return result
