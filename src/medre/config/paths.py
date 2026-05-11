@@ -82,8 +82,6 @@ class MedrePaths:
         Directory for log files.
     database_path:
         Absolute path to the SQLite database file.
-    matrix_store_path:
-        Absolute path to the Matrix (nio) cryptographic store directory.
     """
 
     config_dir: Path | None
@@ -93,7 +91,6 @@ class MedrePaths:
     cache_dir: Path
     log_dir: Path
     database_path: Path
-    matrix_store_path: Path
 
     # -- Derived paths -------------------------------------------------------
 
@@ -225,7 +222,7 @@ class MedrePaths:
             "cache_dir": str(self.cache_dir),
             "log_dir": str(self.log_dir),
             "database_path": str(self.database_path),
-            "matrix_store_path": str(self.matrix_store_path),
+            "adapter_state_root": str(self.state_dir / "adapters"),
         }
 
 
@@ -275,7 +272,6 @@ def resolve() -> MedrePaths:
             cache_dir=home / "cache",
             log_dir=home / "logs",
             database_path=state_dir / "medre.sqlite",
-            matrix_store_path=state_dir / "matrix" / "store",
         )
 
     # XDG mode
@@ -289,5 +285,4 @@ def resolve() -> MedrePaths:
         cache_dir=_xdg_dir("XDG_CACHE_HOME", ".cache") / _APP_SUBDIR,
         log_dir=state_dir / "logs",
         database_path=state_dir / "medre.sqlite",
-        matrix_store_path=state_dir / "matrix" / "store",
     )

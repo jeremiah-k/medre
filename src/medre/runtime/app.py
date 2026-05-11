@@ -250,9 +250,6 @@ class MedreApp:
         ]
         # SQLite parent directory (database_path.parent may not exist)
         dirs_to_create.append(self.paths.database_path.parent)
-        # Legacy global matrix_store_path parent (kept for backward compat)
-        if self.storage is not None:
-            dirs_to_create.append(self.paths.matrix_store_path.parent)
 
         # Per-adapter state roots and transport-specific subdirs.
         # Each enabled adapter gets {state}/adapters/{adapter_id}/.

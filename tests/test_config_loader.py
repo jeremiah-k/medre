@@ -69,7 +69,7 @@ homeserver = "https://matrix.alt.com"
 user_id = "@alt:alt.com"
 access_token = "secret2"
 device_id = "ALT_DEVICE"
-store_path = "{state}/matrix/alt/store"
+store_path = "{state}/adapters/alt/matrix/store"
 encryption_mode = "e2ee_required"
 
 [adapters.meshtastic.radio]

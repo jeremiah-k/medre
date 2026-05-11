@@ -52,7 +52,6 @@ def _paths() -> None:
     print(f"Cache dir:    {paths.cache_dir}")
     print(f"Log dir:      {paths.log_dir}")
     print(f"Database:     {paths.database_path}")
-    print(f"Matrix store: {paths.matrix_store_path}")
 
 
 def _config_check(config_path: str | None) -> None:

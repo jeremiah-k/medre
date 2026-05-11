@@ -84,6 +84,8 @@ path = "{state}/medre.sqlite"   # supports path placeholders
 | `backend` | string | `"sqlite"` | Storage backend. Currently only `sqlite` is supported. |
 | `path` | string | `None` | Database file path. Supports [path placeholders](#path-placeholders). When `None`, defaults to `{state}/medre.sqlite`. |
 
+> **Storage model:** MEDRE uses a single configured storage backend (one SQLite database at `{state}/medre.sqlite`). This database holds canonical events, delivery receipts, native references, replay state, and cross-adapter relationships. There is no per-adapter database. Transport-owned local files (e.g. Matrix crypto stores, LXMF identities) live under adapter state roots (`{state}/adapters/<adapter_id>/`).
+
 ### `[adapters.matrix.INSTANCE_NAME]`
 
 Each Matrix adapter instance is a separate TOML table. `INSTANCE_NAME` becomes

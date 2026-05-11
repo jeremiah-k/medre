@@ -71,10 +71,6 @@ class TestXDGDefaults:
         paths = resolve()
         assert paths.database_path == paths.state_dir / "medre.sqlite"
 
-    def test_matrix_store_path_under_state(self) -> None:
-        paths = resolve()
-        assert paths.matrix_store_path == paths.state_dir / "matrix" / "store"
-
 
 # ---------------------------------------------------------------------------
 # XDG env var overrides
@@ -129,7 +125,6 @@ class TestMedreHomeMode:
         assert paths.cache_dir == Path("/opt/medre/cache")
         assert paths.log_dir == Path("/opt/medre/logs")
         assert paths.database_path == Path("/opt/medre/state/medre.sqlite")
-        assert paths.matrix_store_path == Path("/opt/medre/state/matrix/store")
 
     def test_medre_home_overrides_xdg(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """MEDRE_HOME takes precedence over XDG env vars."""
@@ -352,7 +347,7 @@ class TestToDiagnostics:
         assert "cache_dir" in diag
         assert "log_dir" in diag
         assert "database_path" in diag
-        assert "matrix_store_path" in diag
+        assert "adapter_state_root" in diag
 
         # All values are strings
         assert all(isinstance(v, str) for v in diag.values())

@@ -45,7 +45,7 @@ class MatrixConfig:
     store_path:
         **Internal** — not operator-facing.  The runtime derives a
         default store path under the resolved state directory
-        (``{state}/matrix/{adapter_id}/store``).  Only set this for
+        (``{state}/adapters/{adapter_id}/matrix/store``).  Only set this for
         test harnesses that need explicit control.
     sync_timeout_ms:
         Timeout in milliseconds for long-polling sync requests.

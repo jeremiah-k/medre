@@ -9,7 +9,7 @@ E2EE support: when ``HAS_E2EE`` is ``True`` the session enables crypto
 via nio's built-in encryption.  When ``device_id`` is not explicitly
 configured the session discovers it via ``whoami()`` after setting the
 access token.  ``store_path`` is derived by the runtime builder under
-the resolved state directory (``{state}/matrix/{adapter_id}/store``).
+the resolved state directory (``{state}/adapters/{adapter_id}/matrix/store``).
 Operators do not need to set either field.  Decrypted inbound text
 events pass through the normal message callback; undecryptable encrypted
 events are counted and logged but not forwarded.
