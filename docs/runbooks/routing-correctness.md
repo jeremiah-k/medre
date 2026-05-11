@@ -58,7 +58,9 @@ At runtime, when an event enters the pipeline:
 
 For each matched route's targets:
 
-1. Self-loop guard checks: `target_adapter == event.source_adapter` → skip.
+1. **Route-trace loop prevention:** if `route.id` already exists in `event.metadata.routing.route_trace`, the delivery is skipped with `loop_prevented`. This prevents an event from being re-routed through the same route more than once across routing passes (live or replay).
+2. **Self-loop guard:** `target_adapter == event.source_adapter` → skip with `loop_prevented`.
+3. The event is rendered and delivered to the target adapter.
 2. `deliver_to_target` calls the adapter's `deliver()` method.
 3. `DeliveryReceipt` is recorded with `route_id` for attribution.
 4. `DeliveryOutcome` is produced with status, receipt, and failure classification.
@@ -77,7 +79,17 @@ Event arrives → store → route_event() → match routes → populate route_tr
 
 MEDRE provides three layers of loop prevention, operating at different stages.
 
-### 2.1 Self-Loop Guard (Runtime, Per-Delivery)
+### 2.1 Route-Trace Loop Prevention (Runtime, Per-Delivery)
+
+**What it catches:** An event being re-routed through a route whose ID already appears in the event's bounded `route_trace`.
+
+**How it works:** Before any delivery attempt, the pipeline checks whether `route.id` is already in `event.metadata.routing.route_trace`. If found, the delivery is skipped with `status="skipped"` and `error="loop_prevented: route already in route_trace"`.
+
+**Why it matters:** During replay or multi-hop topologies, a route may be matched again for the same event. The bounded trace ensures each route processes the event at most once per trace lifetime (last 16 entries).
+
+**When it fires:** Every delivery attempt, before the self-loop guard.
+
+### 2.2 Self-Loop Guard (Runtime, Per-Delivery)
 
 **What it catches:** A route delivering an event back to its own `source_adapter`.
 
@@ -87,7 +99,7 @@ MEDRE provides three layers of loop prevention, operating at different stages.
 
 **Example:** A bidirectional route `matrix_radio_bidir` between `bot1` and `longfast`. An event from `bot1` routed to `longfast` is fine. But if a misconfigured route tried to deliver an event from `bot1` back to `bot1`, the self-loop guard catches it.
 
-### 2.2 Direct Loop Detection (Config-Time, Startup)
+### 2.3 Direct Loop Detection (Config-Time, Startup)
 
 **What it catches:** Two routes forming an immediate A↔B loop.
 
@@ -102,7 +114,7 @@ This produces: `"Direct routing loop detected between adapters 'bot1' and 'longf
 
 **Effect:** Warning only. Startup is not blocked.
 
-### 2.3 Multi-Hop DFS Cycle Detection (Config-Time, Startup)
+### 2.4 Multi-Hop DFS Cycle Detection (Config-Time, Startup)
 
 **What it catches:** Cycles spanning three or more adapters: X→Y→Z→X.
 
@@ -118,21 +130,22 @@ This produces: `"Route cycle detected: alpha -> beta -> gamma -> alpha"`.
 
 **Effect:** Warning only. Startup is not blocked.
 
-### 2.4 Replay Loop Prevention
+### 2.5 Replay Loop Prevention
 
 During replay, `_filter_replay_loops` applies additional filtering:
 - Self-loop: route would deliver back to `source_adapter`.
-- Previously routed: event's `RoutingMetadata.matched_routes` overlaps with a matched route ID.
+- Previously routed: event's `RoutingMetadata.matched_routes` **or** `route_trace` overlaps with a matched route ID.
 
 Looping routes are skipped with `loop_warnings` attached to `ReplayRouteAttribution`.
 
-### 2.5 Loop Prevention Scope
+### 2.6 Loop Prevention Scope
 
 | Context | Mechanism | Blocks startup? | Blocks delivery? |
 |---------|-----------|-----------------|------------------|
 | Config-time | `check_route_loops` (direct + DFS) | No (warning only) | N/A |
+| Runtime | Route-trace loop prevention in `PipelineRunner` | N/A | Yes (skips delivery) |
 | Runtime | Self-loop guard in `PipelineRunner` | N/A | Yes (skips delivery) |
-| Replay | `_filter_replay_loops` | N/A | Yes (skips route) |
+| Replay | `_filter_replay_loops` (route_trace + matched_routes) | N/A | Yes (skips route) |
 
 
 ## 3. Route Attribution Visibility

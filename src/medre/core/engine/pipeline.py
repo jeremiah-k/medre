@@ -483,16 +483,26 @@ class PipelineRunner:
             )
             return event, []
 
-        # Populate route_trace on the event's routing metadata.
+        # Populate matched_routes and route_trace on the event's routing metadata.
         route_ids = tuple(r.id for r in matched_routes)
         existing_routing = event.metadata.routing
+        # Build the new route_trace by appending current route IDs to
+        # the existing trace, bounded to at most 16 entries.
+        prior_trace: tuple[str, ...] = ()
+        if existing_routing is not None:
+            prior_trace = existing_routing.route_trace if existing_routing.route_trace else ()
+        new_trace = (prior_trace + route_ids)[-16:]
         if existing_routing is not None:
             new_routing = msgspec.structs.replace(
-                existing_routing, route_trace=route_ids,
+                existing_routing,
+                matched_routes=route_ids,
+                route_trace=new_trace,
             )
         else:
             from medre.core.events.metadata import RoutingMetadata
-            new_routing = RoutingMetadata(route_trace=route_ids)
+            new_routing = RoutingMetadata(
+                matched_routes=route_ids, route_trace=new_trace,
+            )
         new_metadata = msgspec.structs.replace(
             event.metadata, routing=new_routing,
         )
@@ -553,6 +563,40 @@ class PipelineRunner:
             target = plan.target
             adapter_id = target.adapter or ""
             t0 = time.monotonic()
+
+            # Route-trace loop prevention: skip if this route has already
+            # been traversed in a *prior* routing pass.  The first occurrence
+            # of a route ID in the trace is the current pass — allow it.
+            # A second or later occurrence means the event was re-routed
+            # through the same route (e.g. during replay or multi-hop
+            # topologies).
+            routing_meta = event.metadata.routing
+            trace_count = 0
+            if routing_meta is not None:
+                trace_count = sum(1 for tid in routing_meta.route_trace if tid == route.id)
+            if trace_count > 1:
+                self._log.warning(
+                    "loop_prevented: route_id=%s already in route_trace "
+                    "for event_id=%s (trace=%s)",
+                    route.id,
+                    event.event_id,
+                    routing_meta.route_trace,
+                )
+                if self._route_stats is not None:
+                    self._route_stats.record_loop_prevented(route.id)
+                elapsed = (time.monotonic() - t0) * 1000.0
+                return DeliveryOutcome(
+                    event_id=event.event_id,
+                    target_adapter=adapter_id,
+                    target_channel=target.channel,
+                    route_id=route.id,
+                    delivery_plan_id=plan.plan_id,
+                    status="skipped",
+                    failure_kind=None,
+                    receipt=None,
+                    error="loop_prevented: route already traversed in prior routing pass",
+                    duration_ms=elapsed,
+                )
 
             # Self-loop guard: skip delivery back to the source adapter.
             if adapter_id and adapter_id == event.source_adapter:

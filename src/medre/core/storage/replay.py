@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -187,10 +188,11 @@ class _PipelineProtocol(Protocol):
 
     async def route_event(
         self, event: CanonicalEvent,
-    ) -> list[tuple[Any, list[Any]]]:
+    ) -> tuple[CanonicalEvent, list[tuple[Any, Any]]]:
         """Match *event* against current routes and resolve targets.
 
-        Returns a list of ``(route, targets)`` pairs.
+        Returns a tuple of (enriched_event, deliveries) where deliveries
+        is a list of ``(route, plan)`` pairs.
         """
         ...
 
@@ -1054,7 +1056,7 @@ class ReplayEngine:
         handle missing upstream data.
         """
         mode = request.mode
-        route_result: list[tuple[Any, list[Any]]] | None = None
+        route_result: list[tuple[Any, Any]] | None = None
         plan_result: list[Any] | None = None
 
         # Immutability guard: checkpoint event identity before processing.
@@ -1153,20 +1155,25 @@ class ReplayEngine:
 
     async def _stage_route(
         self, event: CanonicalEvent, *, request: ReplayRequest,
-    ) -> tuple[ReplayResult, list[tuple[Any, list[Any]]] | None]:
+    ) -> tuple[ReplayResult, list[tuple[Any, Any]] | None]:
         """Route *event* against current routes.
 
-        Returns the :class:`ReplayResult` and the route-target pairs for
+        Returns the :class:`ReplayResult` and the route–plan pairs for
         use by downstream stages.  If no routes match, the result status
         is ``"failed"`` and the route data is an empty list (not None)
         so downstream stages can distinguish "no routes" from "routing
         not attempted".
 
+        The pipeline's ``route_event`` returns
+        ``(enriched_event, list[tuple[Route, DeliveryPlan]])``.  The
+        enriched event is used for loop detection and attribution.
+
         Route-aware replay adds :class:`ReplayRouteAttribution` to the
         result and filters out routes that would create replay loops.
         A replay loop is detected when a route would deliver back to the
-        event's ``source_adapter`` or when the event's lineage / routing
-        metadata indicates it was already routed through the same route.
+        event's ``source_adapter`` or when the event's routing metadata
+        (matched_routes or route_trace) indicates it was already routed
+        through the same route.
 
         When ``request.route_ids`` is non-empty, only routes whose IDs
         appear in the set are used.  If a requested route ID was not
@@ -1195,13 +1202,19 @@ class ReplayEngine:
                 None,
             )
         try:
-            routes = await self._pipeline.route_event(event)
+            result = await self._pipeline.route_event(event)
+            # Unwrap real pipeline return: (CanonicalEvent, list[tuple[Route, DeliveryPlan]])
+            # Use the enriched event (may have route_trace metadata).
+            if isinstance(result, tuple) and len(result) == 2:
+                event, routes = result
+            else:
+                routes = result  # type: ignore[assignment]
 
             # Filter by explicit route_ids when provided.
             if requested_route_ids:
                 allowed = set(requested_route_ids)
                 routes = [
-                    (r, t) for r, t in routes
+                    (r, p) for r, p in routes
                     if getattr(r, "id", None) in allowed
                 ]
                 # Warn about requested route IDs not found among matched
@@ -1256,9 +1269,17 @@ class ReplayEngine:
                 if hasattr(r, "id")
             )
             target_adapters: list[str] = []
-            for _, targets in filtered_routes:
-                for t in targets:
-                    adapter = getattr(t, "adapter", None)
+            for _, plan_or_target in filtered_routes:
+                plan = plan_or_target
+                # Real pipeline returns DeliveryPlan objects with .target.adapter.
+                # Stub pipelines may return raw target objects or lists of them.
+                target_obj = getattr(plan, "target", plan)
+                if isinstance(target_obj, (list, tuple)):
+                    subtargets = target_obj
+                else:
+                    subtargets = [target_obj]
+                for sub in subtargets:
+                    adapter = getattr(sub, "adapter", None)
                     if adapter is not None and adapter not in target_adapters:
                         target_adapters.append(adapter)
 
@@ -1319,12 +1340,16 @@ class ReplayEngine:
     async def _stage_plan(
         self,
         event: CanonicalEvent,
-        route_result: list[tuple[Any, list[Any]]] | None,
+        route_result: list[tuple[Any, Any]] | None,
     ) -> tuple[ReplayResult, list[Any] | None]:
         """Build delivery plans for *event* based on routing results.
 
         Returns the :class:`ReplayResult` and the delivery plans for use
         by downstream stages.
+
+        When *route_result* already contains ``DeliveryPlan`` objects
+        (i.e. from the real PipelineRunner), the plans are extracted
+        directly without calling ``plan_delivery`` again.
         """
         t0 = time.monotonic()
         if route_result is None:
@@ -1338,6 +1363,32 @@ class ReplayEngine:
                 ),
                 None,
             )
+
+        # If route_result items already contain DeliveryPlan objects
+        # (real pipeline returns list[tuple[Route, DeliveryPlan]]),
+        # extract plans directly without re-planning.
+        plans: list[Any] = []
+        all_delivery_plans = True
+        for _, plan_or_target in route_result:
+            if hasattr(plan_or_target, "target") and hasattr(plan_or_target, "plan_id"):
+                plans.append(plan_or_target)
+            else:
+                all_delivery_plans = False
+                break
+
+        if all_delivery_plans and plans:
+            return (
+                ReplayResult(
+                    event_id=event.event_id,
+                    stage="plan",
+                    status="passed",
+                    output=plans,
+                    duration_ms=_elapsed_ms(t0),
+                ),
+                plans,
+            )
+
+        # Fall back to pipeline's plan_delivery for stubs.
         if self._pipeline is None:
             return (
                 ReplayResult(
@@ -1526,8 +1577,8 @@ class ReplayEngine:
 
 def _filter_replay_loops(
     event: CanonicalEvent,
-    routes: list[tuple[Any, list[Any]]],
-) -> tuple[list[str], list[tuple[Any, list[Any]]]]:
+    routes: list[tuple[Any, Any]],
+) -> tuple[list[str], list[tuple[Any, Any]]]:
     """Filter routes that would create a replay routing loop.
 
     A replay loop is detected when:
@@ -1536,6 +1587,8 @@ def _filter_replay_loops(
     2. The event's existing ``RoutingMetadata.matched_routes`` overlaps
        with a matched route ID, indicating the event was previously
        routed through the same route.
+    3. The event's ``RoutingMetadata.route_trace`` contains a matched
+       route ID, indicating a historical traversal through the same route.
 
     Returns a tuple of ``(loop_warnings, filtered_routes)``.  Loop-causing
     routes are removed from the filtered list and a warning string is
@@ -1543,21 +1596,38 @@ def _filter_replay_loops(
     """
     source = event.source_adapter
     warnings: list[str] = []
-    filtered: list[tuple[Any, list[Any]]] = []
+    filtered: list[tuple[Any, Any]] = []
 
     # Pre-compute previously matched routes from event metadata (if any).
     prev_matched: set[str] = set()
     routing_meta = event.metadata.routing
     if routing_meta is not None and routing_meta.matched_routes:
         prev_matched = set(routing_meta.matched_routes)
+    # Also check route_trace for historical traversal.  A route ID that
+    # appears only once in the trace was added by the current routing pass
+    # — do NOT filter it.  Only filter when the same route ID appears
+    # multiple times (indicating a prior routing pass).
+    if routing_meta is not None and routing_meta.route_trace:
+        trace = routing_meta.route_trace
+        # Build a multiset: only routes appearing >1 time are "previously matched".
+        trace_counts = Counter(trace)
+        prev_matched |= {rid for rid, cnt in trace_counts.items() if cnt > 1}
 
-    for route, targets in routes:
+    for route, plan_or_targets in routes:
         route_id = getattr(route, "id", None)
 
+        # Resolve target adapters: real pipeline returns DeliveryPlan with
+        # .target.adapter; stubs may return a list of target objects.
+        target_adapters: set[str | None] = set()
+        if isinstance(plan_or_targets, (list, tuple)):
+            for t in plan_or_targets:
+                target_adapters.add(getattr(t, "adapter", None))
+        else:
+            # Single DeliveryPlan or target object.
+            target = getattr(plan_or_targets, "target", plan_or_targets)
+            target_adapters.add(getattr(target, "adapter", None))
+
         # Check 1: would this route deliver back to the source?
-        target_adapters = {
-            getattr(t, "adapter", None) for t in targets
-        }
         if source in target_adapters:
             warnings.append(
                 f"Route {route_id!r} would deliver back to source "
@@ -1573,7 +1643,7 @@ def _filter_replay_loops(
             )
             continue
 
-        filtered.append((route, targets))
+        filtered.append((route, plan_or_targets))
 
     return warnings, filtered
 

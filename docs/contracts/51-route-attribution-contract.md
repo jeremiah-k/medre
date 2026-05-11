@@ -28,14 +28,17 @@ Route attribution is stored in three locations, each serving a different lifecyc
 
 ### 2.1 `RoutingMetadata.route_trace` (on CanonicalEvent metadata)
 
-After route matching, the pipeline populates `RoutingMetadata.route_trace` on the event with an ordered tuple of matched route IDs:
+After route matching, the pipeline populates `RoutingMetadata` on the event with both matched route IDs and a bounded historical route trace:
 
 ```
 RoutingMetadata(
-    matched_routes=("route_a", "route_b"),
-    route_trace=("route_a", "route_b"),  # populated by pipeline after matching
+    matched_routes=("route_a", "route_b"),   # routes matched during this pass
+    route_trace=("route_a", "route_b"),      # bounded historical traversal
 )
 ```
+
+- `matched_routes` records which routes matched during the **current** routing pass.
+- `route_trace` is the **bounded historical** traversal trace (capped at 16 entries). It appends `matched_routes` to any prior trace from earlier routing passes (e.g. during replay).
 
 This is the live-routing attribution path. The pipeline uses `msgspec.structs.replace` to create a new `CanonicalEvent` with the updated metadata. The original event is never mutated in place.
 
@@ -43,7 +46,7 @@ This is the live-routing attribution path. The pipeline uses `msgspec.structs.re
 
 ### 2.2 `DeliveryReceipt.route_id` (on persisted receipts)
 
-Every `DeliveryReceipt` carries a `route_id` field. This persists the route attribution into storage alongside the delivery outcome:
+Every `DeliveryReceipt` carries a `route_id` field. This persists the route attribution into storage via SQLite alongside the delivery outcome:
 
 ```
 DeliveryReceipt(
@@ -56,6 +59,8 @@ DeliveryReceipt(
 ```
 
 Receipts form the durable audit trail. The `route_id` on a receipt is the authoritative source for "which route was this delivery attributed to" in any post-hoc analysis.
+
+**Note on storage timing:** The source canonical event is persisted *before* routing metadata is populated. Therefore the stored canonical event record may not carry `route_trace`. Delivery receipts are the definitive persisted attribution record.
 
 ### 2.3 `ReplayRouteAttribution` (on replay results)
 

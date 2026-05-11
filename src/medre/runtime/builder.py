@@ -47,6 +47,7 @@ from medre.core.planning.relation_resolution import RelationResolver
 from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing.router import Router
+from medre.core.routing.stats import RouteStats
 from medre.core.storage.sqlite import SQLiteStorage
 from medre.runtime.app import MedreApp
 from medre.runtime.errors import RuntimeConfigError
@@ -265,6 +266,7 @@ class RuntimeBuilder:
         adapters: dict[str, BaseAdapter] = {}
 
         # 9. PipelineConfig + PipelineRunner
+        route_stats = RouteStats()
         pipeline_config = PipelineConfig(
             storage=storage,
             router=router,
@@ -274,6 +276,7 @@ class RuntimeBuilder:
             event_bus=event_bus,
             rendering_pipeline=rendering_pipeline,
             diagnostician=diagnostician,
+            route_stats=route_stats,
         )
         pipeline_runner = PipelineRunner(pipeline_config)
 
@@ -307,6 +310,7 @@ class RuntimeBuilder:
             fallback_resolver=fallback_resolver,
             relation_resolver=relation_resolver,
             pipeline_runner=pipeline_runner,
+            route_stats=route_stats,
             diagnostician=diagnostician,
             adapters=adapters,
             shutdown_event=shutdown_event,

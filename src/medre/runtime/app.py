@@ -38,6 +38,7 @@ if TYPE_CHECKING:
     from medre.core.planning.relation_resolution import RelationResolver
     from medre.core.rendering.renderer import RenderingPipeline
     from medre.core.routing.router import Router
+    from medre.core.routing.stats import RouteStats
     from medre.core.storage.sqlite import SQLiteStorage
     from medre.runtime.builder import AdapterBuildFailure
 
@@ -96,6 +97,10 @@ class MedreApp:
         Per-adapter monotonic start timestamps (populated during start).
     started_adapter_ids:
         Ordered list of adapter IDs that successfully started.
+    route_stats:
+        Per-route delivery statistics owned by the runtime (live counters
+        populated by the pipeline runner).  ``None`` when routing is
+        disabled or the runtime was built without a stats collector.
     """
 
     config: RuntimeConfig
@@ -110,6 +115,7 @@ class MedreApp:
     diagnostician: Diagnostician
     adapters: dict[str, BaseAdapter]
     shutdown_event: asyncio.Event
+    route_stats: RouteStats | None = None
     build_failures: list[AdapterBuildFailure] = field(default_factory=list)
     adapter_start_times: dict[str, float] = field(default_factory=dict)
     started_adapter_ids: list[str] = field(default_factory=list)
