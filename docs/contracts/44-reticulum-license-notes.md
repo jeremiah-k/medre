@@ -111,8 +111,8 @@ outside the scope of this document.
 
 ### 3.6 MEDRE's own license
 
-MEDRE (the `meshnet-framework` project) declares `license = "MIT"` in
-`pyproject.toml`. MEDRE depends on RNS/LXMF as optional transport
+MEDRE declares `license = "GPL-3.0-or-later"` in
+`pyproject.toml` (updated from MIT 2026-05-12). MEDRE depends on RNS/LXMF as optional transport
 dependencies, not as core dependencies. The RNS/LXMF code is not included in
 MEDRE's distribution; it is fetched at install time via `pip install lxmf`.
 
@@ -126,12 +126,13 @@ they represent the actual ambiguity that downstream consumers face.
 
 **The question:** Is the Reticulum License compatible with the GPL?
 
-**Why it matters:** MEDRE uses MIT, so this question does not directly affect
-MEDRE's own licensing. However, it affects the broader ecosystem. Any project
-that uses GPL and also wants to link against RNS/LXMF faces this question.
-The answer is not obvious because:
+**Why it matters:** MEDRE uses GPL-3.0-or-later, so the question of Reticulum
+License compatibility with GPL is directly relevant. MEDRE's GPL-3.0-or-later
+license must be compatible with the Reticulum License when both are present in
+an installation that includes the `[lxmf]` extra.
 
-- MIT, by itself, is GPL-compatible.
+- MIT, by itself, is GPL-compatible. GPL-3.0-or-later is compatible with
+  standard permissive licenses.
 - The GPL requires that any additional restrictions on the combined work also
   be compatible with the GPL's own terms (GPLv3, section 7).
 - The harm clause and the AI/ML exclusion clause are "further restrictions"
@@ -199,9 +200,9 @@ question.
 **The question:** When MEDRE lists `lxmf` as an optional dependency, what
 obligations (if any) propagate to MEDRE's users?
 
-**Why it matters:** MEDRE is MIT-licensed. Its optional dependency on
+**Why it matters:** MEDRE is GPL-3.0-or-later-licensed. Its optional dependency on
 LXMF/RNS means that users who install with `pip install ".[lxmf]"` will
-receive Reticulum-licensed code. The MIT license on MEDRE itself does not
+receive Reticulum-licensed code. The GPL-3.0-or-later license on MEDRE itself does not
 cover those optional dependencies. Users must independently satisfy the
 Reticulum License terms for the RNS/LXMF packages they install.
 
@@ -223,8 +224,8 @@ today, not legal conclusions.
 ### 5.1 Current impact: minimal
 
 MEDRE uses RNS/LXMF as an optional transport. The code is not vendored, not
-forked, not modified. It is fetched from PyPI at install time. MEDRE's own
-MIT license governs MEDRE's code. The Reticulum License governs the RNS/LXMF
+forked, not modified. It is fetched from PyPI at install time. MEDRE's
+GPL-3.0-or-later license governs MEDRE's code. The Reticulum License governs the RNS/LXMF
 packages that users optionally install.
 
 No current MEDRE functionality violates the stated restrictions (no harm
@@ -267,7 +268,7 @@ recommendations.
 If MEDRE's LXMF adapter code were split so that the adapter package itself
 does not carry RNS/LXMF as a dependency but instead documents the user's
 responsibility to install it separately, the licensing boundary becomes
-cleaner. The adapter code (MIT) would be separate from the transport library
+cleaner. The adapter code (GPL-3.0-or-later) would be separate from the transport library
 (Reticulum License). Users would install both and accept both licenses
 independently.
 
@@ -331,7 +332,7 @@ completeness, not as a practical near-term direction.
 | RNS Contributing.md | `/home/jeremiah/dev/Reticulum/Contributing.md` | CLA (lines 56-58), Generative AI Policy (lines 50-54) |
 | RNS setup.py | `/home/jeremiah/dev/Reticulum/setup.py` | License field, classifiers |
 | LXMF setup.py | `/home/jeremiah/dev/LXMF/setup.py` | License field, classifiers, dependency on `rns>=1.2.0` |
-| MEDRE pyproject.toml | `pyproject.toml` | `license = "MIT"` |
+| MEDRE pyproject.toml | `pyproject.toml` | `license = "GPL-3.0-or-later"` |
 | Contract 34 (Dependency Reality Audit) | `docs/contracts/34-dependency-reality-audit.md` | Prior Reticulum License flag (section 4.4) |
 | Contract 37 (Transport Maturity Classification) | `docs/contracts/37-transport-maturity-classification.md` | Non-standard license risk flag (section 7.2) |
 | Contract 38 (Release Candidate Criteria) | `docs/contracts/38-release-candidate-criteria.md` | License documentation blocker (section 4.4) |

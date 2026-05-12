@@ -171,9 +171,8 @@ accurately declare itself MIT-only. An MIT declaration would be misleading
 to downstream users who install `medre[meshtastic]` and receive GPL-licensed
 code in the same package.
 
-The `pyproject.toml` currently says `license = "MIT"`. This does not reflect
-the Meshtastic GPL reality. The project needs to either change the license
-or restructure so the declaration is accurate.
+The `pyproject.toml` now says `license = "GPL-3.0-or-later"`, reflecting the
+Meshtastic GPL reality. The license was changed on 2026-05-12.
 
 
 ## 6. The Reticulum/LXMF License Ambiguity
@@ -413,24 +412,23 @@ to modifications of medre itself, not to code that merely uses medre's API.
    special legal status. The GPL applies to downstream recipients regardless
    of who maintains the fork.
 
-### 8.5 Position: not finalized
+### 8.5 Position: GPL-3.0-or-later (decided 2026-05-12)
 
-Neither license is selected as final in this document. The governance position
-is:
+The license decision has been finalized:
 
 - **MIT is no longer defensible** as the sole license for medre. The in-tree
-  Meshtastic adapter imports GPL-licensed code. Declaring MIT is misleading.
-- **GPL-3.0-or-later is the simplest honest option.** It eliminates the
-  copyleft conflict with the Meshtastic adapter. It aligns with the strongest
-  copyleft dependency. It is easy to communicate.
-- **LGPL-3.0-or-later is the most flexible option for downstream users.** It
-  preserves the importable-toolkit promise for non-Meshtastic transports. But
-  it does not resolve the Meshtastic GPL question and creates a mixed-license
-  communication burden.
-- **The decision should be made before beta release.** Shipping a beta with an
-  inaccurate MIT declaration is worse than shipping with a copyleft license
-  that might surprise some users. Honesty about the license is more important
-  than maximizing adoption.
+  Meshtastic adapter imports GPL-licensed code. Declaring MIT was misleading.
+- **GPL-3.0-or-later was selected** as the simplest honest option. It eliminates
+  the copyleft conflict with the Meshtastic adapter. It aligns with the
+  strongest copyleft dependency. It is easy to communicate.
+- **LGPL-3.0-or-later was considered** as the most flexible option for
+  downstream users. It would preserve the importable-toolkit promise for
+  non-Meshtastic transports. But it does not resolve the Meshtastic GPL
+  question and creates a mixed-license communication burden.
+- **The decision was made before beta release.** Shipping a beta with an
+  inaccurate MIT declaration would have been worse than shipping with a
+  copyleft license that might surprise some users. Honesty about the license
+  is more important than maximizing adoption.
 
 
 ## 9. Copyleft Philosophy
@@ -471,10 +469,10 @@ This argument favors LGPL-3.0-or-later (or MIT, which is no longer viable).
 
 ### 9.4 Governance position
 
-The project author should make a values call. The license is not just a legal
-mechanism. It is a statement about what the project wants for its downstream
-ecosystem. This governance document records the tradeoffs but does not make
-the final call.
+The project author made a values call on 2026-05-12: GPL-3.0-or-later. The
+license is not just a legal mechanism. It is a statement about what the project
+wants for its downstream ecosystem. This governance document recorded the
+tradeoffs and the decision.
 
 
 ## 10. Importable-Toolkit Implications
@@ -547,70 +545,61 @@ fits the architecture, not to restructure the architecture to fit a license.
 
 ### 12.1 What contributors should know
 
-1. medre's license is under active governance review. The current `MIT`
-   declaration in `pyproject.toml` does not reflect the final license. It
-   will be updated before beta.
+1. medre's license is GPL-3.0-or-later (effective 2026-05-12). The license
+   was changed from MIT to reflect the dependency reality documented in this
+   governance record.
 
-2. All contributions will be licensed under the license selected at beta. By
-   submitting a contribution, you agree that your code will be governed by
-   that license.
+2. All contributions are licensed under GPL-3.0-or-later. By submitting a
+   contribution, you agree that your code will be governed by that license.
 
-3. If GPL-3.0-or-later is selected, contributions are GPL-3.0-or-later.
-   Contributors retain their copyright. medre does not require a CLA.
+3. Contributors retain their copyright. medre does not require a CLA.
 
-4. If LGPL-3.0-or-later is selected, contributions are LGPL-3.0-or-later.
-   Contributors retain their copyright. medre does not require a CLA.
-
-5. Existing contributions made under the MIT declaration are compatible with
-   both GPL-3.0-or-later and LGPL-3.0-or-later (MIT is GPL-compatible and
-   LGPL-compatible). No relicensing negotiation with past contributors is
-   needed.
+4. Existing contributions made under the prior MIT declaration are compatible
+   with GPL-3.0-or-later (MIT is GPL-compatible). No relicensing negotiation
+   with past contributors was needed.
 
 ### 12.2 Contributor license agreement
 
 medre does not use a CLA. Contributors license their work under the project
-license by submitting it. This is sufficient for an MIT or LGPL project. For
-a GPL project, it is also sufficient because the GPL itself governs
-downstream distribution.
+license (GPL-3.0-or-later) by submitting it. This is sufficient because the
+GPL itself governs downstream distribution.
 
 If the project ever considers a license change that is not upward-compatible
-(for example, from GPL to MIT), past contributor consent would be needed. This
-governance document does not contemplate such a change.
+(for example, from GPL-3.0-or-later to a more restrictive or different
+license), past contributor consent would be needed. This governance document
+does not contemplate such a change.
 
 
 ## 13. Downstream Expectations
 
 ### 13.1 What downstream users should expect
 
-1. **The license will change before beta.** The current MIT declaration is
-   transitional. It was set before the dependency landscape was fully audited.
-   Do not rely on MIT remaining the final license.
+1. **The license is GPL-3.0-or-later** (effective 2026-05-12). The project
+   was previously MIT-licensed. The change was driven by the dependency reality
+   documented in this governance record.
 
-2. **The Meshtastic adapter is GPL-exposed.** Regardless of what license medre
-   chooses for its own code, using the Meshtastic adapter means interacting
-   with GPL-3.0-or-later code (mtjk). Plan accordingly.
+2. **The Meshtastic adapter is GPL-exposed.** Using the Meshtastic adapter
+   means interacting with GPL-3.0-only code (mtjk). medre's GPL-3.0-or-later
+   is compatible with this (GPL-3.0-or-later is a superset of GPL-3.0-only).
 
 3. **The LXMF adapter is non-standard-license-exposed.** The Reticulum
    License is not OSI-approved. It has use restrictions (AI training data,
    certain applications). Read the license text before using the LXMF adapter
    in any context where these restrictions matter.
 
-4. **The Matrix and MeshCore adapters have no copyleft pressure.** Their
-   dependencies (ISC and MIT) are permissive. If medre chooses LGPL, these
-   adapters are usable without copyleft obligations.
+4. **The Matrix and MeshCore adapters have no additional copyleft pressure.** Their
+   dependencies (ISC and MIT respectively) are permissive and compatible with
+   GPL-3.0-or-later.
 
-5. **No license metadata flip until governance is complete.** The
-   `pyproject.toml` `license` field will not change until this governance
-   document is reviewed and a direction is confirmed. The change, when it
-   comes, will be explicit and documented.
+5. **License metadata is updated.** The `pyproject.toml` `license` field,
+   LICENSE file, and README license section all reflect GPL-3.0-or-later.
 
 ### 13.2 What downstream users should not assume
 
-1. Do not assume MIT is final.
-2. Do not assume the optional-extra structure insulates you from GPL
+1. Do not assume the optional-extra structure insulates you from GPL
    obligations when using the Meshtastic adapter.
-3. Do not assume the Reticulum License is permissive. It is not.
-4. Do not assume that because core medre never imports adapter code, you can
+2. Do not assume the Reticulum License is permissive. It is not.
+3. Do not assume that because core medre never imports adapter code, you can
    use GPL-exposed adapters without GPL obligations. The adapter code is still
    distributed as part of the medre package.
 
@@ -634,40 +623,38 @@ architecture that fits a license.
 
 ## 14. Action Items
 
-| Item | Status | Depends on |
-|------|--------|------------|
-| Review this governance document | Pending | Project author decision |
-| Select license direction (GPL-3.0-or-later or LGPL-3.0-or-later) | Pending | Governance review |
-| Update `pyproject.toml` `license` field | Blocked | License selection |
-| Create `LICENSE` file in repo root | Blocked | License selection |
-| Add license section to README.md | Blocked | License selection |
-| Add dependency license table to README.md | Blocked | License selection |
-| Document Meshtastic GPL implications for downstream | Blocked | License selection |
-| Document Reticulum License implications for downstream | Blocked | License selection |
-| Update SPDX classifiers in pyproject.toml | Blocked | License selection |
+| Item | Status | Notes |
+|------|--------|-------|
+| Review this governance document | ✅ Done | Reviewed 2026-05-12. |
+| Select license direction | ✅ Done | GPL-3.0-or-later selected (2026-05-12). |
+| Update `pyproject.toml` `license` field | ✅ Done | `license = "GPL-3.0-or-later"`. |
+| Create `LICENSE` file in repo root | ✅ Done | Standard FSF GPLv3 text. |
+| Add license section to README.md | ✅ Done | GPL-3.0-or-later with links. |
+| Document Meshtastic GPL implications for downstream | ✅ Done | This document §5, contract 41 §7. |
+| Document Reticulum License implications for downstream | ✅ Done | This document §6, contract 44. |
+| Update SPDX classifiers in pyproject.toml | ✅ Done | `License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)`. |
+| Add SPDX headers to .py source files | Deferred | Post-beta hardening. See contract 45 §4. |
 
-None of these action items are executed by this document. They are recorded
-as follow-up work that depends on the governance decision.
+All governance actions completed 2026-05-12.
 
 
 ## 15. Constraints
 
 This document operates under the following constraints:
 
-1. **No metadata flip.** `pyproject.toml` is not modified by this document.
-2. **No package splitting.** No adapter is extracted into a separate package.
-3. **No runtime redesign.** No architectural changes for licensing reasons.
-4. **No adapter redesign.** Adapter interfaces remain as-is.
-5. **No transport extraction.** Transports stay in-tree.
-6. **No subprocess/service isolation.** No process boundary changes.
-7. **No new transports or features.** Licensing governance does not drive
+1. **No package splitting.** No adapter is extracted into a separate package.
+2. **No runtime redesign.** No architectural changes for licensing reasons.
+3. **No adapter redesign.** Adapter interfaces remain as-is.
+4. **No transport extraction.** Transports stay in-tree.
+5. **No subprocess/service isolation.** No process boundary changes.
+6. **No new transports or features.** Licensing governance does not drive
    feature work.
-8. **No legal advice.** This document records analysis and tradeoffs. It does
+7. **No legal advice.** This document records analysis and tradeoffs. It does
    not provide legal advice or guarantee legal compliance. Consult qualified
    legal counsel for definitive answers.
-9. **No contributor communication.** This document is an internal governance
-   record. Contributor-facing communication happens separately when the license
-   direction is confirmed.
+8. **No contributor communication via this document.** This document is an
+   internal governance record. Contributor-facing communication happens via
+   contract 42 and README.md.
 
 
 ## 16. References

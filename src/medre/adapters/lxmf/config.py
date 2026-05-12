@@ -79,6 +79,12 @@ class LxmfConfig:
         Path to a Reticulum identity file.  Required for non-fake
         connection types if the identity is not auto-generated.
         Must be a non-empty string when provided.
+    storage_path:
+        Path to a directory used by ``LXMF.LXMRouter`` for persistent
+        message and peer storage.  **Required** when
+        ``connection_type="reticulum"`` — LXMF 0.9.7 raises
+        ``ValueError`` if ``storagepath`` is ``None``.  Ignored in
+        fake mode.
     """
 
     adapter_id: str
@@ -91,6 +97,7 @@ class LxmfConfig:
     message_delay_seconds: float = 0.5
     metadata_embedding: bool = True
     identity_path: str | None = None
+    storage_path: str | None = None
 
     def validate(self) -> Self:
         """Validate the configuration and return *self* for chaining.
@@ -155,6 +162,23 @@ class LxmfConfig:
                 raise LxmfConfigError(
                     "identity_path must be a non-empty string when provided"
                 )
+
+        # --- storage_path ---
+        if self.storage_path is not None:
+            if not isinstance(self.storage_path, str):
+                raise LxmfConfigError(
+                    f"storage_path must be a string or None, "
+                    f"got {type(self.storage_path).__name__}"
+                )
+            if not self.storage_path.strip():
+                raise LxmfConfigError(
+                    "storage_path must be a non-empty string when provided"
+                )
+        if self.connection_type == "reticulum" and not self.storage_path:
+            raise LxmfConfigError(
+                "storage_path is required when connection_type='reticulum' "
+                "(LXMF 0.9.7 LXMRouter raises ValueError without it)"
+            )
 
         # --- metadata_embedding safety ---
         # metadata_embedding is a bool — no secrets can be embedded.

@@ -1,6 +1,6 @@
 # LXMF Alpha Operation Runbook
 
-> Last updated: 2026-05-10
+> Last updated: 2026-05-12
 > Scope: Real LXMF/Reticulum Operation Alpha (Track 8) + LXMF Operational Clarification (Track 3)
 > Status: **Alpha. Not production. Not hardened. Not complete.** Fake mode is the default development path. Real Reticulum/LXMF mode is implemented and available when optional dependencies (`pip install lxmf`) and valid configuration are present. It requires a live Reticulum transport to route actual messages.
 
@@ -35,8 +35,8 @@ This runbook complements `docs/runbooks/lxmf-live-smoke.md`. The smoke test vali
 | Reticulum instance | A running Reticulum transport layer. Can be a local `rnsd` daemon, a custom config with `AutoInterface` (LAN), or a TCP connection to a remote Reticulum node. |
 | LXMF router storage | A writable directory for `LXMRouter` persistent state. |
 | Reticulum identity | A 64-byte private key file created by `RNS.Identity.to_file()`. Created on first run if none exists. |
-| Python | 3.11 or later |
-| Package install | Core MEDRE: `pip install -e .` (no extra required for fake mode). Real connectivity: `pip install lxmf` (installs `rns` as a dependency). Alternative: `pip install rnspure` for pure-Python crypto (slower). |
+| Python | 3.12 or later (CONFIRMED: 3.12 installed in dev environment) |
+| Package install | Core MEDRE: `pip install -e .` (no extra required for fake mode). Real connectivity: `pip install lxmf` (installs `rns` as a dependency, CONFIRMED: lxmf 0.9.7 + rns 1.2.5 installed). Alternative: `pip install rnspure` for pure-Python crypto (slower). |
 | Network access | At least one Reticulum transport interface configured (AutoInterface for LAN, TCPClientInterface for remote, etc.) |
 
 You do not need Docker for basic alpha operation. Docker guidance is in section 17.
@@ -81,7 +81,7 @@ Fake mode facts:
 - Background tasks from `_on_packet` are tracked and drained on `stop()`.
 
 
-## 4. Identity Setup
+## 4. Identity Setup [CONFIRMED]
 
 Reticulum identities are dual-keypair (X25519 for encryption, Ed25519 for signing) derived from a single 64-byte private key.
 
@@ -129,7 +129,7 @@ MEDRE never handles `RNS.Identity` or `RNS.Destination` objects directly. The ad
 - Core and pipeline code never import from `lxmf` or `RNS`.
 
 
-## 5. Delivery Mode Semantics
+## 5. Delivery Mode Semantics [CONFIRMED]
 
 LXMF supports four delivery methods. The semantics are fundamentally asynchronous and store-and-forward. **Do not assume "instant delivered" or "realtime" guarantees.**
 
@@ -177,7 +177,7 @@ config = LxmfConfig(
 **No LXMF delivery method provides synchronous confirmation.** Even DIRECT's proof receipt is asynchronous. Do not build features that assume `deliver()` returning means the message was received.
 
 
-## 6. Async Delivery Caveats
+## 6. Async Delivery Caveats [CONFIRMED + INFERRED]
 
 ### 6.1 Threading Model
 
@@ -218,7 +218,7 @@ Outbound retry is bounded: `_SEND_MAX_RETRIES = 3` with a short linear backoff (
 - Test isolation requires careful setup/teardown or custom config directories.
 
 
-## 7. Propagation Node Expectations
+## 7. Propagation Node Expectations [CONFIRMED API, INFERRED operational]
 
 ### 7.1 What Propagation Nodes Do
 
@@ -253,7 +253,7 @@ For alpha, propagation is a secondary concern. DIRECT delivery to an online peer
 Even with propagation, delivery is not instantaneous. The message sits at the propagation node until the recipient syncs. There is no push notification. This is fundamentally asynchronous store-and-forward, not realtime messaging.
 
 
-## 8. Reconnect/Restart Expectations
+## 8. Reconnect/Restart Expectations [INFERRED]
 
 ### 8.1 Current State
 
@@ -301,9 +301,9 @@ The identity file persists across restarts. The outbound tracking dict is cleare
 - The identity file is not deleted between cycles.
 
 
-## 9. Minimum Viable Reticulum Topology
+## 9. Minimum Viable Reticulum Topology [CONFIRMED API, INFERRED topology]
 
-This section describes what constitutes a real Reticulum "network" for MEDRE LXMF operation. It is grounded in the Reticulum source code at `/home/jeremiah/dev/Reticulum/RNS/Reticulum.py` (v1.2.4) and does not assume prior Reticulum operational experience.
+This section describes what constitutes a real Reticulum "network" for MEDRE LXMF operation. It is grounded in the Reticulum source code at the installed package path (v1.2.5, CONFIRMED) and does not assume prior Reticulum operational experience.
 
 ### 9.1 What Is a Reticulum Network?
 
@@ -348,12 +348,17 @@ Confirmed from `Reticulum.py` imports and source (lines 33–47):
 | `TCPClientInterface` | TCP | Target host + port | Any reachable TCP endpoint |
 | `TCPServerInterface` | TCP | Listen host + port | Accepts inbound TCP connections |
 | `UDPInterface` | UDP | Target host + port | Point-to-point or broadcast UDP |
-| `RNodeInterface` | Serial/USB radio (RNode) | Serial device path | LoRa radio |
+| `RNodeInterface` | Serial/USB radio (RNode) | Serial device path + radio params | LoRa radio |
 | `SerialInterface` | Serial | Device path + baud | Serial cable |
 | `KISSInterface` | Serial KISS TNC | Device path + baud | Ham radio TNC |
 | `I2PInterface` | I2P | I2P settings | I2P overlay network |
 | `BackboneInterface` | TCP (backbone) | Target host + port | Inter-network backbone |
 | `RNodeMultiInterface` | Multi-port RNode | Serial device | Multiple LoRa channels |
+| `PipeInterface` | Pipe | Command configuration | Local process |
+| `WeaveInterface` | Weave | Weave settings | Weave network |
+
+CONFIRMED: Interface list from `dir(RNS.Interfaces)`. RNodeInterface confirmed
+to require `pyserial` (v3.5 installed). HW_MTU=508 for RNode.
 
 For MEDRE alpha operation, `AutoInterface` (LAN) and `TCPClientInterface`/`TCPServerInterface` (remote nodes) are the practical choices. Radio interfaces require physical hardware.
 
@@ -397,7 +402,7 @@ Reticulum discovers paths via announce propagation. When a node announces, the a
 MEDRE does not control or accelerate path discovery. The `LxmfSession` cannot make path discovery faster than the underlying Reticulum transport allows. First message to a newly discovered peer may take seconds to minutes for path establishment before delivery begins.
 
 
-## 10. rnsd Usage Expectations
+## 10. rnsd Usage Expectations [CONFIRMED]
 
 ### 10.1 What Is rnsd?
 

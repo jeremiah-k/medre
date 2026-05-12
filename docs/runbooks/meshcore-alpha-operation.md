@@ -1,14 +1,17 @@
 # MeshCore Alpha Operation Runbook
 
-> Last updated: 2026-05-09
+> Last updated: 2026-05-12
 > Scope: Real MeshCore Operation Alpha
 > Status: Alpha. Not production. Not hardened. Not complete. Fake mode is the primary development and testing path. Real connectivity (TCP/serial) is implemented via `MeshCoreSession`; BLE is future.
+> SDK version audited: `meshcore` 2.3.7 (PyPI, source-extracted inspection)
 
 This runbook describes how to run the MEDRE MeshCore adapter against a real MeshCore radio node in alpha mode. Alpha mode means the MeshCoreAdapter connects to a real node using TCP, serial, or BLE, receives real events via the SDK's async event dispatcher, and sends real messages via the channel or direct-message send API. It does not mean the system is ready for anything beyond a single operator on a single node.
 
 Everything in this document is conservative. If something has not been tested against a real node and confirmed working, this document says so. If something is known to be broken or missing, this document says that too.
 
 **Fake mode** is the default and recommended path for all development and testing. Real connectivity modes (TCP, serial, BLE) are opt-in for live validation only.
+
+**Audit note (2026-05-12)**: SDK findings in this document are based on source extraction of `meshcore-2.3.7-py3-none-any.whl` from PyPI. All API claims are labeled CONFIRMED (read from source), INFERRED (reasonable from patterns), or UNKNOWN (needs hardware). See `docs/contracts/19-meshcore-connectivity-readiness.md` for full findings table.
 
 
 ## 1. Purpose
@@ -32,7 +35,7 @@ This runbook complements `docs/runbooks/meshcore-live-smoke.md`. The smoke test 
 |------------|---------|
 | MeshCore node | A MeshCore companion radio node accessible via TCP, serial, or BLE |
 | Python | 3.11 or later |
-| Package install | Core MEDRE: `pip install -e .` (no extra required for fake mode). Real connectivity: `pip install meshcore` |
+| Package install | Core MEDRE: `pip install -e .` (no extra required for fake mode). Real connectivity: `pip install meshcore` (v2.3.7 audited, CONFIRMED on PyPI) |
 | Network access (TCP) | Your machine can reach the node's IP address on port 4000 |
 | Serial access | USB cable connecting the node; user must be in `dialout` group on Linux |
 | BLE access | BLE-capable hardware and BlueZ on Linux (optional) |
@@ -65,12 +68,17 @@ from meshcore import MeshCore
 
 async def check():
     mc = await MeshCore.create_tcp("192.168.1.100", 4000)
+    if mc is None:
+        print("ERROR: create_tcp returned None (appstart failed)")
+        return
     print(f"Connected: {mc.is_connected}")
     print(f"Self info: {mc.self_info}")
     await mc.disconnect()
 
 asyncio.run(check())
 ```
+
+**Note** (CONFIRMED from SDK source): `create_tcp` can return `None` if the transport connects but `appstart()` fails. It raises `ConnectionError` only if the transport itself fails. Always check for `None`.
 
 ### 3.2 Serial connectivity
 
@@ -105,7 +113,13 @@ bluetoothctl scan on
 
 ### 3.4 Firmware compatibility
 
-`meshcore` v2.2.5 is the audited SDK version. Firmware compatibility depends on the node's firmware version. If you encounter protocol errors, update both the node firmware and the `meshcore` package.
+`meshcore` v2.3.7 is the audited SDK version (CONFIRMED from PyPI source extraction). Firmware compatibility depends on the node's firmware version. If you encounter protocol errors, update both the node firmware and the `meshcore` package.
+
+**SDK version check** (CONFIRMED):
+```bash
+python -c "import meshcore; print(meshcore.__all__)"
+# Should output: ['BinaryReqType', 'BLEConnection', 'ConnectionManager', 'EventType', 'MeshCore', 'SerialConnection', 'TCPConnection', 'logger']
+```
 
 
 ## 4. Connection Modes
@@ -306,11 +320,12 @@ When `start(ctx)` is called:
 
 **Real mode (TCP/serial — implemented via MeshCoreSession):**
 1. The adapter creates a `MeshCoreSession`, which checks `HAS_MESHCORE` (the `meshcore` import guard in `compat.py`). If `meshcore` is not installed, raises `MeshCoreConnectionError`.
-2. The session calls the appropriate async SDK factory (`MeshCore.create_tcp()`, `create_serial()`). This call is **async** and blocks until the connection is established and `appstart()` completes.
-3. On success, the SDK emits a `SELF_INFO` event containing the node's Ed25519 public key and configuration.
-4. The session subscribes to `CONTACT_MSG_RECV` and `CHANNEL_MSG_RECV` via the SDK's event dispatcher.
-5. `_started` is set to `True`.
-6. A startup log line is emitted: `"MeshCoreAdapter meshcore-alpha started (mode=tcp)"`.
+2. The session calls the appropriate async SDK factory (`MeshCore.create_tcp()`, `create_serial()`). This call is **async** and blocks until the connection is established and `appstart()` completes. CONFIRMED.
+3. The factory can return `None` if transport connects but `appstart()` fails. The session must handle this. CONFIRMED.
+4. On success, the SDK emits a `SELF_INFO` event containing the node's Ed25519 public key and configuration. CONFIRMED.
+5. The session subscribes to `CONTACT_MSG_RECV` and `CHANNEL_MSG_RECV` via the SDK's event dispatcher. CONFIRMED.
+6. `_started` is set to `True`.
+7. A startup log line is emitted: `"MeshCoreAdapter meshcore-alpha started (mode=tcp)"`.
 
 **BLE mode:** BLE connectivity is documented from SDK source analysis but not yet implemented in the session. Use TCP or serial for live testing.
 
@@ -337,7 +352,7 @@ When `stop()` is called:
 
 1. All tracked background tasks (from inbound event processing) are cancelled and drained (with a configurable timeout, default 5 seconds).
 2. Event subscriptions are unsubscribed via `_unsubscribe_events()`.
-3. The client's `close()` method is called (if it exists on the SDK client).
+3. The client's `disconnect()` method is called (CONFIRMED: SDK uses `disconnect()`, NOT `close()`).
 4. `_client` is set to `None`, `_started` is set to `False`.
 5. A shutdown log line is emitted: `"MeshCoreAdapter meshcore-alpha stopped"`.
 
@@ -562,19 +577,26 @@ import asyncio
 from meshcore import MeshCore, EventType
 
 async def validate():
-    # Connect
+    # Connect (CONFIRMED: create_tcp can return None on appstart failure)
     mc = await MeshCore.create_tcp("192.168.1.100", 4000)
-    print(f"Connected: {mc.is_connected}")
-    print(f"Self info: {mc.self_info}")
+    if mc is None:
+        print("ERROR: create_tcp returned None (transport connected but appstart failed)")
+        return
+    print(f"Connected: {mc.is_connected}")  # CONFIRMED: property on MeshCore
+    print(f"Self info: {mc.self_info}")      # CONFIRMED: dict of device info
 
-    # Fetch contacts
+    # Fetch contacts (CONFIRMED: get_contacts returns Event with CONTACTS or ERROR)
     result = await mc.commands.get_contacts()
-    print(f"Contacts: {len(result.payload)} found")
+    if result.is_error():  # CONFIRMED: Event.is_error() helper method
+        print(f"Error getting contacts: {result.payload}")
+    else:
+        print(f"Contacts: {len(result.payload)} found")
 
-    # Send channel message
+    # Send channel message (CONFIRMED: returns Event(OK) or Event(ERROR))
     sent = await mc.commands.send_chan_msg(0, "MEDRE alpha validation")
     print(f"Send result: {sent.type}")
 
+    # Disconnect (CONFIRMED: method is disconnect(), NOT close())
     await mc.disconnect()
 
 asyncio.run(validate())

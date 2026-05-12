@@ -69,6 +69,7 @@ class TestLxmfConfigConnectionType:
         config = LxmfConfig(
             adapter_id="lxmf-1",
             connection_type="reticulum",
+            storage_path="/tmp/medre-test-lxmf",
         )
         assert config.validate() is config
 

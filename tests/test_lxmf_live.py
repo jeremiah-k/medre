@@ -182,6 +182,7 @@ def _make_config():
         connection_type="reticulum",
         identity_path=LXMF_IDENTITY_PATH or None,
         display_name=LXMF_DISPLAY_NAME,
+        storage_path="/tmp/medre-live-lxmf-router",
     )
 
 
@@ -254,6 +255,7 @@ class TestLxmfLiveSmoke:
             connection_type="reticulum",
             identity_path=LXMF_IDENTITY_PATH,
             display_name=LXMF_DISPLAY_NAME,
+            storage_path="/tmp/medre-live-lxmf-router",
         )
         # Should not raise — identity_path is a non-empty string.
         config.validate()
@@ -271,6 +273,7 @@ class TestLxmfLiveSmoke:
             adapter_id="lxmf-live-smoke",
             connection_type="reticulum",
             identity_path="   ",  # whitespace-only
+            storage_path="/tmp/medre-live-lxmf-router",
         )
         with pytest.raises(LxmfConfigError, match="non-empty"):
             config.validate()

@@ -26,6 +26,7 @@ Usage
 from __future__ import annotations
 
 import logging
+from types import MappingProxyType
 from typing import Any
 
 from medre.adapters.base import (
@@ -227,6 +228,20 @@ class FakeMeshCoreAdapter(BaseAdapter):
             health="healthy" if self._started else "unknown",
         )
 
+    def diagnostics(self) -> dict[str, Any]:
+        """Return a diagnostics snapshot mirroring real adapter shape.
+
+        All values are JSON-safe primitives.  No SDK objects are exposed.
+        """
+        return {
+            "adapter_id": self.adapter_id,
+            "platform": self.platform,
+            "started": self._started,
+            "mode": "fake",
+            "delivered_count": len(self.delivered_payloads),
+            "inbound_count": len(self.inbound_events),
+        }
+
     # -- Outbound delivery --------------------------------------------------
 
     async def deliver(self, result: RenderingResult) -> AdapterDeliveryResult | None:
@@ -275,17 +290,25 @@ class FakeMeshCoreAdapter(BaseAdapter):
         if not isinstance(channel_index, int):
             channel_index = 0
         meshnet_name = str(result.payload.get("meshnet_name", ""))
+        dest_id = result.payload.get("dest_id")
+        if dest_id is not None:
+            dest_id = str(dest_id)
 
         send_result = await self._fake_client.send_text(
             text=text,
             channel_index=channel_index,
             meshnet_name=meshnet_name,
+            dest_id=dest_id,
         )
         packet_id = send_result["packet_id"]
 
         return AdapterDeliveryResult(
             native_message_id=str(packet_id),
             native_channel_id=str(channel_index),
+            metadata=MappingProxyType({
+                "delivery_status": "local_accepted",
+                "delivery_note": "fake adapter — simulated local acceptance",
+            }),
         )
 
     # -- Inbound simulation -------------------------------------------------

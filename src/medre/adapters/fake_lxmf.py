@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from types import MappingProxyType
 from typing import Any
 
 from medre.adapters.base import (
@@ -238,6 +239,23 @@ class FakeLxmfAdapter(BaseAdapter):
             health="healthy" if self._started else "unknown",
         )
 
+    def diagnostics(self) -> dict[str, Any]:
+        """Return adapter-level diagnostics.
+
+        No secrets, private keys, identity material, or raw RNS/LXMF
+        objects are exposed.  Parity with
+        :meth:`~medre.adapters.lxmf.adapter.LxmfAdapter.diagnostics`.
+        """
+        return {
+            "adapter_id": self.adapter_id,
+            "platform": self.platform,
+            "started": self._started,
+            "mode": "fake",
+            "sent_count": self._fake_client.sent_count,
+            "delivered_count": len(self.delivered_payloads),
+            "inbound_count": len(self.inbound_events),
+        }
+
     # -- Outbound delivery --------------------------------------------------
 
     async def deliver(self, result: RenderingResult) -> AdapterDeliveryResult | None:
@@ -294,9 +312,19 @@ class FakeLxmfAdapter(BaseAdapter):
         )
         message_id = send_result["message_id"]
 
+        delivery_method = result.payload.get("delivery_method")
+        if not isinstance(delivery_method, str):
+            delivery_method = self._config.default_delivery_method
+
         return AdapterDeliveryResult(
             native_message_id=message_id,
             native_channel_id=None,
+            metadata=MappingProxyType({
+                "lxmf": {
+                    "delivery_state": "outbound",
+                    "delivery_method": delivery_method,
+                },
+            }),
         )
 
     # -- Inbound simulation -------------------------------------------------

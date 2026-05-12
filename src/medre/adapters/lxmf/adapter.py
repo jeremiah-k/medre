@@ -226,7 +226,10 @@ class LxmfAdapter(BaseAdapter):
         """Return adapter-level diagnostics composed from session state.
 
         No secrets, private keys, identity material, or raw RNS/LXMF
-        objects are exposed.
+        objects are exposed.  All values are JSON-safe primitives
+        (bool, int, str, None) by construction — session properties
+        are scalar and the normalisation boundary guarantees no raw
+        SDK objects leak.
         """
         base: dict[str, Any] = {
             "adapter_id": self.adapter_id,

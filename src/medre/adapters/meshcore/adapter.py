@@ -42,6 +42,7 @@ instances spawned by inbound packet callbacks and drains them on stop.
 from __future__ import annotations
 
 import asyncio
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -85,6 +86,30 @@ _MESHCORE_CAPABILITIES = AdapterCapabilities(
     max_text_bytes=512,
     max_text_chars=512,
 )
+
+
+def _sanitize_diagnostics(data: dict[str, Any]) -> dict[str, Any]:
+    """Ensure all diagnostic values are JSON-safe primitives.
+
+    Prevents SDK object references, generators, or other non-serializable
+    types from leaking into diagnostics output.  Only ``str``, ``int``,
+    ``float``, ``bool``, ``None``, ``list``, and ``dict`` are preserved.
+    """
+    safe: dict[str, Any] = {}
+    for key, value in data.items():
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            safe[key] = value
+        elif isinstance(value, dict):
+            safe[key] = _sanitize_diagnostics(value)
+        elif isinstance(value, (list, tuple)):
+            safe[key] = [
+                _sanitize_diagnostics(v) if isinstance(v, dict)
+                else v
+                for v in value
+            ]
+        else:
+            safe[key] = repr(value)
+    return safe
 
 
 class MeshCoreAdapter(BaseAdapter):
@@ -299,6 +324,13 @@ class MeshCoreAdapter(BaseAdapter):
         return AdapterDeliveryResult(
             native_message_id=native_id,
             native_channel_id=str(channel_index) if channel_index is not None else None,
+            metadata=MappingProxyType({
+                "delivery_status": "local_accepted",
+                "delivery_note": (
+                    "MeshCore alpha — no end-to-end ACK; "
+                    "status reflects local acceptance only"
+                ),
+            }),
         )
 
     # -- Inbound callback ---------------------------------------------------
@@ -409,6 +441,7 @@ class MeshCoreAdapter(BaseAdapter):
         """Return adapter-level diagnostics composed from session state.
 
         No secrets, private keys, or raw SDK internals are exposed.
+        All values are guaranteed to be JSON-safe primitives.
         """
         base: dict[str, Any] = {
             "adapter_id": self.adapter_id,
@@ -417,7 +450,9 @@ class MeshCoreAdapter(BaseAdapter):
             "mode": self._config.connection_type,
         }
         if self._session is not None:
-            base["session"] = self._session.diagnostics()
+            base["session"] = _sanitize_diagnostics(
+                self._session.diagnostics()
+            )
         return base
 
     # -- Event subscription (legacy scaffold) --------------------------------

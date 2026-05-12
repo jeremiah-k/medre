@@ -80,12 +80,13 @@ On unexpected disconnect the session attempts bounded exponential backoff:
 from __future__ import annotations
 
 import asyncio
+import importlib
 import logging
 import random
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Callable, Coroutine
+from typing import Any, Callable, Coroutine, Protocol, cast
 
 from medre.adapters.meshcore.compat import HAS_MESHCORE
 from medre.adapters.meshcore.config import MeshCoreConfig
@@ -125,6 +126,22 @@ class _SessionDiagnostics:
     transient_delivery_failures: int = 0
     permanent_delivery_failures: int = 0
     peer_count: int | None = None
+
+
+class _MeshCoreModule(Protocol):
+    """Structural type for the optional ``meshcore`` SDK package.
+
+    Defines the subset of the SDK's public API used by
+    :meth:`MeshCoreSession._connect_real`.  Because ``meshcore`` is an
+    optional dependency whose package may be absent at type-check time,
+    this Protocol gives Pyright a concrete shape without requiring the
+    SDK's type stubs to be installed.
+    """
+
+    MeshCore: type
+    TCPConnection: type
+    SerialConnection: type
+    BLEConnection: type
 
 
 class MeshCoreSession:
@@ -376,7 +393,7 @@ class MeshCoreSession:
             )
 
         # Deferred import — the SDK is only touched inside this method.
-        import meshcore as mc  # type: ignore[import-untyped]
+        mc = cast(_MeshCoreModule, importlib.import_module("meshcore"))
 
         try:
             if self._config.connection_type == "tcp":
@@ -391,6 +408,7 @@ class MeshCoreSession:
                 self._meshcore = mc.MeshCore(
                     mc.SerialConnection(
                         self._config.serial_port or "/dev/ttyUSB0",
+                        self._config.serial_baudrate,
                     )
                 )
                 await self._meshcore.connect()
@@ -408,8 +426,22 @@ class MeshCoreSession:
                 )
 
         except MeshCoreConnectionError:
+            # Clean up partially-initialised SDK client on failure.
+            if self._meshcore is not None:
+                try:
+                    await self._meshcore.disconnect()
+                except Exception:
+                    pass
+                self._meshcore = None
             raise
         except Exception as exc:
+            # Clean up partially-initialised SDK client on failure.
+            if self._meshcore is not None:
+                try:
+                    await self._meshcore.disconnect()
+                except Exception:
+                    pass
+                self._meshcore = None
             self._diag.last_error = str(exc)
             raise MeshCoreConnectionError(
                 f"Failed to connect ({self._config.connection_type}): {exc}"

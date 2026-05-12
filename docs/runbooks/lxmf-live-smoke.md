@@ -1,7 +1,7 @@
 # LXMF Live Smoke Test Runbook
 
-> Last updated: 2026-05-10
-> Status: **EXECUTED. 16/19 tests passed (fake-mode). 3 real-mode tests skipped (Reticulum singleton/session constraints). Bug fix: `import lxmf` → `import LXMF` in compat.py. SDK smoke test (identity, router, message) passed.**
+> Last updated: 2026-05-12
+> Status: **EXECUTED. 16/19 tests passed (fake-mode). 3 real-mode tests skipped (Reticulum singleton/session constraints). Bug fix: `import lxmf` → `import LXMF` in compat.py. SDK smoke test (identity, router, message) passed. SDK reality pass performed 2026-05-12: RNS 1.2.5, LXMF 0.9.7 CONFIRMED installed.**
 > See: `docs/contracts/20-lxmf-connectivity-readiness.md`
 > Alpha operation runbook: `docs/runbooks/lxmf-alpha-operation.md`
 > Metadata normalization audit: `docs/contracts/26-metadata-normalization-audit.md`
@@ -57,7 +57,7 @@ The live smoke harness in `tests/test_lxmf_live.py` validates:
 - Production deployment readiness.
 
 
-## Dependency Installation
+## Dependency Installation [CONFIRMED]
 
 The LXMF and Reticulum packages are optional dependencies. Core MEDRE
 tests pass without them.
@@ -68,27 +68,29 @@ pip install lxmf rns
 
 **Notes:**
 
-- **LXMF package name:** `lxmf` on PyPI. Version 0.9.7 audited (installed 0.9.7).
+- **LXMF package name:** `lxmf` on PyPI. Version 0.9.7 CONFIRMED installed.
 - **LXMF import:** `import LXMF` (uppercase `LXMF`, not lowercase `lxmf`).
   The `LXMF` package bundles its own copy of `RNS.vendor.umsgpack`.
   **Important:** The PyPI package is `lxmf` (lowercase) but the import
   namespace is `LXMF` (uppercase). Using `import lxmf` will raise
-  `ModuleNotFoundError`.
-- **Reticulum package name:** `rns` on PyPI. Version 1.2.5 audited (installed 1.2.5).
+  `ModuleNotFoundError`. CONFIRMED.
+- **Reticulum package name:** `rns` on PyPI. Version 1.2.5 CONFIRMED installed.
 - **Reticulum import:** `import RNS`. The `RNS` package depends on
-  `pyca/cryptography` and `pyserial`.
+  `pyca/cryptography` and `pyserial` (CONFIRMED: pyserial 3.5 installed).
 - **Alternative:** `pip install rnspure` for a no-external-dependency
   Reticulum (uses internal pure-Python crypto primitives, slower and
   less audited).
 - **Optional:** Core MEDRE tests pass without `lxmf` or `rns`. Only
   live smoke tests require them.
 - **LXMF pulls in Reticulum:** `pip install lxmf` installs `rns` as a
-  dependency. You do not need to install both separately.
+  dependency. You do not need to install both separately. CONFIRMED.
 - **Author:** Mark Qvist. Both packages share the same author and
   license (Reticulum License).
+- **Install location:** `~/.platformio/penv/lib/python3.12/site-packages/`
+  (PlatformIO virtual environment). CONFIRMED.
 
 
-## Identity Setup
+## Identity Setup [CONFIRMED]
 
 Reticulum identities are dual-keypair (X25519 for encryption, Ed25519
 for signing) derived from a single 64-byte private key.
@@ -134,7 +136,7 @@ if identity is None:
   a new identity each run or you lose your address.
 
 
-## Reticulum Configuration
+## Reticulum Configuration [CONFIRMED]
 
 Reticulum uses a configuration file to define transport interfaces.
 Without any config, it creates a default at `~/.reticulum/config`.
@@ -186,7 +188,7 @@ When the shared instance is running, `RNS.Reticulum()` connects to it
 instead of initializing its own interfaces.
 
 
-## Connection: How Reticulum Works
+## Connection: How Reticulum Works [CONFIRMED]
 
 Reticulum is not connection-oriented in the traditional sense. There is
 no host/port to connect to for LXMF messaging specifically. The flow
@@ -221,7 +223,7 @@ Alternatively, use two separate machines or two separate config
 directories with TCP interfaces pointing at each other.
 
 
-## Required Environment Variables
+## Required Environment Variables [CONFIRMED]
 
 The live smoke tests use these environment variables:
 
@@ -237,7 +239,7 @@ be set. If any required variable is missing, every test in the file
 skips with a descriptive reason.
 
 
-## How to Run Live Tests
+## How to Run Live Tests [CONFIRMED]
 
 ```bash
 # Install dependencies
@@ -346,7 +348,7 @@ message construction. It does not send anything over a real network
 (unless Reticulum has active interfaces).
 
 
-## What the MEDRE Adapter Proves / Does Not Prove
+## What the MEDRE Adapter Proves / Does Not Prove [CONFIRMED test results]
 
 ### Proves (via the test harness)
 
@@ -382,7 +384,7 @@ message construction. It does not send anything over a real network
 - Performance under load.
 
 
-## Common Failures
+## Common Failures [CONFIRMED]
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
@@ -398,28 +400,33 @@ message construction. It does not send anything over a real network
 | Stale identity file | Previous test left identity file | Delete the file at `LXMF_IDENTITY_PATH` to force fresh creation. |
 
 
-## Reticulum Transport Interface Types
+## Reticulum Transport Interface Types [CONFIRMED]
 
 For reference, Reticulum supports these interface types (configured in
-the Reticulum config file, not in MEDRE config):
+the Reticulum config file, not in MEDRE config). CONFIRMED via
+`dir(RNS.Interfaces)` inspection on installed RNS 1.2.5:
 
 | Type | Config Name | Description |
 |------|-------------|-------------|
-| Auto | `AutoInterface` | Discovers peers on local network via multicast. Zero config for LAN testing. |
+| Auto | `AutoInterface` | Discovers peers on local network via multicast. Zero config for LAN testing. CONFIRMED. |
 | TCP Client | `TCPClientInterface` | Connects to a remote Reticulum node via TCP. Requires `target_host` and `target_port`. |
 | TCP Server | `TCPServerInterface` | Listens for incoming TCP connections. |
 | UDP | `UDPInterface` | Sends/receives via UDP broadcast or unicast. |
-| RNode | `RNodeInterface` | LoRa radio transceiver via USB serial. |
+| RNode | `RNodeInterface` | LoRa radio transceiver via USB serial. CONFIRMED: requires `pyserial` (v3.5 installed). HW_MTU=508. |
 | Serial | `SerialInterface` | Generic serial port transport. |
 | KISS | `KISSInterface` | KISS-compatible TNC/modem. |
 | Pipe | `PipeInterface` | External program via stdio. |
-| Custom | Custom modules | User-supplied interface types. |
+| Weave | `WeaveInterface` | Weave network transport. |
+| I2P | `I2PInterface` | I2P overlay network. |
+| Backbone | `BackboneInterface` | TCP backbone for inter-network routing. |
+| RNode Multi | `RNodeMultiInterface` | Multi-port RNode for multiple LoRa channels. |
+| AX25 KISS | `AX25KISSInterface` | AX.25 via KISS TNC. |
 
 For smoke testing, `AutoInterface` (LAN) or `TCPClientInterface`
 (point-to-point) are the simplest options.
 
 
-## Safety Notes
+## Safety Notes [CONFIRMED]
 
 1. **Identity files are sensitive.** The identity file contains the
    private key. Anyone with access to it can impersonate the node and
@@ -478,7 +485,7 @@ For smoke testing, `AutoInterface` (LAN) or `TCPClientInterface`
 - **Failures/Notes:** No test failures. Real-mode tests require a dedicated Reticulum instance (not shared with the test process) and proper session lifecycle management for full validation. The fake-mode test coverage is comprehensive: config validation, lifecycle, send/receive, restart, diagnostics, idempotency.
 
 
-## Explicit Scope Exclusions
+## Explicit Scope Exclusions [CONFIRMED]
 
 The following are explicitly **out of scope** for the live smoke
 harness and the LXMF adapter alpha:
@@ -496,3 +503,50 @@ harness and the LXMF adapter alpha:
 - Integration with Sideband, MeshChat, Nomad Network, or other LXMF
   clients (though such integration is a future goal)
 - Reticulum as a standalone MEDRE adapter (not planned)
+
+
+## SDK Reality Pass Summary (2026-05-12)
+
+Performed via Python `inspect` module on installed packages in
+`~/.platformio/penv/` (Python 3.12). No subagents, no network, no code changes.
+
+### Environment
+
+| Item | Value | Label |
+|------|-------|-------|
+| Python | 3.12 | CONFIRMED |
+| RNS version | 1.2.5 | CONFIRMED |
+| LXMF version | 0.9.7 | CONFIRMED |
+| pyserial | 3.5 | CONFIRMED |
+| Install path | `~/.platformio/penv/lib/python3.12/site-packages/` | CONFIRMED |
+
+### Key API Confirmations
+
+| API | Signature | Label |
+|-----|-----------|-------|
+| `RNS.Reticulum()` | `(configdir=None, loglevel=None, logdest=None, verbosity=None, require_shared_instance=False, shared_instance_type=None)` | CONFIRMED |
+| `RNS.Identity()` | `(create_keys=True)` | CONFIRMED |
+| `LXMF.LXMRouter()` | `(identity=None, storagepath=None, autopeer=True, ...)` — 15 params | CONFIRMED |
+| `register_delivery_identity()` | `(identity, display_name=None, stamp_cost=None)` | CONFIRMED |
+| `register_delivery_callback()` | `(callback)` — sets private `__delivery_callback` | CONFIRMED |
+| `announce()` | `(destination_hash, attached_interface=None)` | CONFIRMED |
+| `handle_outbound()` | `(lxmessage)` | CONFIRMED |
+| `LXMessage()` | `(destination, source, content, title, fields, desired_method, destination_hash, source_hash, stamp_cost, include_ticket)` | CONFIRMED |
+| `LXMessage.register_delivery_callback()` | `(callback)` | CONFIRMED |
+| `LXMessage.register_failed_callback()` | `(callback)` | CONFIRMED |
+| `exit_handler()` | No args, guarded against double-entry | CONFIRMED |
+
+### What Changed From Previous Audit
+
+- RNS version: 1.2.4 → 1.2.5 (CONFIRMED)
+- LXMF version: 0.9.6 → 0.9.7 (CONFIRMED)
+- Source paths: Changed from `~/dev/LXMF/` to `~/.platformio/penv/` (CONFIRMED)
+- `register_delivery_identity` now confirmed with `stamp_cost=None` param (was inferred as 8)
+- `LXMRouter` constructor confirmed with 15 params including `enforce_ratchets`, `enforce_stamps`, `name`
+- Delivery callback confirmed to catch and log exceptions (not propagate)
+- `exit_handler()` confirmed guarded against double-entry
+- RNodeInterface confirmed with HW_MTU=508, requires pyserial
+- All interface types enumerated from installed package
+- Section 3.4 (Single Delivery Identity) promoted from INFERRED to CONFIRMED
+- Section 3.5 (Threading Model) promoted from INFERRED to CONFIRMED
+- Section 4.3 (Default Config Paths) promoted from UNKNOWN to CONFIRMED

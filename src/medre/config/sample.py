@@ -70,6 +70,7 @@ enabled = false
 connection_type = "reticulum"
 display_name = "MEDRE"
 identity_path = "{state}/lxmf/identity"
+storage_path = "{state}/lxmf/router"
 
 # ---------------------------------------------------------------------------
 # Routes — named bridge routes between adapters

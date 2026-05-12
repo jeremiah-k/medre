@@ -1,17 +1,26 @@
 """Tests for MeshCoreSession: lifecycle, reconnect, send, diagnostics.
 
 All tests use fake mode (no SDK or hardware required).
+Mocked SDK tests exercise the real connection wiring against a fake meshcore
+module that matches the PyPI meshcore 2.3.7 API surface.
 """
 
 from __future__ import annotations
 
 import asyncio
+import sys
 from datetime import datetime, timezone
+from enum import Enum
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from medre.adapters.meshcore.config import MeshCoreConfig
-from medre.adapters.meshcore.errors import MeshCoreSendError
+from medre.adapters.meshcore.errors import (
+    MeshCoreConnectionError,
+    MeshCoreSendError,
+)
 from medre.adapters.meshcore.session import MeshCoreSession
 
 
@@ -329,3 +338,432 @@ class TestMeshCoreSessionCounters:
         diag = session.diagnostics()
         assert "transient_delivery_failures" in diag
         assert "permanent_delivery_failures" in diag
+
+
+# ===================================================================
+# Mocked SDK tests — verify wiring against meshcore 2.3.7 API surface
+# ===================================================================
+
+# ---------------------------------------------------------------------------
+# Mock SDK types matching the real PyPI meshcore 2.3.7 shapes
+# ---------------------------------------------------------------------------
+
+
+class _MockEventType(Enum):
+    """Minimal EventType subset used by session._subscribe_events."""
+
+    CONTACT_MSG_RECV = "contact_message"
+    CHANNEL_MSG_RECV = "channel_message"
+    DISCONNECTED = "disconnected"
+    MSG_SENT = "message_sent"
+    OK = "command_ok"
+    ERROR = "command_error"
+
+
+class _MockEvent:
+    """Mimics meshcore.events.Event (type, payload, attributes, is_error)."""
+
+    def __init__(
+        self,
+        type: _MockEventType,
+        payload: Any = None,
+        attributes: dict | None = None,
+    ) -> None:
+        self.type = type
+        self.payload = payload
+        self.attributes = attributes or {}
+
+    def is_error(self) -> bool:
+        return self.type == _MockEventType.ERROR
+
+
+def _build_mock_meshcore_module() -> tuple[MagicMock, AsyncMock]:
+    """Build a mock ``meshcore`` module and return (module, meshcore_instance).
+
+    The instance is what ``MeshCore(...)`` returns — it carries
+    ``connect``, ``disconnect``, ``subscribe``, ``unsubscribe``,
+    and ``commands.send_msg`` / ``commands.send_chan_msg``.
+    """
+    mock_mc = MagicMock()
+    mock_mc.EventType = _MockEventType
+
+    # Connection constructors — just return opaque mocks.
+    mock_mc.SerialConnection = MagicMock(return_value=MagicMock())
+    mock_mc.TCPConnection = MagicMock(return_value=MagicMock())
+    mock_mc.BLEConnection = MagicMock(return_value=MagicMock())
+
+    # The MeshCore(...) instance.
+    instance = AsyncMock()
+    instance.connect = AsyncMock()
+    instance.disconnect = AsyncMock()
+    instance.subscribe = MagicMock(return_value=MagicMock())
+    instance.unsubscribe = MagicMock()
+    instance.commands = AsyncMock()
+    instance.commands.send_msg = AsyncMock()
+    instance.commands.send_chan_msg = AsyncMock()
+
+    mock_mc.MeshCore = MagicMock(return_value=instance)
+
+    return mock_mc, instance
+
+
+def _install_mock_module(mock_mc: MagicMock) -> None:
+    """Insert mock meshcore module into sys.modules so deferred import finds it."""
+    sys.modules["meshcore"] = mock_mc
+
+
+def _remove_mock_module() -> None:
+    sys.modules.pop("meshcore", None)
+
+
+class TestMockedSDKSerialStartup:
+    """Verify serial-mode startup wiring against mocked SDK 2.3.7 API."""
+
+    async def test_serial_constructor_args(self) -> None:
+        """SerialConnection is constructed with (port, baudrate) positional args."""
+        mock_mc, mock_inst = _build_mock_meshcore_module()
+
+        config = _make_config(
+            connection_type="serial",
+            serial_port="/dev/ttyACM0",
+            serial_baudrate=57600,
+        )
+        session = MeshCoreSession(config, "serial-test")
+
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            await session.start(lambda pkt: None)
+
+        # SerialConnection should have been called with (port, baudrate).
+        mock_mc.SerialConnection.assert_called_once_with("/dev/ttyACM0", 57600)
+        # MeshCore(...) should have been called with that connection mock.
+        mock_mc.MeshCore.assert_called_once()
+        # connect() should have been called on the instance.
+        mock_inst.connect.assert_awaited_once()
+        assert session.connected is True
+
+        # Cleanup.
+        await session.stop()
+
+    async def test_serial_default_baudrate(self) -> None:
+        """Default baudrate is 115200 when not overridden in config."""
+        mock_mc, mock_inst = _build_mock_meshcore_module()
+
+        config = _make_config(
+            connection_type="serial",
+            serial_port="/dev/ttyUSB0",
+        )
+        session = MeshCoreSession(config, "serial-default")
+
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            await session.start(lambda pkt: None)
+
+        mock_mc.SerialConnection.assert_called_once_with("/dev/ttyUSB0", 115200)
+
+        await session.stop()
+
+
+class TestMockedSDKTCPStartup:
+    """Verify TCP-mode startup wiring against mocked SDK 2.3.7 API."""
+
+    async def test_tcp_constructor_args(self) -> None:
+        """TCPConnection is constructed with (host, port) positional args."""
+        mock_mc, mock_inst = _build_mock_meshcore_module()
+
+        config = _make_config(
+            connection_type="tcp",
+            host="meshcore.local",
+            port=4403,
+        )
+        session = MeshCoreSession(config, "tcp-test")
+
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            await session.start(lambda pkt: None)
+
+        mock_mc.TCPConnection.assert_called_once_with("meshcore.local", 4403)
+        mock_mc.MeshCore.assert_called_once()
+        mock_inst.connect.assert_awaited_once()
+        assert session.connected is True
+
+        await session.stop()
+
+
+class TestMockedSDKEventSubscription:
+    """Verify subscribe is called for CONTACT_MSG_RECV, CHANNEL_MSG_RECV,
+    DISCONNECTED during startup."""
+
+    async def test_subscriptions_registered(self) -> None:
+        """Three subscriptions are registered on the SDK client."""
+        mock_mc, mock_inst = _build_mock_meshcore_module()
+
+        config = _make_config(
+            connection_type="tcp",
+            host="localhost",
+        )
+        session = MeshCoreSession(config, "sub-test")
+
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            await session.start(lambda pkt: None)
+
+        # subscribe should have been called 3 times.
+        assert mock_inst.subscribe.call_count == 3
+
+        called_event_types = [
+            call.args[0] for call in mock_inst.subscribe.call_args_list
+        ]
+        assert _MockEventType.CONTACT_MSG_RECV in called_event_types
+        assert _MockEventType.CHANNEL_MSG_RECV in called_event_types
+        assert _MockEventType.DISCONNECTED in called_event_types
+
+        await session.stop()
+
+
+class TestMockedSDKEventCallbackPayload:
+    """Verify that _on_sdk_event extracts payload dict from SDK Event objects."""
+
+    async def test_sdk_event_payload_forwarded_as_dict(self) -> None:
+        """_on_sdk_event receives SDK Event with .payload dict → callback gets dict."""
+        mock_mc, mock_inst = _build_mock_meshcore_module()
+
+        config = _make_config(connection_type="tcp", host="localhost")
+        session = MeshCoreSession(config, "cb-test")
+        received: list[dict] = []
+
+        async def callback(pkt: dict) -> None:
+            received.append(pkt)
+
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            await session.start(callback)
+
+        # Simulate an SDK inbound event.
+        sdk_event = _MockEvent(
+            type=_MockEventType.CONTACT_MSG_RECV,
+            payload={
+                "text": "hello from radio",
+                "pubkey_prefix": "aabbcc",
+                "sender_timestamp": 1234,
+                "type": "PRIV",
+                "txt_type": 0,
+            },
+        )
+        await session._on_sdk_event(sdk_event)
+
+        assert len(received) == 1
+        assert received[0]["text"] == "hello from radio"
+        assert received[0]["pubkey_prefix"] == "aabbcc"
+        assert received[0]["type"] == "PRIV"
+        assert session.last_message_time is not None
+
+        await session.stop()
+
+    async def test_sdk_event_dict_passthrough(self) -> None:
+        """If event is already a dict, it passes through directly."""
+        mock_mc, mock_inst = _build_mock_meshcore_module()
+
+        config = _make_config(connection_type="tcp", host="localhost")
+        session = MeshCoreSession(config, "cb-dict-test")
+        received: list[dict] = []
+
+        async def callback(pkt: dict) -> None:
+            received.append(pkt)
+
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            await session.start(callback)
+
+        raw_dict = {"text": "raw dict event", "type": "CHAN", "channel_idx": 0}
+        await session._on_sdk_event(raw_dict)
+
+        assert len(received) == 1
+        assert received[0]["text"] == "raw dict event"
+
+        await session.stop()
+
+
+class TestMockedSDKSendMsg:
+    """Verify send_msg delegates to SDK commands.send_msg correctly."""
+
+    async def test_send_msg_calls_commands(self) -> None:
+        """send_text(contact_id, text) → commands.send_msg(contact_id, text)."""
+        mock_mc, mock_inst = _build_mock_meshcore_module()
+
+        # Successful send returns MSG_SENT event (no message_id).
+        mock_inst.commands.send_msg.return_value = _MockEvent(
+            type=_MockEventType.MSG_SENT,
+            payload={"expected_ack": "deadbeef"},
+        )
+
+        config = _make_config(connection_type="tcp", host="localhost")
+        session = MeshCoreSession(config, "send-test")
+
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            await session.start(lambda pkt: None)
+
+        result = await session.send_text("aabbccddeeff", "test message")
+
+        mock_inst.commands.send_msg.assert_awaited_once_with(
+            "aabbccddeeff", "test message"
+        )
+        # No message_id in MSG_SENT payload → returns None.
+        assert result is None
+
+        await session.stop()
+
+
+class TestMockedSDKSendChanMsg:
+    """Verify send_chan_msg delegates to SDK commands.send_chan_msg correctly."""
+
+    async def test_send_chan_msg_calls_commands(self) -> None:
+        """send_text(contact_id, text, channel_index=2) → commands.send_chan_msg(2, text)."""
+        mock_mc, mock_inst = _build_mock_meshcore_module()
+
+        # Successful channel send returns OK event.
+        mock_inst.commands.send_chan_msg.return_value = _MockEvent(
+            type=_MockEventType.OK,
+            payload={},
+        )
+
+        config = _make_config(connection_type="tcp", host="localhost")
+        session = MeshCoreSession(config, "chan-test")
+
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            await session.start(lambda pkt: None)
+
+        result = await session.send_text("ignored", "chan hello", channel_index=2)
+
+        mock_inst.commands.send_chan_msg.assert_awaited_once_with(2, "chan hello")
+        # No message_id in OK payload → returns None.
+        assert result is None
+
+        await session.stop()
+
+
+class TestMockedSDKSendError:
+    """Verify SDK error responses raise MeshCoreSendError."""
+
+    async def test_send_msg_sdk_error_raises(self) -> None:
+        """When commands.send_msg returns ERROR event, MeshCoreSendError is raised."""
+        mock_mc, mock_inst = _build_mock_meshcore_module()
+
+        mock_inst.commands.send_msg.return_value = _MockEvent(
+            type=_MockEventType.ERROR,
+            payload={"reason": "node_busy"},
+        )
+
+        config = _make_config(connection_type="tcp", host="localhost")
+        session = MeshCoreSession(config, "err-test")
+
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            await session.start(lambda pkt: None)
+
+        with pytest.raises(MeshCoreSendError, match="SDK send error"):
+            await session.send_text("aabbcc", "will fail")
+
+        # Permanent failure counter incremented.
+        assert session.permanent_delivery_failures == 1
+
+        await session.stop()
+
+    async def test_send_msg_transient_failure_exhausted(self) -> None:
+        """When send_msg raises transient exceptions 3 times, MeshCoreSendError."""
+        mock_mc, mock_inst = _build_mock_meshcore_module()
+
+        mock_inst.commands.send_msg.side_effect = OSError("serial write failed")
+
+        config = _make_config(connection_type="serial", serial_port="/dev/ttyUSB0")
+        session = MeshCoreSession(config, "transient-test")
+
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            await session.start(lambda pkt: None)
+
+        with pytest.raises(MeshCoreSendError, match="Send failed after 3 attempts"):
+            await session.send_text("aabbcc", "retry me")
+
+        # 3 transient + 1 permanent.
+        assert session.transient_delivery_failures == 3
+        assert session.permanent_delivery_failures == 1
+
+        await session.stop()
+
+
+class TestMockedSDKStartupFailureCleanup:
+    """Verify failed startup cleans up SDK client state."""
+
+    async def test_connect_failure_sets_meshcore_none(self) -> None:
+        """When connect() raises, _meshcore is reset to None."""
+        mock_mc, mock_inst = _build_mock_meshcore_module()
+        mock_inst.connect.side_effect = OSError("port not found")
+
+        config = _make_config(
+            connection_type="serial",
+            serial_port="/dev/nonexistent",
+        )
+        session = MeshCoreSession(config, "fail-test")
+
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            with pytest.raises(MeshCoreConnectionError, match="Failed to connect"):
+                await session.start(lambda pkt: None)
+
+        # _meshcore should have been cleaned up.
+        assert session._meshcore is None
+        assert session.connected is False
+        # disconnect should have been attempted on the failed client.
+        mock_inst.disconnect.assert_awaited()
+
+
+class TestMockedSDKDisconnectIdempotent:
+    """Verify stop()/disconnect is idempotent with mocked SDK."""
+
+    async def test_stop_twice_no_error(self) -> None:
+        """Calling stop() twice does not raise."""
+        mock_mc, mock_inst = _build_mock_meshcore_module()
+
+        config = _make_config(connection_type="tcp", host="localhost")
+        session = MeshCoreSession(config, "idem-test")
+
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            await session.start(lambda pkt: None)
+
+        await session.stop()
+        assert session.connected is False
+
+        # Second stop should be a no-op (started=False early return).
+        await session.stop()
+        assert session.connected is False
+
+        # disconnect should only have been called once.
+        mock_inst.disconnect.assert_awaited_once()

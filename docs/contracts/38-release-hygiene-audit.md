@@ -30,9 +30,9 @@ test markers, and live-test exclusion guarantees.
 ### 1.2 Actions Taken
 
 - **Added `readme = "README.md"`** — pip now displays README content.
-- **Added `license = "MIT"`** — declares license for downstream tooling.
+- **Added `license` declaration** — initially `"MIT"`, later updated to `"GPL-3.0-or-later"` per project license decision. Declares license for downstream tooling.
 - **Added `classifiers`** — Development Status (Alpha), Intended Audience, Python versions, Topic, Typing.
-- **Removed `License :: OSI Approved :: MIT License` classifier** — PEP 639 (enforced by setuptools >= 80.x) rejects license classifiers when `license` is declared as a SPDX expression. Having both causes `pip install -e .` to fail with `InvalidConfigError` on setuptools >= 80.
+- **Removed `License :: OSI Approved :: MIT License` classifier** — PEP 639 (enforced by setuptools >= 80.x) rejects license classifiers when `license` is declared as a SPDX expression. Having both causes `pip install -e .` to fail with `InvalidConfigError` on setuptools >= 80. (The project license has since transitioned from MIT to GPL-3.0-or-later.)
 - **Added `PyPubSub>=4.0` to `[meshtastic]` extra** — The `mtjk` distribution does not declare `pubsub` as a dependency, but it is required at runtime for callback-based packet reception. Previously, users had to install it manually (`pip install pubsub`). Now `pip install -e ".[meshtastic]"` pulls it automatically.
 - **Did NOT add `urls` or `authors`** — these require project decisions (repo URL, author identity). Not fabricated.
 
@@ -233,10 +233,10 @@ Total live tests: ~57 (matches the "57 deselected" count from unit suite runs).
 
 | # | Finding | Action |
 |---|---------|--------|
-| F1 | Missing `readme`, `license`, `classifiers` in pyproject.toml | Added `readme = "README.md"`, `license = "MIT"`, and classifiers. |
+| F1 | Missing `readme`, `license`, `classifiers` in pyproject.toml | Added `readme = "README.md"`, `license` (now `"GPL-3.0-or-later"`), and classifiers. |
 | F2 | Stale `meshnet_framework.egg-info/` directory | Removed. Contained wrong package name, wrong dependency versions, wrong source paths. |
 | F3 | "Version-pinned" language in contract 32 ambiguous about strategy | Updated section 7.1 to explicitly state floor-pin strategy. |
-| F8 | `License :: OSI Approved :: MIT License` classifier + `license = "MIT"` causes build failure on setuptools >= 80 (PEP 639) | Removed the license classifier. The `license = "MIT"` SPDX expression is sufficient. |
+| F8 | `License :: OSI Approved :: MIT License` classifier + SPDX `license` expression causes build failure on setuptools >= 80 (PEP 639) | Removed the license classifier. The SPDX `license` expression (now `"GPL-3.0-or-later"`) is sufficient. |
 | F9 | `PyPubSub` (import `pubsub`) missing from `[meshtastic]` extra — runtime failure on real hardware without manual install | Added `PyPubSub>=4.0` to the meshtastic extra in pyproject.toml. Updated developer-environment.md and contract 34. |
 
 ### 7.2 Reported but Not Fixed (Requires Project Decision)

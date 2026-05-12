@@ -25,6 +25,9 @@ from medre.core.rendering.renderer import RenderingResult
 def _make_config(**overrides) -> LxmfConfig:
     defaults = dict(adapter_id="lxmf-1")
     defaults.update(overrides)
+    # storage_path is required when connection_type is reticulum.
+    if defaults.get("connection_type") == "reticulum" and "storage_path" not in defaults:
+        defaults["storage_path"] = "/tmp/medre-test-lxmf-router"
     return LxmfConfig(**defaults)
 
 
@@ -352,25 +355,32 @@ class TestLxmfAdapterNonFakeMode:
     async def test_non_fake_never_reports_healthy(
         self, make_adapter_context
     ) -> None:
-        """Non-fake reticulum mode never reaches _started=True."""
+        """Non-fake reticulum mode never reaches _started=True when
+        SDK is unavailable.
+
+        When HAS_LXMF is False, start() must raise.  When HAS_LXMF is
+        True, the outcome depends on whether the packages are actually
+        importable and Reticulum can be initialised — so we only assert
+        the False case.
+        """
         import medre.adapters.lxmf.adapter as _adapter_mod
 
         config = _make_config(connection_type="reticulum")
         adapter = LxmfAdapter(config)
         ctx = make_adapter_context("lxmf-1")
 
-        for has_lxmf in (True, False):
-            original = _adapter_mod.HAS_LXMF
-            try:
-                _adapter_mod.HAS_LXMF = has_lxmf
-                with pytest.raises(LxmfConnectionError):
-                    await adapter.start(ctx)
-            finally:
-                _adapter_mod.HAS_LXMF = original
+        # Case 1: HAS_LXMF=False → must raise.
+        original = _adapter_mod.HAS_LXMF
+        try:
+            _adapter_mod.HAS_LXMF = False
+            with pytest.raises(LxmfConnectionError):
+                await adapter.start(ctx)
+        finally:
+            _adapter_mod.HAS_LXMF = original
 
-            assert adapter._started is False
-            info = await adapter.health_check()
-            assert info.health != "healthy"
+        assert adapter._started is False
+        info = await adapter.health_check()
+        assert info.health != "healthy"
 
 
 # ===================================================================
@@ -788,3 +798,516 @@ class TestLxmfAdapterSessionIntegration:
         assert diag["started"] is False
         assert "session" in diag
         assert diag["session"]["connected"] is False
+
+
+# ===================================================================
+# Fake adapter outbound pending semantics
+# ===================================================================
+
+
+class TestFakeLxmfAdapterOutboundPending:
+    """FakeLxmfAdapter.deliver() returns honest pending/outbound state."""
+
+    async def test_deliver_metadata_has_outbound_state(self) -> None:
+        """deliver() metadata reports delivery_state='outbound' (pending)."""
+        adapter = FakeLxmfAdapter()
+        result = _make_rendering_result()
+        delivery = await adapter.deliver(result)
+        assert delivery is not None
+        assert "lxmf" in delivery.metadata
+        assert delivery.metadata["lxmf"]["delivery_state"] == "outbound"
+
+    async def test_deliver_metadata_has_delivery_method(self) -> None:
+        """deliver() metadata includes delivery_method from config."""
+        adapter = FakeLxmfAdapter()
+        result = _make_rendering_result(payload={
+            "content": "hello",
+            "title": "",
+            "fields": {},
+            "destination_hash": "",
+            "delivery_method": "direct",
+        })
+        delivery = await adapter.deliver(result)
+        assert delivery is not None
+        assert delivery.metadata["lxmf"]["delivery_method"] == "direct"
+
+    async def test_deliver_metadata_default_delivery_method(self) -> None:
+        """deliver() metadata uses config default when no method in payload."""
+        adapter = FakeLxmfAdapter()
+        result = _make_rendering_result()
+        delivery = await adapter.deliver(result)
+        assert delivery is not None
+        # Default delivery method from LxmfConfig
+        assert delivery.metadata["lxmf"]["delivery_method"] is not None
+
+    async def test_deliver_no_instant_delivery_claim(self) -> None:
+        """deliver() must NOT claim instant/delivered state."""
+        adapter = FakeLxmfAdapter()
+        result = _make_rendering_result()
+        delivery = await adapter.deliver(result)
+        assert delivery is not None
+        state = delivery.metadata["lxmf"]["delivery_state"]
+        assert state != "delivered"
+        assert state != "sent"
+        assert state == "outbound"
+
+
+# ===================================================================
+# Fake adapter metadata fields preserved
+# ===================================================================
+
+
+class TestFakeLxmfAdapterMetadataPreserved:
+    """Fields from the rendering payload are passed to FakeLxmfClient."""
+
+    async def test_fields_passed_to_fake_client(self) -> None:
+        adapter = FakeLxmfAdapter()
+        fields = {0x01: "test_value", 0x02: {"nested": True}}
+        result = _make_rendering_result(payload={
+            "content": "hello",
+            "title": "T",
+            "fields": fields,
+            "destination_hash": "ab" * 16,
+        })
+        await adapter.deliver(result)
+        assert adapter.fake_client.sent_messages[-1]["fields"] == fields
+
+    async def test_title_preserved(self) -> None:
+        adapter = FakeLxmfAdapter()
+        result = _make_rendering_result(payload={
+            "content": "body",
+            "title": "Important",
+            "fields": {},
+            "destination_hash": "",
+        })
+        await adapter.deliver(result)
+        assert adapter.fake_client.sent_messages[-1]["title"] == "Important"
+
+    async def test_destination_hash_preserved(self) -> None:
+        adapter = FakeLxmfAdapter()
+        result = _make_rendering_result(payload={
+            "content": "body",
+            "title": "",
+            "fields": {},
+            "destination_hash": "cd" * 16,
+        })
+        await adapter.deliver(result)
+        assert adapter.fake_client.sent_messages[-1]["destination_hash"] == "cd" * 16
+
+
+# ===================================================================
+# Fake adapter diagnostics parity
+# ===================================================================
+
+
+class TestFakeLxmfAdapterDiagnostics:
+    """FakeLxmfAdapter.diagnostics() mirrors real adapter structure."""
+
+    async def test_diagnostics_returns_dict(self, make_adapter_context) -> None:
+        adapter = FakeLxmfAdapter()
+        ctx = make_adapter_context("lxmf-1")
+        await adapter.start(ctx)
+        diag = adapter.diagnostics()
+        assert isinstance(diag, dict)
+        assert diag["adapter_id"] == "fake_lxmf"
+        assert diag["platform"] == "lxmf"
+        assert diag["started"] is True
+        assert diag["mode"] == "fake"
+
+    async def test_diagnostics_before_start(self) -> None:
+        adapter = FakeLxmfAdapter()
+        diag = adapter.diagnostics()
+        assert diag["started"] is False
+
+    async def test_diagnostics_tracks_sent_count(
+        self, make_adapter_context
+    ) -> None:
+        adapter = FakeLxmfAdapter()
+        ctx = make_adapter_context("lxmf-1")
+        await adapter.start(ctx)
+        await adapter.deliver(_make_rendering_result())
+        await adapter.deliver(_make_rendering_result())
+        diag = adapter.diagnostics()
+        assert diag["sent_count"] == 2
+        assert diag["delivered_count"] == 2
+
+    async def test_diagnostics_after_stop(self, make_adapter_context) -> None:
+        adapter = FakeLxmfAdapter()
+        ctx = make_adapter_context("lxmf-1")
+        await adapter.start(ctx)
+        await adapter.stop()
+        diag = adapter.diagnostics()
+        assert diag["started"] is False
+
+    async def test_diagnostics_parity_with_real_adapter(
+        self, make_adapter_context
+    ) -> None:
+        """Fake adapter diagnostics has same top-level keys as real adapter."""
+        fake = FakeLxmfAdapter()
+        real_config = _make_config(connection_type="fake")
+        real = LxmfAdapter(real_config)
+        ctx = make_adapter_context("lxmf-1")
+        await fake.start(ctx)
+        await real.start(ctx)
+
+        fake_diag = fake.diagnostics()
+        real_diag = real.diagnostics()
+
+        # Both must share these keys
+        shared_keys = {"adapter_id", "platform", "started", "mode"}
+        for key in shared_keys:
+            assert key in fake_diag, f"Fake missing key: {key}"
+            assert key in real_diag, f"Real missing key: {key}"
+
+        await fake.stop()
+        await real.stop()
+
+
+# ===================================================================
+# Delivery callback marks delivered
+# ===================================================================
+
+
+class TestDeliveryCallbackMarksDelivered:
+    """Session delivery callback transitions state to DELIVERED."""
+
+    async def test_delivery_state_update_to_delivered(
+        self, make_adapter_context
+    ) -> None:
+        """_on_delivery_state_update transitions outbound → delivered."""
+        config = _make_config(connection_type="fake")
+        adapter = LxmfAdapter(config)
+        ctx = make_adapter_context("lxmf-1")
+        await adapter.start(ctx)
+
+        result = _make_rendering_result()
+        delivery = await adapter.deliver(result)
+        assert delivery is not None
+        native_id = delivery.native_message_id
+        assert native_id is not None
+
+        # Verify it's tracked as outbound
+        session = adapter.session
+        tracked = session._outbound_deliveries.get(native_id)
+        assert tracked is not None
+        from medre.adapters.lxmf.session import LxmfDeliveryState
+        assert tracked.state == LxmfDeliveryState.OUTBOUND
+
+        # Simulate delivery state callback with a mock message
+        class MockDeliveredMessage:
+            hash = native_id  # str, matches the fake_id
+            state = LxmfDeliveryState.DELIVERED
+
+        session._on_delivery_state_update(MockDeliveredMessage())
+
+        # After delivery callback, entry should be untracked (terminal state)
+        assert native_id not in session._outbound_deliveries
+        await adapter.stop()
+
+    async def test_delivery_state_update_logs_transition(
+        self, make_adapter_context
+    ) -> None:
+        """Delivery callback processes state without error."""
+        config = _make_config(connection_type="fake")
+        adapter = LxmfAdapter(config)
+        ctx = make_adapter_context("lxmf-1")
+        await adapter.start(ctx)
+
+        result = _make_rendering_result()
+        delivery = await adapter.deliver(result)
+        native_id = delivery.native_message_id
+
+        from medre.adapters.lxmf.session import LxmfDeliveryState
+
+        class MockDeliveredMessage:
+            hash = native_id
+            state = LxmfDeliveryState.DELIVERED
+
+        # Should not raise
+        adapter.session._on_delivery_state_update(MockDeliveredMessage())
+        await adapter.stop()
+
+
+# ===================================================================
+# Delivery callback marks failed
+# ===================================================================
+
+
+class TestDeliveryCallbackMarksFailed:
+    """Session delivery callback transitions state to FAILED."""
+
+    async def test_delivery_state_update_to_failed(
+        self, make_adapter_context
+    ) -> None:
+        """_on_delivery_state_update transitions outbound → failed."""
+        config = _make_config(connection_type="fake")
+        adapter = LxmfAdapter(config)
+        ctx = make_adapter_context("lxmf-1")
+        await adapter.start(ctx)
+
+        result = _make_rendering_result()
+        delivery = await adapter.deliver(result)
+        native_id = delivery.native_message_id
+
+        from medre.adapters.lxmf.session import LxmfDeliveryState
+
+        # Record initial failure count
+        initial_failures = adapter.session.permanent_delivery_failures
+
+        class MockFailedMessage:
+            hash = native_id
+            state = LxmfDeliveryState.FAILED
+
+        adapter.session._on_delivery_state_update(MockFailedMessage())
+
+        # Failed is terminal — entry should be untracked
+        assert native_id not in adapter.session._outbound_deliveries
+        # Failure counter should have incremented
+        assert adapter.session.permanent_delivery_failures == initial_failures + 1
+        await adapter.stop()
+
+    async def test_rejected_increments_permanent_failures(
+        self, make_adapter_context
+    ) -> None:
+        """REJECTED state also increments permanent_delivery_failures."""
+        config = _make_config(connection_type="fake")
+        adapter = LxmfAdapter(config)
+        ctx = make_adapter_context("lxmf-1")
+        await adapter.start(ctx)
+
+        result = _make_rendering_result()
+        delivery = await adapter.deliver(result)
+        native_id = delivery.native_message_id
+
+        from medre.adapters.lxmf.session import LxmfDeliveryState
+
+        initial_failures = adapter.session.permanent_delivery_failures
+
+        class MockRejectedMessage:
+            hash = native_id
+            state = LxmfDeliveryState.REJECTED
+
+        adapter.session._on_delivery_state_update(MockRejectedMessage())
+
+        assert native_id not in adapter.session._outbound_deliveries
+        assert adapter.session.permanent_delivery_failures == initial_failures + 1
+        await adapter.stop()
+
+
+# ===================================================================
+# Delivery-state eviction boundedness
+# ===================================================================
+
+
+class TestDeliveryStateEvictionBounded:
+    """Outbound delivery tracking is bounded by _MAX_OUTBOUND_DELIVERIES."""
+
+    async def test_eviction_enforces_cap(self, make_adapter_context) -> None:
+        """Oldest entries evicted when tracking exceeds cap."""
+        from medre.adapters.lxmf.session import _MAX_OUTBOUND_DELIVERIES
+
+        config = _make_config(connection_type="fake")
+        adapter = LxmfAdapter(config)
+        ctx = make_adapter_context("lxmf-1")
+        await adapter.start(ctx)
+
+        session = adapter.session
+        total = _MAX_OUTBOUND_DELIVERIES + 50
+
+        for i in range(total):
+            result = _make_rendering_result(
+                event_id=f"evt-{i}",
+                payload={
+                    "content": f"msg-{i}",
+                    "title": "",
+                    "fields": {},
+                    "destination_hash": "ab" * 16,
+                },
+            )
+            await adapter.deliver(result)
+
+        # Tracking dict should not exceed cap
+        assert len(session._outbound_deliveries) <= _MAX_OUTBOUND_DELIVERIES
+        await adapter.stop()
+
+    async def test_eviction_removes_oldest(self, make_adapter_context) -> None:
+        """First inserted IDs are evicted first."""
+        from medre.adapters.lxmf.session import _MAX_OUTBOUND_DELIVERIES
+
+        config = _make_config(connection_type="fake")
+        adapter = LxmfAdapter(config)
+        ctx = make_adapter_context("lxmf-1")
+        await adapter.start(ctx)
+
+        session = adapter.session
+        first_ids: list[str] = []
+
+        for i in range(_MAX_OUTBOUND_DELIVERIES + 10):
+            result = _make_rendering_result(
+                event_id=f"evt-{i}",
+                payload={
+                    "content": f"msg-{i}",
+                    "title": "",
+                    "fields": {},
+                    "destination_hash": "ab" * 16,
+                },
+            )
+            delivery = await adapter.deliver(result)
+            if i < 10:
+                first_ids.append(delivery.native_message_id)
+
+        # Early IDs should have been evicted
+        for fid in first_ids:
+            assert fid not in session._outbound_deliveries
+        await adapter.stop()
+
+    async def test_delivery_state_counts_accurate_under_eviction(
+        self, make_adapter_context
+    ) -> None:
+        """delivery_state_counts reflects only tracked entries."""
+        from medre.adapters.lxmf.session import _MAX_OUTBOUND_DELIVERIES
+
+        config = _make_config(connection_type="fake")
+        adapter = LxmfAdapter(config)
+        ctx = make_adapter_context("lxmf-1")
+        await adapter.start(ctx)
+
+        for i in range(_MAX_OUTBOUND_DELIVERIES + 20):
+            result = _make_rendering_result(
+                event_id=f"evt-{i}",
+                payload={
+                    "content": f"msg-{i}",
+                    "title": "",
+                    "fields": {},
+                    "destination_hash": "ab" * 16,
+                },
+            )
+            await adapter.deliver(result)
+
+        counts = adapter.session.delivery_state_counts()
+        total_tracked = sum(counts.values())
+        assert total_tracked <= _MAX_OUTBOUND_DELIVERIES
+        await adapter.stop()
+
+
+# ===================================================================
+# Adapter diagnostics secret safety
+# ===================================================================
+
+
+class TestAdapterDiagnosticsSecretSafety:
+    """diagnostics() exposes no secrets, identity, or RNS objects."""
+
+    async def test_real_adapter_diagnostics_no_raw_objects(
+        self, make_adapter_context
+    ) -> None:
+        """adapter.diagnostics() dict contains only JSON-safe primitives."""
+        config = _make_config(connection_type="fake")
+        adapter = LxmfAdapter(config)
+        ctx = make_adapter_context("lxmf-1")
+        await adapter.start(ctx)
+        diag = adapter.diagnostics()
+        await adapter.stop()
+
+        # Recursively verify all values are JSON-safe types
+        def _check_safe(obj, path="root"):
+            if isinstance(obj, dict):
+                for k, v in obj.items():
+                    _check_safe(v, f"{path}.{k}")
+            elif isinstance(obj, (list, tuple)):
+                for i, v in enumerate(obj):
+                    _check_safe(v, f"{path}[{i}]")
+            elif isinstance(obj, (bool, int, float, str, type(None))):
+                pass
+            else:
+                raise AssertionError(
+                    f"Non-safe type at {path}: {type(obj).__name__} = {obj!r}"
+                )
+
+        _check_safe(diag)
+
+    async def test_real_adapter_diagnostics_no_forbidden_keys(
+        self, make_adapter_context
+    ) -> None:
+        """adapter.diagnostics() has no secret/identity keys."""
+        config = _make_config(connection_type="fake")
+        adapter = LxmfAdapter(config)
+        ctx = make_adapter_context("lxmf-1")
+        await adapter.start(ctx)
+        diag = adapter.diagnostics()
+        await adapter.stop()
+
+        forbidden = {
+            "identity", "private_key", "secret", "password",
+            "token", "reticulum", "router", "raw", "_identity",
+            "_reticulum", "_router",
+        }
+
+        def _check_keys(obj, path="root"):
+            if isinstance(obj, dict):
+                for k in obj:
+                    assert k not in forbidden, (
+                        f"Forbidden key {k!r} at {path}"
+                    )
+                    _check_keys(obj[k], f"{path}.{k}")
+
+        _check_keys(diag)
+
+    async def test_fake_adapter_diagnostics_no_raw_objects(
+        self, make_adapter_context
+    ) -> None:
+        """FakeLxmfAdapter.diagnostics() contains only JSON-safe primitives."""
+        adapter = FakeLxmfAdapter()
+        ctx = make_adapter_context("lxmf-1")
+        await adapter.start(ctx)
+        diag = adapter.diagnostics()
+        await adapter.stop()
+
+        def _check_safe(obj, path="root"):
+            if isinstance(obj, dict):
+                for k, v in obj.items():
+                    _check_safe(v, f"{path}.{k}")
+            elif isinstance(obj, (bool, int, float, str, type(None))):
+                pass
+            else:
+                raise AssertionError(
+                    f"Non-safe type at {path}: {type(obj).__name__}"
+                )
+
+        _check_safe(diag)
+
+    async def test_fake_adapter_diagnostics_no_forbidden_keys(
+        self, make_adapter_context
+    ) -> None:
+        """FakeLxmfAdapter.diagnostics() has no secret/identity keys."""
+        adapter = FakeLxmfAdapter()
+        ctx = make_adapter_context("lxmf-1")
+        await adapter.start(ctx)
+        diag = adapter.diagnostics()
+        await adapter.stop()
+
+        forbidden = {
+            "identity", "private_key", "secret", "password",
+            "token", "_identity", "_reticulum", "_router",
+        }
+
+        for key in diag:
+            assert key not in forbidden, f"Forbidden key {key!r}"
+
+
+# ===================================================================
+# Fake adapter repeated stop
+# ===================================================================
+
+
+class TestFakeLxmfAdapterRepeatedStop:
+    """Repeated stop() on FakeLxmfAdapter is safe."""
+
+    async def test_repeated_stop_is_noop(self, make_adapter_context) -> None:
+        adapter = FakeLxmfAdapter()
+        ctx = make_adapter_context("lxmf-1")
+        await adapter.start(ctx)
+        await adapter.stop()
+        await adapter.stop()
+        await adapter.stop()
+        assert adapter.is_started is False

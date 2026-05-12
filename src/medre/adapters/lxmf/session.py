@@ -769,8 +769,14 @@ class LxmfSession:
         RNS, lxmf = _require_lxmf()
 
         try:
-            # 1. Initialise Reticulum.
-            self._reticulum = RNS.Reticulum(None)
+            # 1. Initialise Reticulum — handle singleton constraint.
+            #    RNS 1.2.5: Reticulum() raises OSError if already running.
+            #    Use get_instance() to reuse an existing instance.
+            existing = RNS.Reticulum.get_instance()
+            if existing is not None:
+                self._reticulum = existing
+            else:
+                self._reticulum = RNS.Reticulum(None)
 
             # 2. Load or create identity.
             if self._config.identity_path:
@@ -783,13 +789,25 @@ class LxmfSession:
             else:
                 self._identity = RNS.Identity()
 
-            # 3. Create LXMRouter.
+            # 3. Create LXMRouter — storagepath is REQUIRED by LXMF 0.9.7.
+            storagepath = self._config.storage_path
+            if not storagepath:
+                raise LxmfConnectionError(
+                    "storage_path is required for LXMRouter construction "
+                    "(LXMF 0.9.7 raises ValueError without it)"
+                )
             self._router = lxmf.LXMRouter(
                 identity=self._identity,
+                storagepath=storagepath,
             )
 
             # 4. Register delivery callback.
-            self._router.register_delivery_callback(self._on_lxmf_delivery)
+            try:
+                self._router.register_delivery_callback(self._on_lxmf_delivery)
+            except (AttributeError, TypeError) as exc:
+                raise LxmfConnectionError(
+                    f"Failed to register delivery callback on LXMRouter: {exc}"
+                ) from exc
 
             # 5. Optional: register announce callback.
             try:

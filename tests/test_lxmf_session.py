@@ -31,6 +31,9 @@ from medre.adapters.lxmf.session import (
 def _make_config(**overrides: Any) -> LxmfConfig:
     defaults: dict[str, Any] = dict(adapter_id="lxmf-test")
     defaults.update(overrides)
+    # storage_path is required when connection_type is reticulum.
+    if defaults.get("connection_type") == "reticulum" and "storage_path" not in defaults:
+        defaults["storage_path"] = "/tmp/medre-test-lxmf-router"
     return LxmfConfig(**defaults)
 
 

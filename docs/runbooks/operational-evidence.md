@@ -13,10 +13,15 @@
 > node DB verification, device metrics capture). ACK classified UNRELIABLE,
 > delivery classified BEST EFFORT.
 > Meshtastic MEDRE adapter live tests: NOT EXECUTED (mtjk not in project venv).
-> MeshCore, LXMF, and soak tests remain **NOT EXECUTED**.
+> MeshCore: NOT EXECUTED. Wave 1 hardware probe identified CP2104 `/dev/ttyUSB0`
+> (stable by-id, likely T-Beam, no serial chatter). MeshCore firmware flash pending Wave 2.
+> LXMF: NOT EXECUTED. Local source repos available at `/home/jeremiah/dev` for Reticulum
+> and LXMF. Reticulum live path setup pending Wave 2.
+> Soak tests remain **NOT EXECUTED**.
 > Live commands, env vars, and NOT EXECUTED reasoning in §6–§7.
 > Related: `docs/contracts/32-beta-readiness-checklist.md`, section 1.3.2.
 > Evidence schema: `docs/contracts/61-operational-evidence-contract.md`.
+> Maturity matrix: `docs/contracts/62-adapter-operational-maturity-matrix.md`.
 > Live procedures: `docs/runbooks/live-operational-evidence.md`.
 > Longrun validation: `docs/runbooks/longrun-validation.md`.
 
@@ -479,7 +484,9 @@ During the validation session, a second node appeared in the mesh:
 ## 3. MeshCore Operational Evidence
 
 > **Evidence tier:** NOT EXECUTED. No live evidence of any tier. S-tier unit tests pass.
-> **Live procedures:** Not yet documented (no hardware available).
+> **Live procedures:** `docs/runbooks/live-operational-evidence.md` §2.14.
+> **Wave 1 hardware probe (2026-05-12):** CP2104 `/dev/ttyUSB0` (stable by-id, likely T-Beam) — no serial chatter observed. MeshCore firmware source available at `/home/jeremiah/dev`. `esptool` available via pipx. Firmware flash and live validation pending Wave 2.
+> **Maturity:** Alpha (Tier 2) per Contract 62 §3.3. Cannot promote beyond alpha until hardware-validated live evidence is recorded.
 
 ### 3.1 Live Smoke Test Evidence (Tier: NOT EXECUTED)
 
@@ -505,6 +512,22 @@ During the validation session, a second node appeared in the mesh:
 | **Caveats observed** | **NOT EXECUTED** |
 | **Reconnect observations** | **NOT EXECUTED** |
 
+### 3.1b Hardware Probe Evidence (Wave 1 — 2026-05-12)
+
+> **Not live-transport evidence.** Documents physical device findings relevant to MeshCore Wave 2 planning.
+
+| Field | Value |
+|-------|-------|
+| **Probe date** | 2026-05-12 |
+| **Device** | CP2104 USB-to-UART bridge at `/dev/ttyUSB0` |
+| **Stable by-id path** | `Silicon_Labs_CP2104_USB_to_UART_Bridge_Controller_*/if00-port0` |
+| **Likely hardware** | T-Beam (CP2104 is typical T-Beam USB-UART bridge) |
+| **Serial chatter** | None observed at 9600 or 115200 baud. Device may be unflashed or running non-MeshCore firmware. |
+| **esptool availability** | Available via pipx. `esptool chip_id` not yet run. |
+| **MeshCore firmware source** | Available at `/home/jeremiah/dev` (local source repo) |
+| **MeshCore Python library** | Available at `/home/jeremiah/dev` (local source repo) |
+| **Wave 2 status** | **Pending** — firmware flash attempt required before live test |
+
 ### 3.2 MeshCore Known Limitations (confirmed from source)
 
 - No inbound message reception from a second node.
@@ -513,12 +536,15 @@ During the validation session, a second node appeared in the mesh:
 - No BLE connectivity with PIN pairing tested.
 - No reconnection handling under real network conditions.
 - Duplicate-send risk acknowledged (session retries up to 3 times).
+- **Hardware gap (Wave 1):** CP2104 device at `/dev/ttyUSB0` identified but produces no serial chatter. Firmware flash required before any MeshCore interaction is possible. This is a specific, documented gap — not a vague blocker.
 
 
 ## 4. LXMF/Reticulum Operational Evidence
 
 > **Evidence tier:** NOT EXECUTED. No live evidence of any tier. S-tier unit tests pass.
-> **Live procedures:** Not yet documented (no Reticulum network available).
+> **Live procedures:** `docs/runbooks/live-operational-evidence.md` §2.15.
+> **Wave 1 context (2026-05-12):** Local source repos available at `/home/jeremiah/dev` for LXMF and Reticulum. Reticulum live path setup (install from source, configure transport, generate identity) pending Wave 2.
+> **Maturity:** Alpha (Tier 2) with experimental downgrade risk per Contract 62 §5.4. Cannot promote until Reticulum live path validated and delivery state model confirmed against real network.
 
 ### 4.1 Live Smoke Test Evidence (Tier: NOT EXECUTED)
 
@@ -545,6 +571,26 @@ During the validation session, a second node appeared in the mesh:
 | **Caveats observed** | **NOT EXECUTED** |
 | **Reconnect observations** | **NOT EXECUTED** |
 
+### 4.1b Local Source Repos (Wave 1 — 2026-05-12)
+
+> **Not live-transport evidence.** Documents available source code for Wave 2 Reticulum/LXMF setup.
+
+| Resource | Location | Notes |
+|----------|----------|-------|
+| LXMF source | `/home/jeremiah/dev` (local source repo) | Available for `pip install -e` |
+| Reticulum source | `/home/jeremiah/dev` (local source repo) | Available for `pip install -e` |
+| MeshCore firmware | `/home/jeremiah/dev` (local source repo) | For MeshCore device, not LXMF |
+| MeshCore Python library | `/home/jeremiah/dev` (local source repo) | For MeshCore adapter, not LXMF |
+| pipx preference | User prefers pipx for PyPI CLI tools | esptool already available via pipx |
+
+**Wave 2 setup steps for LXMF live path:**
+1. Install Reticulum from local source: `pip install -e /path/to/rns-source`
+2. Install LXMF from local source: `pip install -e /path/to/lxmf-source`
+3. Configure Reticulum transport (local TCP or serial interface)
+4. Generate identity file: `LXMF_CONNECTION_TYPE=reticulum` + `LXMF_IDENTITY_PATH=/path/to/identity.key`
+5. Run `pytest tests/test_lxmf_live.py -m live -v`
+6. Record R-tier evidence here
+
 ### 4.2 LXMF Known Limitations (confirmed from source)
 
 - No synchronous delivery confirmation. Outbound returns `OUTBOUND` state.
@@ -553,6 +599,8 @@ During the validation session, a second node appeared in the mesh:
 - No multi-hop mesh delivery testing across heterogeneous transports.
 - No resource transfer for large messages.
 - Production deployment readiness is not claimed.
+- **Reticulum live path gap (Wave 1):** Local source repos available but no Reticulum instance configured. This is a specific, documented gap — not a vague blocker. Requires Wave 2: install from source, configure transport, run live test.
+- **Delivery state model unvalidated:** The `OUTBOUND → SENDING → SENT → DELIVERED` progression (1,260 LOC session) is implemented but never observed against real Reticulum infrastructure. Experimental downgrade risk per Contract 62 §5.4 if live path reveals fundamental issues.
 
 
 ## 5. Deterministic Test Evidence (Tier: S — confirmed)
@@ -728,10 +776,10 @@ of absence, and every gap is traceable to a specific reason.
 | Matrix | Soak test | NOT EXECUTED | No sustained Matrix session executed against real homeserver | `SOAK_DURATION_SECONDS=30 pytest tests/test_soak.py::TestMatrixSoak -m live -v -s` | `MATRIX_HOMESERVER`, `MATRIX_USER_ID`, `MATRIX_ACCESS_TOKEN`, `MATRIX_ROOM_ID` |
 | Meshtastic | Soak test | NOT EXECUTED | No sustained Meshtastic session executed against real hardware | `SOAK_DURATION_SECONDS=30 pytest tests/test_soak.py::TestMeshtasticSoak -m live -v -s` | `MESHTASTIC_CONNECTION_TYPE`, `MESHTASTIC_HOST` or `MESHTASTIC_SERIAL_PORT` |
 | Meshtastic | Second-node inbound | NOT EXECUTED | No second Meshtastic node available in test environment | (same as Meshtastic live smoke, with second node transmitting) | Same as Meshtastic live + second node on same channel |
-| MeshCore | Live smoke | NOT EXECUTED | No MeshCore hardware or TCP endpoint available in test environment | `pytest tests/test_meshcore_live.py -m live -v` | `MESHCORE_CONNECTION_TYPE`, `MESHCORE_HOST` or `MESHCORE_SERIAL_PORT` |
-| MeshCore | Soak test | NOT EXECUTED | No soak test class exists for MeshCore; no hardware available | N/A (test class does not exist yet) | N/A |
-| LXMF | Live smoke | NOT EXECUTED | No Reticulum network or identity file available in test environment | `pytest tests/test_lxmf_live.py -m live -v` | `LXMF_CONNECTION_TYPE`, `LXMF_IDENTITY_PATH` |
-| LXMF | Soak test | NOT EXECUTED | No soak test class exists for LXMF; no Reticulum network available | N/A (test class does not exist yet) | N/A |
+| MeshCore | Live smoke | NOT EXECUTED | Wave 1: CP2104 `/dev/ttyUSB0` identified (stable by-id, likely T-Beam). No serial chatter observed. MeshCore firmware source available at `/home/jeremiah/dev`. Firmware flash required. | `pytest tests/test_meshcore_live.py -m live -v` | `MESHCORE_CONNECTION_TYPE`, `MESHCORE_HOST` or `MESHCORE_SERIAL_PORT` |
+| MeshCore | Soak test | NOT EXECUTED | No soak test class exists for MeshCore; hardware not yet flashed | N/A (test class does not exist yet) | N/A |
+| LXMF | Live smoke | NOT EXECUTED | Local source repos for Reticulum and LXMF available at `/home/jeremiah/dev`. Reticulum not yet installed or configured. Wave 2 setup required. | `pytest tests/test_lxmf_live.py -m live -v` | `LXMF_CONNECTION_TYPE`, `LXMF_IDENTITY_PATH` |
+| LXMF | Soak test | NOT EXECUTED | No soak test class exists for LXMF; Reticulum not configured | N/A (test class does not exist yet) | N/A |
 
 **To resolve any NOT EXECUTED entry:** set the required environment variables,
 ensure the transport SDK is installed, run the command, and record results

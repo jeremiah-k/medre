@@ -132,9 +132,9 @@ class TestMeshCoreCodecDecode:
         event = codec.decode(packet)
         assert event.metadata.native is not None
         data = event.metadata.native.data
-        assert data["packet_id"] == 99
-        assert data["sender_id"] == "node1"
-        assert data["channel"] is None
+        assert data["meshcore.packet_id"] == 99
+        assert data["meshcore.sender_id"] == "node1"
+        assert data["meshcore.channel"] is None
 
     def test_decode_channel_metadata(self) -> None:
         codec = MeshCoreCodec("meshcore-1", _make_config())
@@ -142,36 +142,36 @@ class TestMeshCoreCodecDecode:
         event = codec.decode(packet)
         assert event.metadata.native is not None
         data = event.metadata.native.data
-        assert data["channel"] == 3
-        assert data["packet_id"] == 100
+        assert data["meshcore.channel"] == 3
+        assert data["meshcore.packet_id"] == 100
 
     def test_decode_dm_metadata(self) -> None:
         codec = MeshCoreCodec("meshcore-1", _make_config())
         packet = _make_contact_packet()
         event = codec.decode(packet)
         assert event.metadata.native is not None
-        assert event.metadata.native.data["is_direct_message"] is True
+        assert event.metadata.native.data["meshcore.is_direct_message"] is True
 
     def test_decode_channel_metadata_not_direct(self) -> None:
         codec = MeshCoreCodec("meshcore-1", _make_config())
         packet = _make_channel_packet()
         event = codec.decode(packet)
         assert event.metadata.native is not None
-        assert event.metadata.native.data["is_direct_message"] is False
+        assert event.metadata.native.data["meshcore.is_direct_message"] is False
 
     def test_decode_stores_pubkey_prefix(self) -> None:
         codec = MeshCoreCodec("meshcore-1", _make_config())
         packet = _make_contact_packet(sender="deadbeef")
         event = codec.decode(packet)
         assert event.metadata.native is not None
-        assert event.metadata.native.data["pubkey_prefix"] == "deadbeef"
+        assert event.metadata.native.data["meshcore.pubkey_prefix"] == "deadbeef"
 
     def test_decode_stores_txt_type(self) -> None:
         codec = MeshCoreCodec("meshcore-1", _make_config())
         packet = _make_contact_packet(txt_type=1)
         event = codec.decode(packet)
         assert event.metadata.native is not None
-        assert event.metadata.native.data["txt_type"] == 1
+        assert event.metadata.native.data["meshcore.txt_type"] == 1
 
     def test_decode_no_reply_relations(self) -> None:
         """MeshCore has no native replyId — relations should always be empty."""

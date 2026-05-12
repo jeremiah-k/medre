@@ -55,6 +55,8 @@ class MeshCoreConfig:
         Port number for TCP connections.
     serial_port:
         Serial device path for serial connections.
+    serial_baudrate:
+        Baud rate for serial connections.  Defaults to 115200.
     ble_address:
         BLE MAC address for BLE connections.  Required when
         *connection_type* is ``"ble"`` (future).
@@ -86,6 +88,7 @@ class MeshCoreConfig:
     host: str | None = None
     port: int | None = None
     serial_port: str | None = None
+    serial_baudrate: int = 115200
     ble_address: str | None = None
     meshnet_name: str = ""
     default_channel: int = 0

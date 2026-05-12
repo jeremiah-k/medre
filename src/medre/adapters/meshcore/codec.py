@@ -110,12 +110,12 @@ class MeshCoreCodec:
 
         native_meta = NativeMetadata(
             data={
-                "packet_id": pkt_id,
-                "sender_id": sender,
-                "channel": pkt_channel,
-                "pubkey_prefix": sender,
-                "txt_type": packet.get("txt_type"),
-                "is_direct_message": classification["is_direct_message"],
+                "meshcore.packet_id": pkt_id,
+                "meshcore.sender_id": sender,
+                "meshcore.channel": pkt_channel,
+                "meshcore.pubkey_prefix": sender,
+                "meshcore.txt_type": packet.get("txt_type"),
+                "meshcore.is_direct_message": classification["is_direct_message"],
             }
         )
 

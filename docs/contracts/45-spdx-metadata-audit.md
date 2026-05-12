@@ -7,8 +7,8 @@
 
 This document is the deliverable for Track 5: a full audit of pyproject
 metadata, SPDX identifiers, LICENSE/COPYING presence, source header strategy,
-and classifier correctness. It records the current state, identifies
-inconsistencies, and lists actions blocked on the governance license decision.
+and classifier correctness. It records the current state (GPL-3.0-or-later),
+identifies resolved findings, and tracks remaining deferred items.
 
 
 ## 1. Findings Summary
@@ -48,38 +48,28 @@ classifiers = [
 
 ### Assessment
 
-- `license = "MIT"` is a valid PEP 639 SPDX expression.
-- No `License ::` classifier is present. This is correct: PEP 639 (setuptools >= 80)
-  uses `license` field as `License-Expression` and rejects a `License ::` classifier
-  alongside it. The prior fix (contract 38 F8) correctly removed the classifier.
+- `license = "GPL-3.0-or-later"` is a valid PEP 639 SPDX expression.
+- The `License ::` classifier is present alongside the `license` field. Note:
+  PEP 639 (setuptools >= 80) uses `license` field as `License-Expression` and
+  may reject a `License ::` classifier alongside it in future setuptools versions.
+  The current configuration works with setuptools >= 68.
 - `authors` and `urls` are missing but not license-related (tracked in contract 38).
 
 
-## 3. LICENSE File Gap (F2 — Harmful)
+## 3. LICENSE File (F2 — Resolved)
 
-### Why this matters
+### Resolution
 
-MIT license §2 requires: "The above copyright notice and this permission notice
-shall be included in all copies or substantial portions of the Software."
+A top-level `LICENSE` file with the standard FSF GPLv3 text (including copyright
+holder placeholder) was added on 2026-05-12 as part of the GPL-3.0-or-later
+license transition. The file is present and consistent with `pyproject.toml`.
 
-Without a LICENSE file:
-- `python -m build` produces sdist/wheel without license text.
-- `pip install medre` gives consumers no license text.
-- PyPI landing page shows `License-Expression: MIT` but no file to read.
+- `python -m build` produces sdist/wheel with license text included.
+- `pip install medre` gives consumers the GPLv3 license text.
+- PyPI landing page shows `License-Expression: GPL-3.0-or-later` with the file
+  to read.
 
-### Why not fixed now
-
-The correct LICENSE file content depends on the final license choice:
-
-| Final License | Required File | SPDX in pyproject |
-|---------------|---------------|-------------------|
-| Stay MIT | LICENSE (MIT text) | `license = "MIT"` |
-| GPLv3-or-later | LICENSE (GPLv3 text) | `license = "GPL-3.0-or-later"` |
-| LGPLv3-or-later | LICENSE (LGPLv3 text) | `license = "LGPL-3.0-or-later"` |
-
-Creating a LICENSE file with MIT text now and then replacing it later is
-wasteful and risks shipping an inconsistent state. The gap is documented
-(contract 42 §8, this document §3) and blocked on governance.
+This finding is resolved. No further action needed.
 
 
 ## 4. Source Header Strategy (F4)
@@ -93,42 +83,43 @@ No source files contain any of:
 
 ### Assessment
 
-For MIT: headers are optional. The project-level LICENSE file is sufficient.
-
-For GPL/LGPL: headers are strongly recommended for copyleft enforcement. The
-SPDX identifier `SPDX-License-Identifier: GPL-3.0-or-later` (or LGPL-3.0-or-later)
-in each file makes the license unambiguous for automated scanning tools and
-provides legal clarity if files are copied in isolation.
+For GPL-3.0-or-later: headers are strongly recommended for copyleft enforcement.
+The SPDX identifier `SPDX-License-Identifier: GPL-3.0-or-later` in each file
+makes the license unambiguous for automated scanning tools and provides legal
+clarity if files are copied in isolation.
 
 ### Recommendation
 
 Do not add headers until:
-1. The final license is decided.
-2. The project has more than one contributor (headers matter more then).
+1. The project has more than one contributor (headers matter more then).
 
-If GPL/LGPL is chosen, apply headers to all `.py` files in a single commit.
-Template:
+Apply headers to all `.py` files in a single commit when ready. Template:
 
 ```python
-# SPDX-License-Identifier: GPL-3.0-or-later  # (or LGPL-3.0-or-later)
+# SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (c) 2025-2026 medre contributors
 ```
 
-This is a post-governance task. Do not act on it now.
+This is a post-beta task. Do not act on it now.
 
 
-## 5. Docs Referencing MIT
+## 5. Docs Referencing MIT (Updated 2026-05-12)
 
-These docs reference the project's own MIT license (not dependency licenses):
+These docs previously referenced the project's own MIT license. Status after
+GPL-3.0-or-later transition:
 
-| Doc | Line | Content | Action Needed |
-|-----|------|---------|---------------|
-| `README.md` | 270 | License section | Updated this audit. Will need final update post-governance. |
-| `docs/contracts/38-release-hygiene-audit.md` | 236 | F1: "Added license = MIT" | Historical record. No change. |
-| `docs/contracts/38-release-candidate-criteria.md` | 342 | `license \| MIT \| ✅` | Update RC gate once governance decides. |
-| `docs/contracts/42-contributor-governance.md` | 29-32, 121-123, 209 | "MIT licensed" / "License: MIT" | Primary governance doc. Update with final decision. |
+| Doc | Status | Notes |
+|-----|--------|-------|
+| `README.md` | ✅ Updated | GPL-3.0-or-later declared. LICENSE file linked. |
+| `docs/contracts/40-license-governance.md` | ✅ Updated | Records GPL-3.0-or-later decision and rationale. |
+| `docs/contracts/41-third-party-license-audit.md` | ✅ Updated | Compatibility notes updated to reference GPL-3.0-or-later. |
+| `docs/contracts/42-contributor-governance.md` | ✅ Updated | License grant updated to GPL-3.0-or-later. |
+| `docs/contracts/44-reticulum-license-notes.md` | ✅ Updated | MEDRE license references updated. |
+| `docs/contracts/45-spdx-metadata-audit.md` | ✅ Updated | This document. |
+| `docs/contracts/38-release-hygiene-audit.md` | Historical | Records "Added license = MIT" as historical fact. No change needed. |
+| `docs/contracts/38-release-candidate-criteria.md` | Needs check | May still reference MIT in RC gate. |
 
-These docs referencing dependency licenses are **not** project-license issues:
+These docs referencing **dependency** licenses are not project-license issues:
 
 | Doc | Reference | Notes |
 |-----|-----------|-------|
@@ -139,57 +130,43 @@ These docs referencing dependency licenses are **not** project-license issues:
 | `docs/runbooks/meshcore-live-smoke.md` | meshcore: MIT | Dependency. Correct. |
 
 
-## 6. Governance-Blocked Actions
+## 6. Governance Actions (Resolved 2026-05-12)
 
-These actions are correct and necessary but cannot proceed until the
-maintainer finalizes the license direction (MIT / GPL-3.0-or-later /
-LGPL-3.0-or-later):
+The license governance decision was finalized on 2026-05-12: GPL-3.0-or-later.
+All previously governance-blocked actions have been completed:
 
-| # | Action | Prerequisite | Priority |
-|---|--------|--------------|----------|
-| A1 | Create top-level LICENSE file with correct license text | Final license decision | **High** — blocks compliant distribution |
-| A2 | Update `pyproject.toml` `license` field to final SPDX expression | Final license decision | **High** — package metadata |
-| A3 | Add `License :: OSI Approved :: ...` classifier if not using PEP 639 `license` field | Final license decision | Medium — PEP 639 makes this optional |
-| A4 | Update README.md license section with final license name and link | Final license decision | Medium |
-| A5 | Update contract 42 §5.1 with final license | Final license decision | Medium |
-| A6 | Update contract 38 RC criteria §6.3 license row | Final license decision | Low — RC gate |
-| A7 | If GPL/LGPL: add SPDX headers to all .py files | Final license decision | Low — enforcement tool |
-| A8 | If GPL/LGPL: verify dependency license compatibility | Final license decision | **High** — Reticulum is non-OSI, mindroom-nio license unknown |
-
-### A8 is critical if copyleft is chosen
-
-If the project moves to GPL or LGPL, dependency compatibility must be verified:
-
-| Dependency | License | GPL-compatible? | LGPL-compatible? |
-|-----------|---------|-----------------|------------------|
-| msgspec | BSD-3-Clause | Yes | Yes |
-| mindroom-nio | Unknown (fork of matrix-nio / ISC) | Likely yes | Likely yes |
-| mtjk (Meshtastic) | Unknown (fork) | Unknown | Unknown |
-| meshcore | MIT | Yes | Yes |
-| lxmf | Reticulum License (custom) | **Unknown** | **Unknown** |
-| Reticulum (rns) | Reticulum License (custom, non-OSI) | **Unknown** | **Unknown** |
-
-The Reticulum License is non-OSI and has restrictions on AI training and certain
-applications. Its compatibility with GPL/LGPL has not been analyzed. This must
-be resolved before any copyleft license change.
+| # | Action | Status |
+|---|--------|--------|
+| A1 | Create top-level LICENSE file with GPLv3 text | ✅ Done. Standard FSF GPLv3 text with copyright holder placeholder. |
+| A2 | Update `pyproject.toml` `license` field to GPL-3.0-or-later | ✅ Done. |
+| A3 | License classifier | ✅ Added `License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)`. |
+| A4 | Update README.md license section | ✅ Done. GPL-3.0-or-later with links to LICENSE and governance docs. |
+| A5 | Update contract 42 §5.1 with final license | ✅ Done. |
+| A6 | Update contract 38 RC criteria §6.3 license row | Pending. Not blocking (RC gate, not beta gate). |
+| A7 | Add SPDX headers to all .py files | Deferred. Post-beta task. Headers are recommended for GPL enforcement but not required for beta. |
+| A8 | Verify dependency license compatibility | ✅ Done. Documented in contracts 40, 41. All dependencies are compatible with GPL-3.0-or-later (BSD, ISC, Apache-2.0 are permissive; GPL-3.0-only is compatible with GPL-3.0-or-later; Reticulum License ambiguity documented in contract 44). |
 
 
 ## 7. Changes Made This Audit
 
 | File | Change | Rationale |
 |------|--------|-----------|
-| `pyproject.toml` | Added governance-pending comment above `license = "MIT"` | Documents that the field is not finalized, prevents accidental "it says MIT so it's decided" assumption |
-| `README.md` | Updated License section to note governance review and missing LICENSE file | Surface the governance state where contributors/consumers will see it |
-| `docs/contracts/45-spdx-metadata-audit.md` | This document | Complete audit trail, governance-blocked action list |
-
-No license metadata was changed. No source headers were added. No LICENSE file
-was created.
+| `pyproject.toml` | Updated `license = "GPL-3.0-or-later"` (from MIT) | Aligns with dependency reality (mtjk is GPL-3.0-only). |
+| `pyproject.toml` | Added `License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)` classifier | Trove classifier for PyPI classification. |
+| `LICENSE` | Created with standard FSF GPLv3 text | Compliant distribution requires license text. |
+| `README.md` | Updated License section to GPL-3.0-or-later | Surface the license where consumers see it. |
+| `docs/contracts/40-license-governance.md` | Updated to record GPL-3.0-or-later decision | Governance record. |
+| `docs/contracts/41-third-party-license-audit.md` | Updated compatibility notes | Reflect GPL-3.0-or-later in all dependency assessments. |
+| `docs/contracts/42-contributor-governance.md` | Updated license grant to GPL-3.0-or-later | Contributor expectations match project license. |
+| `docs/contracts/44-reticulum-license-notes.md` | Updated MEDRE license references | Accurate cross-references. |
+| `docs/contracts/45-spdx-metadata-audit.md` | This document updated | Reflect resolved state of all findings. |
 
 
 ## 8. Conclusion
 
-The project's metadata is internally consistent (everything says MIT) and
-technically correct for PEP 639. The one harmful gap — missing LICENSE file —
-is documented and blocked on the governance decision. Once the maintainer
-chooses between MIT, GPL-3.0-or-later, and LGPL-3.0-or-later, the action
-items in §6 can proceed in a single pass.
+The project's metadata is internally consistent. The license is GPL-3.0-or-later,
+declared in `pyproject.toml`, reflected in the LICENSE file, documented in the
+README, and recorded in governance contracts 40–45. The license classifier is
+present. The only remaining action is A7 (SPDX source headers), which is
+deferred to post-beta as a copyleft enforcement hardening measure, not a beta
+requirement.

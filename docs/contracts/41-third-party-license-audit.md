@@ -42,7 +42,7 @@ License text or authoritative project metadata was read directly from local refe
 | **Version pinned** | `0.21.1` |
 | **License** | BSD-3-Clause |
 | **Evidence** | `pip show msgspec` returns `License-Expression: BSD-3-Clause` |
-| **Compatibility note** | BSD-3-Clause is permissive. No tension with MEDRE's MIT. |
+| **Compatibility note** | BSD-3-Clause is permissive. No tension with MEDRE's GPL-3.0-or-later. |
 
 msgspec is the sole core dependency. It provides fast serialization and validation. BSD-3-Clause imposes attribution and license text retention, both straightforward to satisfy.
 
@@ -55,7 +55,7 @@ msgspec is the sole core dependency. It provides fast serialization and validati
 | **Version floor** | `>= 0.25.3` |
 | **License** | ISC (Internet Systems Consortium license) |
 | **Evidence** | `/home/jeremiah/dev/mindroom-nio/LICENSE.md` read directly. Contains full ISC text with copyright notice to Damir Jelić. `pyproject.toml` line: `license = { file = "LICENSE.md" }`. |
-| **Compatibility note** | ISC is functionally equivalent to MIT. No tension with MEDRE's MIT. |
+| **Compatibility note** | ISC is functionally equivalent to MIT. No tension with MEDRE's GPL-3.0-or-later. |
 
 mindroom-nio is a fork of matrix-nio. The upstream project is also ISC-licensed. The fork does not appear to have changed the license terms.
 
@@ -67,7 +67,7 @@ mindroom-nio is a fork of matrix-nio. The upstream project is also ISC-licensed.
 | **Version** | `>= 0.9` (transitive, from mindroom-nio e2e extra) |
 | **License** | Apache-2.0 |
 | **Evidence** | `/home/jeremiah/dev/vodozemac-python/LICENSE` read directly. Full Apache-2.0 text with copyright notice to matrix-nio (2024). `pyproject.toml` line: `license = {file = "LICENSE"}`. |
-| **Compatibility note** | Apache-2.0 is permissive. Compatible with MIT. Requires retaining NOTICE file if one exists. |
+| **Compatibility note** | Apache-2.0 is permissive. Compatible with MEDRE's GPL-3.0-or-later. Requires retaining NOTICE file if one exists. |
 
 vodozemac provides the Olm/Megolm cryptographic primitives used for Matrix E2EE. It is a Rust library with Python bindings built via maturin/pyo3.
 
@@ -92,7 +92,7 @@ mtjk is a fork of the upstream meshtastic-python project. The upstream project (
 | **Version floor** | `>= 4.0` |
 | **License** | BSD-2-Clause |
 | **Evidence** | `pip show PyPubSub` returns `License: BSD-2-Clause`. Home-page: `https://github.com/schollii/pypubsub`. |
-| **Compatibility note** | BSD-2-Clause is permissive. No tension with MIT. |
+| **Compatibility note** | BSD-2-Clause is permissive. No tension with MEDRE's GPL-3.0-or-later. |
 
 PyPubSub is included explicitly in the `[meshtastic]` extra because mtjk does not declare it as a dependency, despite requiring it for callback-based packet reception. See `pyproject.toml` lines 35-36 for the rationale.
 
@@ -104,7 +104,7 @@ PyPubSub is included explicitly in the `[meshtastic]` extra because mtjk does no
 | **Version floor** | `>= 2.3.7` |
 | **License** | MIT |
 | **Evidence** | `/home/jeremiah/dev/meshcore/meshcore_py/LICENSE` read directly. Full MIT text with copyright to Florent de Lamotte (2025). `pyproject.toml` line: `license = "MIT"`. |
-| **Compatibility note** | Same license as MEDRE. No tension. |
+| **Compatibility note** | Permissive. No tension with MEDRE's GPL-3.0-or-later. |
 
 ### 4.7 LXMF (optional extra: `lxmf`)
 
@@ -249,7 +249,7 @@ MEDRE's Meshtastic adapter uses a compat guard pattern. The import is behind `me
 
 **MEDRE as a library (import-only use):** When distributed as a PyPI package with optional extras, users who skip the `[meshtastic]` extra never receive GPL-3.0-only code. The standard position of the Free Software Foundation is that optional plugin dependencies behind import guards constitute an "aggregate" rather than a single derived work, though this position has been debated.
 
-**MEDRE bundled with mtjk (e.g., Docker image, fat wheel):** If MEDRE is distributed in a form that includes mtjk alongside it in the same runtime, the GPL-3.0-only may require the entire combined work to be distributed under GPL-3.0-compatible terms. This would conflict with MEDRE's MIT declaration.
+**MEDRE bundled with mtjk (e.g., Docker image, fat wheel):** If MEDRE is distributed in a form that includes mtjk alongside it in the same runtime, the GPL-3.0-only may require the entire combined work to be distributed under GPL-3.0-compatible terms. MEDRE's own GPL-3.0-or-later license is compatible with GPL-3.0-only (GPL-3.0-or-later is a superset).
 
 **Practical implication:** Any distribution that bundles MEDRE with the `[meshtastic]` extra should be reviewed by someone with software licensing expertise before publication.
 
@@ -288,7 +288,7 @@ The Reticulum License adds these two conditions to the standard MIT grant:
 
 **AI training clause:** This restriction is increasingly common in ethical-use licenses but remains legally untested. It may conflict with fair-use or fair-dealing doctrines in some jurisdictions, or it may be fully enforceable. There is no case law to cite.
 
-**Effect on downstream users:** Anyone distributing MEDRE bundled with the `[lxmf]` extra should be aware that the Reticulum License's use restrictions flow through to end users. MEDRE's own MIT grant does not override these terms for the LXMF/RNS components.
+**Effect on downstream users:** Anyone distributing MEDRE bundled with the `[lxmf]` extra should be aware that the Reticulum License's use restrictions flow through to end users. MEDRE's own GPL-3.0-or-later license does not override these terms for the LXMF/RNS components.
 
 ### 8.4 Operational impact
 

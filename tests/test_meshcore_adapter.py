@@ -695,3 +695,498 @@ class TestMeshCoreCompat:
         from medre.adapters.meshcore.compat import HAS_MESHCORE
         # The SDK is not installed in the test environment
         assert HAS_MESHCORE is False
+
+
+# ===================================================================
+# Honest delivery semantics
+# ===================================================================
+
+
+class TestHonestDeliverySemantics:
+    """Delivery results report honest 'local_accepted' status."""
+
+    async def test_fake_adapter_delivery_status_is_local_accepted(self) -> None:
+        """Fake adapter must NOT claim end-to-end delivery."""
+        adapter = FakeMeshCoreAdapter()
+        result = _make_rendering_result()
+        delivery = await adapter.deliver(result)
+        assert delivery is not None
+        assert delivery.metadata["delivery_status"] == "local_accepted"
+        assert "delivery_note" in delivery.metadata
+
+    async def test_fake_adapter_no_false_delivery_claim(self) -> None:
+        """delivery_status must not say 'delivered' or 'confirmed'."""
+        adapter = FakeMeshCoreAdapter()
+        result = _make_rendering_result()
+        delivery = await adapter.deliver(result)
+        assert delivery is not None
+        status = delivery.metadata["delivery_status"]
+        assert status not in ("delivered", "confirmed", "acknowledged")
+
+    async def test_real_adapter_fake_mode_delivery_is_none(self) -> None:
+        """Real adapter in fake mode returns None — no false delivery claim."""
+        config = _make_config(connection_type="fake")
+        adapter = MeshCoreAdapter(config)
+        from unittest.mock import AsyncMock
+        ctx = AdapterContext(
+            adapter_id="meshcore-1",
+            event_bus=None,
+            publish_inbound=AsyncMock(),
+            logger=__import__("logging").getLogger("test"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+        )
+        await adapter.start(ctx)
+        result = _make_rendering_result()
+        delivery = await adapter.deliver(result)
+        assert delivery is None
+
+    async def test_real_adapter_real_mode_honest_delivery_status(
+        self, make_adapter_context
+    ) -> None:
+        """Real adapter with mocked session returns local_accepted metadata."""
+        config = _make_config(connection_type="tcp", host="1.2.3.4")
+        adapter = MeshCoreAdapter(config)
+        ctx = make_adapter_context("meshcore-1")
+
+        # Manually construct a fake session to avoid real SDK connection.
+        from medre.adapters.meshcore.session import MeshCoreSession
+        from unittest.mock import AsyncMock, PropertyMock
+        fake_session = MeshCoreSession(
+            config=_make_config(connection_type="fake"),
+            adapter_id="meshcore-1",
+        )
+        # Start the fake session so it's connected.
+        await fake_session.start(message_callback=lambda pkt: None)
+        # Patch send_text to simulate a real SDK returning an ID.
+        fake_session.send_text = AsyncMock(return_value="pkt-42")  # type: ignore[attr-defined]
+        # Bypass real start — inject the fake session.
+        adapter._session = fake_session
+        adapter._started = True
+        adapter.ctx = ctx
+
+        result = _make_rendering_result()
+        delivery = await adapter.deliver(result)
+        assert delivery is not None
+        assert delivery.native_message_id == "pkt-42"
+        assert delivery.metadata["delivery_status"] == "local_accepted"
+
+        await fake_session.stop()
+
+
+# ===================================================================
+# Channel send vs DM send
+# ===================================================================
+
+
+class TestChannelVsDMSend:
+    """Channel and DM delivery paths work correctly."""
+
+    async def test_channel_send_sets_native_channel_id(self) -> None:
+        """Channel delivery populates native_channel_id."""
+        adapter = FakeMeshCoreAdapter()
+        result = _make_rendering_result(
+            payload={"text": "channel msg", "channel_index": 3, "meshnet_name": ""},
+        )
+        delivery = await adapter.deliver(result)
+        assert delivery is not None
+        assert delivery.native_channel_id == "3"
+
+    async def test_channel_send_tracks_in_fake_client(self) -> None:
+        """Channel send is recorded in the fake client."""
+        adapter = FakeMeshCoreAdapter()
+        result = _make_rendering_result(
+            payload={"text": "chan hello", "channel_index": 5, "meshnet_name": ""},
+        )
+        await adapter.deliver(result)
+        assert adapter.fake_client.sent_count == 1
+        assert adapter.fake_client.sent_packets[0]["channel_index"] == 5
+        assert adapter.fake_client.sent_packets[0]["text"] == "chan hello"
+
+    async def test_dm_send_passes_dest_id(self) -> None:
+        """DM delivery passes dest_id to the fake client."""
+        adapter = FakeMeshCoreAdapter()
+        result = _make_rendering_result(
+            payload={
+                "text": "dm hello",
+                "channel_index": 0,
+                "meshnet_name": "",
+                "dest_id": "abcdef12",
+            },
+        )
+        await adapter.deliver(result)
+        assert adapter.fake_client.sent_count == 1
+        sent = adapter.fake_client.sent_packets[0]
+        assert sent["dest_id"] == "abcdef12"
+        assert sent["text"] == "dm hello"
+
+    async def test_dm_send_without_dest_id_passes_none(self) -> None:
+        """Delivery without dest_id passes None for dest_id."""
+        adapter = FakeMeshCoreAdapter()
+        result = _make_rendering_result(
+            payload={"text": "broadcast", "channel_index": 0, "meshnet_name": ""},
+        )
+        await adapter.deliver(result)
+        sent = adapter.fake_client.sent_packets[0]
+        assert sent["dest_id"] is None
+
+
+# ===================================================================
+# Send failure
+# ===================================================================
+
+
+class TestSendFailure:
+    """Send failures propagate MeshCoreSendError cleanly."""
+
+    async def test_send_failure_no_delivery_result(self) -> None:
+        """Failed sends do not produce partial delivery results."""
+        adapter = FakeMeshCoreAdapter()
+        adapter.set_deliver_failure(True)
+        result = _make_rendering_result()
+        with pytest.raises(MeshCoreSendError, match="simulated send failure"):
+            await adapter.deliver(result)
+        assert adapter.fake_client.sent_count == 0
+
+    async def test_send_failure_does_not_store_payload(self) -> None:
+        """Failed sends do not store payloads."""
+        adapter = FakeMeshCoreAdapter()
+        adapter.set_deliver_failure(True)
+        result = _make_rendering_result()
+        with pytest.raises(MeshCoreSendError):
+            await adapter.deliver(result)
+        assert len(adapter.delivered_payloads) == 0
+
+    async def test_send_failure_recoverable(self) -> None:
+        """Adapter recovers after a failure — next send succeeds."""
+        adapter = FakeMeshCoreAdapter()
+        adapter.set_deliver_failure(True)
+        result = _make_rendering_result()
+        with pytest.raises(MeshCoreSendError):
+            await adapter.deliver(result)
+
+        adapter.set_deliver_failure(False)
+        delivery = await adapter.deliver(result)
+        assert delivery is not None
+        assert delivery.native_message_id == "1"
+
+
+# ===================================================================
+# Malformed SDK response
+# ===================================================================
+
+
+class TestMalformedSDKResponse:
+    """Adapter handles unexpected SDK responses gracefully."""
+
+    async def _make_real_adapter_with_session(
+        self, make_adapter_context
+    ) -> tuple["MeshCoreAdapter", "MeshCoreSession"]:
+        """Helper: create a real adapter with an injected fake session."""
+        config = _make_config(connection_type="tcp", host="1.2.3.4")
+        adapter = MeshCoreAdapter(config)
+        ctx = make_adapter_context("meshcore-1")
+
+        from medre.adapters.meshcore.session import MeshCoreSession
+        fake_session = MeshCoreSession(
+            config=_make_config(connection_type="fake"),
+            adapter_id="meshcore-1",
+        )
+        await fake_session.start(message_callback=lambda pkt: None)
+        adapter._session = fake_session
+        adapter._started = True
+        adapter.ctx = ctx
+        return adapter, fake_session
+
+    async def test_real_adapter_handles_none_from_session(
+        self, make_adapter_context
+    ) -> None:
+        """When session.send_text returns None, adapter returns None."""
+        from unittest.mock import AsyncMock
+        adapter, session = await self._make_real_adapter_with_session(make_adapter_context)
+        session.send_text = AsyncMock(return_value=None)  # type: ignore[attr-defined]
+
+        result = _make_rendering_result()
+        delivery = await adapter.deliver(result)
+        assert delivery is None
+        await session.stop()
+
+    async def test_real_adapter_handles_non_dict_payload(
+        self, make_adapter_context
+    ) -> None:
+        """When payload is not a dict, adapter returns None gracefully."""
+        from unittest.mock import AsyncMock
+        adapter, session = await self._make_real_adapter_with_session(make_adapter_context)
+        session.send_text = AsyncMock(return_value="pkt-1")  # type: ignore[attr-defined]
+
+        result = _make_rendering_result(payload="not a dict")  # type: ignore[arg-type]
+        delivery = await adapter.deliver(result)
+        assert delivery is None
+        await session.stop()
+
+    async def test_real_adapter_handles_session_not_initialised(self) -> None:
+        """When session is None, adapter raises MeshCoreSendError."""
+        config = _make_config(connection_type="tcp", host="1.2.3.4")
+        adapter = MeshCoreAdapter(config)
+        # Don't start — session remains None.
+        result = _make_rendering_result()
+        with pytest.raises(MeshCoreSendError, match="Session not initialised"):
+            await adapter.deliver(result)
+
+
+# ===================================================================
+# Metadata namespacing and redaction
+# ===================================================================
+
+
+class TestMetadataNamespacingAndRedaction:
+    """Native metadata uses meshcore. namespace and diagnostics are safe."""
+
+    async def test_inbound_metadata_uses_meshcore_namespace(
+        self, make_adapter_context, inbound_collector
+    ) -> None:
+        """Decoded events use meshcore. prefixed keys in native metadata."""
+        adapter = FakeMeshCoreAdapter()
+        ctx = make_adapter_context("meshcore-1")
+        await adapter.start(ctx)
+
+        packet = _make_channel_packet(text="namespaced", channel_idx=2)
+        await adapter.simulate_inbound(packet)
+
+        assert len(inbound_collector.events) == 1
+        event = inbound_collector.events[0]
+        data = event.metadata.native.data
+        # All keys must be namespaced
+        for key in data:
+            assert key.startswith("meshcore."), f"Un-namespaced key: {key!r}"
+        assert data["meshcore.channel"] == 2
+        assert data["meshcore.is_direct_message"] is False
+
+    async def test_dm_metadata_uses_meshcore_namespace(
+        self, make_adapter_context, inbound_collector
+    ) -> None:
+        """DM events also use meshcore. namespace."""
+        adapter = FakeMeshCoreAdapter()
+        ctx = make_adapter_context("meshcore-1")
+        await adapter.start(ctx)
+
+        packet = _make_contact_packet(text="dm namespaced")
+        await adapter.simulate_inbound(packet)
+
+        event = inbound_collector.events[0]
+        data = event.metadata.native.data
+        for key in data:
+            assert key.startswith("meshcore."), f"Un-namespaced key: {key!r}"
+        assert data["meshcore.is_direct_message"] is True
+
+    async def test_diagnostics_no_raw_metadata(self) -> None:
+        """Diagnostics does not expose raw event metadata."""
+        adapter = FakeMeshCoreAdapter()
+        diag = adapter.diagnostics()
+        diag_str = str(diag)
+        # Should not contain any raw metadata field values
+        assert "pubkey_prefix" not in diag_str
+        assert "packet_id" not in diag_str
+
+    async def test_real_adapter_diagnostics_no_secrets(self) -> None:
+        """Real adapter diagnostics contain no secret values."""
+        config = _make_config()
+        adapter = MeshCoreAdapter(config)
+        diag = adapter.diagnostics()
+        diag_str = str(diag)
+        for secret in ("private_key", "secret", "password", "token"):
+            assert secret not in diag_str, f"Secret {secret!r} found in diagnostics"
+
+
+# ===================================================================
+# Diagnostics shape
+# ===================================================================
+
+
+class TestDiagnosticsShape:
+    """Diagnostics output has correct structure for both adapters."""
+
+    def test_fake_adapter_diagnostics_before_start(self) -> None:
+        """Fake adapter diagnostics before start show not started."""
+        adapter = FakeMeshCoreAdapter()
+        diag = adapter.diagnostics()
+        assert diag["started"] is False
+        assert diag["mode"] == "fake"
+        assert diag["adapter_id"] == "fake_meshcore"
+        assert diag["platform"] == "meshcore"
+        assert diag["delivered_count"] == 0
+        assert diag["inbound_count"] == 0
+
+    async def test_fake_adapter_diagnostics_after_start(
+        self, make_adapter_context
+    ) -> None:
+        """Fake adapter diagnostics after start show started."""
+        adapter = FakeMeshCoreAdapter()
+        ctx = make_adapter_context("meshcore-1")
+        await adapter.start(ctx)
+        diag = adapter.diagnostics()
+        assert diag["started"] is True
+
+    async def test_fake_adapter_diagnostics_tracks_counts(
+        self, make_adapter_context
+    ) -> None:
+        """Fake adapter diagnostics track delivered/inbound counts."""
+        adapter = FakeMeshCoreAdapter()
+        ctx = make_adapter_context("meshcore-1")
+        await adapter.start(ctx)
+
+        result = _make_rendering_result()
+        await adapter.deliver(result)
+        await adapter.deliver(result)
+
+        packet = _make_contact_packet(text="diag test")
+        await adapter.simulate_inbound(packet)
+
+        diag = adapter.diagnostics()
+        assert diag["delivered_count"] == 2
+        assert diag["inbound_count"] == 1
+
+    def test_real_adapter_diagnostics_before_start(self) -> None:
+        """Real adapter diagnostics before start have expected shape."""
+        config = _make_config()
+        adapter = MeshCoreAdapter(config)
+        diag = adapter.diagnostics()
+        assert "adapter_id" in diag
+        assert "platform" in diag
+        assert "started" in diag
+        assert "mode" in diag
+        assert diag["started"] is False
+        assert "session" not in diag
+
+    async def test_real_adapter_diagnostics_after_start(
+        self, make_adapter_context
+    ) -> None:
+        """Real adapter diagnostics after start include session state."""
+        config = _make_config()
+        adapter = MeshCoreAdapter(config)
+        ctx = make_adapter_context("meshcore-1")
+        await adapter.start(ctx)
+        diag = adapter.diagnostics()
+        assert diag["started"] is True
+        assert "session" in diag
+        assert diag["session"]["connected"] is True
+        # All values must be JSON-safe primitives
+        _assert_json_safe(diag)
+
+    async def test_real_adapter_diagnostics_sanitizes_non_primitives(
+        self, make_adapter_context
+    ) -> None:
+        """Diagnostics sanitizes non-primitive values."""
+        config = _make_config()
+        adapter = MeshCoreAdapter(config)
+        ctx = make_adapter_context("meshcore-1")
+        await adapter.start(ctx)
+        diag = adapter.diagnostics()
+        # All values at every nesting level must be primitives
+        _assert_json_safe(diag)
+
+
+def _assert_json_safe(obj: object, path: str = "root") -> None:
+    """Assert that *obj* contains only JSON-serializable primitives."""
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            assert isinstance(k, str), f"Non-string key at {path}: {k!r}"
+            _assert_json_safe(v, f"{path}.{k}")
+    elif isinstance(obj, (list, tuple)):
+        for i, v in enumerate(obj):
+            _assert_json_safe(v, f"{path}[{i}]")
+    else:
+        assert isinstance(obj, (str, int, float, bool)) or obj is None, (
+            f"Non-primitive at {path}: {type(obj).__name__} = {obj!r}"
+        )
+
+
+# ===================================================================
+# Repeated start / stop
+# ===================================================================
+
+
+class TestRepeatedStartStop:
+    """Repeated start/stop cycles are safe and idempotent."""
+
+    async def test_fake_adapter_repeated_start_stop(
+        self, make_adapter_context
+    ) -> None:
+        """Fake adapter survives multiple start/stop cycles."""
+        adapter = FakeMeshCoreAdapter()
+        ctx = make_adapter_context("meshcore-1")
+        for _ in range(5):
+            await adapter.start(ctx)
+            assert adapter.is_started is True
+            await adapter.stop()
+            assert adapter.is_started is False
+
+    async def test_fake_adapter_double_start(
+        self, make_adapter_context
+    ) -> None:
+        """Double start is a no-op."""
+        adapter = FakeMeshCoreAdapter()
+        ctx = make_adapter_context("meshcore-1")
+        await adapter.start(ctx)
+        await adapter.start(ctx)  # no-op
+        assert adapter.is_started is True
+        await adapter.stop()
+
+    async def test_fake_adapter_double_stop(self) -> None:
+        """Double stop is a no-op."""
+        adapter = FakeMeshCoreAdapter()
+        await adapter.stop()  # never started
+        await adapter.stop()  # still no-op
+        assert adapter.is_started is False
+
+    async def test_real_adapter_repeated_start_stop(
+        self, make_adapter_context
+    ) -> None:
+        """Real adapter survives multiple start/stop cycles in fake mode."""
+        config = _make_config(connection_type="fake")
+        for _ in range(3):
+            adapter = MeshCoreAdapter(config)
+            ctx = make_adapter_context("meshcore-1")
+            await adapter.start(ctx)
+            info = await adapter.health_check()
+            assert info.health == "healthy"
+            await adapter.stop()
+            info = await adapter.health_check()
+            assert info.health == "unknown"
+
+    async def test_real_adapter_start_stop_start(
+        self, make_adapter_context
+    ) -> None:
+        """Real adapter can restart after stop."""
+        config = _make_config(connection_type="fake")
+        adapter = MeshCoreAdapter(config)
+        ctx = make_adapter_context("meshcore-1")
+        await adapter.start(ctx)
+        await adapter.stop()
+        # Restart with same adapter
+        await adapter.start(ctx)
+        info = await adapter.health_check()
+        assert info.health == "healthy"
+        await adapter.stop()
+
+    async def test_fake_adapter_deliver_works_after_restart(
+        self, make_adapter_context
+    ) -> None:
+        """Fake adapter delivery works correctly after a restart cycle."""
+        adapter = FakeMeshCoreAdapter()
+        ctx = make_adapter_context("meshcore-1")
+
+        # First cycle
+        await adapter.start(ctx)
+        result = _make_rendering_result()
+        delivery = await adapter.deliver(result)
+        assert delivery is not None
+        assert delivery.native_message_id == "1"
+        await adapter.stop()
+
+        # Second cycle — counter continues
+        await adapter.start(ctx)
+        result2 = _make_rendering_result()
+        delivery2 = await adapter.deliver(result2)
+        assert delivery2 is not None
+        assert delivery2.native_message_id == "2"
