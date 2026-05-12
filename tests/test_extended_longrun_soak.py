@@ -323,6 +323,7 @@ class TestCombinedReplayDiagnosticsDegraded:
             assert app.state is RuntimeState.RUNNING
 
             # Deliver events.
+            delivery_failures: list[tuple[str, str]] = []
             for i in range(3):
                 for adapter_id, adapter in app.adapters.items():
                     try:
@@ -338,8 +339,11 @@ class TestCombinedReplayDiagnosticsDegraded:
                             else:
                                 continue
                             await adapter.simulate_inbound(event)
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        delivery_failures.append((adapter_id, str(exc)))
+            assert not delivery_failures, (
+                f"Cycle {cycle}: delivery failures: {delivery_failures}"
+            )
 
             # Capture diagnostics.
             raw = build_runtime_snapshot(app)
@@ -467,6 +471,7 @@ class TestDegradedVaryingAdapterCount:
             )
 
             # Deliver events — tolerant of adapter variations.
+            delivery_failures: list[tuple[str, str]] = []
             for i in range(3):
                 for adapter_id, adapter in app.adapters.items():
                     try:
@@ -482,8 +487,11 @@ class TestDegradedVaryingAdapterCount:
                             else:
                                 continue
                             await adapter.simulate_inbound(event)
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        delivery_failures.append((adapter_id, str(exc)))
+            assert not delivery_failures, (
+                f"Count-{n} cycle {idx}: delivery failures: {delivery_failures}"
+            )
 
             await app.stop()
             assert app.state is RuntimeState.STOPPED
@@ -502,6 +510,7 @@ class TestDegradedVaryingAdapterCount:
         assert app.state is RuntimeState.RUNNING
         assert len(app.adapters) == 1
 
+        delivery_failures: list[tuple[str, str]] = []
         for burst in range(15):
             for adapter_id, adapter in app.adapters.items():
                 try:
@@ -517,8 +526,11 @@ class TestDegradedVaryingAdapterCount:
                         else:
                             continue
                         await adapter.simulate_inbound(event)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    delivery_failures.append((adapter_id, str(exc)))
+        assert not delivery_failures, (
+            f"Sustained delivery failures: {delivery_failures}"
+        )
 
         await app.stop()
         assert app.state is RuntimeState.STOPPED
