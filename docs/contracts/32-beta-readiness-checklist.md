@@ -38,9 +38,7 @@ These items are blocking. Beta cannot ship without them.
 | M11 | Matrix | Live smoke test run against real homeserver | ✅ Satisfied | `test_matrix_live.py -m live`: 13 passed / 0 failed / 0 skipped against matrix.org homeserver, room `!sRlwdLCwIGBpSzoRsV:matrix.org`. Lifecycle, health, send/receive, diagnostics, session all passed. See `docs/runbooks/operational-evidence.md` §1.1. | None. |
 | M12 | Matrix | E2EE live smoke test run | ✅ Satisfied | `test_matrix_e2ee_live.py -m live`: 7 passed / 0 failed / 0 skipped in 3.73s against encrypted room `!rnmyZMhUoraPwZUDPP:matrix.org`. Initial run hit `OlmUnverifiedDeviceError` (2 tests); adapter fix (`ignore_unverified_devices=True`) applied; re-test passed full suite. See `docs/runbooks/operational-evidence.md` §1.3. | None. |
 | M13 | Meshtastic | Live smoke test run against real radio | ✅ Satisfied | `test_meshtastic_live.py -m live`: 10 passed / 0 failed / 0 skipped in 34.47s against real device. Serial connection to `/dev/ttyACM0`, LilyGO T-LORA V2.1.1.6 (`!25d6e474`), firmware 2.7.19, channel Test (PRIMARY, LONG_FAST). **Track 2 follow-up (2026-05-12):** Additional CLI-level diagnostics cycle confirmed device stable at 27616s uptime, 2 nodes in mesh, battery "Powered", 4/4 serial connections succeeded. ACK classified UNRELIABLE, delivery classified BEST EFFORT. See `docs/runbooks/operational-evidence.md` §2.0. | None. |
-| M14 | — | (Renumbered — was MeshCore live smoke) | — | — | M14 moved to §1.4 (Deferred: experimental transport blockers). See E1. |
-| M15 | — | (Renumbered — was LXMF live smoke) | — | — | M15 moved to §1.4 (Deferred: experimental transport blockers). See E2. |
-| M16 | Matrix | Inbound reception confirmed from live test | ⛔ Blocked | `test_matrix_live.py` includes inbound reception test but has not been run against a real homeserver. No third-party inbound confirmation recorded. | Add inbound reception test. Send from a second account, verify `publish_inbound()` fires. |
+| M14 | Matrix | Inbound reception confirmed from live test | ⛔ Blocked | `test_matrix_live.py` includes inbound reception test but has not been run against a real homeserver. No third-party inbound confirmation recorded. | Add inbound reception test. Send from a second account, verify `publish_inbound()` fires. |
 
 
 ### 1.3 Live Validation Summary (Evidence as of 2026-05-11, head `36d3706`)
@@ -74,7 +72,7 @@ This section records the live validation status of all test harnesses and unit s
 | Category | Total | ✅ Satisfied | ⛔ Blocked | 🔀 Deferred | ⚠️ Partial |
 |----------|-------|-------------|-----------|--------------|------------|
 | Cross-transport must-haves (M1–M10) | 10 | 10 | 0 | 0 | 0 |
-| Per-transport must-haves (M11–M13, M16) | 4 | 3 | 1 | 0 | 0 |
+| Per-transport must-haves (M11–M14) | 4 | 3 | 1 | 0 | 0 |
 | Experimental transport (E1–E2) | 2 | 0 | 0 | 2 | 0 |
 | Packaging (P1–P6) | 6 | 6 | 0 | 0 | 0 |
 | **Total** | **22** | **19** | **1** | **2** | **0** |
@@ -328,7 +326,7 @@ Beta should declare a minimum Python version in `pyproject.toml`. The codebase u
 
 A beta release requires:
 
-1. **All 14 must-have items (M1-M14, with M14-M15 renumbered as E1-E2) satisfied.** → Currently 13/14 satisfied (M1–M10 ✅, M11–M13 ✅, M16 ⛔). M14/M15 (MeshCore/LXMF live smoke) moved to §1.4 deferred experimental scope — not beta-blocking.
+1. **All 14 must-have items (M1–M14) satisfied.** → Currently 13/14 satisfied (M1–M10 ✅, M11–M13 ✅, M14 ⛔). MeshCore/LXMF live smoke are deferred from beta scope (§1.4 E1–E2) — not beta-blocking.
 2. **All packaging items (P1-P6) verified.** → ✅ All 6/6 satisfied. SDK deps floor-pinned from verified local repos.
 3. **All live test results recorded in runbooks.** → Currently 2/4 recorded (Matrix ✅, Meshtastic ✅; MeshCore and LXMF not yet run).
 4. **All four contract documents (29-32) published.** → ✅ All published.
@@ -344,7 +342,7 @@ Should-have items (S1-S11) are strongly recommended. If any remain unsatisfied a
 |---------------|-------|-------|
 | **SATISFIED** | M1–M13, P1–P6, S6, S6a–S6d, NB1 | 24 |
 | **PARTIAL** | S1–S5, S7–S11, R4 | 10 |
-| **BLOCKED** (requires external resource) | M16 (Matrix inbound) | 1 |
+| **BLOCKED** (requires external resource) | M14 (Matrix inbound) | 1 |
 | **DEFERRED** (experimental, not beta-blocking) | E1 (MeshCore live smoke), E2 (LXMF live smoke) | 2 |
 | **RESOLVED** (was deferred, now done) | D17 (license), D18 (LICENSE file) | 2 |
 | **NOT REQUIRED** | D1–D16, D19 | 16 |
@@ -358,8 +356,8 @@ As of 2026-05-12:
 
 | # | Blocker | Affects | Resolution |
 |---|---------|---------|------------|
-| B1 | Live smoke tests not run against real hardware/services | M16 | Run MeshCore and LXMF live harnesses against real endpoints when hardware/software becomes available (deferred from beta scope — see §1.4). M11–M13 have historical evidence from 2026-05-10 (Matrix 13/13, Matrix E2EE 7/7, Meshtastic 10/10). Current beta-entry tranche live execution: NOT EXECUTED. |
-| B2 | No confirmed inbound reception from third party | M16 | Run Matrix live test with a second account sending to the test room. Verify `publish_inbound()` fires. |
+| B1 | Live smoke tests not run against real hardware/services | E1–E2 | MeshCore and LXMF live harnesses — deferred from beta scope (§1.4). M11–M13 have historical evidence from 2026-05-10 (Matrix 13/13, Matrix E2EE 7/7, Meshtastic 10/10). Current beta-entry tranche live execution: NOT EXECUTED. |
+| B2 | No confirmed inbound reception from third party | M14 | Run Matrix live test with a second account sending to the test room. Verify `publish_inbound()` fires. |
 | B3 | ~~SDK dependencies not strictly version-pinned~~ | P1 | ✅ Resolved. Floor pins applied: `mindroom-nio>=0.25.3`, `mtjk>=2.7.8`, `meshcore>=2.3.7`, `lxmf>=0.9.6`. Verified from local reference repos. |
 
 ### 9.2 Should-Fix (Not Blocking, But Recommended Before Beta)
@@ -382,7 +380,7 @@ As of 2026-05-12:
 
 ## 10. Next Recommended Tranche
 
-After this beta validation update, the recommended next tranche should focus on **unblocking the 3 remaining must-haves (M14–M16)**:
+After this beta validation update, the recommended next tranche should focus on **resolving the remaining must-have (M14) and advancing deferred experimental transports (E1–E2)**:
 
 ### Tranche Priority Order
 
@@ -394,7 +392,7 @@ After this beta validation update, the recommended next tranche should focus on 
 
 4. ~~**Pin transport SDK dependencies (B3).**~~ ✅ Done. Floor pins from verified local repos: `mindroom-nio>=0.25.3`, `mtjk>=2.7.8`, `meshcore>=2.3.7`, `lxmf>=0.9.6`.
 
-5. **Confirm Matrix inbound reception (B2: M16).** Send a message from a second Matrix account to the test room and verify `publish_inbound()` fires.
+5. **Confirm Matrix inbound reception (B2: M14).** Send a message from a second Matrix account to the test room and verify `publish_inbound()` fires.
 
 6. **Run LXMF live smoke test (deferred E2).** Requires a Reticulum instance. Local source repos available at `/home/jeremiah/dev`. Install Reticulum and LXMF from source, configure transport, run `pytest tests/test_lxmf_live.py -m live --tb=short`, record results in `lxmf-live-smoke.md`. Deferred from beta scope — see §1.4 E2.
 
@@ -427,42 +425,47 @@ recommendation on beta readiness. It does not prescribe a decision.
 | License governance | Resolved | GPL-3.0-or-later declared. LICENSE file present. Governance docs (contracts 40–45) updated. Reticulum license ambiguity documented (contract 44). |
 | Runtime | Exists, early | RuntimeBuilder assembles from TOML, starts adapters in deterministic order, supervised lifecycle. Not load-tested. |
 
-### 11.2 Remaining Blockers
+### 11.2 Remaining Blockers and Deferred Items
 
-Three must-have items remain blocked, all requiring external resources:
+One must-have item remains blocked, requiring an external resource:
 
 | Blocker | What it needs | PC action required |
 |---------|--------------|-------------------|
-| M14: MeshCore live smoke | CP2104 `/dev/ttyUSB0` identified (likely T-Beam, no serial chatter). MeshCore firmware flash required. | Run follow-up hardware operations: `esptool chip_id`, flash firmware from local source, then run live test. Or decide to ship as "alpha-operational, not live-validated" per Contract 62. |
-| M15: LXMF live smoke | Reticulum instance not configured. Local source repos available at `/home/jeremiah/dev`. | Install Reticulum + LXMF from local source, configure transport, run live test. Or decide to ship as "alpha-operational" with experimental downgrade risk per Contract 62 §5.4. |
-| M16: Matrix inbound confirmation | Second Matrix account sending to test room | Run one manual test with two accounts, or decide to document the gap. |
+| M14: Matrix inbound confirmation | Second Matrix account sending to test room | Run one manual test with two accounts, or decide to document the gap. |
+
+Two experimental transports are deferred from beta scope:
+
+| Item | Transport | Current status | Next step |
+|------|-----------|---------------|-----------|
+| E1: Live smoke validation | MeshCore | CP2104 `/dev/ttyUSB0` identified (likely T-Beam, no serial chatter). Firmware flash required. | Run follow-up hardware operations: `esptool chip_id`, flash firmware from local source, then run live test. |
+| E2: Live smoke validation | LXMF | Reticulum instance not configured. Local source repos available. | Install Reticulum + LXMF from local source, configure transport, run live test. |
 
 ### 11.3 Decision Options for the PC
 
-**Option A: Resolve all three blockers before beta tag.**
-- Requires: MeshCore radio, Reticulum instance, and a second Matrix account.
-- Result: All 16/16 must-haves satisfied. Clean beta gate.
-- Risk: Hardware/infrastructure may not be available immediately. Beta delivery delayed.
+**Option A: Resolve M14 before beta tag; advance E1/E2 as deferred experimental transports.**
+- Requires: A second Matrix account.
+- Result: 14/14 must-haves satisfied. MeshCore and LXMF shipped with explicit "unit-tested only, no live evidence" labeling. E1/E2 tracked for follow-up validation.
+- Risk: MeshCore and LXMF may have fundamental issues undiscoverable without live testing. This is already the honest status quo — the gap is explicitly documented in §1.4.
 
-**Option B: Resolve M16 only, ship M14/M15 as documented alpha-operational.**
-- Requires: A second Matrix account (low effort).
-- Result: 15/16 must-haves satisfied. MeshCore and LXMF shipped with explicit "unit-tested only, no live evidence" labeling in README and release notes.
-- Risk: MeshCore and LXMF may have fundamental issues undiscoverable without live testing. This is already the honest status quo — the gap is explicitly documented.
-- Precedent: Contract 38 (RC criteria) section 1.2 already allows transports without live evidence to be "explicitly labeled 'alpha-operational, not live-validated' in the README and release notes."
-
-**Option C: Ship beta with all three unresolved, all documented.**
+**Option B: Ship beta with M14 documented; E1/E2 as deferred.**
 - Requires: No external resources.
-- Result: 13/16 must-haves satisfied. All three gaps explicitly documented.
-- Risk: Same as Option B, plus the Matrix inbound gap. The Matrix adapter's send capability is live-validated; only inbound from a third party is unconfirmed. The inbound code path is unit-tested and works against fake adapters.
+- Result: 13/14 must-haves satisfied. All three gaps explicitly documented (M14 in §1.2, E1/E2 in §1.4).
+- Risk: Same as Option A, plus the Matrix inbound gap. The Matrix adapter's send capability is live-validated; only inbound from a third party is unconfirmed. The inbound code path is unit-tested and works against fake adapters.
+
+**Option C: Advance E1/E2 to beta scope (requires hardware/infrastructure).**
+- Requires: MeshCore radio and Reticulum instance.
+- Result: Transports with live evidence; beta delayed.
+- Risk: Hardware/infrastructure may not be available immediately. Beta delivery delayed.
 
 ### 11.4 Recommendation
 
-**Option B is recommended.** Rationale:
+**Option A is recommended.** Rationale:
 
-1. Matrix inbound confirmation (M16) is low-effort and removes the most visible gap for the most mature transport.
-2. MeshCore and LXMF live validation depends on hardware/infrastructure that may not be available on the PC's timeline. Their alpha-operational status is already honestly documented in the README, the maturity classification contract (37), and this checklist.
-3. The RC criteria (contract 38, section 1.2) explicitly anticipate this scenario: transports without live evidence may ship if labeled.
-4. The unit test suite provides strong structural coverage for all four transports. Live smoke tests confirm integration; they do not prove reliability. The gap is real but bounded.
+1. Matrix inbound confirmation (M14) is low-effort and removes the most visible gap for the most mature transport.
+2. MeshCore and LXMF live validation depends on hardware/infrastructure that may not be available on the PC's timeline. Their alpha-operational status is already honestly documented in the README, the maturity classification contract (Contract 62), and §1.4 above.
+3. The deferred experimental transport model aligns with Contract 38 (RC criteria) §1.2, which explicitly allows transports without live evidence to be "explicitly labeled 'alpha-operational, not live-validated'."
+
+**Accepted direction:** Scoped beta — Matrix and Meshtastic as beta-candidate transports; MeshCore and LXMF deferred as alpha/experimental until real adapter send/receive validation is completed.t bounded.
 5. Shipping beta with two transports clearly labeled "alpha-operational" is more honest than delaying beta indefinitely for hardware access.
 
 The PC should make the final call. This recommendation is based on evidence, not urgency.

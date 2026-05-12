@@ -1,4 +1,4 @@
-"""Tests for the runtime snapshot module (Wave 1C, Track 4).
+"""Tests for the runtime snapshot module (Track 4).
 
 Covers:
 - Deterministic output (same inputs → same snapshot, sorted keys).
@@ -864,7 +864,7 @@ class TestDiagnosticianFallback:
 
 
 # ---------------------------------------------------------------------------
-# Tests: Accounting and BootSummary integration (Wave 2)
+# Tests: Accounting and BootSummary integration
 # ---------------------------------------------------------------------------
 
 

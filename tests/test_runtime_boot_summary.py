@@ -1,4 +1,4 @@
-"""Tests for runtime boot summary (Wave 2 integration).
+"""Tests for runtime boot summary.
 
 Covers:
 - BootSummary construction and immutability.

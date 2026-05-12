@@ -559,7 +559,7 @@ class TestEdgeCases:
     ) -> None:
         """Empty runtime (zero adapters) raises RuntimeStartupError.
 
-        Per Wave 2 startup semantics, zero adapters started is a total
+        Per startup semantics, zero adapters started is a total
         failure — the runtime cannot route any events.
         """
         from medre.runtime.errors import RuntimeStartupError

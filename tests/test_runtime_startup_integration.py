@@ -1,4 +1,4 @@
-"""Tests for Wave 2 integration: storage schema validation, startup semantics,
+"""Tests for runtime startup and storage integration: storage schema validation, startup semantics,
 boot summary integration in the app lifecycle, CLI diagnostics command.
 
 Covers:
