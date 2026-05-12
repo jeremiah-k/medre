@@ -1,8 +1,17 @@
 # Deployment Validation Runbook
 
+> Last updated: 2026-05-12
+> Tracks: 8, 9 (deployment boundary enforcement, evidence consolidation)
+> Status: Procedures documented. No container runtime execution performed.
+> Evidence tier: All validation commands in this document produce operational evidence only when executed against a live container. Unexecuted commands are NOT EXECUTED.
+> Evidence schema: `docs/contracts/61-operational-evidence-contract.md`
+> Related: `docs/runbooks/container-operation.md`, `docs/contracts/46-runtime-storage-and-path-contract.md`, `docs/contracts/55-runtime-persistence-contract.md`
+
 This runbook documents how MEDRE's path model, startup directory creation, and state persistence behave in container and non-container deployments. It provides validation procedures operators can follow to verify correct deployment before running production traffic.
 
 All path behaviour described here is governed by **Contract 46** (Runtime Storage and Path Model) and **Contract 55** (Runtime Persistence Contract). If this document contradicts those contracts, the contracts win.
+
+**Boundary enforcement (Track 8):** Deployment helpers (`medre.runner`, `medre.config.sample`) are transport-agnostic and never instantiate SDKs directly. Path resolution (`medre.config.paths`) is a pure computation with no I/O. Runtime builder (`medre.runtime.builder`) uses adapter config dataclasses (pure frozen dataclasses, no SDK dependency) but does not import adapter runtime modules (adapter, session, codec) at construction time — adapters are loaded via `medre.adapters.base.BaseAdapter` abstraction and compat modules. Boundary enforcement tests: `tests/test_deployment_boundaries.py`, `tests/test_runtime_deployment_boundaries.py`.
 
 
 ## 1. Path Resolution Modes
@@ -399,3 +408,34 @@ The validation commands provided are procedural checks an operator can run. They
 2. Run each validation command in Section 3-9
 3. Stop the container, restart it, and verify state persistence
 4. Check `boot_summary` for adapter startup status
+
+
+## 12. Runtime Duration and Deployment Observation Fields
+
+When recording deployment validation evidence per Contract 61 §3.6, the following fields apply:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `deployment_mode` | Yes | `container` (MEDRE_HOME set) or `xdg` (MEDRE_HOME unset) |
+| `runtime_duration_seconds` | Yes | Wall-clock duration of the deployment validation session, or NOT EXECUTED |
+| `path_resolution_mode` | Yes | `medre_home` or `xdg` — which mode was validated |
+| `directory_creation_verified` | Yes | Whether `_ensure_dirs()` created all expected directories |
+| `database_persistence_verified` | Yes | Whether SQLite database persisted across restart |
+| `adapter_state_isolation_verified` | Yes | Whether adapter state roots are isolated |
+| `clean_shutdown_verified` | Yes | Whether `stop()` completed cleanly with no leaked tasks |
+| `restart_recovery_verified` | Yes | Whether runtime recovered state after container restart |
+| `boundedness_observed` | Yes | Whether all bounded resources stayed within limits during observation, or NOT EXECUTED |
+
+All fields above are NOT EXECUTED for the current session. No container runtime was invoked.
+
+
+## 13. Unresolved Risks
+
+| Risk | Status | Mitigation |
+|------|--------|------------|
+| No live container execution evidence | NOT EXECUTED | Build container image and run validation procedures. Record evidence per Contract 61. |
+| Volume ownership on multi-user hosts | Not tested | Pre-create volume directory with correct ownership (see §3.3 in container-operation.md). |
+| SQLite growth without retention policy | Unbounded by design (Contract 59 §6.1) | Operators must monitor disk space externally. No automatic vacuum. |
+| Log file growth without rotation | Unbounded by design (Contract 59 §6.3) | Append-only; no built-in rotation. Operators must manage externally. |
+| Serial device hotplug in container | Not tested | Container device passthrough assumes device is available at startup. Hotplug not validated. |
+| MEDRE_HOME with special characters | Not tested | Path validation does not reject special characters in MEDRE_HOME. Behavior undefined for paths containing spaces, unicode, or shell metacharacters. |

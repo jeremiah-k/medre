@@ -2,10 +2,10 @@
 
 > Contract version: 2
 > Last updated: 2026-05-12
-> Track: 1 (Transport Maturity Evidence), Track 2 (Live Operational Evidence), Track 7 (Live Evidence Documentation)
-> Supersedes: Contract 61 v1 (2026-05-12). Adds v2 runtime observation fields, diagnostics snapshot fields, restart/recovery/boundedness observation fields.
+> Track: 1 (Transport Maturity Evidence), Track 2 (Live Operational Evidence), Track 7 (Live Evidence Documentation), Track 8 (Deployment Boundary Enforcement), Track 9 (Evidence Consolidation)
+> Supersedes: Contract 61 v1 (2026-05-12). Adds v2 runtime observation fields, diagnostics snapshot fields, restart/recovery/boundedness observation fields, deployment/boundary enforcement evidence fields.
 > Status: Active contract. Defines the schema, classification, and recording protocol for all operational evidence.
-> References: Contract 32 (Beta Readiness), Contract 37 (Transport Maturity), Contract 39 (Risk Register), Contract 48 (Observability), Contract 59 (Durability).
+> References: Contract 32 (Beta Readiness), Contract 37 (Transport Maturity), Contract 39 (Risk Register), Contract 48 (Observability), Contract 59 (Durability), Contract 60 (Cancellation).
 
 This contract defines the authoritative schema for operational evidence in MEDRE. Every document that records, references, or consumes live test evidence must comply with this contract.
 
@@ -161,6 +161,26 @@ These fields apply to all transports when recording extended runtime observation
 | `boundedness_confirmed` | Yes (v2) | Whether all bounded resources stayed within limits during observation |
 
 
+### 3.7 Deployment and Boundary Enforcement Evidence Fields (Track 8/9)
+
+These fields record evidence from deployment boundary enforcement testing. They apply to deployment validation, container operation, and runtime boundary checks.
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `deployment_helpers_transport_agnostic` | Yes | Whether deployment helpers (runner, config) have no SDK imports or instantiation. Verified by `tests/test_deployment_boundaries.py`, `tests/test_runtime_deployment_boundaries.py`. |
+| `cli_no_direct_sdk_instantiation` | Yes | Whether CLI module has no top-level SDK imports and uses dynamic probing only. Verified by boundary tests. |
+| `snapshot_export_sdk_free` | Yes | Whether snapshot and export modules have no transport SDK coupling. Verified by boundary tests. |
+| `clean_env_no_live_sdks` | Yes | Whether clean-env test files import no transport SDKs. Verified by boundary tests. |
+| `soak_fake_only_unless_live_marked` | Yes | Whether fake-only soak files have no SDK imports and live soak files carry `pytest.mark.live`. Verified by boundary tests. |
+| `no_live_tests_by_default` | Yes | Whether `pyproject.toml` has `addopts = "-m 'not live'"`. Verified by boundary tests. |
+| `runtime_no_direct_adapter_imports` | Yes | Whether runtime helpers (app, builder) import only adapter config dataclasses and base classes, not adapter runtime modules. Verified by `tests/test_runtime_deployment_boundaries.py`. |
+| `boundary_tests_pass` | Yes | Whether all boundary enforcement tests pass at the current commit. |
+| `boundary_test_date` | Yes | ISO date when boundary tests were last run, or NOT EXECUTED |
+| `boundary_test_commit` | Yes | Git commit hash at which boundary tests were run, or NOT EXECUTED |
+
+All fields above are S-tier evidence (deterministic test pass/fail). They do not require live endpoints.
+
+
 ## 4. Evidence Recording Protocol
 
 ### 4.1 When to Record
@@ -260,7 +280,12 @@ The following claims are prohibited without explicit R-tier evidence:
 | `docs/contracts/39-operational-risk-register.md` | Risk ratings informed by evidence gaps identified via this contract. |
 | `docs/contracts/48-runtime-observability-contract.md` | Defines diagnostics fields referenced in `diagnostics_snapshot_fields`. |
 | `docs/contracts/59-runtime-durability-contract.md` | Durability claims must be backed by evidence per this contract. |
+| `docs/contracts/60-runtime-cancellation-contract.md` | Cancellation claims must be backed by evidence per this contract. |
 | `docs/runbooks/soak-testing.md` | Soak harness infrastructure. Produces evidence that must comply with this contract's §3.6. |
+| `docs/runbooks/deployment-validation.md` | Deployment boundary validation (Track 8/9). Produces evidence per §3.7. |
+| `docs/runbooks/container-operation.md` | Container operation evidence (Track 8/9). Produces evidence per §3.7. |
+| `tests/test_deployment_boundaries.py` | Deployment boundary enforcement tests. Results recorded per §3.7. |
+| `tests/test_runtime_deployment_boundaries.py` | Runtime-level boundary enforcement tests. Results recorded per §3.7. |
 
 
 ## 8. Changelog
@@ -268,4 +293,4 @@ The following claims are prohibited without explicit R-tier evidence:
 | Date | Version | Change |
 |------|---------|--------|
 | 2026-05-12 | v1 | Contract 61 created. Formalizes evidence schema from operational-evidence.md. Defines 4 evidence tiers, required fields per transport, evidence maturity scores, prohibited claims. |
-| 2026-05-12 | v2 | Tracks 1/2/7 consolidation. Added: Matrix v2 fields (§3.2: `repeated_start_stop_cycles`, `replay_restart_recovery`, `long_running_sync_observation`, `room_state_boundedness`, `diagnostics_snapshot_at_start/end`, `runtime_duration_seconds`). Meshtastic v2 fields (§3.3: `repeated_start_stop_cycles`, `serial_reconnect_degraded`, `outbound_degraded_behavior`, `long_running_runtime_observation`, `hardware_firmware_snapshot`, `diagnostics_snapshot_at_start/end`, `runtime_duration_seconds`, `connection_establishment_time_ms`). Common runtime observation fields (§3.6). Updated prohibited claims (§6). Updated transport scores with v2 field status (§5.1). |
+| 2026-05-12 | v2 | Tracks 1/2/7/8/9 consolidation. Added: Matrix v2 fields (§3.2: `repeated_start_stop_cycles`, `replay_restart_recovery`, `long_running_sync_observation`, `room_state_boundedness`, `diagnostics_snapshot_at_start/end`, `runtime_duration_seconds`). Meshtastic v2 fields (§3.3: `repeated_start_stop_cycles`, `serial_reconnect_degraded`, `outbound_degraded_behavior`, `long_running_runtime_observation`, `hardware_firmware_snapshot`, `diagnostics_snapshot_at_start/end`, `runtime_duration_seconds`, `connection_establishment_time_ms`). Common runtime observation fields (§3.6). Deployment and boundary enforcement evidence fields (§3.7: Track 8/9). Updated prohibited claims (§6). Updated transport scores with v2 field status (§5.1). Added Contract 60 reference. |

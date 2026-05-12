@@ -637,17 +637,14 @@ docker run -d --name medre-matrix \
 ### Test Results
 
 - **File:** `tests/test_matrix_live.py` (also `tests/test_matrix_e2ee_live.py`)
-- **Last run:** Not yet run
+- **Last run:** 2026-05-12 — **NOT EXECUTED**
 - **Command:** `pytest tests/test_matrix_live.py -m live -v`
-- **Result:** Not yet run
-- **Environment:**
-  - `MATRIX_HOMESERVER`: required, not set
-  - `MATRIX_USER_ID`: required, not set
-  - `MATRIX_ACCESS_TOKEN`: required, not set
-  - `MATRIX_ROOM_ID`: required, not set
-  - `MATRIX_ENCRYPTION_MODE`: optional, defaults to `plaintext`
-- **Hardware/Network:** Not available (no Matrix homeserver accessible)
-- **Failures/Notes:** Live validation has not been performed in this environment. Alpha operation requires a real Matrix homeserver with the environment variables configured. Without these, all live tests skip automatically. See the smoke test runbook (`docs/runbooks/matrix-live-smoke.md`) for detailed setup and environment variable instructions.
+- **Reason:** No Matrix environment variables present in the execution session. All required variables unset: `MATRIX_HOMESERVER`, `MATRIX_USER_ID`, `MATRIX_ACCESS_TOKEN`, `MATRIX_ROOM_ID`. E2EE-specific variables also unset: `MATRIX_DEVICE_ID`, `MATRIX_STORE_PATH`.
+- **Policy:** Live tests are never run without pre-existing credentials. The agent does not request, generate, or print credentials.
+- **Result:** All live tests would skip with reason: *"Set MATRIX_HOMESERVER, MATRIX_USER_ID, MATRIX_ACCESS_TOKEN, and MATRIX_ROOM_ID env vars to run live Matrix tests"*
+- **Operator action required:** Set the four required environment variables (plus two E2EE variables for encrypted-room testing) and run the commands above. See the smoke test runbook (`docs/runbooks/matrix-live-smoke.md`) for detailed setup and environment variable instructions.
+
+**Previous successful live validation:** 2026-05-10 — 13 passed, 0 failed (plaintext) and 7 passed, 0 failed (E2EE). See `docs/runbooks/matrix-live-smoke.md` for full evidence.
 
 
 ## 13. Explicit Unsupported Features

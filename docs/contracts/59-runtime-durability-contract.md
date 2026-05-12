@@ -3,9 +3,12 @@
 **Status:** Active
 **Scope:** Durability semantics for the MEDRE runtime: what is durable, what is process-local, crash recovery expectations, boundedness guarantees, and explicit non-guarantees.
 **Audience:** Runtime builders, adapter authors, operators.
-**References:** Contract 47 (Runtime Assembly), Contract 53 (Resource Control), Contract 54 (Runtime Shutdown), Contract 55 (Runtime Persistence), Contract 60 (Runtime Cancellation).
+**Tracks:** 9 (evidence consolidation and boundary enforcement)
+**References:** Contract 47 (Runtime Assembly), Contract 53 (Resource Control), Contract 54 (Runtime Shutdown), Contract 55 (Runtime Persistence), Contract 60 (Runtime Cancellation), Contract 61 (Operational Evidence).
 
 Every agent or document that references MEDRE durability, crash recovery, what survives restart, or boundedness must defer to this contract and Contract 55 (Runtime Persistence).
+
+**Evidence separation (Track 9):** Durability claims in this contract are backed by S-tier (simulated/fake) evidence from deterministic unit tests. R-tier (real-live-runtime) evidence for crash recovery, sustained operation boundedness, and restart durability has NOT been collected. See Contract 61 §5.1 for current evidence scores per transport. Do not claim production durability without R-tier evidence per Contract 61 §6.
 
 
 ## 1. Scope

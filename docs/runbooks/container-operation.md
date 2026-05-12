@@ -1,8 +1,17 @@
 # Container Operation Runbook
 
+> Last updated: 2026-05-12
+> Tracks: 8, 9 (deployment boundary enforcement, evidence consolidation)
+> Status: Procedures documented. No container runtime execution performed.
+> Evidence tier: All operational procedures in this document produce R-tier evidence only when executed against a live container. Unexecuted procedures are NOT EXECUTED.
+> Evidence schema: `docs/contracts/61-operational-evidence-contract.md`
+> Related: `docs/runbooks/deployment-validation.md`, `docs/contracts/46-runtime-storage-and-path-contract.md`
+
 This runbook covers how to deploy and operate MEDRE inside a container runtime (Docker, Podman, etc.). It documents environment variable configuration, volume mounting, path layout, serial passthrough, and operational procedures.
 
 For the underlying path model and validation procedures, see [Deployment Validation](deployment-validation.md). For the authoritative path contract, see Contract 46.
+
+**Boundary enforcement (Track 8):** Container deployment relies on transport-agnostic path resolution and runtime construction. No container-specific SDK coupling exists. All adapter construction goes through the `RuntimeBuilder` abstraction. Container environment variables map to adapter config dataclasses (pure frozen dataclasses, no SDK dependency).
 
 
 ## 1. Container Image Assumptions
@@ -331,3 +340,33 @@ To validate operationally:
 2. Run with `MEDRE_HOME=/opt/medre` and a bind-mounted host directory
 3. Follow validation procedures in [Deployment Validation](deployment-validation.md)
 4. Verify startup, persistence across restart, and graceful shutdown
+
+
+## 11. Container Runtime Observation Fields
+
+When recording container operation evidence per Contract 61 §3.6, the following fields apply:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `container_runtime` | Yes | Docker, Podman, or other |
+| `container_image_tag` | Yes | MEDRE container image tag used |
+| `medre_home_path` | Yes | Value of MEDRE_HOME inside container |
+| `volume_mount_verified` | Yes | Whether bind mount persisted data across restart |
+| `runtime_duration_seconds` | Yes | Wall-clock duration of container session, or NOT EXECUTED |
+| `adapter_start_success` | Yes | Which adapters started successfully inside container |
+| `clean_shutdown_observed` | Yes | Whether SIGTERM produced clean shutdown |
+| `boundedness_observed` | Yes | Whether resources stayed bounded during observation, or NOT EXECUTED |
+| `reconnect_events` | Yes | Number of adapter reconnect events during observation, or NOT EXECUTED |
+
+All fields above are NOT EXECUTED for the current session. No container runtime was invoked.
+
+
+## 12. Unresolved Risks
+
+| Risk | Status | Mitigation |
+|------|--------|------------|
+| No live container execution evidence | NOT EXECUTED | Build container image and run validation procedures. Record R-tier evidence per Contract 61. |
+| Non-root UID/GID mismatch | Not tested | Container may fail to write to volume if UID/GID does not match host. Pre-create with correct ownership. |
+| Serial device permission in container | Not tested | Device passthrough requires matching host permissions. Container user must be in correct group. |
+| Timezone handling in container | Not tested | Container inherits host timezone. Log timestamps may differ if container TZ differs from host. |
+| Signal handling (SIGTERM/SIGINT) | Source-verified only | MEDRE handles SIGTERM via asyncio signal handlers. Not validated in a live container. |

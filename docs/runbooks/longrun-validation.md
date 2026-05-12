@@ -1,11 +1,11 @@
 # Longrun Validation Runbook
 
 > Last updated: 2026-05-12
-> Tracks: 2, 3, 7
-> Status: Procedures documented. No longrun evidence recorded.
+> Tracks: 2, 3, 7, 8, 9
+> Status: Procedures documented. No longrun evidence recorded. Deployment boundary enforcement and runtime duration fields added (Track 8/9).
 > Scope: Evidence capture during extended (multi-minute to multi-hour) adapter operation. Distinct from `soak-testing.md` which covers soak harness infrastructure.
 > Evidence schema: `docs/contracts/61-operational-evidence-contract.md`
-> Related: `docs/runbooks/soak-testing.md`, `docs/runbooks/operational-evidence.md`, `docs/runbooks/live-operational-evidence.md`
+> Related: `docs/runbooks/soak-testing.md`, `docs/runbooks/operational-evidence.md`, `docs/runbooks/live-operational-evidence.md`, `docs/runbooks/deployment-validation.md`
 
 This runbook defines what to observe, record, and report when running MEDRE adapters for extended periods against real endpoints. It does not define soak harness infrastructure (see `soak-testing.md`). It defines the **evidence capture protocol** for longrun validation.
 
@@ -288,3 +288,34 @@ Both documents reference the same test infrastructure. `soak-testing.md` defines
 | `docs/contracts/37-transport-maturity-classification.md` | Transport maturity uses longrun evidence |
 | `docs/contracts/39-operational-risk-register.md` | Risks informed by longrun evidence gaps |
 | `docs/contracts/59-runtime-durability-contract.md` | Durability claims require longrun evidence |
+| `docs/runbooks/deployment-validation.md` | Deployment boundary validation (Track 8/9) |
+| `docs/contracts/60-runtime-cancellation-contract.md` | Cancellation during longrun shutdown |
+
+
+## 8. Deployment and Boundedness Observation Fields (Track 8/9)
+
+Longrun evidence must include deployment and boundedness observations per Contract 61 §3.6:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `deployment_mode` | Yes | `container` (MEDRE_HOME set) or `host` (XDG mode) |
+| `runtime_duration_seconds` | Yes | Wall-clock duration of the longrun session (already in §3.1) |
+| `boundedness_confirmed` | Yes | Whether all bounded resources stayed within limits during the entire longrun |
+| `reconnect_events` | Yes | Number of reconnect events (already in §3.1) |
+| `restart_events` | Yes | Number of adapter restart events during longrun, or 0 |
+| `deployment_path_verified` | Yes | Whether runtime paths remained valid throughout longrun |
+| `adapter_state_isolation_held` | Yes | Whether adapter state roots remained isolated throughout longrun |
+
+All fields above are NOT EXECUTED for all transports. No longrun evidence has been recorded.
+
+
+## 9. Unresolved Risks
+
+| Risk | Status | Mitigation |
+|------|--------|------------|
+| No longrun evidence for any transport | NOT EXECUTED | Run longrun procedures against real endpoints, record evidence per §5. |
+| Memory drift not measured | NOT EXECUTED | Add psutil RSS capture at observation intervals. Requires psutil installed. |
+| Unbounded SQLite growth during longrun | Theoretical (Contract 59 §6.1) | Monitor database file size during longrun. No automatic pruning. |
+| Longrun reconnect behavior unobserved | NOT EXECUTED | Longrun procedures include reconnect observation fields. Requires network interruption during run. |
+| Adapter resource leaks over extended duration | Not validated | Longrun evidence would reveal task leaks, counter drift, or memory growth. Requires R-tier evidence. |
+| Container longrun not tested | NOT EXECUTED | Container deployment longrun requires live container runtime. No container evidence exists. |

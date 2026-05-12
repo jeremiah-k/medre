@@ -2,15 +2,16 @@
 
 > Last updated: 2026-05-12
 > Tracks: 1, 2, 7 (v2 consolidation)
-> Status: Procedures documented. Live execution: **NOT EXECUTED** on this machine (no Matrix homeserver credentials or Meshtastic hardware connected).
+> Status: Procedures documented. Meshtastic serial live validation: **EXECUTED 2026-05-12** (CLI-level: device discovery, hardware/firmware capture, one outbound send on channel 0, 2 reconnect cycles). MEDRE adapter lifecycle and Matrix live tests: **NOT EXECUTED** (no Matrix credentials; mtjk not in project venv).
 > Evidence schema: `docs/contracts/61-operational-evidence-contract.md`
 > Primary evidence recording: `docs/runbooks/operational-evidence.md`
+> Boundary tests: `tests/test_deployment_boundaries.py`, `tests/test_runtime_deployment_boundaries.py`
 
 This runbook provides detailed live operational procedures for Matrix and Meshtastic transports. Each procedure specifies exact environment variables, expected durations, observations to record, and NOT EXECUTED sections when hardware or credentials are absent.
 
 **Evidence tier:** All procedures in this document, if executed against real endpoints, produce R-tier (real-live-runtime) evidence per Contract 61. If not executed, fields remain NOT EXECUTED with documented reasons.
 
-**v2 scope (Tracks 1/2/7):** This revision consolidates start/stop cycle, replay/restart, reconnect, long-running sync/runtime observation, diagnostics snapshot, E2EE store reuse, room-state boundedness, serial reconnect/outbound/degraded behavior, hardware/firmware field capture, actual runtime duration, and restart/recovery/boundedness observation procedures. Every new procedure includes a NOT EXECUTED section for environments without live endpoints.
+**v2 scope (Tracks 1/2/7/8/9):** This revision consolidates start/stop cycle, replay/restart, reconnect, long-running sync/runtime observation, diagnostics snapshot, E2EE store reuse, room-state boundedness, serial reconnect/outbound/degraded behavior, hardware/firmware field capture, actual runtime duration, restart/recovery/boundedness observation, deployment boundary enforcement evidence, and unresolved risks documentation. Every new procedure includes a NOT EXECUTED section for environments without live endpoints. Deployment boundary enforcement is verified by `tests/test_deployment_boundaries.py` and `tests/test_runtime_deployment_boundaries.py`.
 
 
 ## 1. Matrix Live Procedures
@@ -560,13 +561,28 @@ pytest tests/test_matrix_e2ee_live.py::TestLiveE2EERestart -m live -v
 | Health → healthy | `health_check()` returns `"healthy"` | Test output: `test_adapter_health_healthy` |
 | Stop → clean teardown | Client closed, unsubscribed | Test output: `test_adapter_stop_clean` |
 
-#### NOT EXECUTED (current machine)
+#### Executed 2026-05-12 (CLI-level serial validation)
+
+> **Note:** This was a manual CLI-level validation using `meshtastic` CLI 2.7.8, NOT the MEDRE adapter `pytest` live test suite. The live pytest suite requires `mtjk` in the project venv. See `operational-evidence.md` §2.0 for full R-tier evidence.
 
 | Field | Value |
 |-------|-------|
-| **Execution date** | NOT EXECUTED |
-| **Reason** | No Meshtastic radio hardware connected to this machine. No serial device at `/dev/ttyACM0`. No TCP-accessible Meshtastic node on the network. |
-| **Resolution** | Connect a Meshtastic radio (e.g. LilyGO T-Beam, Heltec v3, RAK WisBlock) via USB or TCP. Set `MESHTASTIC_CONNECTION_TYPE` and corresponding host/serial variables. Re-run live tests. |
+| **Execution date** | 2026-05-12 |
+| **Executor** | Manual operator (serial CLI) |
+| **Connection type** | Serial, `/dev/ttyACM0` (1a86 USB Single Serial / CDC ACM) |
+| **Node hardware** | LilyGO T-LoRa V2.1.1.6 (TLORA_V2_1_1P6) |
+| **Firmware version** | 2.7.19.bb3d6d5 (VANILLA) |
+| **Node ID** | `!25d6e474` |
+| **meshtastic CLI version** | 2.7.8 (platformio penv) |
+| **pyserial version** | 3.5 |
+| **Connection established** | ✅ All 3 CLI connections succeeded within 15s timeout |
+| **sendText on channel 0** | ✅ CLI completed without error. Output: `Sending text message ... to ^all on channelIndex:0`. No explicit ACK printed. |
+| **Explicit ACK** | **Not observed** — meshtastic 2.7.8 CLI does not print ACK for broadcast sends. |
+| **Second node observed** | `!ee4a65b1` "Meshtastic 65b1" appeared in node DB (UNSET hardware, SNR -0 dB, 1 hop, channel 0). Presence confirmed, message delivery NOT confirmed. |
+| **Reconnect cycles** | ✅ 2 CLI-level disconnect/reconnect cycles succeeded (independent serial sessions, not MEDRE adapter reconnect). |
+| **Duplicate-send caveat** | Not assessed (only one send performed). |
+| **Destructive operations** | None. No admin, config writes, or firmware changes. |
+| **Full pytest live suite** | **NOT EXECUTED** — requires `mtjk` in project venv. Only CLI-level validation performed. |
 
 **Historical evidence (H-tier, 2026-05-10):**
 - Connection: Serial to `/dev/ttyACM0`, LilyGO T-LORA V2.1, node `!25d6e474`
@@ -602,13 +618,16 @@ pytest tests/test_meshtastic_live.py -m live -v -s
 # 6. Observe: reconnecting=False, connected=True, reconnect_attempts resets to 0
 ```
 
-#### NOT EXECUTED (current machine)
+#### Partially executed 2026-05-12 (CLI-level)
+
+> **Note:** CLI-level reconnect tested (3 independent serial sessions to `/dev/ttyACM0`, all succeeded). This is NOT the same as MEDRE adapter session reconnect with exponential backoff and health transitions. The MEDRE adapter session reconnect remains untested.
 
 | Field | Value |
 |-------|-------|
-| **Serial reconnect** | NOT EXECUTED |
-| **Reason** | No serial-connected Meshtastic hardware available. |
-| **Expected behavior** | Session enters reconnect loop (max 10 attempts, exponential backoff 1–30s). Health transitions: healthy → degraded → healthy on recovery, or healthy → degraded → failed on budget exhaustion. |
+| **Serial reconnect (CLI-level)** | ✅ 3 independent serial connections to `/dev/ttyACM0` succeeded with no errors |
+| **MEDRE adapter session reconnect** | NOT EXECUTED — requires `mtjk` in project venv and MEDRE adapter running |
+| **Reason for partial** | Only CLI-level validation performed. Physical USB disconnect not tested (would interrupt active CLI session). |
+| **Expected behavior (MEDRE adapter)** | Session enters reconnect loop (max 10 attempts, exponential backoff 1–30s). Health transitions: healthy → degraded → healthy on recovery, or healthy → degraded → failed on budget exhaustion. |
 | **Diagnostics fields** | `reconnecting`, `reconnect_attempts` in session diagnostics |
 
 
@@ -622,12 +641,14 @@ The MEDRE adapter's `send_one()` method is the primary outbound delivery path. I
 
 **Important:** The existing live smoke harness exercises raw `mtjk` `sendText` (Category A) and adapter lifecycle (Category B), but does **not** exercise the full MEDRE `send_one` path against real hardware. The `send_one` path is unit-tested with monkeypatched clients.
 
-#### NOT EXECUTED (current machine)
+#### NOT EXECUTED (current session)
+
+> **Note:** CLI-level `sendText` on channel 0 was confirmed working (see §2.2). The MEDRE adapter `send_one` path via the queued delivery pipeline remains untested.
 
 | Field | Value |
 |-------|-------|
 | **Outbound send_one** | NOT EXECUTED |
-| **Reason** | The live smoke harness does not exercise `send_one` against real hardware. No dedicated `send_one` live test exists. |
+| **Reason** | Requires MEDRE adapter running against real hardware with `mtjk` in project venv. CLI-level `sendText` confirmed (§2.2), but `send_one` is a different code path (adapter queue → pacing → real send). |
 | **Gap** | `send_one` is tested via `monkeypatch` in `tests/test_meshtastic_adapter.py`. A live test would require: (1) real node connected, (2) adapter started, (3) `deliver()` called with a real canonical event, (4) confirmation that `sendText` completes via the MEDRE queue path. |
 
 
@@ -703,15 +724,17 @@ pytest tests/test_meshtastic_live.py::TestMeshtasticLiveSmoke::test_repeated_sta
 | Resource cleanup | No leaked serial/TCP interfaces after each stop | Process inspection |
 | Connection re-establishment time | Time from `start()` to `connected == True` per cycle | Wall clock |
 
-#### NOT EXECUTED (current machine)
+#### NOT EXECUTED (current session)
 
 | Field | Value |
 |-------|-------|
 | **Execution date** | NOT EXECUTED |
-| **Reason** | No Meshtastic radio hardware connected. |
-| **Resolution** | Connect radio, set `MESHTASTIC_CONNECTION_TYPE` and connection-specific var, run `pytest tests/test_meshtastic_live.py::TestMeshtasticLiveSmoke::test_repeated_start_stop_cycle -m live -v`. |
+| **Reason** | `mtjk` not installed in project venv. MEDRE adapter live tests cannot run. |
+| **Resolution** | Install mtjk (`pip install mtjk`), set `MESHTASTIC_CONNECTION_TYPE` and connection-specific var, run `pytest tests/test_meshtastic_live.py::TestMeshtasticLiveSmoke::test_repeated_start_stop_cycle -m live -v`. |
 
 **Historical observation (H-tier, 2026-05-10):** Single start/stop cycle confirmed in smoke test (10/10 passed, 34.47s). Multi-cycle test added after initial run; not part of historical evidence.
+
+**CLI-level observation (R-tier, 2026-05-12):** 3 independent serial connections to the same device succeeded without errors (see §2.2, §2.3). This demonstrates serial port reliability but is NOT the MEDRE adapter start/stop cycle.
 
 
 ### 2.8 Meshtastic Serial Reconnect/Outbound/Degraded Behavior Procedure (v2)
@@ -785,16 +808,16 @@ pytest tests/test_meshtastic_live.py -m live -v -s
 | Outbound failure count | `transient_delivery_failures`, `permanent_delivery_failures` | `diagnostics()` |
 | Send retry count | Up to 3 transient retries observed | `diagnostics()` |
 
-#### NOT EXECUTED (current machine)
+#### NOT EXECUTED (current session)
 
 | Field | Value |
 |-------|-------|
-| **Serial reconnect observation** | NOT EXECUTED |
+| **Serial reconnect observation** | NOT EXECUTED (MEDRE adapter level). CLI-level reconnect confirmed (3/3 success). |
 | **Outbound failure observation** | NOT EXECUTED |
 | **Degraded behavior observation** | NOT EXECUTED |
-| **Reason** | No Meshtastic radio hardware connected. Physical disconnect and network disruption require real hardware. |
+| **Reason** | Physical disconnect and MEDRE adapter session reconnect not tested. Requires MEDRE adapter running with mtjk in project venv. |
 | **Expected behavior** | Reconnect loop: max 10 attempts, exponential backoff 1–30s, health transitions `healthy → degraded → healthy/failed`. Send retries: max 3 transient, then permanent failure. |
-| **Source** | S-tier deterministic tests confirm constants and logic. No R-tier evidence. |
+| **Source** | S-tier deterministic tests confirm constants and logic. CLI-level R-tier evidence confirms serial port reliability. No MEDRE adapter R-tier evidence. |
 
 
 ### 2.9 Meshtastic Long-Running Runtime Observation Procedure (v2)
@@ -1050,3 +1073,34 @@ The Meshtastic adapter tracks `started` in diagnostics. To record actual runtime
 | `docs/contracts/37-transport-maturity-classification.md` | Transport maturity tiers |
 | `docs/contracts/39-operational-risk-register.md` | Risk register |
 | `docs/contracts/48-runtime-observability-contract.md` | Diagnostics contract |
+| `docs/runbooks/deployment-validation.md` | Deployment boundary validation (Track 8/9) |
+| `docs/runbooks/container-operation.md` | Container deployment procedures (Track 8/9) |
+| `tests/test_deployment_boundaries.py` | Deployment boundary enforcement tests |
+| `tests/test_runtime_deployment_boundaries.py` | Runtime-level boundary enforcement tests |
+
+
+## 6. Evidence Separation Summary
+
+This document contains the following evidence categories, clearly separated:
+
+| Category | Section | Status |
+|----------|---------|--------|
+| **R-tier (real-live-runtime)** | None | No live execution performed in current session |
+| **H-tier (historical)** | §1.3, §1.7, §1.8, §1.12 (Matrix); §2.2, §2.7, §2.11 (Meshtastic) | Historical evidence from 2026-05-10. May be stale. |
+| **S-tier (simulated/fake)** | §1.11, §1.10, §2.10, §3.1, §3.2, §3.3 | Deterministic unit test coverage confirmed |
+| **NOT EXECUTED** | All live procedure NOT EXECUTED sections | No live endpoints available in current session |
+
+**No overclaims:** This document does not claim any transport is production-ready, reliable, or performs at any specific latency. All live procedures are documented as NOT EXECUTED unless explicitly marked with R-tier evidence and an execution date.
+
+
+## 7. Unresolved Risks (Track 9 Consolidation)
+
+| Risk | Status | Affects | Mitigation |
+|------|--------|---------|------------|
+| No current-tranche live evidence | All historical (H-tier) from 2026-05-10 | All transports | Re-run live procedures at current commit to produce C-tier evidence. |
+| MeshCore and LXMF have no live evidence | S-tier only | MeshCore, LXMF | No hardware/network available. Evidence gap acknowledged in Contract 61 §5.1. |
+| No soak/longrun evidence | NOT EXECUTED | All transports | Run soak procedures with live endpoints. Record evidence per Contract 61 §3.6. |
+| Container deployment unvalidated | NOT EXECUTED | All transports | Build container image and run validation per deployment-validation.md. |
+| Historical evidence may be stale | H-tier from 2026-05-10 | Matrix, Meshtastic | Adapter code may have changed since recording. Re-run live tests at current commit to confirm. |
+| No third-party inbound evidence | NOT EXECUTED | Matrix | Requires second Matrix account and manual coordination. |
+| No multi-node inbound evidence | NOT EXECUTED | Meshtastic | Requires second Meshtastic node on same channel. |

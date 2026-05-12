@@ -2,9 +2,10 @@
 
 > Last updated: 2026-05-12
 > Status: Partially populated. Current deterministic suite: 3237 passed, 4 skipped,
-> 63 deselected (2026-05-11). Live evidence is historical from 2026-05-10:
-> Matrix plaintext 13/13, E2EE harness 7/7, Meshtastic serial 10/10.
-> Current beta-entry tranche live execution: NOT EXECUTED.
+> 63 deselected (2026-05-11). Live evidence: Matrix historical 2026-05-10
+> (plaintext 13/13, E2EE 7/7). Meshtastic serial CLI validation: R-tier
+> 2026-05-12 (device discovery, hardware/firmware, one outbound on ch0, reconnect).
+> Meshtastic MEDRE adapter live tests: NOT EXECUTED (mtjk not in project venv).
 > MeshCore, LXMF, and soak tests remain **NOT EXECUTED**.
 > Live commands, env vars, and NOT EXECUTED reasoning in §6–§7.
 > Related: `docs/contracts/32-beta-readiness-checklist.md`, section 1.3.2.
@@ -211,8 +212,135 @@ pytest tests/test_matrix_live.py::TestMatrixLiveSmoke::test_inbound_message_rece
 
 ## 2. Meshtastic Operational Evidence
 
-> **Evidence tier:** H (historical, recorded 2026-05-10 against real hardware). Current beta-entry tranche live execution: **NOT EXECUTED**.
+> **Evidence tier:** R (real-live-runtime, recorded 2026-05-12 against real hardware via serial). Prior H-tier evidence from 2026-05-10 remains valid for historical reference.
 > **Live procedures:** `docs/runbooks/live-operational-evidence.md` §2.
+
+### 2.0 Serial Live Validation Evidence (Tier: R — recorded 2026-05-12)
+
+> **Validation type:** Manual CLI-driven serial live validation using meshtastic 2.7.8 CLI.
+> **Scope:** Device discovery, hardware/firmware capture, one outbound text on channel 0, disconnect/reconnect resilience (2 cycles).
+> **NOT in scope:** MEDRE adapter lifecycle (start/stop/health), send_one path, soak testing, second-node inbound, encrypted channels, admin operations. These remain NOT EXECUTED in this session.
+
+| Field | Value |
+|-------|-------|
+| **Evidence tier** | R (real-live-runtime) |
+| **Execution date** | 2026-05-12 |
+| **Executor** | Manual operator (serial CLI validation) |
+| **Connection type** | Serial (USB CDC ACM) |
+| **Serial port** | `/dev/ttyACM0` (USB ID: `1a86_USB_Single_Serial_5435017226-if00`) |
+| **meshtastic CLI version** | 2.7.8 (`/home/jeremiah/.platformio/penv/bin/meshtastic`) |
+| **pyserial version** | 3.5 |
+| **mtjk package** | NOT installed (used platformio penv meshtastic 2.7.8 instead) |
+| **User groups** | `dialout` (serial write access confirmed) |
+| **Node hardware** | LilyGO T-LoRa V2.1.1.6 (`hwModel: TLORA_V2_1_1P6`, `pioEnv: tlora-v2-1-1_6`) |
+| **Node ID** | `!25d6e474` (num 634840180) |
+| **Node name** | "Meshtastic e474" (short: "e474") |
+| **Firmware version** | 2.7.19.bb3d6d5 (firmwareEdition: VANILLA) |
+| **Device role** | CLIENT |
+| **Capabilities** | hasWifi: true, hasBluetooth: true, hasPKC: true, canShutdown: true |
+| **LoRa config** | Region: US, Bandwidth: 250, SF: 11, CR: 5, hopLimit: 3, txEnabled: true |
+| **Device serialEnabled** | false (device pref, but serial CLI connects fine via CDC ACM) |
+| **GPS mode** | NOT_PRESENT (no GPS module) |
+| **Battery at first query** | 97%, voltage 4.157V |
+| **Battery at second query** | 96% (normal drain) |
+| **Battery at nodes query** | "Powered" (USB power detected) |
+| **Channel utilization** | 1.0% initially, 7.51% after test message |
+| **Air util TX** | 0.028% initially, 0.06% after test message |
+| **Uptime at first query** | 1276 seconds |
+| **Reboot count** | 26 |
+| **Min app version** | 30200 |
+| **Device state version** | 24 |
+
+#### 2.0.1 Commands Run (no secrets)
+
+```
+# Device discovery
+ls -la /dev/ttyACM0 /dev/ttyUSB* /dev/serial/by-id/*
+test -w /dev/ttyACM0
+
+# Dependency checks
+python3 -c "import meshtastic; print(meshtastic.__file__)"
+python3 -c "import serial; print(serial.__version__)"
+pip show mtjk
+
+# Device info (serial connection)
+meshtastic --port /dev/ttyACM0 --info
+
+# Node listing
+meshtastic --port /dev/ttyACM0 --nodes
+
+# Outbound test (channel 0, one message only)
+meshtastic --port /dev/ttyACM0 --ch-index 0 --sendtext "MEDRE serial validation test 2026-05-12 - disregard"
+
+# Reconnect cycle 1 (disconnect + reconnect)
+meshtastic --port /dev/ttyACM0 --info
+
+# Reconnect cycle 2 (disconnect + reconnect)
+meshtastic --port /dev/ttyACM0 --info
+```
+
+#### 2.0.2 Outbound Send Observation
+
+| Field | Value |
+|-------|-------|
+| **Command** | `meshtastic --port /dev/ttyACM0 --ch-index 0 --sendtext "MEDRE serial validation test 2026-05-12 - disregard"` |
+| **CLI output** | `Connected to radio` → `Sending text message MEDRE serial validation test 2026-05-12 - disregard to ^all on channelIndex:0` |
+| **No error raised** | ✅ CLI completed with exit code 0 |
+| **Explicit ACK received** | **No** — meshtastic 2.7.8 CLI does not print ACK confirmation for broadcast sends. sendText completed without error, but no delivery acknowledgment was observed. |
+| **Second-node reception confirmed** | **No** — a second node (`!ee4a65b1`, "Meshtastic 65b1") appeared in the node DB after the send, but its appearance is due to hearing its periodic announcement, NOT evidence that it received our test message. |
+| **Duplicate-send risk** | Not assessed in this session. Only one send was performed. |
+
+#### 2.0.3 Second Node Observation
+
+During the validation session, a second node appeared in the mesh:
+
+| Field | Value |
+|-------|-------|
+| **Node ID** | `!ee4a65b1` |
+| **Short name** | "65b1" |
+| **Long name** | "Meshtastic 65b1" |
+| **Hardware model** | UNSET (not yet broadcast or older firmware) |
+| **Public key** | N/A (PKC not available or not broadcast) |
+| **SNR** | -0 dB (direct, 1 hop) |
+| **Channel** | 0 |
+| **Battery** | N/A |
+| **Position** | N/A |
+| **When observed** | Appeared in node DB between first `--info` (nodedbCount: 1) and second `--info` (nodedbCount: 2), approximately 30–60 seconds into the session |
+
+**Honest assessment:** The second node's appearance confirms that at least one other Meshtastic device is active on the same LoRa channel in radio range. We CANNOT confirm this node received our test message, acknowledged it, or processed it in any way. Its node DB entry is evidence of its presence, not evidence of message delivery.
+
+#### 2.0.4 Disconnect/Reconnect Resilience (CLI-level)
+
+| Field | Value |
+|-------|-------|
+| **Cycle count** | 2 (after initial connection, then 2 more independent CLI sessions) |
+| **Cycle 1** | `--info` connected successfully. nodedbCount: 2. All fields consistent. |
+| **Cycle 2** | `--info` connected successfully. nodedbCount: 2. All fields consistent. |
+| **Connection failures** | 0 |
+| **Serial errors** | 0 |
+| **Observation** | Each CLI invocation creates a fresh serial connection to `/dev/ttyACM0`, completes its operation, and disconnects. All 3 connections (initial + 2 reconnects) succeeded within 15-second timeouts. |
+
+**Caveat:** These are CLI-level disconnect/reconnect cycles (each meshtastic CLI invocation opens and closes the serial port). This is NOT the same as MEDRE adapter session reconnect with exponential backoff, health transitions, and pubsub resubscription. MEDRE adapter session reconnect remains NOT EXECUTED (see §2.3).
+
+#### 2.0.5 Startup/Shutdown Observations
+
+- **Startup:** `meshtastic --port /dev/ttyACM0` connects within 1–3 seconds. "Connected to radio" message appears promptly.
+- **Shutdown:** CLI disconnects cleanly after command completion. No orphaned serial locks observed (subsequent connections succeed immediately).
+- **Serial mode:** Device `serialEnabled` is `false` in preferences, but CDC ACM serial works correctly for CLI access. The `serialEnabled` preference likely refers to the Meshtastic device's own serial console, not the USB serial interface.
+
+#### 2.0.6 NOT EXECUTED (this session)
+
+| Item | Reason |
+|------|--------|
+| MEDRE adapter lifecycle (start/stop/health) via `pytest` live tests | mtjk package not installed in project venv; meshtastic 2.7.8 available only via platformio penv. Live pytest suite requires mtjk. |
+| `send_one` path via MEDRE adapter | Requires MEDRE adapter running against real hardware. Not tested. |
+| MEDRE session reconnect with exponential backoff | Requires adapter session; only CLI-level reconnect tested. |
+| Soak test (sustained runtime) | Not in scope for minimal validation. |
+| Second-node inbound reception | Requires second node to send during test window. Not attempted. |
+| Encrypted channel support | Not tested. |
+| Admin operations, config writes, firmware changes | Explicitly excluded as destructive. |
+| BLE connectivity | Not tested. |
+| Multi-hop delivery | Not tested. |
 
 ### 2.1 Live Smoke Test Evidence (Tier: H — recorded 2026-05-10)
 
@@ -268,6 +396,8 @@ pytest tests/test_matrix_live.py::TestMatrixLiveSmoke::test_inbound_message_rece
 - BLE connectivity documented but not exercised.
 - `mtjk` is a fork; distribution name is `mtjk`, import name is `meshtastic`.
 - No factory reset, no ham mode, no channel deletion performed during testing.
+- **Duplicate-send caveat:** CLI-level `sendText` on channel 0 confirmed working (2026-05-12). Only one send performed. Duplicate-send risk (session retries, reconnection re-sends) not assessed against real hardware. The MEDRE adapter's `send_one` retry logic (max 3 transient retries) is tested via monkeypatch only.
+- **Second-node observation:** A second node (`!ee4a65b1`, "Meshtastic 65b1") was observed on channel 0 during the 2026-05-12 validation. Its presence in the node DB confirms radio range overlap but does NOT confirm message delivery. No second-node inbound or ACK was observed.
 
 
 ## 3. MeshCore Operational Evidence

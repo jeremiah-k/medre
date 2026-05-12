@@ -117,6 +117,114 @@ def soak(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SoakRuntime:
 _MAX_FAKE_HISTORY: int = 1000
 
 
+def _try_deliver_inbound(
+    adapter_id: str,
+    adapter: Any,
+    text: str,
+) -> None:
+    """Deliver an inbound event to *adapter*, handling type differences.
+
+    Some adapters' ``simulate_inbound`` expects a raw ``dict`` (meshtastic,
+    meshcore, lxmf) while others accept a ``CanonicalEvent`` (matrix,
+    presentation, transport).  This helper dispatches correctly so that
+    generic iteration loops don't need adapter-specific branches.
+    """
+    # Matrix / presentation / transport adapters accept CanonicalEvent.
+    if not hasattr(adapter, "make_text_event") and hasattr(adapter, "make_event"):
+        event = adapter.make_event(text)
+        asyncio.get_event_loop().run_until_complete(adapter.simulate_inbound(event))
+        return
+
+    # Dict-expecting adapters: build a minimal raw packet matching what
+    # each adapter's codec/classifier expects.
+    if "lxmf" in adapter_id:
+        packet: dict[str, Any] = {
+            "content": text,
+            "source_hash": "ab" * 16,
+            "destination_hash": "00" * 16,
+            "message_id": "ff" * 32,
+            "timestamp": 1700000000.0,
+            "title": "",
+            "fields": {},
+            "signature_validated": True,
+            "has_fields": False,
+        }
+    elif "meshcore" in adapter_id:
+        packet = {
+            "text": text,
+            "pubkey_prefix": "abc123",
+            "sender_timestamp": 12345,
+            "type": "CHAN",
+            "txt_type": 0,
+            "channel_idx": 0,
+        }
+    elif "mesh" in adapter_id:
+        packet = {
+            "fromId": "!default",
+            "toId": "",
+            "channel": 0,
+            "id": 12345,
+            "decoded": {
+                "portnum": "text_message",
+                "text": text,
+            },
+        }
+    else:
+        # Fallback: try make_text_event without extra kwargs.
+        event = adapter.make_text_event(text)
+        asyncio.get_event_loop().run_until_complete(adapter.simulate_inbound(event))
+        return
+
+    asyncio.get_event_loop().run_until_complete(adapter.simulate_inbound(packet))
+
+
+async def _adeliver(adapter_id: str, adapter: Any, text: str) -> None:
+    """Async version of :func:`_try_deliver_inbound`."""
+    if not hasattr(adapter, "make_text_event") and hasattr(adapter, "make_event"):
+        event = adapter.make_event(text)
+        await adapter.simulate_inbound(event)
+        return
+
+    if "lxmf" in adapter_id:
+        packet: dict[str, Any] = {
+            "content": text,
+            "source_hash": "ab" * 16,
+            "destination_hash": "00" * 16,
+            "message_id": "ff" * 32,
+            "timestamp": 1700000000.0,
+            "title": "",
+            "fields": {},
+            "signature_validated": True,
+            "has_fields": False,
+        }
+    elif "meshcore" in adapter_id:
+        packet = {
+            "text": text,
+            "pubkey_prefix": "abc123",
+            "sender_timestamp": 12345,
+            "type": "CHAN",
+            "txt_type": 0,
+            "channel_idx": 0,
+        }
+    elif "mesh" in adapter_id:
+        packet = {
+            "fromId": "!default",
+            "toId": "",
+            "channel": 0,
+            "id": 12345,
+            "decoded": {
+                "portnum": "text_message",
+                "text": text,
+            },
+        }
+    else:
+        event = adapter.make_text_event(text)
+        await adapter.simulate_inbound(event)
+        return
+
+    await adapter.simulate_inbound(packet)
+
+
 def _make_event(
     event_id: str = "evt-ext-001",
     source_adapter: str = "fake_matrix",
@@ -328,17 +436,9 @@ class TestCombinedReplayDiagnosticsDegraded:
                 for adapter_id, adapter in app.adapters.items():
                     try:
                         if hasattr(adapter, "simulate_inbound"):
-                            if hasattr(adapter, "make_text_event"):
-                                event = adapter.make_text_event(
-                                    f"comb-{cycle}-{i}", channel="ch"
-                                )
-                            elif hasattr(adapter, "make_event"):
-                                event = adapter.make_event(
-                                    f"comb-{cycle}-{i}", channel="ch"
-                                )
-                            else:
-                                continue
-                            await adapter.simulate_inbound(event)
+                            await _adeliver(
+                                adapter_id, adapter, f"comb-{cycle}-{i}"
+                            )
                     except Exception as exc:
                         delivery_failures.append((adapter_id, str(exc)))
             assert not delivery_failures, (
@@ -476,17 +576,9 @@ class TestDegradedVaryingAdapterCount:
                 for adapter_id, adapter in app.adapters.items():
                     try:
                         if hasattr(adapter, "simulate_inbound"):
-                            if hasattr(adapter, "make_text_event"):
-                                event = adapter.make_text_event(
-                                    f"var-{idx}-{i}", channel="ch"
-                                )
-                            elif hasattr(adapter, "make_event"):
-                                event = adapter.make_event(
-                                    f"var-{idx}-{i}", channel="ch"
-                                )
-                            else:
-                                continue
-                            await adapter.simulate_inbound(event)
+                            await _adeliver(
+                                adapter_id, adapter, f"var-{idx}-{i}"
+                            )
                     except Exception as exc:
                         delivery_failures.append((adapter_id, str(exc)))
             assert not delivery_failures, (
@@ -515,17 +607,9 @@ class TestDegradedVaryingAdapterCount:
             for adapter_id, adapter in app.adapters.items():
                 try:
                     if hasattr(adapter, "simulate_inbound"):
-                        if hasattr(adapter, "make_text_event"):
-                            event = adapter.make_text_event(
-                                f"single-{burst}", channel="ch"
-                            )
-                        elif hasattr(adapter, "make_event"):
-                            event = adapter.make_event(
-                                f"single-{burst}", channel="ch"
-                            )
-                        else:
-                            continue
-                        await adapter.simulate_inbound(event)
+                        await _adeliver(
+                            adapter_id, adapter, f"single-{burst}"
+                        )
                 except Exception as exc:
                     delivery_failures.append((adapter_id, str(exc)))
         assert not delivery_failures, (

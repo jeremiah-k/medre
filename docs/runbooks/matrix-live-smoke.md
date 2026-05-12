@@ -384,6 +384,31 @@ The live smoke harness includes tests that validate adapter behavior across life
 - **Caveats observed:** Initial harness had a bug where `health_check()` was awaited as a coroutine instead of called as a regular method. Fixed in-tree before final run. No remaining issues.
 - **Soak test result:** **NOT EXECUTED** (see `tests/test_soak.py::TestMatrixSoak`)
 
+### Validation Attempt — 2026-05-12
+
+- **Result:** ⏭ **NOT EXECUTED**
+- **Reason:** No Matrix environment variables present in the execution session. All six checked variables were unset:
+  `MATRIX_HOMESERVER`, `MATRIX_USER_ID`, `MATRIX_ACCESS_TOKEN`, `MATRIX_ROOM_ID`, `MATRIX_DEVICE_ID`, `MATRIX_STORE_PATH`.
+- **Policy:** Live tests are never run without pre-existing credentials. The agent does not request, generate, or print credentials.
+- **Operator action required:** Set the environment variables listed above and run:
+
+  ```bash
+  # Plaintext smoke:
+  export MATRIX_HOMESERVER="https://matrix.example.com"
+  export MATRIX_USER_ID="@bot:example.com"
+  export MATRIX_ACCESS_TOKEN="syt_..."
+  export MATRIX_ROOM_ID="!room:example.com"
+  pytest tests/test_matrix_live.py -m live -v
+
+  # E2EE smoke (additionally requires):
+  pip install -e ".[matrix-e2e]"
+  export MATRIX_DEVICE_ID="DEVICE_ID"
+  export MATRIX_STORE_PATH="/path/to/nio-store"
+  pytest tests/test_matrix_e2ee_live.py -m live -v
+  ```
+
+- **Non-live regression:** Not re-run (unchanged since 2026-05-10; see above).
+
 ### E2EE Evidence
 
 - **File:** `tests/test_matrix_e2ee_live.py`

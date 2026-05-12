@@ -3,9 +3,12 @@
 **Status:** Active
 **Scope:** Cancellation semantics for the MEDRE runtime: CapacityController stop behavior, semaphore acquire behavior under shutdown, delivery and replay cancellation, stop-during-startup, idempotent stop, and explicit non-guarantees.
 **Audience:** Runtime builders, adapter authors, operators.
-**References:** Contract 47 (Runtime Assembly), Contract 53 (Resource Control), Contract 54 (Runtime Shutdown), Contract 59 (Runtime Durability).
+**Tracks:** 9 (evidence consolidation and boundary enforcement)
+**References:** Contract 47 (Runtime Assembly), Contract 53 (Resource Control), Contract 54 (Runtime Shutdown), Contract 59 (Runtime Durability), Contract 61 (Operational Evidence).
 
 Every agent or document that references MEDRE cancellation behavior, stop semantics, shutdown task cancellation, or capacity controller stop behavior must defer to this contract.
+
+**Evidence separation (Track 9):** Cancellation behavior in this contract is backed by S-tier (simulated/fake) evidence from deterministic unit tests (`test_runtime_cancellation.py`, `test_runtime_hygiene.py`, `test_runtime_recovery.py`). No R-tier (real-live-runtime) evidence for cancellation under live transport conditions has been collected. Cancellation under real network latency, adapter reconnect during shutdown, and transport SDK cancellation propagation are NOT EXECUTED at R-tier. See Contract 61 §5.1 for evidence scores.
 
 
 ## 1. Scope
