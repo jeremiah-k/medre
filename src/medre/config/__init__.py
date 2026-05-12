@@ -39,7 +39,7 @@ from medre.config.errors import (
     ConfigFileError,
 )
 
-# -- loader (guarded — available after Wave 2 deployment) --
+# -- loader (guarded — optional, may not be available in all deployments) --
 try:
     from medre.config.loader import load_config, find_config, ConfigSource
 except ImportError:
@@ -47,14 +47,14 @@ except ImportError:
     find_config = None  # type: ignore[assignment]
     ConfigSource = None  # type: ignore[assignment]
 
-# -- env (guarded — available after Wave 2 deployment) --
+# -- env (guarded — optional, may not be available in all deployments) --
 try:
     from medre.config.env import apply_env_overrides, MedreEnvConfig
 except ImportError:
     apply_env_overrides = None  # type: ignore[assignment]
     MedreEnvConfig = None  # type: ignore[assignment]
 
-# -- sample (guarded — available after Wave 2 deployment) --
+# -- sample (guarded — optional, may not be available in all deployments) --
 try:
     from medre.config.sample import generate_sample_config
 except ImportError:

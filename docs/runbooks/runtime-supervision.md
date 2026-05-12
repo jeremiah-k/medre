@@ -11,6 +11,17 @@ This runbook describes how operators supervise the MEDRE runtime, interpret pers
 
 MEDRE is a single-process, multi-adapter runtime. Supervision is the operator's responsibility — there is no external health monitor, watchdog, or orchestrator built into MEDRE.
 
+**What MEDRE provides (current scope):**
+- **Health classification** — pure functions (`classify_runtime_health`, `classify_adapter_failure_severity`, `runtime_supervision_snapshot`) that accept adapter states and return deterministic health/severity classifications. These can be called at any time with any adapter state values.
+- **Startup health assessment** — adapter states are classified during startup and recorded in the boot summary.
+
+**What MEDRE does NOT provide (not implemented in this tranche):**
+- Active post-start failure detection — MEDRE does not automatically detect adapter failures after startup.
+- Health refresh polling — adapter health is not periodically re-checked at runtime.
+- Automatic runtime state transitions in response to adapter failures — the runtime does not actively transition to DEGRADED or FAILED when an adapter crashes; operators must diagnose and act on failures.
+
+**Implication:** Operators must externally monitor adapter health (logs, diagnostics command, process supervision) and restart the runtime if an adapter failure requires action.
+
 The operator supervises three categories of runtime state:
 
 | Category | Nature | Source |
@@ -102,6 +113,8 @@ Check each adapter's health state:
 - `degraded` — adapter is connected but experiencing issues (e.g., partial transport failure, intermittent errors).
 - `failed` — adapter has experienced an unrecoverable failure. It will not recover without intervention.
 - `stopped` — adapter has been stopped (shutdown or manual stop).
+
+> **Health freshness note:** Adapter health values in the diagnostic snapshot are initialized at startup and are not automatically refreshed by post-start health polling. If an adapter fails after startup, the diagnostic snapshot may not reflect the failure until the runtime is restarted or the health state is explicitly refreshed. Monitor logs (`grep ERROR`) for real-time failure detection.
 
 Then check capacity gauges:
 

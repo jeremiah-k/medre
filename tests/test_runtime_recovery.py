@@ -1,7 +1,10 @@
 """Runtime crash/recovery and persistence tests (Wave 3E).
 
 Covers:
-- Abrupt adapter failure after startup does not kill the runtime.
+- Classification correctness: calling classify_runtime_health() with FAILED
+  states after startup correctly identifies DEGRADED/FAILED health. These tests
+  supply adapter states to the classification function; they do not exercise
+  active post-start failure detection or runtime state transitions.
 - Partial adapter startup results in degraded runtime allowed.
 - Zero adapters started causes startup failure with clear operator-facing error.
 - Replay availability after restart when storage supports it.
@@ -212,13 +215,22 @@ def _make_minimal_event(event_id: str = "evt-001") -> CanonicalEvent:
 
 
 class TestAbruptAdapterFailureAfterStartup:
-    """Runtime must survive an adapter failing after successful startup."""
+    """Classification correctness after startup with supplied adapter states.
+
+    These tests start the runtime, then call classify_runtime_health() with
+    explicitly supplied adapter states to verify classification produces
+    correct results. The runtime is not mutated — no adapter is actually
+    failed at runtime. The tests confirm that (a) the runtime process stays
+    RUNNING when classification functions are called with degraded/failed
+    states, and (b) classify_runtime_health() returns the expected value
+    for those supplied states.
+    """
 
     @pytest.mark.asyncio
     async def test_one_adapter_failure_does_not_kill_runtime(
         self, tmp_paths: MedrePaths
     ) -> None:
-        """One adapter failing post-startup produces DEGRADED, not FAILED."""
+        """classify_runtime_health() with [READY, FAILED] states returns DEGRADED after startup."""
         config = _config_with_fake_adapters()
         app = _build_app(config, tmp_paths)
         await app.start()
@@ -232,8 +244,8 @@ class TestAbruptAdapterFailureAfterStartup:
             assert boot.startup_outcome == "success"
             assert boot.runtime_health == "healthy"
 
-            # Simulate abrupt failure of one adapter.
-            # Re-classify with one READY + one FAILED.
+            # Classify with one READY + one FAILED (supplied states,
+            # not an actual adapter failure in the running runtime).
             post_failure_states = [
                 AdapterState.READY,
                 AdapterState.FAILED,
@@ -241,10 +253,11 @@ class TestAbruptAdapterFailureAfterStartup:
             health = classify_runtime_health(post_failure_states)
             assert health == RuntimeHealth.DEGRADED
 
-            # Runtime itself stays RUNNING — the failure does not crash it.
+            # Runtime itself stays RUNNING — calling classification with
+            # failed states does not crash or stop the runtime.
             assert app.state == RuntimeState.RUNNING
 
-            # Supervision snapshot reflects degraded state.
+            # Supervision snapshot reflects degraded state for supplied states.
             snap = runtime_supervision_snapshot(post_failure_states)
             assert snap["runtime_health"] == "degraded"
             assert snap["adapter_summary"]["healthy"] == 1
@@ -256,7 +269,12 @@ class TestAbruptAdapterFailureAfterStartup:
     async def test_abrupt_failure_produces_degraded_diagnostics(
         self, tmp_paths: MedrePaths
     ) -> None:
-        """Post-failure diagnostics contain degraded health information."""
+        """Classification and diagnostic snapshot remain accessible after startup.
+
+        Calls classify_runtime_health([FAILED]) to verify classification
+        returns FAILED, then calls app.diagnostic_snapshot() to confirm the
+        runtime remains RUNNING and the snapshot is accessible.
+        """
         config = _config_with_one_fake_adapter()
         app = _build_app(config, tmp_paths)
         await app.start()
@@ -265,12 +283,13 @@ class TestAbruptAdapterFailureAfterStartup:
             assert app.boot_summary is not None
             assert app.boot_summary.runtime_health == "healthy"
 
-            # Simulate the sole adapter crashing.
+            # Classify with sole adapter FAILED (supplied state).
             states = [AdapterState.FAILED]
             health = classify_runtime_health(states)
             assert health == RuntimeHealth.FAILED
 
-            # Diagnostic snapshot is still accessible (runtime didn't die).
+            # Diagnostic snapshot is still accessible (runtime stays running
+            # even though classification of supplied states returns FAILED).
             snap = app.diagnostic_snapshot()
             assert isinstance(snap, dict)
             assert "runtime_state" in snap

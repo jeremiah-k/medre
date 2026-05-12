@@ -41,7 +41,9 @@ class BootSummary:
     adapters_failed:
         Number of adapters that failed during startup.
     adapters_total:
-        Total number of adapters that were attempted (enabled + built).
+        Total number of adapter slots that were attempted (built adapters
+        + build failures).  This is the denominator for startup success
+        ratio.
     adapters_disabled:
         Number of configured but disabled adapters (not attempted).
     build_failure_count:

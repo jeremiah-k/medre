@@ -6,9 +6,14 @@ Covers:
 - StartupOutcome classification (success, partial, total failure).
 - Deterministic runtime supervision snapshot output.
 - Edge cases: empty adapter set, single adapter, transitional states.
-- Key invariant: one adapter failing after startup must not kill the runtime.
+- Key invariant: classify_runtime_health() correctly identifies a single
+  FAILED adapter among READY adapters as DEGRADED (not FAILED), confirming
+  that classification treats single-adapter failure as non-fatal.
 
-Uses only AdapterState values; no live transport dependencies.
+Uses only AdapterState values and pure classification functions; no live
+transport dependencies. These tests verify classification correctness only —
+they do not exercise active runtime state transitions or post-start failure
+detection.
 """
 
 from __future__ import annotations
@@ -97,7 +102,7 @@ class TestClassifyRuntimeHealth:
     # -- Mixed states: healthy + failures ------------------------------
 
     def test_ready_plus_failed_is_degraded(self) -> None:
-        """One adapter failing after startup must not kill runtime."""
+        """classify_runtime_health() correctly classifies [READY, FAILED] as DEGRADED."""
         states = [AdapterState.READY, AdapterState.FAILED]
         assert classify_runtime_health(states) == RuntimeHealth.DEGRADED
 
@@ -199,7 +204,7 @@ class TestClassifyAdapterFailureSeverity:
         assert classify_adapter_failure_severity(1, 1) == AdapterFailureSeverity.NON_FATAL
 
     def test_one_healthy_three_total_is_non_fatal(self) -> None:
-        """One adapter failing after startup is NON_FATAL (key invariant)."""
+        """One adapter in FAILED state with others healthy is NON_FATAL (classification invariant)."""
         assert classify_adapter_failure_severity(1, 3) == AdapterFailureSeverity.NON_FATAL
 
     def test_all_healthy_is_non_fatal(self) -> None:
@@ -382,18 +387,20 @@ class TestStartupOutcomeEnum:
 
 
 class TestRuntimeHealthTransitionIntegration:
-    """Runtime health transitions as adapters fail during operation.
+    """Classification correctness across varying adapter state sequences.
 
-    These tests verify the classification invariant: adapter failure after
-    startup must not crash the runtime, and health classification must
-    accurately reflect the degraded state.
+    These tests verify that the pure classification functions return correct
+    results when called with different adapter state combinations. They call
+    classify_runtime_health() and runtime_supervision_snapshot() with
+    explicitly supplied AdapterState sequences — no live transport dependencies,
+    no runtime state transitions, and no active failure detection.
 
-    Uses only pure classification functions with AdapterState values —
-    no live transport dependencies.
+    The "transition" tested is classification correctness: the same function
+    returns different (correct) results given different inputs.
     """
 
     def test_healthy_to_degraded_on_single_failure(self) -> None:
-        """Runtime transitions HEALTHY → DEGRADED when one adapter fails."""
+        """classify_runtime_health() returns DEGRADED when one READY is replaced with FAILED."""
         # Initially all healthy.
         assert classify_runtime_health([AdapterState.READY, AdapterState.READY]) == RuntimeHealth.HEALTHY
 
@@ -401,7 +408,7 @@ class TestRuntimeHealthTransitionIntegration:
         assert classify_runtime_health([AdapterState.READY, AdapterState.FAILED]) == RuntimeHealth.DEGRADED
 
     def test_degraded_to_failed_on_last_adapter_failure(self) -> None:
-        """Runtime transitions DEGRADED → FAILED when last healthy adapter fails."""
+        """classify_runtime_health() returns FAILED when all states become FAILED."""
         # Degraded: one healthy, one failed.
         assert classify_runtime_health([AdapterState.READY, AdapterState.FAILED]) == RuntimeHealth.DEGRADED
 
@@ -420,9 +427,10 @@ class TestRuntimeHealthTransitionIntegration:
         assert classify_adapter_failure_severity(3, 3) == AdapterFailureSeverity.NON_FATAL
 
     def test_supervision_snapshot_after_cascade_failure(self) -> None:
-        """Supervision snapshot accurately reflects cascade failure state.
+        """Supervision snapshot correctly classifies cascade failure states.
 
-        Simulates: 4 adapters start healthy, then 3 fail in cascade.
+        Tests classification with three different state combinations:
+        all READY, one READY + three FAILED, and all FAILED.
         """
         # Initial: all healthy.
         initial_states = [AdapterState.READY] * 4

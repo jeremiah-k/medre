@@ -36,15 +36,25 @@ Key guarantees:
 * Graceful degradation — absent optional subsystems report ``null``
   rather than raising.
 
-Wave 2 integration notes
-------------------------
+Health freshness:
+
+* Adapter-level ``"health"`` values come from the adapter's
+  ``_last_health`` attribute (static, set during build/startup), not
+  from live ``health_check()`` calls.  Values are startup-derived
+  unless explicitly refreshed by an external caller.
+* The top-level ``"health"`` field reflects the runtime health state
+  initialized at startup; it is not automatically refreshed by
+  post-start health polling.
+
+Future extensions
+-----------------
 * ``"health"`` is reserved for a :class:`RuntimeHealth` aggregate that
-  another agent may land concurrently.  When the attribute appears on
+  may be added by a future integration.  When the attribute appears on
   the app the snapshot will include it automatically.
 * ``"startup_timestamp"`` and ``"uptime_seconds"`` read
   ``app._startup_monotonic`` (float, monotonic epoch) and
   ``app._startup_wall`` (ISO-8601 string).  If those attributes do not
-  exist yet (Wave 2 sets them during ``start()``), both report ``null``.
+  exist yet (the runtime sets them during ``start()``), both report ``null``.
 * The function signature accepts injectable ``now_fn`` and
   ``monotonic_fn`` callables so the CLI and diagnostics can supply a
   frozen clock.
@@ -171,8 +181,10 @@ def _snapshot_adapter(adapter: Any) -> dict[str, Any]:
     else:
         caps = {}
 
-    # Health — static snapshot, not live.  Use "unknown" unless the
-    # adapter stores a last-known health state.
+    # Health — static snapshot from startup, not live.  Uses the
+    # adapter's _last_health attribute (set during build/startup) rather
+    # than calling async health_check().  Health values are startup-derived
+    # unless explicitly refreshed by an external caller.
     health = getattr(adapter, "_last_health", "unknown")
 
     return {
@@ -262,7 +274,15 @@ def build_runtime_snapshot(
     It reads only synchronous attributes and properties.  Adapter health
     is reported as ``"unknown"`` unless the adapter exposes a
     ``_last_health`` attribute; live health checks are the
-    responsibility of the caller or Wave 2 integration.
+     responsibility of the caller or a future integration.
+
+    **Health freshness:** The ``"health"`` field in the snapshot reflects
+    the latest runtime-owned health snapshot, which is currently
+    initialized at startup and not automatically refreshed.  Adapter-level
+    health values come from the adapter's ``_last_health`` attribute
+    (static, set during build) rather than from live ``health_check()``
+    calls.  Callers should not assume the health field represents
+    real-time adapter health unless they have explicitly refreshed it.
     """
     _now = now_fn or _now_utc
     _mono = monotonic_fn or _monotonic_now
@@ -279,7 +299,7 @@ def build_runtime_snapshot(
         runtime_state = "unknown"
 
     # -- Startup timestamp & uptime ------------------------------------------
-    # Wave 2 may add _startup_wall (ISO string) and _startup_monotonic
+    # The runtime may add _startup_wall (ISO string) and _startup_monotonic
     # (float, monotonic seconds) to MedreApp during start().  Tolerate
     # absence gracefully.
     startup_wall: str | None = getattr(app, "_startup_wall", None)
@@ -353,9 +373,11 @@ def build_runtime_snapshot(
         limits_obj = getattr(config, "limits", None)
     limits_snapshot = _snapshot_limits(limits_obj)
 
-    # -- Health state (reserved for Wave 2 / other agent) --------------------
-    # Check for a _health_state attribute that may be added by the
-    # RuntimeHealth / supervision agent.
+    # -- Health state (startup-derived, not live-refreshed) ------------------
+    # The _health_state attribute is set during startup classification.
+    # It reflects the health assessment made at boot time and is not
+    # automatically refreshed by post-start health polling (not implemented).
+    # Callers must not assume this represents real-time adapter health.
     health_state: Any = getattr(app, "_health_state", None)
     if health_state is not None:
         if hasattr(health_state, "to_dict"):

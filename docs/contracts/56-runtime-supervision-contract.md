@@ -7,6 +7,8 @@
 
 **Non-guarantees (explicit):** This contract does not provide automatic adapter restart, supervisor trees, process respawn, admin API, REST/TUI/daemon management, hot reload, distributed orchestration, or transport redesign. The supervision layer is classification and observability only.
 
+**Post-start supervision scope (explicit):** MEDRE can classify supplied adapter health states after startup — the pure classification functions (`classify_runtime_health`, `classify_adapter_failure_severity`, `runtime_supervision_snapshot`) accept arbitrary `AdapterState` sequences and return deterministic results at any time. However, active post-start failure detection, health refresh polling, and automatic runtime state transitions in response to adapter state changes are **not implemented** in this tranche. Calling these functions with different state values demonstrates classification correctness; it does not imply that the runtime actively detects or reacts to adapter failures at runtime.
+
 ## 1. Runtime Health Model
 
 The runtime health is a single enumerated value derived deterministically from the aggregate states of all registered adapters.
@@ -52,7 +54,7 @@ These rules are pure, deterministic, and transport-agnostic. They depend only on
 - `healthy_count > 0` → `NON_FATAL`
 - `total_count == 0` → `FATAL` (zero adapters, no capability)
 
-**Key invariant:** One adapter failing after startup must not kill the runtime. The runtime enters `DEGRADED` state instead.
+**Key invariant:** When `classify_runtime_health()` is supplied with one `FAILED` and one `READY` adapter state, the result is `DEGRADED` rather than `FAILED`. This classification invariant ensures a single adapter failure is correctly identified as non-fatal when other adapters remain operational. The runtime does not actively transition states in response to adapter failures — callers supply the adapter states to classify.
 
 ## 3. Startup Outcome Semantics
 

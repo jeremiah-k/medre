@@ -231,7 +231,10 @@ class MedreApp:
 
         Startup semantics
         -----------------
-        * **Zero adapters started** → ``RuntimeStartupError`` (total failure).
+        * **Zero adapters started** (including build failures) →
+          ``RuntimeStartupError`` (total failure).  Pipeline runner and
+          storage are cleaned up before raising; callers do **not** need
+          to call ``stop()``.
         * **Partial adapter startup** → allowed; runtime enters ``RUNNING``
           with ``DEGRADED`` health.  Callers should inspect
           :attr:`boot_summary` for details.
@@ -243,7 +246,8 @@ class MedreApp:
             If the app has already been started or is shutting down.
         RuntimeStartupError
             If a core subsystem (storage, pipeline runner) fails to start,
-            or if zero adapters started.
+            or if zero adapters started (including build failures).  Core
+            resources are cleaned up before raising.
         """
         if self._state is not RuntimeState.INITIALIZED:
             raise RuntimeError(
@@ -276,6 +280,8 @@ class MedreApp:
             await self.pipeline_runner.start()
             _logger.info("Pipeline runner started")
         except Exception as exc:
+            # Storage was already initialised; clean it up before raising.
+            await self._cleanup_storage_safely()
             self._set_state(RuntimeState.FAILED)
             raise RuntimeStartupError(
                 f"Failed to start pipeline runner: {exc}"
@@ -343,14 +349,20 @@ class MedreApp:
         started_count = len(self.started_adapter_ids)
         failed_count = len(failed_adapter_ids)
         build_failed = len(self.build_failures)
-        outcome = classify_startup_outcome(started_count, failed_count, total)
+        attempted_total = total + build_failed
+        effective_failed = failed_count + build_failed
+        outcome = classify_startup_outcome(
+            started_count, effective_failed, attempted_total
+        )
 
         # -- Classify runtime health from adapter states ----------------------
-        # Started adapters are READY; failed adapters are FAILED.
+        # Started adapters are READY; failed adapters and build failures are FAILED.
         adapter_states: list[AdapterState] = []
         for _aid in self.started_adapter_ids:
             adapter_states.append(AdapterState.READY)
         for _aid in failed_adapter_ids:
+            adapter_states.append(AdapterState.FAILED)
+        for _bf in self.build_failures:
             adapter_states.append(AdapterState.FAILED)
         health = classify_runtime_health(adapter_states)
 
@@ -387,8 +399,8 @@ class MedreApp:
             startup_outcome=outcome.value,
             runtime_health=health.value,
             adapters_started=started_count,
-            adapters_failed=failed_count,
-            adapters_total=total,
+            adapters_failed=effective_failed,
+            adapters_total=attempted_total,
             adapters_disabled=disabled_count,
             build_failure_count=build_failed,
             failed_adapter_ids=failed_adapter_ids,
@@ -404,7 +416,7 @@ class MedreApp:
             _logger.info(
                 "Runtime started with %d/%d adapter(s)%s (%d start failed, %d build failed)",
                 started_count,
-                total,
+                attempted_total,
                 f" — {', '.join(self.started_adapter_ids)}" if self.started_adapter_ids else "",
                 failed_count,
                 build_failed,
@@ -413,24 +425,33 @@ class MedreApp:
             _logger.info(
                 "Runtime started with %d/%d adapter(s)",
                 started_count,
-                total,
+                attempted_total,
             )
 
         # -- Handle startup outcome -------------------------------------------
         if outcome == StartupOutcome.TOTAL_FAILURE:
+            # Clean up all started resources before raising so callers
+            # do not need to call stop() after a failed start.
+            await self._cleanup_started_adapters()
+            await self._cleanup_core_resources()
             self._set_state(RuntimeState.FAILED)
             raise RuntimeStartupError(
-                f"Total startup failure: 0 of {total} adapter(s) started"
+                f"Total startup failure: 0 of {attempted_total} adapter(s) started "
+                f"({failed_count} start failed, {build_failed} build failed)"
             )
 
         if outcome == StartupOutcome.PARTIAL:
+            degradation_parts: list[str] = []
+            if failed_count > 0:
+                degradation_parts.append(f"{failed_count} start failed")
+            if build_failed > 0:
+                degradation_parts.append(f"{build_failed} build failed")
+            degradation_cause = ", ".join(degradation_parts)
             _logger.warning(
-                "Runtime running in DEGRADED mode: %d/%d adapter(s) started, "
-                "%d failed [%s]",
+                "Runtime running in DEGRADED mode: %d/%d adapter(s) started (%s)",
                 started_count,
-                total,
-                failed_count,
-                ", ".join(failed_adapter_ids),
+                attempted_total,
+                degradation_cause,
             )
 
         self._set_state(RuntimeState.RUNNING)
@@ -615,6 +636,33 @@ class MedreApp:
                 )
         self.started_adapter_ids.clear()
         self.adapter_start_times.clear()
+
+    async def _cleanup_core_resources(self) -> None:
+        """Stop pipeline runner and close storage during failed startup.
+
+        Logs but suppresses individual cleanup errors so that the original
+        startup failure remains the raised exception.
+        """
+        try:
+            await self.pipeline_runner.stop()
+            _logger.info("Pipeline runner stopped during startup cleanup")
+        except Exception as exc:
+            _logger.error(
+                "Error stopping pipeline runner during startup cleanup: %s", exc
+            )
+
+        await self._cleanup_storage_safely()
+
+    async def _cleanup_storage_safely(self) -> None:
+        """Close storage during failed startup, suppressing errors."""
+        if self.storage is not None:
+            try:
+                await self.storage.close()
+                _logger.info("Storage closed during startup cleanup")
+            except Exception as exc:
+                _logger.error(
+                    "Error closing storage during startup cleanup: %s", exc
+                )
 
     def _ensure_dirs(self) -> None:
         """Create required runtime directories.

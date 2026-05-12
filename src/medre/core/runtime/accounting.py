@@ -94,8 +94,7 @@ class RuntimeAccounting:
     Counters are **process-local only**: they are not persisted, not
     shared across processes, and reset to zero on process restart.
     The :meth:`snapshot` and :meth:`to_dict` methods produce
-    deterministic, JSON-safe output suitable for Wave 2 snapshot
-    integration.
+    deterministic, JSON-safe output suitable for snapshot integration.
 
     Thread-safety
     ~~~~~~~~~~~~~
