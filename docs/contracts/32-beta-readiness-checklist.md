@@ -51,7 +51,7 @@ This section records the live validation status of all test harnesses and unit s
 
 | Suite | Run Date | Result | Details |
 |-------|----------|--------|---------|
-| Full unit suite (non-live) | 2026-05-11 | ✅ 4596 passed, 25 skipped, 63 deselected | All tests pass. `python -m compileall -q src tests` clean. `pytest -q`: 4596 passed, 25 skipped, 63 deselected. `PYTHONPATH=src pytest -q`: 4596 passed, 25 skipped, 63 deselected. |
+| Full unit suite (non-live) | 2026-05-12 | ✅ 4596 passed, 25 skipped, 63 deselected | All tests pass. `python -m compileall -q src tests` clean. `pytest -q`: 4596 passed, 25 skipped, 63 deselected. `PYTHONPATH=src pytest -q`: 4596 passed, 25 skipped, 63 deselected. |
 | `test_delivery.py` | 2026-05-10 | ✅ 65/65 pass | Delivery receipt pipeline fully unit-tested. |
 | Live tests (56 tests across 5 files) | 2026-05-11 | ✅ Historical: Matrix 13/13 pass (2026-05-10), Meshtastic 10/10 pass (2026-05-10). Current beta-entry tranche: NOT EXECUTED. | Historical live harnesses run against real endpoints on 2026-05-10. Current tranche live execution has not been re-run. MeshCore, LXMF, Matrix inbound remain skipped. |
 

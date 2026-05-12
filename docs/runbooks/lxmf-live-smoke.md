@@ -508,7 +508,7 @@ harness and the LXMF adapter alpha:
 ## SDK Reality Pass Summary (2026-05-12)
 
 Performed via Python `inspect` module on installed packages in
-`~/.platformio/penv/` (Python 3.12). No subagents, no network, no code changes.
+`~/.platformio/penv/` (Python 3.12). Manual inspection — no automated execution, no network, no code changes.
 
 ### Environment
 
