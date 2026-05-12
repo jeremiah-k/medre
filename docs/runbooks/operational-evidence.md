@@ -1,10 +1,10 @@
 # Operational Evidence Runbook
 
 > Last updated: 2026-05-11
-> Status: Partially populated. Matrix plaintext 13-pass, E2EE harness 7-pass,
-> encrypted-room follow-up 7-pass (post-fix), Track 2 inbound test harness
-> complete (deterministic 27/27 pass, live execution operator-dependent).
-> Meshtastic serial live 10-pass after two harness fixes.
+> Status: Partially populated. Current deterministic suite: 3237 passed, 4 skipped,
+> 63 deselected (2026-05-11). Live evidence is historical from 2026-05-10:
+> Matrix plaintext 13/13, E2EE harness 7/7, Meshtastic serial 10/10.
+> Current beta-entry tranche live execution: NOT EXECUTED.
 > MeshCore, LXMF, and soak tests remain **NOT EXECUTED**.
 > Live commands, env vars, and NOT EXECUTED reasoning in §6–§7.
 > Related: `docs/contracts/32-beta-readiness-checklist.md`, section 1.3.2.
@@ -27,7 +27,9 @@ environment, results, caveats, reconnect observations, and limitations.
 
 ## 1. Matrix Operational Evidence
 
-### 1.1 Live Smoke Test Evidence
+> **Historical evidence note:** Live results in this section were recorded on 2026-05-10 against matrix.org. Current beta-entry tranche live execution: **NOT EXECUTED**.
+
+### 1.1 Live Smoke Test Evidence (Historical — recorded 2026-05-10)
 
 | Field | Value |
 |-------|-------|
@@ -54,7 +56,7 @@ environment, results, caveats, reconnect observations, and limitations.
 | **Caveats observed** | Initial harness had a bug where `health_check()` was awaited as a coroutine instead of called as a regular method. Fixed in-tree before final run. No remaining issues. |
 | **Restart idempotency** | ✅ Stop → start cycle re-establishes sync; second `health_check()` returns `healthy` |
 
-### 1.2 E2EE Live Test Evidence
+### 1.2 E2EE Live Test Evidence (Historical — recorded 2026-05-10)
 
 | Field | Value |
 |-------|-------|
@@ -73,7 +75,7 @@ environment, results, caveats, reconnect observations, and limitations.
 | **Undecryptable events** | 0 observed during run |
 | **Caveats observed** | E2EE tests validated startup with crypto deps against an unencrypted room. See §1.3 for encrypted-room follow-up results. |
 
-### 1.3 Encrypted Room Follow-up Evidence
+### 1.3 Encrypted Room Follow-up Evidence (Historical — recorded 2026-05-10)
 
 #### 1.3.1 Pre-fix Run (initial)
 
@@ -193,7 +195,9 @@ pytest tests/test_matrix_live.py::TestMatrixLiveSmoke::test_inbound_message_rece
 
 ## 2. Meshtastic Operational Evidence
 
-### 2.1 Live Smoke Test Evidence
+> **Historical evidence note:** Live results in this section were recorded on 2026-05-10 against real hardware. Current beta-entry tranche live execution: **NOT EXECUTED**.
+
+### 2.1 Live Smoke Test Evidence (Historical — recorded 2026-05-10)
 
 | Field | Value |
 |-------|-------|
@@ -326,16 +330,31 @@ pytest tests/test_matrix_live.py::TestMatrixLiveSmoke::test_inbound_message_rece
 This section records evidence from deterministic/unit tests that do not require
 live services. These are confirmed from CI runs.
 
+### 5.1 Current Evidence (as of 2026-05-11)
+
 | Field | Value |
 |-------|-------|
 | **Test command** | `pytest` (default, no live) |
-| **Last confirmed date** | 2026-05-10 |
+| **Last confirmed date** | 2026-05-11 |
+| **Passed** | 3237 |
+| **Skipped** | 4 |
+| **Deselected** | 63 (live + soak tests excluded by default) |
+| **compileall** | Clean (`python -m compileall -q src tests`) |
+| **All adapters covered** | Yes (Matrix, Meshtastic, MeshCore, LXMF) |
+
+### 5.2 Historical Evidence (superseded)
+
+> The following counts are from a prior run and are preserved for traceability.
+> They are NOT the current evidence — use §5.1 above for current numbers.
+
+| Field | Value |
+|-------|-------|
+| **Run date** | 2026-05-10 |
 | **Total tests** | 2076 (including 27 resource containment tests) |
 | **Passed** | 2076 |
 | **Failed** | 0 |
 | **Deselected** | 61 (live + soak tests excluded by default) |
 | **compileall** | Clean |
-| **All adapters covered** | Yes (Matrix, Meshtastic, MeshCore, LXMF) |
 
 
 ## 6. Live Evidence Commands and Environment Variables

@@ -20,7 +20,7 @@ These items are blocking. Beta cannot ship without them.
 
 | # | Item | Current Status | Live Validation Evidence | Gap |
 |---|------|---------------|--------------------------|-----|
-| M1 | All four adapters pass unit test suite | ✅ Satisfied | Unit run 2026-05-10: 2127/2127 pass, 61 deselected. `compileall` clean. All adapter-specific tests pass. | None. |
+| M1 | All four adapters pass unit test suite | ✅ Satisfied | Unit run 2026-05-11: `compileall` clean. `pytest -q`: 3237 passed, 4 skipped, 63 deselected. `PYTHONPATH=src pytest -q`: 3237 passed, 4 skipped, 63 deselected. All adapter-specific tests pass. | None. |
 | M2 | All four adapters have live test harness files | ✅ Satisfied | Harnesses confirmed: `test_matrix_live.py`, `test_meshtastic_live.py`, `test_meshcore_live.py`, `test_lxmf_live.py`. All use `pytest.mark.live` and `@require_live` skip guards. | Harnesses exist but have not been run against real endpoints. See section 1.3.2 for live run status. |
 | M3 | All four adapters have fake mode implementations | ✅ Satisfied | Confirmed: `FakeMatrixAdapter` (`fake_matrix.py`), `FakeMeshtasticAdapter` (`fake_meshtastic.py`), `FakeMeshCoreAdapter` (`fake_meshcore.py`), `FakeLxmfAdapter` (`fake_lxmf.py`). | None. |
 | M4 | Diagnostics contract documented (contract 29) | ✅ Satisfied | File exists with substantial content. Verified 2026-05-10. | None. |
@@ -53,17 +53,19 @@ This section records the live validation status of all test harnesses and unit s
 
 | Suite | Run Date | Result | Details |
 |-------|----------|--------|---------|
-| Full unit suite (non-live) | 2026-05-11 | ✅ 3304 collected, 63 deselected | All tests pass. `python -m compileall -q src tests` clean. `PYTHONPATH=src pytest -q`: 3241 passed, 63 deselected. |
+| Full unit suite (non-live) | 2026-05-11 | ✅ 3237 passed, 4 skipped, 63 deselected | All tests pass. `python -m compileall -q src tests` clean. `pytest -q`: 3237 passed, 4 skipped, 63 deselected. `PYTHONPATH=src pytest -q`: 3237 passed, 4 skipped, 63 deselected. |
 | `test_delivery.py` | 2026-05-10 | ✅ 65/65 pass | Delivery receipt pipeline fully unit-tested. |
-| Live tests (56 tests across 5 files) | 2026-05-11 | ✅ Matrix 13/13 pass, Meshtastic 10/10 pass | Matrix and Meshtastic live harnesses run against real endpoints. MeshCore, LXMF, Matrix inbound remain skipped. Suite now 3304 tests collected (3241 run, 63 deselected). |
+| Live tests (56 tests across 5 files) | 2026-05-11 | ✅ Historical: Matrix 13/13 pass (2026-05-10), Meshtastic 10/10 pass (2026-05-10). Current beta-entry tranche: NOT EXECUTED. | Historical live harnesses run against real endpoints on 2026-05-10. Current tranche live execution has not been re-run. MeshCore, LXMF, Matrix inbound remain skipped. |
 
 #### 1.3.2 Live Test Harness Inventory
 
+> **Historical vs. current note:** Live results recorded below for Matrix and Meshtastic are from 2026-05-10 (historical evidence). They have NOT been re-executed for the current beta-entry tranche. Current beta-entry tranche live execution status: **NOT EXECUTED** for all transports.
+
 | Harness | File | Tests | Markers | Skip Guard | Run Status |
 |---------|------|-------|---------|------------|------------|
-| Matrix live | `test_matrix_live.py` | Lifecycle, health, send, receive, diagnostics, session | `pytest.mark.live`, `@require_live` | `MATRIX_HOMESERVER`, `MATRIX_USER_ID`, `MATRIX_ACCESS_TOKEN`, `MATRIX_ROOM_ID` | ✅ 13 passed / 0 failed / 0 skipped. Room `!sRlwdLCwIGBpSzoRsV:matrix.org`. matrix.org homeserver. |
-| Matrix E2EE | `test_matrix_e2ee_live.py` | E2EE send/receive (olm/megolm) | `pytest.mark.live`, `@require_live` | All Matrix vars + `MATRIX_DEVICE_ID`, `MATRIX_STORE_PATH` | ✅ 7 passed / 0 failed / 0 skipped (3.73s). Room `!rnmyZMhUoraPwZUDPP:matrix.org`. Pre-fix: 2 tests failed (`OlmUnverifiedDeviceError`). Post-fix: all pass. |
-| Meshtastic live | `test_meshtastic_live.py` | Lifecycle, health, send, diagnostics | `pytest.mark.live`, `@require_live` | `MESHTASTIC_CONNECTION_TYPE`, `MESHTASTIC_HOST` | ✅ 10 passed / 0 failed / 0 skipped (34.47s). Serial `/dev/ttyACM0`, LilyGO T-LORA V2.1 (`!25d6e474`), firmware 2.7.19, channel Test (PRIMARY, LONG_FAST). Harness bugs fixed: `isConnected` TypeError, `pypubsub` ListenerMismatchError. |
+| Matrix live | `test_matrix_live.py` | Lifecycle, health, send, receive, diagnostics, session | `pytest.mark.live`, `@require_live` | `MATRIX_HOMESERVER`, `MATRIX_USER_ID`, `MATRIX_ACCESS_TOKEN`, `MATRIX_ROOM_ID` | Historical (2026-05-10, matrix.org): 13 passed / 0 failed / 0 skipped. Room `!sRlwdLCwIGBpSzoRsV:matrix.org`. Current tranche: NOT EXECUTED. |
+| Matrix E2EE | `test_matrix_e2ee_live.py` | E2EE send/receive (olm/megolm) | `pytest.mark.live`, `@require_live` | All Matrix vars + `MATRIX_DEVICE_ID`, `MATRIX_STORE_PATH` | Historical (2026-05-10, matrix.org): 7 passed / 0 failed / 0 skipped (3.73s). Room `!rnmyZMhUoraPwZUDPP:matrix.org`. Pre-fix: 2 tests failed (`OlmUnverifiedDeviceError`). Post-fix: all pass. Current tranche: NOT EXECUTED. |
+| Meshtastic live | `test_meshtastic_live.py` | Lifecycle, health, send, diagnostics | `pytest.mark.live`, `@require_live` | `MESHTASTIC_CONNECTION_TYPE`, `MESHTASTIC_HOST` | Historical (2026-05-10, serial `/dev/ttyACM0`, LilyGO T-LORA V2.1 `!25d6e474`, firmware 2.7.19): 10 passed / 0 failed / 0 skipped (34.47s). Harness bugs fixed: `isConnected` TypeError, `pypubsub` ListenerMismatchError. Current tranche: NOT EXECUTED. |
 | MeshCore live | `test_meshcore_live.py` | Lifecycle, health, send, diagnostics | `pytest.mark.live`, `@require_live` | `MESHCORE_CONNECTION_TYPE`, `MESHCORE_HOST` | ⛔ Not run |
 | LXMF live | `test_lxmf_live.py` | Lifecycle, health, send, receive, diagnostics, delivery state | `pytest.mark.live`, `@require_live` | `LXMF_CONNECTION_TYPE`, `LXMF_IDENTITY_PATH` | ⛔ Not run |
 
@@ -145,8 +147,8 @@ These items are out of scope for beta. They are recorded here to prevent scope c
 
 | Blocker | Severity | Resolution | Status |
 |---------|----------|------------|--------|
-| Live harness not recorded against real homeserver | Must | Run `test_matrix_live.py` and record results. | ✅ Recorded. 13/13 pass against matrix.org. See `docs/runbooks/operational-evidence.md` §1.1. |
-| E2EE live harness not recorded | Must | Run `test_matrix_e2ee_live.py` and record results. | ✅ Recorded. 7/7 pass after `ignore_unverified_devices=True` fix. See `docs/runbooks/operational-evidence.md` §1.3. |
+| Live harness not recorded against real homeserver | Must | Run `test_matrix_live.py` and record results. | ✅ Historical evidence recorded 2026-05-10: 13/13 pass against matrix.org. Current beta-entry tranche: NOT EXECUTED. See `docs/runbooks/operational-evidence.md` §1.1. |
+| E2EE live harness not recorded | Must | Run `test_matrix_e2ee_live.py` and record results. | ✅ Historical evidence recorded 2026-05-10: 7/7 pass after `ignore_unverified_devices=True` fix. Current beta-entry tranche: NOT EXECUTED. See `docs/runbooks/operational-evidence.md` §1.3. |
 | No confirmed inbound from third party | Must | Add inbound reception test. Send from a second account, verify `publish_inbound()` fires. | ⛔ Not confirmed. |
 | Access token is plain string in config | Should | Document secure handling recommendations. No code change needed. | Unresolved. |
 | `mindroom-nio` fork maintenance risk | Should | Pin version, document dependency. | Unresolved. |
@@ -155,7 +157,7 @@ These items are out of scope for beta. They are recorded here to prevent scope c
 
 | Blocker | Severity | Resolution | Status |
 |---------|----------|------------|--------|
-| Live harness not recorded against real radio | Must | Run `test_meshtastic_live.py` and record results. | ✅ Recorded. 10/10 pass in 34.47s, serial `/dev/ttyACM0`, LilyGO T-LORA V2.1. See `docs/runbooks/operational-evidence.md` §2.1. |
+| Live harness not recorded against real radio | Must | Run `test_meshtastic_live.py` and record results. | ✅ Historical evidence recorded 2026-05-10: 10/10 pass in 34.47s, serial `/dev/ttyACM0`, LilyGO T-LORA V2.1. Current beta-entry tranche: NOT EXECUTED. See `docs/runbooks/operational-evidence.md` §2.1. |
 | `deliver()` returns `None` (queued, no delivery result to caller) | Should | The queue worker produces a result internally. Document the limitation. Plumb packet ID if SDK provides it on send. | Unresolved. |
 | No confirmed delivery (ACK not de-duplicated) | Should | Document as inherent to fire-and-forget radio. Not fixable without protocol change. | Unresolved. |
 | Duplicate-send risk from retry | Should | Document. Consumer handles duplicates. | Unresolved. |
@@ -234,9 +236,9 @@ All eight runbooks exist. They must be updated with live test results before bet
 
 | Runbook | Status | Required Update |
 |---------|--------|----------------|
-| `matrix-live-smoke.md` | Exists, live results recorded | ✅ 13/13 pass recorded 2026-05-10. E2EE follow-up 7/7 pass post-fix. |
+| `matrix-live-smoke.md` | Exists, live results recorded | ✅ Historical: 13/13 pass recorded 2026-05-10. E2EE follow-up 7/7 pass post-fix. Current tranche: NOT EXECUTED. |
 | `matrix-alpha-operation.md` | Exists | Add access token handling recommendations. |
-| `meshtastic-live-smoke.md` | Exists, live results recorded | ✅ 10/10 pass recorded 2026-05-10. Serial, LilyGO T-LORA V2.1, firmware 2.7.19. |
+| `meshtastic-live-smoke.md` | Exists, live results recorded | ✅ Historical: 10/10 pass recorded 2026-05-10. Serial, LilyGO T-LORA V2.1, firmware 2.7.19. Current tranche: NOT EXECUTED. |
 | `meshtastic-alpha-operation.md` | Exists | Add fire-and-forget delivery limitation documentation. |
 | `meshcore-live-smoke.md` | Exists, no recorded results | Add live test results section with date and pass/fail. |
 | `meshcore-alpha-operation.md` | Exists | Add BLE mode status (tested or unsupported for beta). |
@@ -317,7 +319,7 @@ A beta release requires:
 2. **All packaging items (P1-P6) verified.** → ✅ All 6/6 satisfied. SDK deps floor-pinned from verified local repos.
 3. **All live test results recorded in runbooks.** → Currently 2/4 recorded (Matrix ✅, Meshtastic ✅; MeshCore and LXMF not yet run).
 4. **All four contract documents (29-32) published.** → ✅ All published.
-5. **No critical regressions in existing unit test suite.** → ✅ 3241/3241 pass, 63 deselected (3304 collected). Clean suite.
+5. **No critical regressions in existing unit test suite.** → ✅ 3237 passed, 4 skipped, 63 deselected. Clean suite.
 6. **License governance status honestly documented.** → ✅ README updated, risk register updated, pyproject.toml comment in place. Final selection deferred (D17).
 
 Should-have items (S1-S11) are strongly recommended. If any remain unsatisfied at beta, they must be documented as known limitations in the release notes. Governance should-haves (S6a-S6d) are satisfied.
@@ -341,7 +343,7 @@ As of 2026-05-11, head `36d3706`:
 
 | # | Blocker | Affects | Resolution |
 |---|---------|---------|------------|
-| B1 | Live smoke tests not run against real hardware/services | M14–M15 | Run MeshCore and LXMF live harnesses against real endpoints. Record pass/fail in runbooks. Requires: MeshCore radio (M14), Reticulum instance (M15). M11–M13 now satisfied (Matrix 13/13, Matrix E2EE 7/7, Meshtastic 10/10). |
+| B1 | Live smoke tests not run against real hardware/services | M14–M15 | Run MeshCore and LXMF live harnesses against real endpoints. Record pass/fail in runbooks. Requires: MeshCore radio (M14), Reticulum instance (M15). M11–M13 have historical evidence from 2026-05-10 (Matrix 13/13, Matrix E2EE 7/7, Meshtastic 10/10). Current beta-entry tranche live execution: NOT EXECUTED. |
 | B2 | No confirmed inbound reception from third party | M16 | Run Matrix live test with a second account sending to the test room. Verify `publish_inbound()` fires. |
 | B3 | ~~SDK dependencies not strictly version-pinned~~ | P1 | ✅ Resolved. Floor pins applied: `mindroom-nio>=0.25.3`, `mtjk>=2.7.8`, `meshcore>=2.3.7`, `lxmf>=0.9.6`. Verified from local reference repos. |
 
@@ -356,6 +358,13 @@ As of 2026-05-11, head `36d3706`:
 | R5 | ~~Update public docs for license governance consistency~~ | ✅ Resolved (Track 7). README, risk register, RC criteria, and this checklist now consistently describe license posture. Final selection deferred (D17). |
 
 
+### 9.3 Known Non-Blocking Issues (Tracked for RC, Not Beta)
+
+| # | Issue | Scope | Resolution Target | Notes |
+|---|-------|-------|-------------------|-------|
+| NB1 | `test_runner.py` coroutine `RuntimeWarning`: `'coroutine .*run.* was never awaited'` warning visible during test execution | RC cleanup, not beta | Must be resolved before RC. Not a beta blocker. | The warning is cosmetic (tests pass, no functional impact). Root cause is an unawaited coroutine in `test_runner.py`. Fix is to ensure proper `asyncio` cleanup or add explicit `await`/close. Tracked here for RC scope. |
+
+
 ## 10. Next Recommended Tranche
 
 After this beta validation update, the recommended next tranche should focus on **unblocking the 3 remaining must-haves (M14–M16)**:
@@ -364,9 +373,9 @@ After this beta validation update, the recommended next tranche should focus on 
 
 1. ~~**Fix the diagnostic contract regression (R1).**~~ ✅ Done. Resolved in `_sanitize_value()` refactor. Full suite passes.
 
-2. ~~**Run Matrix live smoke tests (B1: M11, M12).**~~ ✅ Done. Matrix plaintext 13/13, Matrix E2EE 7/7 (post-fix `ignore_unverified_devices=True`).
+2. ~~**Run Matrix live smoke tests (B1: M11, M12).**~~ ✅ Historical evidence from 2026-05-10. Matrix plaintext 13/13, Matrix E2EE 7/7 (post-fix `ignore_unverified_devices=True`). Current tranche: NOT EXECUTED.
 
-3. ~~**Run Meshtastic live smoke test (B1: M13).**~~ ✅ Done. 10/10 in 34.47s, serial connection to LilyGO T-LORA V2.1.
+3. ~~**Run Meshtastic live smoke test (B1: M13).**~~ ✅ Historical evidence from 2026-05-10. 10/10 in 34.47s, serial connection to LilyGO T-LORA V2.1. Current tranche: NOT EXECUTED.
 
 4. ~~**Pin transport SDK dependencies (B3).**~~ ✅ Done. Floor pins from verified local repos: `mindroom-nio>=0.25.3`, `mtjk>=2.7.8`, `meshcore>=2.3.7`, `lxmf>=0.9.6`.
 
@@ -392,11 +401,11 @@ recommendation on beta readiness. It does not prescribe a decision.
 
 | Dimension | Status | Evidence |
 |-----------|--------|----------|
-| Unit test suite | Clean | 3241/3241 pass, 63 deselected (3304 collected). No regressions. |
+| Unit test suite | Clean | 3237 passed, 4 skipped, 63 deselected. No regressions. |
 | Cross-transport must-haves (M1–M10) | All satisfied | Boundary contracts, diagnostics, delivery results, metadata namespacing, fake adapters all verified. |
 | Packaging (P1–P6) | All satisfied | Floor-pinned SDKs, optional extras, import guards, fake adapters work without SDKs. |
-| Live evidence — Matrix | Satisfied | 13/13 plaintext + 7/7 E2EE against matrix.org. Runbooks recorded. |
-| Live evidence — Meshtastic | Satisfied | 10/10 against real LilyGO T-LORA V2.1. Runbook recorded. |
+| Live evidence — Matrix | Historical (2026-05-10) | Historical: 13/13 plaintext + 7/7 E2EE against matrix.org. Runbooks recorded. Current beta-entry tranche: NOT EXECUTED. |
+| Live evidence — Meshtastic | Historical (2026-05-10) | Historical: 10/10 against real LilyGO T-LORA V2.1. Runbook recorded. Current beta-entry tranche: NOT EXECUTED. |
 | Live evidence — MeshCore | Not run | Harness exists. Requires radio hardware. No live evidence. |
 | Live evidence — LXMF | Not run | Harness exists. Requires Reticulum instance. No live evidence. |
 | Matrix inbound from third party | Not confirmed | Harness includes inbound test but no recorded run from a second account. |

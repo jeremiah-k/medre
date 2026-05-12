@@ -60,7 +60,7 @@ pip install -e ".[dev]"
 
 # Verify: run the full unit test suite
 PYTHONPATH=src pytest -q
-# Expected: ~2127 passed, ~61 deselected (live tests skipped)
+# Expected: all non-live tests pass; live tests deselected by default.
 
 # Verify: compile check
 python -m compileall -q src tests
@@ -251,7 +251,7 @@ This is the exact environment used for validation as of 2026-05-10:
 | Meshtastic radio firmware | 2.7.19 (LilyGO T-LORA V2.1) |
 | Matrix homeserver | matrix.org (public) |
 
-**Unit test results:** 2127 passed, 61 deselected (live tests), 0 failed.
+**Unit test results:** 3237 passed, 4 skipped, 63 deselected (live tests), 0 failed.
 
 **Live test results:** Matrix 13/13 pass (plaintext), Matrix 7/7 pass (E2EE), Meshtastic 10/10 pass. MeshCore and LXMF live tests not run.
 
@@ -378,10 +378,12 @@ medre adapters
 
 # ── 13. Verify live tests are excluded by default ────────────────────
 # This confirms the pytest addopts in pyproject.toml are effective.
-pytest --co -q 2>/dev/null | grep -c "test_"
-# Should report ~2000+ collected tests (none with the live marker).
-pytest -m live --co -q 2>/dev/null | grep -c "test_"
-# Should report ~61 live tests (all deselected during normal runs).
+# Default pytest excludes live tests; live collection should show live
+# test names but not run them unless -m live is passed.
+pytest -q
+# Expected: all tests pass (live tests are deselected marker, not run).
+pytest -m live --collect-only -q
+# Expected: lists live test names without executing them.
 ```
 
 ### 8.3 Expected summary
