@@ -337,8 +337,10 @@ class MedreApp:
                     )
         except Exception:
             # Catastrophic failure during the loop itself (not an adapter
-            # failure).  Clean up already-started adapters in reverse order.
+            # failure).  Clean up already-started adapters in reverse order,
+            # then clean up core resources (pipeline runner + storage).
             await self._cleanup_started_adapters()
+            await self._cleanup_core_resources()
             self._set_state(RuntimeState.FAILED)
             raise
 

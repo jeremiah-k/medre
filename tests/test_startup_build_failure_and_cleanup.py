@@ -1,5 +1,6 @@
-"""Tests for Blocker 1 (build failures in startup outcome) and
-Blocker 2 (total startup failure resource cleanup).
+"""Tests for Blocker 1 (build failures in startup outcome),
+Blocker 2 (total startup failure resource cleanup), and
+Blocker 1 PC Fix (catastrophic adapter-loop failure cleanup).
 
 Blocker 1:
 - One build failure + one started -> RUNNING + degraded + partial outcome.
@@ -17,6 +18,11 @@ Blocker 2:
 - Cleanup errors are logged/suppressed but original startup failure
   remains clear.
 
+Blocker 1 PC Fix (catastrophic adapter-loop failure):
+- Catastrophic exception in the adapter startup loop (not an adapter
+  start failure) cleans up started adapters, pipeline runner, and
+  storage before setting FAILED state and re-raising.
+
 Uses fake adapters only, memory storage only, no live dependencies.
 """
 
@@ -25,6 +31,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import time as _time
 
 import pytest
 
@@ -450,50 +458,9 @@ class TestStartupFailureResourceCleanup:
         config = _config_with_one_fake_adapter()
         app = _build_app(config, tmp_paths)
 
-        # Inject a recording adapter that will start successfully.
-        recording = _RecordingAdapter(adapter_id="fake_matrix")
-        app.adapters["fake_matrix"] = recording
-
-        # Add a build failure making attempted_total=2.
-        # The adapter will start (started=1) but effective_failed=1 (build failure).
-        # classify_startup_outcome(1, 1, 2) -> PARTIAL (started > 0 and started != total)
-        # So this is NOT total failure — let me adjust to make it total failure.
-
-        # Actually, to test "partial adapter starts then total failure",
-        # we need: started > 0 but then everything fails.
-        # This can happen if the adapter starts but then all are considered failed
-        # at the outcome level. Let me use a different approach:
-        # Use 1 adapter that fails on start + 1 build failure -> 0 started, total failure.
-        # But the scenario asks for partial adapter starts that then fail.
-
-        # The realistic scenario: 2 adapters, one starts, one fails on start,
-        # but then build failures make it so outcome is total failure.
-        # Actually with my implementation: started=1, effective_failed=1, total=2
-        # -> classify_startup_outcome(1, 1, 2) -> PARTIAL, not TOTAL_FAILURE.
-
-        # The only way to have partial starts then total failure is if the
-        # adapter that started somehow gets cleaned up. Let me use the
-        # catastrophic loop exception path instead.
-
-        # Actually, let me just test the scenario where a started adapter
-        # is cleaned up when there are build failures making it total failure.
-        # For TOTAL_FAILURE with partial starts, we need started=0 but
-        # attempted_total > 0. The only way to have "partial adapter starts"
-        # cleaned up is the catastrophic failure in the adapter loop.
-
-        # Let me test with: 1 adapter starts, then build failure exists.
-        # With started=1, effective_failed=1, total=2: outcome=PARTIAL.
-        # The adapter should NOT be cleaned up in this case.
-
-        # For the "partial adapter starts cleaned up" test, the scenario
-        # requires: some adapters start, then ALL of them + build failures
-        # result in total_failure. This can only happen if started=0.
-        # So the "partial starts" scenario is actually about adapters that
-        # start during the loop but are considered failed by the end.
-
-        # Let me use a more realistic test: inject a build failure + a failing
-        # adapter. The adapter tries to start, fails. Build failure exists.
-        # No adapters started -> total failure -> cleanup of pipeline/storage.
+        # Use a failing adapter + a build failure so no adapters start
+        # (started=0, effective_failed=2, total=2 -> TOTAL_FAILURE).
+        # Verifies pipeline runner and storage are cleaned up.
         app.adapters["fake_matrix"] = _FailingAdapter(adapter_id="fake_matrix")
         app.build_failures.append(
             AdapterBuildFailure(
@@ -570,15 +537,8 @@ class TestStartupFailureResourceCleanup:
         config = _config_with_one_fake_adapter()
         app = _build_app(config, tmp_paths)
 
-        # Replace with a recording adapter that will start successfully.
-        recording = _RecordingAdapter(adapter_id="fake_matrix")
-        app.adapters["fake_matrix"] = recording
-
-        # Add build failure doesn't make it total failure (started=1, total=2).
-        # For total failure, we need the adapter to fail too.
-        # Let's use a failing adapter + build failure.
-        failing = _FailingAdapter(adapter_id="fake_matrix")
-        app.adapters["fake_matrix"] = failing
+        # Use a failing adapter + build failure to trigger total startup failure.
+        app.adapters["fake_matrix"] = _FailingAdapter(adapter_id="fake_matrix")
 
         app.build_failures.append(
             AdapterBuildFailure(
@@ -643,3 +603,107 @@ class TestStartupFailureResourceCleanup:
         # Verify that a second start() fails because state is not INITIALIZED.
         with pytest.raises(RuntimeError, match="already started"):
             await app.start()
+
+
+# ===================================================================
+# Blocker 1 PC Fix: Catastrophic adapter-loop failure cleanup
+# ===================================================================
+
+
+def _config_with_two_fake_adapters() -> RuntimeConfig:
+    """RuntimeConfig with two fake matrix adapters."""
+    return RuntimeConfig(
+        runtime=RuntimeOptions(name="test-catastrophic-loop"),
+        logging=LoggingConfig(level="DEBUG"),
+        storage=StorageConfig(backend="memory"),
+        adapters=AdapterConfigSet(
+            matrix={
+                "alpha": MatrixRuntimeConfig(
+                    adapter_id="alpha",
+                    enabled=True,
+                    adapter_kind="fake",
+                    config=None,
+                ),
+                "beta": MatrixRuntimeConfig(
+                    adapter_id="beta",
+                    enabled=True,
+                    adapter_kind="fake",
+                    config=None,
+                ),
+            },
+        ),
+    )
+
+
+class TestCatastrophicLoopFailureCleanup:
+    """Catastrophic exception in the adapter startup loop cleans up
+    started adapters, pipeline runner, and storage before re-raising."""
+
+    @pytest.mark.asyncio
+    async def test_catastrophic_loop_cleans_adapters_pipeline_storage(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """Catastrophic loop failure after one adapter started cleans up
+        started adapters, pipeline runner, and storage."""
+        config = _config_with_two_fake_adapters()
+        app = _build_app(config, tmp_paths)
+
+        # Replace both adapters with recording adapters.
+        alpha = _RecordingAdapter(adapter_id="alpha")
+        beta = _RecordingAdapter(adapter_id="beta")
+        app.adapters["alpha"] = alpha
+        app.adapters["beta"] = beta
+
+        # Track pipeline_runner.stop and storage.close.
+        pipeline_stop_called = False
+        storage_close_called = False
+
+        original_pipeline_stop = app.pipeline_runner.stop
+
+        async def _track_pipeline_stop() -> None:
+            nonlocal pipeline_stop_called
+            pipeline_stop_called = True
+            await original_pipeline_stop()
+
+        app.pipeline_runner.stop = _track_pipeline_stop  # type: ignore[assignment]
+
+        assert app.storage is not None
+        original_storage_close = app.storage.close
+
+        async def _track_storage_close() -> None:
+            nonlocal storage_close_called
+            storage_close_called = True
+            await original_storage_close()
+
+        app.storage.close = _track_storage_close  # type: ignore[assignment]
+
+        # Patch _monotonic_ms to raise on call 3 (after alpha adapter starts
+        # successfully; calls 1 and 2 are for alpha's t0 and elapsed).
+        # Call 3 is beta's t0, which is outside the inner try → outer except.
+        import medre.runtime.app as _app_mod
+
+        call_count = 0
+        original_monotonic_ms = _app_mod._monotonic_ms
+
+        def _exploding_monotonic_ms() -> float:
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 3:
+                raise RuntimeError("catastrophic loop failure")
+            return original_monotonic_ms()
+
+        with patch.object(_app_mod, "_monotonic_ms", side_effect=_exploding_monotonic_ms):
+            with pytest.raises(RuntimeError, match="catastrophic loop failure"):
+                await app.start()
+
+        # Verify started adapter was stopped.
+        assert alpha.stopped, "Started adapter stop() was not called"
+
+        # Verify pipeline runner was stopped.
+        assert pipeline_stop_called, "pipeline_runner.stop() was not called"
+
+        # Verify storage was closed.
+        assert storage_close_called, "storage.close() was not called"
+
+        # Verify state is FAILED.
+        assert app.state == RuntimeState.FAILED
