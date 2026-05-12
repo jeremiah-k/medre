@@ -1,7 +1,7 @@
 # Distribution Boundary Analysis
 
-> Contract version: 1
-> Last updated: 2026-05-10
+> Contract version: 2
+> Last updated: 2026-05-12
 > Track: 4 (Distribution Boundary)
 > Supersedes: Nothing. First distribution boundary analysis.
 > Status: Analysis. Records current packaging posture, boundary seams, and deferred future options. No packaging changes proposed.

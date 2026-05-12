@@ -1,9 +1,9 @@
 # Contributor Governance
 
-> Contract version: 1
-> Last updated: 2026-05-10
+> Contract version: 2
+> Last updated: 2026-05-12
 > Track: 3 (Project Governance)
-> Supersedes: Nothing. First governance document.
+> Supersedes: Version 1 (2026-05-10). License updated to GPL-3.0-or-later.
 > Status: Governance contract. Records contributor expectations, licensing posture, and relicensing constraints while the project is single-author pre-beta.
 
 This document records the contributor governance posture for medre. It
@@ -26,10 +26,10 @@ maintainer. No external contributions have been merged. The project has no CLA
 policy, and no contributor onboarding process, because none of these things
 have been necessary yet.
 
-The project is licensed MIT, as declared in `pyproject.toml`. There is no
-top-level `LICENSE` file yet (noted in contract 38, section 1.3). Adding one
-is a packaging task, not a governance decision. The MIT license declaration in
-package metadata is sufficient for the current stage.
+The project is licensed GPL-3.0-or-later, as declared in `pyproject.toml`. A
+top-level `LICENSE` file with the standard FSF GPLv3 text is present (added
+2026-05-12). The license was changed from MIT to GPL-3.0-or-later to align with
+the dependency reality (see contracts 40, 41).
 
 
 ## 2. Inbound Contribution Expectations
@@ -44,9 +44,9 @@ other form), the contributor confirms that:
 
 1. The contribution is their original work, or they have the right to submit
    it under the project's license.
-2. The contribution is offered under the same MIT license that governs the
-   project. If the project license changes in the future, the contribution
-   is subject to the terms described in section 5 of this document.
+2. The contribution is offered under the same GPL-3.0-or-later license that
+   governs the project. If the project license changes in the future, the
+   contribution is subject to the terms described in section 5 of this document.
 3. The contributor retains their copyright. The project does not require
    copyright assignment.
 
@@ -101,9 +101,9 @@ assignment has been made to any organization, foundation, or corporate entity.
 ### 4.2 Contributions
 
 Contributors retain copyright on their own work. The project does not
-require copyright assignment. The MIT license applied to the project grants
-broad permissions to all recipients, including the maintainer, without
-requiring assignment.
+require copyright assignment. The GPL-3.0-or-later license applied to the
+project grants permissions to all recipients under copyleft terms, including the
+maintainer, without requiring assignment.
 
 ### 4.3 No entity ownership
 
@@ -118,9 +118,12 @@ point.
 This section exists because relicensing is the area where governance decisions
 made now have consequences later. The goal is to avoid confusion.
 
-### 5.1 Current license: MIT
+### 5.1 Current license: GPL-3.0-or-later
 
-The project is MIT licensed. All code in the repository is under MIT.
+The project is GPL-3.0-or-later licensed (changed from MIT on 2026-05-12). All
+code in the repository is under GPL-3.0-or-later. The change was made by the
+sole copyright holder (project maintainer) before any external contributions
+were received.
 
 ### 5.2 What relicensing means
 
@@ -206,7 +209,7 @@ None of these have happened yet. When they do, this document gets updated.
 |-------|----------------|
 | CLA | None. Not needed yet. |
 | DCO | None. Not needed yet. |
-| License | MIT (declared in pyproject.toml). |
+| License | GPL-3.0-or-later (declared in pyproject.toml, LICENSE file present). |
 | Copyright | Retained by each author. No assignment. |
 | Relicensing | Maintainer can relicense own code. External contributions add constraints. |
 | Contributor process | None formal. Expectation recorded in section 2. |
@@ -220,7 +223,7 @@ This section records what should happen before the first external
 contribution is merged. It is a checklist for the maintainer, not a policy
 for contributors.
 
-- [ ] Add a top-level `LICENSE` file containing the MIT license text.
+- [x] Add a top-level `LICENSE` file containing the GPLv3 license text.
 - [ ] Decide whether to adopt a DCO (lighter weight, recommended first step)
       or a CLA (heavier, more protective).
 - [ ] If adopting DCO: document the sign-off requirement in a `CONTRIBUTING.md`

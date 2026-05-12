@@ -3,8 +3,15 @@
 > Last updated: 2026-05-12
 > Status: Partially populated. Current deterministic suite: 3237 passed, 4 skipped,
 > 63 deselected (2026-05-11). Live evidence: Matrix historical 2026-05-10
-> (plaintext 13/13, E2EE 7/7). Meshtastic serial CLI validation: R-tier
+> (plaintext 13/13, E2EE 7/7). Matrix sk.community live attempt 2026-05-12:
+> NOT EXECUTED (access token rejected `M_UNKNOWN_TOKEN`; see §1.4).
+> Matrix matrix.org live attempt 2026-05-12:
+> NOT EXECUTED (password login rejected `M_FORBIDDEN Invalid username/password`; see §1.4b).
+> Meshtastic serial CLI validation: R-tier
 > 2026-05-12 (device discovery, hardware/firmware, one outbound on ch0, reconnect).
+> Track 2 follow-up: R-tier 2026-05-12 (additional diagnostics cycle, one reconnect,
+> node DB verification, device metrics capture). ACK classified UNRELIABLE,
+> delivery classified BEST EFFORT.
 > Meshtastic MEDRE adapter live tests: NOT EXECUTED (mtjk not in project venv).
 > MeshCore, LXMF, and soak tests remain **NOT EXECUTED**.
 > Live commands, env vars, and NOT EXECUTED reasoning in §6–§7.
@@ -41,7 +48,7 @@ environment, results, caveats, reconnect observations, and limitations.
 
 ## 1. Matrix Operational Evidence
 
-> **Evidence tier:** H (historical, recorded 2026-05-10 against matrix.org). Current beta-entry tranche live execution: **NOT EXECUTED**.
+> **Evidence tier:** H (historical, recorded 2026-05-10 against matrix.org). Current beta-entry tranche live execution: **NOT EXECUTED** (2026-05-12 attempts: `sk.community` access token rejected `M_UNKNOWN_TOKEN` (§1.4); `matrix.org` password login rejected `M_FORBIDDEN Invalid username/password` (§1.4b)).
 > **Live procedures:** `docs/runbooks/live-operational-evidence.md` §1.
 
 ### 1.1 Live Smoke Test Evidence (Tier: H — recorded 2026-05-10)
@@ -130,7 +137,46 @@ environment, results, caveats, reconnect observations, and limitations.
 | **Encrypted send → event_id** | ✅ Outbound encrypted send succeeds — MEDRE passes `ignore_unverified_devices=True` for non-plaintext modes |
 | **Caveats** | This is not a security downgrade — `ignore_unverified_devices=True` is required by the upstream nio client (no cross-signing support, MSC1756). MEDRE applies this automatically based on `encryption_mode`. Device verification via cross-signing is an upstream nio gap, not a MEDRE deferral. |
 
-### 1.4 Soak Test Evidence (Tier: NOT EXECUTED)
+### 1.4 Live Smoke Test Attempt — sk.community (Tier: NOT EXECUTED — 2026-05-12)
+
+| Field | Value |
+|-------|-------|
+| **Test file** | `tests/test_matrix_live.py` |
+| **Evidence tier** | NOT EXECUTED (credential failure) |
+| **Attempt date** | 2026-05-12 |
+| **Executor** | Live agent (automated) |
+| **Homeserver** | `sk.community` (reachable, Matrix API v1.12 confirmed via `/_matrix/client/versions`) |
+| **User** | `@forxrelay:sk.community` |
+| **MATRIX_ROOM_ID** | Not provided; bot has 0 joined rooms |
+| **MATRIX_DEVICE_ID** | Not set — E2EE NOT EXECUTED |
+| **MATRIX_STORE_PATH** | Not set — E2EE NOT EXECUTED |
+| **Test command** | Not executed — credentials rejected before pytest invocation |
+| **Prerequisite check** | `curl /_matrix/client/v3/joined_rooms` with provided access token → `{"errcode":"M_UNKNOWN_TOKEN","error":"Token is not active","soft_logout":false}` |
+| **Homeserver connectivity** | ✅ `/_matrix/client/versions` → HTTP 200, flows: `m.login.password`, `m.login.sso`, `m.login.token` |
+| **Access token validity** | ❌ Rejected — token not active |
+| **Resolution** | Obtain a valid (non-expired) access token for `@forxrelay:sk.community`. Create or join at least one room to provide `MATRIX_ROOM_ID`. Then re-run `pytest tests/test_matrix_live.py -m live -v`. |
+
+### 1.4b Live Smoke Test Attempt — matrix.org (Tier: NOT EXECUTED — 2026-05-12)
+
+| Field | Value |
+|-------|-------|
+| **Test file** | `tests/test_matrix_live.py` |
+| **Evidence tier** | NOT EXECUTED (credential failure) |
+| **Attempt date** | 2026-05-12 |
+| **Executor** | Live agent (automated) |
+| **Homeserver** | `matrix.org` (reachable, login flows: `m.login.password`, `m.login.sso`, `m.login.token`) |
+| **User** | `@forxrelay:matrix.org` |
+| **Target rooms** | `!sRlwdLCwIGBpSzoRsV:matrix.org` (unencrypted), `!rnmyZMhUoraPwZUDPP:matrix.org` (encrypted — E2EE skipped, no DEVICE_ID/STORE_PATH) |
+| **MATRIX_DEVICE_ID** | Not set — E2EE NOT EXECUTED |
+| **MATRIX_STORE_PATH** | Not set — E2EE NOT EXECUTED |
+| **Test command** | Not executed — login rejected before pytest invocation |
+| **Login method** | `POST /_matrix/client/v3/login` with `m.login.password`, user `forxrelay` |
+| **Login result** | ❌ HTTP 403 `M_FORBIDDEN: Invalid username/password` (3 attempts: shell curl, Python urllib, full MXID identifier — all identical failure) |
+| **Password encoding verified** | ✅ 14 chars, hex `212a696c30442456753530526426`, matches specification exactly |
+| **Homeserver connectivity** | ✅ `/_matrix/client/v3/login` (GET) → HTTP 200, 3 flows listed |
+| **Resolution** | The provided password was transmitted correctly (verified via hex dump) but is not accepted by matrix.org for user `forxrelay`. The account password may have changed, the account may be locked, or matrix.org may require SSO/captcha for this account. Obtain a valid access token via Element or another Matrix client and set `MATRIX_ACCESS_TOKEN` directly, or confirm the correct password. |
+
+### 1.5 Soak Test Evidence (Tier: NOT EXECUTED)
 
 | Field | Value |
 |-------|-------|
@@ -143,7 +189,7 @@ environment, results, caveats, reconnect observations, and limitations.
 | **Session health throughout** | **NOT EXECUTED** |
 | **Caveats observed** | **NOT EXECUTED** |
 
-### 1.5 Matrix Known Limitations (confirmed from source and live testing)
+### 1.6 Matrix Known Limitations (confirmed from source and live testing)
 
 - **Third-party inbound: test harness exists, live execution operator-dependent.** The live test `test_inbound_message_received` in `tests/test_matrix_live.py` validates the full third-party inbound path (nio sync → `_on_room_message` → codec decode → `publish_inbound()` → canonical event shape → diagnostics counters). It is gated by `MATRIX_INBOUND_SENDER` and a 30-second window. Deterministic unit tests cover the same logic paths without live connectivity (see §1.6). Live execution requires a second Matrix user sending a message during the test window — this has not yet been executed against a real homeserver.
 - E2EE text alpha: encrypted-room join works. Initial outbound encrypted send failed with `OlmUnverifiedDeviceError` (2 tests); root cause was nio's strict `ignore_unverified_devices=False` default blocking key sharing with unverified devices. Fix: adapter set `ignore_unverified_devices=True`. Post-fix re-test: encrypted-room full suite passed 7/7 in 3.73s (see §1.3). This is required by upstream nio (no cross-signing support, MSC1756) — every nio-based automated E2EE client must set this flag. **E2EE is Matrix client encrypted-room support only — not generic cross-transport E2EE.**
@@ -153,9 +199,9 @@ environment, results, caveats, reconnect observations, and limitations.
 - `mindroom-nio` is a fork; maintenance status relative to upstream is unverified.
 - Sync loop error handling is untested under real network conditions.
 
-### 1.6 Track 2 — Third-party Inbound Validation Status
+### 1.7 Track 2 — Third-party Inbound Validation Status
 
-#### 1.6.1 What has been validated (deterministic)
+#### 1.7.1 What has been validated (deterministic)
 
 | Aspect | Validation | Evidence |
 |--------|-----------|----------|
@@ -171,7 +217,7 @@ environment, results, caveats, reconnect observations, and limitations.
 | Inbound diagnostics counters | ✅ Unit tested | `TestInboundDiagnosticsCounters` (8 tests) |
 | Diagnostics dict exposure | ✅ Unit tested | `test_diagnostics_exposes_inbound_counters` |
 
-#### 1.6.2 What requires operator-dependent live validation
+#### 1.7.2 What requires operator-dependent live validation
 
 | Aspect | Status | Blocker |
 |--------|--------|---------|
@@ -180,7 +226,7 @@ environment, results, caveats, reconnect observations, and limitations.
 | Inbound diagnostics counters on live server | ⏳ Not executed | Requires live third-party inbound event |
 | Encrypted-room inbound from third party | ⏳ Not executed | Requires second account in encrypted room with crypto store |
 
-#### 1.6.3 Live third-party inbound test procedure
+#### 1.7.3 Live third-party inbound test procedure
 
 ```bash
 # 1. Set core Matrix env vars (same as smoke tests)
@@ -203,7 +249,7 @@ pytest tests/test_matrix_live.py::TestMatrixLiveSmoke::test_inbound_message_rece
 #    If no second account sends a message, test xfails (acceptable).
 ```
 
-#### 1.6.4 Blockers for live execution
+#### 1.7.4 Blockers for live execution
 
 1. **Second Matrix account**: The test requires a different Matrix user to send a message to the test room. A single bot account cannot produce a third-party inbound event (self-messages are suppressed).
 2. **Manual coordination**: The sender must send during the 30-second test window. No automated sender harness exists.
@@ -212,13 +258,13 @@ pytest tests/test_matrix_live.py::TestMatrixLiveSmoke::test_inbound_message_rece
 
 ## 2. Meshtastic Operational Evidence
 
-> **Evidence tier:** R (real-live-runtime, recorded 2026-05-12 against real hardware via serial). Prior H-tier evidence from 2026-05-10 remains valid for historical reference.
+> **Evidence tier:** R (real-live-runtime, recorded 2026-05-12 against real hardware via serial). Prior H-tier evidence from 2026-05-10 remains valid for historical reference. Track 2 follow-up evidence added 2026-05-12.
 > **Live procedures:** `docs/runbooks/live-operational-evidence.md` §2.
 
 ### 2.0 Serial Live Validation Evidence (Tier: R — recorded 2026-05-12)
 
 > **Validation type:** Manual CLI-driven serial live validation using meshtastic 2.7.8 CLI.
-> **Scope:** Device discovery, hardware/firmware capture, one outbound text on channel 0, disconnect/reconnect resilience (2 cycles).
+> **Scope:** Device discovery, hardware/firmware capture, one outbound text on channel 0, disconnect/reconnect resilience (3 cycles total: 2 initial + 1 Track 2). Track 2 adds: full diagnostics snapshot, node DB verification, device metrics, Python import confirmation.
 > **NOT in scope:** MEDRE adapter lifecycle (start/stop/health), send_one path, soak testing, second-node inbound, encrypted channels, admin operations. These remain NOT EXECUTED in this session.
 
 | Field | Value |
@@ -244,10 +290,12 @@ pytest tests/test_matrix_live.py::TestMatrixLiveSmoke::test_inbound_message_rece
 | **Battery at first query** | 97%, voltage 4.157V |
 | **Battery at second query** | 96% (normal drain) |
 | **Battery at nodes query** | "Powered" (USB power detected) |
-| **Channel utilization** | 1.0% initially, 7.51% after test message |
-| **Air util TX** | 0.028% initially, 0.06% after test message |
+| **Battery at Track 2 query** | 101% / 4.202V ("Powered" — USB power detected) |
+| **Channel utilization** | 1.0% initially, 7.51% after test message, 1.68% at Track 2 query |
+| **Air util TX** | 0.028% initially, 0.06% after test message, 0.06% at Track 2 query |
 | **Uptime at first query** | 1276 seconds |
-| **Reboot count** | 26 |
+| **Uptime at Track 2 query** | 27616 seconds (~7.7 hours) |
+| **Reboot count** | 26 (unchanged across initial and Track 2 queries) |
 | **Min app version** | 30200 |
 | **Device state version** | 24 |
 
@@ -276,6 +324,18 @@ meshtastic --port /dev/ttyACM0 --ch-index 0 --sendtext "MEDRE serial validation 
 meshtastic --port /dev/ttyACM0 --info
 
 # Reconnect cycle 2 (disconnect + reconnect)
+meshtastic --port /dev/ttyACM0 --info
+
+# Track 2 follow-up: device info
+meshtastic --port /dev/ttyACM0 --info
+
+# Track 2 follow-up: node listing
+meshtastic --port /dev/ttyACM0 --nodes
+
+# Track 2 follow-up: Python import verification
+python3 -c "import meshtastic; from meshtastic import serial_interface; print('OK')"
+
+# Track 2 follow-up: reconnect cycle 3 (disconnect 3s + reconnect)
 meshtastic --port /dev/ttyACM0 --info
 ```
 
@@ -313,22 +373,36 @@ During the validation session, a second node appeared in the mesh:
 
 | Field | Value |
 |-------|-------|
-| **Cycle count** | 2 (after initial connection, then 2 more independent CLI sessions) |
+| **Cycle count** | 3 (after initial connection, then 2 more CLI sessions, plus 1 Track 2 follow-up) |
 | **Cycle 1** | `--info` connected successfully. nodedbCount: 2. All fields consistent. |
 | **Cycle 2** | `--info` connected successfully. nodedbCount: 2. All fields consistent. |
-| **Connection failures** | 0 |
-| **Serial errors** | 0 |
-| **Observation** | Each CLI invocation creates a fresh serial connection to `/dev/ttyACM0`, completes its operation, and disconnects. All 3 connections (initial + 2 reconnects) succeeded within 15-second timeouts. |
+| **Cycle 3 (Track 2)** | `--info` connected successfully after 3s disconnect. nodedbCount: 2. Battery: Powered, uptime: 27616s, channel util: 1.68%, air util TX: 0.06%. All fields consistent. |
+| **Connection failures** | 0 across all 4 CLI sessions (initial + 3 reconnect cycles) |
+| **Serial errors** | 0 across all sessions |
+| **Observation** | Each CLI invocation creates a fresh serial connection to `/dev/ttyACM0`, completes its operation, and disconnects. All 4 connections (initial + 3 reconnects) succeeded within 15-second timeouts. Device stable across 7.7+ hours of uptime with no reboot (rebootCount: 26 unchanged). |
 
 **Caveat:** These are CLI-level disconnect/reconnect cycles (each meshtastic CLI invocation opens and closes the serial port). This is NOT the same as MEDRE adapter session reconnect with exponential backoff, health transitions, and pubsub resubscription. MEDRE adapter session reconnect remains NOT EXECUTED (see §2.3).
 
 #### 2.0.5 Startup/Shutdown Observations
 
-- **Startup:** `meshtastic --port /dev/ttyACM0` connects within 1–3 seconds. "Connected to radio" message appears promptly.
+- **Startup:** `meshtastic --port /dev/ttyACM0` connects within 1–3 seconds. "Connected to radio" message appears promptly. Consistent across all 4 CLI sessions (initial + 3 reconnects).
 - **Shutdown:** CLI disconnects cleanly after command completion. No orphaned serial locks observed (subsequent connections succeed immediately).
 - **Serial mode:** Device `serialEnabled` is `false` in preferences, but CDC ACM serial works correctly for CLI access. The `serialEnabled` preference likely refers to the Meshtastic device's own serial console, not the USB serial interface.
+- **Long-running stability (Track 2):** Device stable at 27616 seconds (~7.7 hours) uptime with no reboot during the observation window. Battery at "Powered" (USB). Channel utilization low (1.68%). Second node still present in node DB (`!ee4a65b1`, SNR -0.25 dB).
 
-#### 2.0.6 NOT EXECUTED (this session)
+#### 2.0.6 Track 2 — Delivery & ACK Classification
+
+> **Added 2026-05-12 (Track 2 follow-up).** Based on CLI-level serial validation across 4 sessions and 1 outbound send attempt.
+
+| Field | Value |
+|-------|-------|
+| **ACK reliability** | **UNRELIABLE** — meshtastic 2.7.8 CLI does not print ACK confirmation for broadcast sends. `sendText` completed without error, but no delivery acknowledgment was observed. The Meshtastic protocol does not guarantee ACK for broadcast messages on shared channels. |
+| **Delivery guarantee** | **BEST EFFORT** — fire-and-forget LoRa broadcast. No second-node reception confirmed. A second node (`!ee4a65b1`) was present in the node DB at SNR -0.25 dB, 1 hop away, but its presence confirms radio range overlap only, NOT message delivery to that node. |
+| **Reconnect reliability (CLI-level)** | **RELIABLE** — 4/4 serial connections succeeded across ~7.7 hours of device uptime. No serial errors, no connection failures. |
+| **Device stability** | **STABLE** — device ran continuously without reboot (rebootCount: 26 unchanged), battery at "Powered" (USB), channel utilization low (1.68%). |
+| **MEDRE adapter reliability** | **NOT ASSESSED** — CLI-level validation only. MEDRE adapter session lifecycle, health transitions, and send_one pipeline remain untested against real hardware. |
+
+#### 2.0.7 NOT EXECUTED (this session)
 
 | Item | Reason |
 |------|--------|
@@ -397,7 +471,9 @@ During the validation session, a second node appeared in the mesh:
 - `mtjk` is a fork; distribution name is `mtjk`, import name is `meshtastic`.
 - No factory reset, no ham mode, no channel deletion performed during testing.
 - **Duplicate-send caveat:** CLI-level `sendText` on channel 0 confirmed working (2026-05-12). Only one send performed. Duplicate-send risk (session retries, reconnection re-sends) not assessed against real hardware. The MEDRE adapter's `send_one` retry logic (max 3 transient retries) is tested via monkeypatch only.
-- **Second-node observation:** A second node (`!ee4a65b1`, "Meshtastic 65b1") was observed on channel 0 during the 2026-05-12 validation. Its presence in the node DB confirms radio range overlap but does NOT confirm message delivery. No second-node inbound or ACK was observed.
+- **ACK reliability:** Classified **UNRELIABLE** (Track 2, 2026-05-12). meshtastic 2.7.8 CLI does not print ACK for broadcast sends. No delivery acknowledgment observed. Protocol does not guarantee ACK for broadcast messages.
+- **Delivery guarantee:** Classified **BEST EFFORT** (Track 2, 2026-05-12). Fire-and-forget LoRa broadcast. Second-node presence in node DB confirms radio range overlap only, NOT message delivery.
+- **Second-node observation:** A second node (`!ee4a65b1`, "Meshtastic 65b1") was observed on channel 0 during both initial and Track 2 validation (SNR -0.25 dB at Track 2, UNSET hardware). Its presence confirms radio range overlap but does NOT confirm message delivery. No second-node inbound or ACK was observed.
 
 
 ## 3. MeshCore Operational Evidence

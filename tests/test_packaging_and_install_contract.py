@@ -82,10 +82,10 @@ class TestPackageMetadata:
         # License key must exist (even if governance-pending).
         assert "license" in self._project, "license key missing from pyproject.toml"
 
-    def test_classifiers_include_alpha(self) -> None:
+    def test_classifiers_include_beta(self) -> None:
         classifiers = self._project.get("classifiers", [])
-        assert "Development Status :: 3 - Alpha" in classifiers, (
-            "classifiers missing 'Development Status :: 3 - Alpha'"
+        assert "Development Status :: 4 - Beta" in classifiers, (
+            "classifiers missing 'Development Status :: 4 - Beta'"
         )
 
     def test_base_dependency_is_msgspec(self) -> None:

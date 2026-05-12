@@ -126,6 +126,11 @@ class TestMainFunction:
 
         def fake_asyncio_run(coro: object) -> None:
             captured.append(coro)
+            # Close the coroutine to prevent "was never awaited" warnings.
+            # The test only verifies main() creates and passes the coroutine;
+            # it does not need to execute it.
+            if hasattr(coro, "close"):
+                coro.close()  # type: ignore[union-attr]
 
         with patch("medre.runner.asyncio.run", fake_asyncio_run):
             main(["--config", "/test/path.toml"])
@@ -139,6 +144,9 @@ class TestMainFunction:
 
         def fake_asyncio_run(coro: object) -> None:
             captured.append(coro)
+            # Close the coroutine to prevent "was never awaited" warnings.
+            if hasattr(coro, "close"):
+                coro.close()  # type: ignore[union-attr]
 
         with patch("medre.runner.asyncio.run", fake_asyncio_run):
             main([])
@@ -150,3 +158,32 @@ class TestMainFunction:
         with pytest.raises(SystemExit) as exc:
             main(["--help"])
         assert exc.value.code == 0
+
+    def test_main_no_unawaited_coroutine_warning(self) -> None:
+        """Regression: ``main()`` mock must close the coroutine to avoid
+        ``RuntimeWarning: coroutine 'run' was never awaited``.
+
+        See: https://docs.python.org/3/library/asyncio-task.html#asyncio.close
+        """
+        import warnings
+
+        captured: list = []
+
+        def fake_asyncio_run(coro: object) -> None:
+            captured.append(coro)
+            if hasattr(coro, "close"):
+                coro.close()  # type: ignore[union-attr]
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            with patch("medre.runner.asyncio.run", fake_asyncio_run):
+                main(["--config", "/test/path.toml"])
+
+        runtime_warnings = [x for x in w if issubclass(x.category, RuntimeWarning)]
+        unawaited = [
+            x for x in runtime_warnings
+            if "was never awaited" in str(x.message)
+        ]
+        assert len(unawaited) == 0, (
+            f"Expected no unawaited coroutine warnings, got: {[str(x.message) for x in unawaited]}"
+        )

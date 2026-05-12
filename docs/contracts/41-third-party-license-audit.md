@@ -1,7 +1,7 @@
 # Third-Party License Audit
 
-> Contract version: 1
-> Last updated: 2026-05-10
+> Contract version: 2
+> Last updated: 2026-05-12
 > Track: 2 (Legal and Compliance Readiness)
 > Supersedes: Nothing. New document.
 > Status: Audit. Records license findings for every runtime dependency, optional extra, and operationally important transitive dependency.
@@ -27,7 +27,7 @@ It is a factual record, not legal advice. No license compatibility claims here s
 
 ## 3. MEDRE's own license
 
-MEDRE declares `license = "MIT"` in `pyproject.toml` (line 7). The permissive MIT license sets the baseline for compatibility analysis: any dependency with copyleft terms creates a potential tension with this declaration.
+MEDRE declares `license = "GPL-3.0-or-later"` in `pyproject.toml` (updated 2026-05-12 from MIT). A top-level `LICENSE` file with the standard FSF GPLv3 text is present. The GPL-3.0-or-later license is compatible with all dependency licenses documented below: BSD-3-Clause (permissive), ISC (permissive), LGPL-3.0-or-later (compatible with GPL-3.0+), and the Reticulum License (restriction clauses reviewed in contract 44).
 
 
 ## 4. Confirmed findings

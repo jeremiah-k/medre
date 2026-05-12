@@ -356,17 +356,14 @@ The beta readiness checklist tracks what must be true before beta:
 
 ## License
 
-MIT is declared in `pyproject.toml`, but license governance is being formalized.
-GPL-3.0-or-later and LGPL-3.0-or-later are under evaluation as alternatives that
-may better match the Meshtastic ecosystem, where upstream SDKs and firmware are
-GPL or LGPL. MIT no longer clearly fits the dependency reality. No decision has
-been made. See `docs/contracts/42-contributor-governance.md` §5 for relicensing
-constraints.
+medre is licensed under **GPL-3.0-or-later**. See the [LICENSE](LICENSE) file
+for the full license text.
 
 The LXMF adapter depends on Reticulum, which uses a non-OSI-approved license
 (the Reticulum License). This is an unresolved ambiguity in the dependency
 chain: medre's own license choice does not resolve the upstream license question
-for downstream consumers who use the LXMF transport.
+for downstream consumers who use the LXMF transport. See
+[docs/contracts/44-reticulum-license-notes.md](docs/contracts/44-reticulum-license-notes.md).
 
-No top-level `LICENSE` file exists yet. This is a known gap tracked in contract
-45 §3 (SPDX + Metadata Hygiene Audit).
+License governance analysis: [docs/contracts/40-license-governance.md](docs/contracts/40-license-governance.md).
+Contributor governance: [docs/contracts/42-contributor-governance.md](docs/contracts/42-contributor-governance.md).

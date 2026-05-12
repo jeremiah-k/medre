@@ -2,7 +2,7 @@
 
 > Last updated: 2026-05-12
 > Tracks: 1, 2, 7 (v2 consolidation)
-> Status: Procedures documented. Meshtastic serial live validation: **EXECUTED 2026-05-12** (CLI-level: device discovery, hardware/firmware capture, one outbound send on channel 0, 2 reconnect cycles). MEDRE adapter lifecycle and Matrix live tests: **NOT EXECUTED** (no Matrix credentials; mtjk not in project venv).
+> Status: Procedures documented. Meshtastic serial live validation: **EXECUTED 2026-05-12** (CLI-level: device discovery, hardware/firmware capture, one outbound send on channel 0, 2 reconnect cycles). MEDRE adapter lifecycle and Matrix live tests: **NOT EXECUTED** (2026-05-12: sk.community access token rejected `M_UNKNOWN_TOKEN`; matrix.org password login rejected `M_FORBIDDEN Invalid username/password` — see §1.7). mtjk not in project venv.
 > Evidence schema: `docs/contracts/61-operational-evidence-contract.md`
 > Primary evidence recording: `docs/runbooks/operational-evidence.md`
 > Boundary tests: `tests/test_deployment_boundaries.py`, `tests/test_runtime_deployment_boundaries.py`

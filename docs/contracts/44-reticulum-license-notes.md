@@ -1,7 +1,7 @@
 # Reticulum / LXMF License Notes
 
-> Contract version: 1
-> Last updated: 2026-05-10
+> Contract version: 2
+> Last updated: 2026-05-12
 > Track: 6 (Licensing & Compliance Observations)
 > Supersedes: Nothing. New track.
 > Status: Observation only. No legal conclusions. No code or packaging changes proposed.

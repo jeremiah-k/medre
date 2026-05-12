@@ -1,11 +1,11 @@
 # Beta Readiness Checklist
 
-> Contract version: 2
-> Last updated: 2026-05-11
-> Track: 8 (README Operator Positioning), Track 9 (Beta Checklist Update)
-> Supersedes: Version 1 (2026-05-10). Consolidates beta criteria from contract 28 sections 4, 5, 6.
+> Contract version: 3
+> Last updated: 2026-05-12
+> Track: 8 (README Operator Positioning), Track 9 (Beta Checklist Update), Track 12 (Beta Candidate Closure)
+> Supersedes: Version 2 (2026-05-11). Consolidates beta criteria from contract 28 sections 4, 5, 6.
 > Status: Checklist. Defines what must be true before beta release.
-> Head: 36d3706
+> Head: (current)
 
 This document is the beta readiness checklist for the MEDRE framework. It defines three tiers: must-have before beta, should-have before beta, and explicitly deferred. It records per-transport beta blockers, live-test requirements, docs/runbook requirements, and packaging/dependency requirements.
 
@@ -37,7 +37,7 @@ These items are blocking. Beta cannot ship without them.
 |---|-----------|------|---------------|--------------------------|-----|
 | M11 | Matrix | Live smoke test run against real homeserver | ✅ Satisfied | `test_matrix_live.py -m live`: 13 passed / 0 failed / 0 skipped against matrix.org homeserver, room `!sRlwdLCwIGBpSzoRsV:matrix.org`. Lifecycle, health, send/receive, diagnostics, session all passed. See `docs/runbooks/operational-evidence.md` §1.1. | None. |
 | M12 | Matrix | E2EE live smoke test run | ✅ Satisfied | `test_matrix_e2ee_live.py -m live`: 7 passed / 0 failed / 0 skipped in 3.73s against encrypted room `!rnmyZMhUoraPwZUDPP:matrix.org`. Initial run hit `OlmUnverifiedDeviceError` (2 tests); adapter fix (`ignore_unverified_devices=True`) applied; re-test passed full suite. See `docs/runbooks/operational-evidence.md` §1.3. | None. |
-| M13 | Meshtastic | Live smoke test run against real radio | ✅ Satisfied | `test_meshtastic_live.py -m live`: 10 passed / 0 failed / 0 skipped in 34.47s against real device. Serial connection to `/dev/ttyACM0`, LilyGO T-LORA V2.1 (`!25d6e474`), firmware 2.7.19, channel Test (PRIMARY, LONG_FAST). See `docs/runbooks/operational-evidence.md` §2.1. | None. |
+| M13 | Meshtastic | Live smoke test run against real radio | ✅ Satisfied | `test_meshtastic_live.py -m live`: 10 passed / 0 failed / 0 skipped in 34.47s against real device. Serial connection to `/dev/ttyACM0`, LilyGO T-LORA V2.1.1.6 (`!25d6e474`), firmware 2.7.19, channel Test (PRIMARY, LONG_FAST). **Track 2 follow-up (2026-05-12):** Additional CLI-level diagnostics cycle confirmed device stable at 27616s uptime, 2 nodes in mesh, battery "Powered", 4/4 serial connections succeeded. ACK classified UNRELIABLE, delivery classified BEST EFFORT. See `docs/runbooks/operational-evidence.md` §2.0. | None. |
 | M14 | MeshCore | Live smoke test run against real radio | ⛔ Blocked | Harness exists (`test_meshcore_live.py`). Tests lifecycle, health, send, diagnostics. Not run: requires `MESHCORE_CONNECTION_TYPE`, `MESHCORE_HOST`. | Needs physical radio hardware. Run and record. |
 | M15 | LXMF | Live smoke test run against real Reticulum | ⛔ Blocked | Harness exists (`test_lxmf_live.py`). Tests lifecycle, health, send, receive, diagnostics, delivery state progression. Not run: requires `LXMF_CONNECTION_TYPE`, `LXMF_IDENTITY_PATH`. | Needs Reticulum instance. Run and record. |
 | M16 | Matrix | Inbound reception confirmed from live test | ⛔ Blocked | `test_matrix_live.py` includes inbound reception test but has not been run against a real homeserver. No third-party inbound confirmation recorded. | Add inbound reception test. Send from a second account, verify `publish_inbound()` fires. |
@@ -65,7 +65,7 @@ This section records the live validation status of all test harnesses and unit s
 |---------|------|-------|---------|------------|------------|
 | Matrix live | `test_matrix_live.py` | Lifecycle, health, send, receive, diagnostics, session | `pytest.mark.live`, `@require_live` | `MATRIX_HOMESERVER`, `MATRIX_USER_ID`, `MATRIX_ACCESS_TOKEN`, `MATRIX_ROOM_ID` | Historical (2026-05-10, matrix.org): 13 passed / 0 failed / 0 skipped. Room `!sRlwdLCwIGBpSzoRsV:matrix.org`. Current tranche: NOT EXECUTED. |
 | Matrix E2EE | `test_matrix_e2ee_live.py` | E2EE send/receive (olm/megolm) | `pytest.mark.live`, `@require_live` | All Matrix vars + `MATRIX_DEVICE_ID`, `MATRIX_STORE_PATH` | Historical (2026-05-10, matrix.org): 7 passed / 0 failed / 0 skipped (3.73s). Room `!rnmyZMhUoraPwZUDPP:matrix.org`. Pre-fix: 2 tests failed (`OlmUnverifiedDeviceError`). Post-fix: all pass. Current tranche: NOT EXECUTED. |
-| Meshtastic live | `test_meshtastic_live.py` | Lifecycle, health, send, diagnostics | `pytest.mark.live`, `@require_live` | `MESHTASTIC_CONNECTION_TYPE`, `MESHTASTIC_HOST` | Historical (2026-05-10, serial `/dev/ttyACM0`, LilyGO T-LORA V2.1 `!25d6e474`, firmware 2.7.19): 10 passed / 0 failed / 0 skipped (34.47s). Harness bugs fixed: `isConnected` TypeError, `pypubsub` ListenerMismatchError. Current tranche: NOT EXECUTED. |
+| Meshtastic live | `test_meshtastic_live.py` | Lifecycle, health, send, diagnostics | `pytest.mark.live`, `@require_live` | `MESHTASTIC_CONNECTION_TYPE`, `MESHTASTIC_HOST` | Historical (2026-05-10, serial `/dev/ttyACM0`, LilyGO T-LORA V2.1.1.6 `!25d6e474`, firmware 2.7.19): 10 passed / 0 failed / 0 skipped (34.47s). Harness bugs fixed: `isConnected` TypeError, `pypubsub` ListenerMismatchError. Track 2 CLI follow-up (2026-05-12): 4/4 serial connections succeeded, device stable at 27616s uptime, 2 nodes in mesh. ACK: UNRELIABLE. Delivery: BEST EFFORT. Current tranche: NOT EXECUTED (mtjk not in project venv). |
 | MeshCore live | `test_meshcore_live.py` | Lifecycle, health, send, diagnostics | `pytest.mark.live`, `@require_live` | `MESHCORE_CONNECTION_TYPE`, `MESHCORE_HOST` | ⛔ Not run |
 | LXMF live | `test_lxmf_live.py` | Lifecycle, health, send, receive, diagnostics, delivery state | `pytest.mark.live`, `@require_live` | `LXMF_CONNECTION_TYPE`, `LXMF_IDENTITY_PATH` | ⛔ Not run |
 
@@ -98,8 +98,8 @@ These items are strongly recommended. Beta can ship without them, but their abse
 
 | # | Item | Current Status | Gap |
 |---|------|---------------|-----|
-| S6a | README license section describes current posture honestly | ✅ Satisfied | README updated to note MIT is under review, GPL/LGPL under evaluation, Reticulum license ambiguity. See Track 7. |
-| S6b | License governance status reflected in pyproject.toml | ✅ Satisfied | `GOVERNANCE-PENDING` comment documents the review. Not a metadata flip. |
+| S6a | README license section describes current posture honestly | ✅ SATISFIED | README updated: GPL-3.0-or-later declared, LICENSE file present, governance docs linked. |
+| S6b | License governance status reflected in pyproject.toml | ✅ SATISFIED | `license = "GPL-3.0-or-later"`, classifier `License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)`. GOVERNANCE-PENDING comment removed. |
 | S6c | License governance risk recorded in risk register | ✅ Satisfied | Contract 39 updated with governance risk entries (G1, G2, G3). See Track 7. |
 | S6d | Toolkit/runtime dual-role documented consistently across contracts | ✅ Satisfied | README §Philosophy, contract 38 §8.1, contract 39 §9 all describe the dual-role distinction. |
 
@@ -136,8 +136,8 @@ These items are out of scope for beta. They are recorded here to prevent scope c
 | D14 | Receipt deduplication during replay | Phase 1 limitation | See `phase-1-limitations.md`. |
 | D15 | CI pipeline running live tests | Infrastructure | Live tests require hardware/secrets. |
 | D16 | Cross-signed device trust (Matrix) | Complex E2EE feature | Not required for beta. |
-| D17 | Final license selection (MIT vs GPL-3.0-or-later vs LGPL-3.0-or-later) | Governance decision pending | Evaluation in progress. Not blocking beta. Honest status documented in README and contract 42. |
-| D18 | Top-level LICENSE file | Packaging task, depends on license selection | Tracked in contract 45 §3. |
+| D17 | ~~Final license selection~~ | ~~Governance decision pending~~ | ✅ RESOLVED. GPL-3.0-or-later selected (2026-05-12). Contracts 40–45 updated. LICENSE file added. |
+| D18 | ~~Top-level LICENSE file~~ | ~~Packaging task, depends on license selection~~ | ✅ RESOLVED. LICENSE file added with standard FSF GPLv3 text. Tracked in contract 45 §F2. |
 | D19 | CLA or DCO policy | Not needed until external contributions arrive | Trigger: first external PR. See contract 42 §5.5. |
 
 
@@ -157,9 +157,9 @@ These items are out of scope for beta. They are recorded here to prevent scope c
 
 | Blocker | Severity | Resolution | Status |
 |---------|----------|------------|--------|
-| Live harness not recorded against real radio | Must | Run `test_meshtastic_live.py` and record results. | ✅ Historical evidence recorded 2026-05-10: 10/10 pass in 34.47s, serial `/dev/ttyACM0`, LilyGO T-LORA V2.1. Current beta-entry tranche: NOT EXECUTED. See `docs/runbooks/operational-evidence.md` §2.1. |
+| Live harness not recorded against real radio | Must | Run `test_meshtastic_live.py` and record results. | ✅ Historical evidence recorded 2026-05-10: 10/10 pass in 34.47s, serial `/dev/ttyACM0`, LilyGO T-LORA V2.1.1.6. Track 2 CLI follow-up 2026-05-12: device stable, 4/4 serial connections, ACK UNRELIABLE, delivery BEST EFFORT. Current beta-entry tranche: NOT EXECUTED. See `docs/runbooks/operational-evidence.md` §2.0. |
 | `deliver()` returns `None` (queued, no delivery result to caller) | Should | The queue worker produces a result internally. Document the limitation. Plumb packet ID if SDK provides it on send. | Unresolved. |
-| No confirmed delivery (ACK not de-duplicated) | Should | Document as inherent to fire-and-forget radio. Not fixable without protocol change. | Unresolved. |
+| No confirmed delivery (ACK not de-duplicated) | Should | **Track 2 classification:** ACK classified UNRELIABLE, delivery classified BEST EFFORT (CLI-level evidence, 2026-05-12). Document as inherent to fire-and-forget radio. Not fixable without protocol change. | Unresolved. Classified. |
 | Duplicate-send risk from retry | Should | Document. Consumer handles duplicates. | Unresolved. |
 
 ### 4.3 MeshCore Beta Blockers
@@ -320,7 +320,7 @@ A beta release requires:
 3. **All live test results recorded in runbooks.** → Currently 2/4 recorded (Matrix ✅, Meshtastic ✅; MeshCore and LXMF not yet run).
 4. **All four contract documents (29-32) published.** → ✅ All published.
 5. **No critical regressions in existing unit test suite.** → ✅ 3237 passed, 4 skipped, 63 deselected. Clean suite.
-6. **License governance status honestly documented.** → ✅ README updated, risk register updated, pyproject.toml comment in place. Final selection deferred (D17).
+6. **License governance resolved.** → ✅ GPL-3.0-or-later selected. LICENSE file added. pyproject.toml, README, contracts 40–45 updated. Development Status updated to Beta.
 
 Should-have items (S1-S11) are strongly recommended. If any remain unsatisfied at beta, they must be documented as known limitations in the release notes. Governance should-haves (S6a-S6d) are satisfied.
 
@@ -329,15 +329,16 @@ Should-have items (S1-S11) are strongly recommended. If any remain unsatisfied a
 
 | Classification | Items | Count |
 |---------------|-------|-------|
-| **Satisfied** | M1–M13, P1–P6, S6, S6a–S6d | 23 |
-| **Partial** | S1–S5, S7–S11, R4 | 10 |
-| **Blocked** (requires external resource) | M14 (MeshCore radio), M15 (Reticulum instance), M16 (Matrix inbound) | 3 |
-| **Not required for beta** | D1–D19 | 19 |
+| **SATISFIED** | M1–M13, P1–P6, S6, S6a–S6d, NB1 | 24 |
+| **PARTIAL** | S1–S5, S7–S11, R4 | 10 |
+| **BLOCKED** (requires external resource) | M14 (MeshCore radio), M15 (Reticulum instance), M16 (Matrix inbound) | 3 |
+| **RESOLVED** (was deferred, now done) | D17 (license), D18 (LICENSE file) | 2 |
+| **NOT REQUIRED** | D1–D16, D19 | 16 |
 
 
 ## 9. Remaining Beta Blockers (Consolidated)
 
-As of 2026-05-11, head `36d3706`:
+As of 2026-05-12:
 
 ### 9.1 Must-Fix (Blocking Beta)
 
@@ -355,14 +356,14 @@ As of 2026-05-11, head `36d3706`:
 | R2 | ~~Document secure token/identity handling in runbooks~~ | ✅ Resolved. `docs/runbooks/secure-credentials.md` created. |
 | R3 | ~~Document fire-and-forget limitations for radio transports~~ | ✅ Resolved. `docs/contracts/36-radio-limitations.md` created. |
 | R4 | Test or document BLE mode as unsupported (MeshCore) | BLE constructor exists but untested. |
-| R5 | ~~Update public docs for license governance consistency~~ | ✅ Resolved (Track 7). README, risk register, RC criteria, and this checklist now consistently describe license posture. Final selection deferred (D17). |
+| R5 | ~~Update public docs for license governance consistency~~ | ✅ RESOLVED (2026-05-12). GPL-3.0-or-later selected. All contracts updated. LICENSE file added. README, pyproject.toml, classifiers all consistent. |
 
 
 ### 9.3 Known Non-Blocking Issues (Tracked for RC, Not Beta)
 
 | # | Issue | Scope | Resolution Target | Notes |
 |---|-------|-------|-------------------|-------|
-| NB1 | `test_runner.py` coroutine `RuntimeWarning`: `'coroutine .*run.* was never awaited'` warning visible during test execution | RC cleanup, not beta | Must be resolved before RC. Not a beta blocker. | The warning is cosmetic (tests pass, no functional impact). Root cause is an unawaited coroutine in `test_runner.py`. Fix is to ensure proper `asyncio` cleanup or add explicit `await`/close. Tracked here for RC scope. |
+| NB1 | ~~`test_runner.py` coroutine `RuntimeWarning`~~ | RC cleanup | ✅ RESOLVED (2026-05-12). Root cause: `fake_asyncio_run` captured but never closed the coroutine. Fix: added `coro.close()` in mock. Regression test added (`test_main_no_unawaited_coroutine_warning`). |
 
 
 ## 10. Next Recommended Tranche

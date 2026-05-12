@@ -1,9 +1,9 @@
 # Container Operation Runbook
 
 > Last updated: 2026-05-12
-> Tracks: 8, 9 (deployment boundary enforcement, evidence consolidation)
-> Status: Procedures documented. No container runtime execution performed.
-> Evidence tier: All operational procedures in this document produce R-tier evidence only when executed against a live container. Unexecuted procedures are NOT EXECUTED.
+> Tracks: 3, 4, 8, 9 (clean env install, container execution, deployment boundary enforcement, evidence consolidation)
+> Status: Container validation executed 2026-05-12. See §10 for evidence.
+> Evidence tier: Sections 1–9 are design/specification. Section 10 contains R-tier (actually executed) evidence. Section 11 fields reflect executed results where applicable.
 > Evidence schema: `docs/contracts/61-operational-evidence-contract.md`
 > Related: `docs/runbooks/deployment-validation.md`, `docs/contracts/46-runtime-storage-and-path-contract.md`
 
@@ -320,26 +320,83 @@ tar czf medre-state-backup.tar.gz /host/medre-data/state/
 ```
 
 
-## 10. Container Execution: NOT EXECUTED
+## 10. Container Execution Evidence (2026-05-12)
 
-**Status: NOT EXECUTED**
+**Status: EXECUTED** — Docker 29.4.3 on Linux 6.17.0-23-generic (x86_64).
 
-No container runtime was invoked during the preparation of this runbook. All observations are derived from:
+### 10.1 Environment
 
-- Source code analysis of `src/medre/config/paths.py` (path resolution)
-- Source code analysis of `src/medre/runtime/app.py` (`_ensure_dirs()` lifecycle)
-- Source code analysis of `src/medre/runtime/builder.py` (adapter construction, Matrix store derivation)
-- `examples/env/docker.env.example` (canonical Docker environment variables)
-- Contract 46 (Runtime Storage and Path Model)
-- Contract 55 (Runtime Persistence Contract)
-- Existing test coverage in `test_config_paths.py`, `test_storage_path_validation.py`, `test_runtime_builder.py`
+| Item | Value |
+|------|-------|
+| Docker version | 29.4.3 |
+| Base image | python:3.12-slim (119 MB, pre-pulled) |
+| Host OS | Linux 6.17.0-23-generic x86_64 |
+| Python in container | 3.12.13 |
+| MEDRE version | 0.1.0 |
+| Test image tag | medre-test:validation |
+| Date | 2026-05-12 |
 
-To validate operationally:
+### 10.2 Image Build
 
-1. Build a container image with MEDRE installed
-2. Run with `MEDRE_HOME=/opt/medre` and a bind-mounted host directory
-3. Follow validation procedures in [Deployment Validation](deployment-validation.md)
-4. Verify startup, persistence across restart, and graceful shutdown
+A minimal Dockerfile was created in `/tmp/medre-container-test/` (not committed to source tree):
+
+```dockerfile
+FROM python:3.12-slim
+COPY medre-0.1.0-py3-none-any.whl /tmp/
+RUN pip install --no-cache-dir /tmp/medre-0.1.0-py3-none-any.whl && rm /tmp/medre-0.1.0-py3-none-any.whl
+RUN useradd -m -u 1000 medre
+USER medre
+ENV MEDRE_HOME=/opt/medre
+WORKDIR /home/medre
+```
+
+Wheel `medre-0.1.0-py3-none-any.whl` (321 KB) built via `python -m build` from clean venv.
+Image built successfully. Transitive dep: `msgspec==0.21.1`.
+
+### 10.3 Test Results
+
+| # | Test | Command | Result |
+|---|------|---------|--------|
+| C1 | Version output | `docker run --rm medre-test:validation medre version` | ✅ `medre 0.1.0 / Python 3.12.13 / Linux x86_64` |
+| C2 | Path resolution (MEDRE_HOME) | `docker run --rm medre-test:validation medre paths` | ✅ All paths under `/opt/medre/`, `config_dir=None`, status `[will be created]` |
+| C3 | Adapter listing | `docker run --rm medre-test:validation medre adapters` | ✅ Lists 4 transport types, all SDKs not installed (expected — minimal image) |
+| C4 | Config sample | `docker run --rm medre-test:validation medre config sample` | ✅ Prints valid TOML |
+| C5 | Directory creation (volume) | `docker run --rm -v ... medre paths` after root mkdir+chown | ✅ `[exists]` for all dirs |
+| C6 | Non-root user | `docker run --rm ... id` | ✅ `uid=1000(medre) gid=1000(medre)` |
+| C7 | Write access per dir | Python write+delete in state/data/cache/logs | ✅ All 4 directories writable |
+| C8 | SQLite creation + WAL | Python `sqlite3.connect` + `PRAGMA journal_mode=WAL` | ✅ WAL mode confirmed, data committed |
+| C9 | SQLite persistence across restart | Second container reads row from first | ✅ Row recovered: `(1, 'container-test', '2026-05-12 19:50:09')` |
+| C10 | Config check (fake-multi-adapter) | `medre config check` with mounted config.toml | ✅ 4/4 adapters enabled, `Config valid`, all paths under `/opt/medre/` |
+| C11 | MEDRE_HOME resolution | `resolve()` with MEDRE_HOME set | ✅ `config_dir=None`, all paths under `/opt/medre/` |
+| C11b | XDG fallback (no MEDRE_HOME) | `resolve()` with MEDRE_HOME unset | ✅ Falls back to `/home/medre/.local/state/medre` etc. |
+| C12 | Compileall in container | `python -m compileall -q /usr/local/.../medre` | ✅ Exit 0, no errors |
+| C13 | Help output | `medre --help` | ✅ Lists all subcommands |
+| C14 | MEDRE_HOME precedence over XDG | MEDRE_HOME + XDG_* both set | ✅ MEDRE_HOME paths win, assertion passed |
+| C15 | No per-adapter databases | Walk adapters dir for .sqlite | ✅ No per-adapter .sqlite files |
+| C16 | No system directory writes | Assert state not in /usr/ /etc/ etc. | ✅ State at `/opt/medre/state` |
+
+### 10.4 Observations
+
+1. **Volume ownership**: Docker creates bind-mount directories as `root:root`. The non-root `medre` user (uid 1000) cannot create subdirectories unless the host directory is pre-owned by uid 1000 or a root-level init step chowns it. This is documented in §3.3 and confirmed: the pattern `docker run --user 0 ... mkdir && chown` followed by `docker run --user 1000 ...` works.
+
+2. **XDG fallback works**: When `MEDRE_HOME` is unset, path resolution correctly falls back to XDG directories under `/home/medre/`.
+
+3. **SQLite persistence confirmed**: Data written in one container invocation persists across container recreation when the same volume is mounted. WAL mode is active.
+
+4. **Config check with MEDRE_HOME**: Config loaded from `/opt/medre/config.toml` when `MEDRE_HOME=/opt/medre`. Source reports `MEDRE_HOME` (not `explicit` or `default`).
+
+5. **compileall clean**: All Python files in the wheel-installed package compile without errors.
+
+### 10.5 Not Tested (Requires Hardware/Live Services)
+
+| Item | Reason |
+|------|--------|
+| Adapter runtime startup (fake) | Would require a full `medre run` with event loop |
+| Adapter runtime startup (real) | No SDKs installed in minimal image; no hardware available |
+| SIGTERM/SIGINT graceful shutdown | Requires running event loop with adapters |
+| Serial device passthrough | No `/dev/ttyACM0` device available |
+| E2EE crypto store creation | Requires Matrix SDK + valid credentials |
+| Runtime health check | Requires running runtime |
 
 
 ## 11. Container Runtime Observation Fields
@@ -358,15 +415,28 @@ When recording container operation evidence per Contract 61 §3.6, the following
 | `boundedness_observed` | Yes | Whether resources stayed bounded during observation, or NOT EXECUTED |
 | `reconnect_events` | Yes | Number of adapter reconnect events during observation, or NOT EXECUTED |
 
-All fields above are NOT EXECUTED for the current session. No container runtime was invoked.
+### 11.1 Executed Observation (2026-05-12)
+
+| Field | Value |
+|-------|-------|
+| `container_runtime` | Docker 29.4.3 |
+| `container_image_tag` | medre-test:validation |
+| `medre_home_path` | `/opt/medre` |
+| `volume_mount_verified` | Yes — SQLite data persisted across container recreation (C8/C9) |
+| `runtime_duration_seconds` | NOT EXECUTED — no `medre run` was invoked |
+| `adapter_start_success` | NOT EXECUTED — no adapter runtime started |
+| `clean_shutdown_observed` | NOT EXECUTED — no running runtime to shut down |
+| `boundedness_observed` | NOT EXECUTED |
+| `reconnect_events` | NOT EXECUTED |
 
 
 ## 12. Unresolved Risks
 
 | Risk | Status | Mitigation |
 |------|--------|------------|
-| No live container execution evidence | NOT EXECUTED | Build container image and run validation procedures. Record R-tier evidence per Contract 61. |
-| Non-root UID/GID mismatch | Not tested | Container may fail to write to volume if UID/GID does not match host. Pre-create with correct ownership. |
-| Serial device permission in container | Not tested | Device passthrough requires matching host permissions. Container user must be in correct group. |
+| ~~No live container execution evidence~~ | **Resolved** (2026-05-12) | Container built and 16 validation tests passed. See §10. |
+| Non-root UID/GID mismatch | **Confirmed** (2026-05-12) | Docker creates bind-mount dirs as root:root. Non-root medre user (uid 1000) cannot create subdirs unless host dir pre-owned by uid 1000, or init step runs as root to mkdir+chown. See §3.3 and §10.4 observation 1. |
+| Serial device permission in container | Not tested | Device passthrough requires matching host permissions. Container user must be in correct group. No serial device available for testing. |
 | Timezone handling in container | Not tested | Container inherits host timezone. Log timestamps may differ if container TZ differs from host. |
-| Signal handling (SIGTERM/SIGINT) | Source-verified only | MEDRE handles SIGTERM via asyncio signal handlers. Not validated in a live container. |
+| Signal handling (SIGTERM/SIGINT) | Source-verified only | MEDRE handles SIGTERM via asyncio signal handlers. Not validated in a live container runtime (no `medre run` executed). |
+| Adapter runtime in container | Not tested | No adapter SDKs installed in minimal validation image. Requires separate image with transport deps for full runtime testing. |

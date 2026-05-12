@@ -1,9 +1,9 @@
 # SPDX + Metadata Hygiene Audit
 
-> Contract version: 1
-> Last updated: 2026-05-10
+> Contract version: 2
+> Last updated: 2026-05-12
 > Track: 5 (SPDX + Metadata Hygiene)
-> Status: Audit report. Records findings and governance-blocked actions. No metadata changes finalized — all actions pending governance decision.
+> Status: Audit report. License updated to GPL-3.0-or-later. LICENSE file added. Metadata changes applied.
 
 This document is the deliverable for Track 5: a full audit of pyproject
 metadata, SPDX identifiers, LICENSE/COPYING presence, source header strategy,
@@ -15,12 +15,12 @@ inconsistencies, and lists actions blocked on the governance license decision.
 
 | # | Item | Current State | Status | Blocking? |
 |---|------|---------------|--------|-----------|
-| F1 | `pyproject.toml` `license` field | `license = "MIT"` | Consistent with contract 42 §5.1 | No — but see F2 |
-| F2 | LICENSE file | **Missing.** No LICENSE, LICENSE.txt, COPYING, or COPYING.md anywhere in repo. Neither sdist nor wheel contains license text. | **Harmful.** MIT §2 requires license text in distributions. PyPI consumers get no license text. | **Yes** — blocked on final license choice |
-| F3 | License classifier | None. Removed in prior fix (contract 38 F8) because PEP 639 makes it redundant with `license` field. | Clean for PEP 639 setuptools >= 80. | No |
-| F4 | Source file headers | **None.** Zero .py files have copyright, SPDX, or license headers. | Acceptable for MIT. If license changes to GPL/LGPL, per-file headers become important for copyleft enforcement. | No — post-governance |
-| F5 | README license section | "Currently MIT." Updated to note governance review. | Now documented. | No |
-| F6 | PKG-INFO `License-Expression` | `License-Expression: MIT` | Consistent with pyproject.toml. | No |
+| F1 | `pyproject.toml` `license` field | `license = "GPL-3.0-or-later"` | ✅ Updated from MIT to GPL-3.0-or-later (2026-05-12). Consistent with dependency reality (contracts 40, 41). | No |
+| F2 | LICENSE file | ✅ Present. Standard FSF GPLv3 text with copyright holder placeholder. | Resolved. | No |
+| F3 | License classifier | `License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)` | ✅ Added. | No |
+| F4 | Source file headers | **None.** Zero .py files have copyright, SPDX, or license headers. | Acceptable for now. Per-file headers may be added post-beta for stronger copyleft enforcement. | No — post-beta |
+| F5 | README license section | ✅ Updated to reflect GPL-3.0-or-later with links to LICENSE file and governance docs. | Done. | No |
+| F6 | PKG-INFO `License-Expression` | `License-Expression: GPL-3.0-or-later` | Consistent with pyproject.toml. | No |
 | F7 | Other metadata fields (`authors`, `urls`) | **Missing.** Known gap, tracked in contract 38 §7.2 F5/F6. | Not license-related. | No |
 
 
@@ -33,10 +33,11 @@ version = "0.1.0"
 description = "Modular event communications runtime"
 readme = "README.md"
 requires-python = ">=3.11"
-license = "MIT"                          # <-- F1: governance-pending comment added
-classifiers = [                          # <-- F3: no License classifier (correct for PEP 639)
-    "Development Status :: 3 - Alpha",
+license = "GPL-3.0-or-later"              # <-- F1: updated from MIT (2026-05-12)
+classifiers = [
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",  # <-- F3: added
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",

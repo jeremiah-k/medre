@@ -1,10 +1,10 @@
 # License Governance
 
-> Contract version: 1
-> Last updated: 2026-05-10
+> Contract version: 2
+> Last updated: 2026-05-12
 > Track: 10 (License Governance + Beta Governance Formalization)
-> Supersedes: Nothing. First formal license governance document.
-> Status: Governance. Records license direction, dependency pressure, open questions, and decision constraints. Not legal advice. Not a finalized license selection.
+> Supersedes: Version 1 (2026-05-10). License decision finalized: GPL-3.0-or-later.
+> Status: Governance. Records license direction, dependency pressure, open questions, and decision constraints. License decision: **GPL-3.0-or-later** (effective 2026-05-12).
 
 
 ## 1. Purpose
@@ -22,17 +22,21 @@ This is not legal advice. License decisions affect downstream users and
 contributors. When in doubt, consult qualified legal counsel.
 
 
-## 2. Current Declared License
+## 2. Declared License
 
-| Field | Current value |
-|-------|---------------|
-| `pyproject.toml license` | `MIT` |
-| `LICENSE` file | Does not exist |
-| `README.md` | No license section |
+| Field | Value |
+|-------|-------|
+| `pyproject.toml license` | `GPL-3.0-or-later` |
+| `LICENSE` file | Present. Standard FSF GPLv3 text with copyright holder placeholder. |
+| `README.md` | License section updated to reflect GPL-3.0-or-later. |
+| `pyproject.toml classifiers` | Includes `License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)`. |
+| `Development Status` | Updated to `4 - Beta`. |
 
-The `MIT` declaration in `pyproject.toml` was set early, before the project
-had in-tree adapters that import GPL-licensed dependencies. The declaration
-no longer cleanly reflects the dependency reality described in section 4.
+The license was changed from MIT to GPL-3.0-or-later on 2026-05-12 by project
+governance decision. The decision reflects the dependency reality documented in
+section 4 and contract 41: medre's in-tree adapters import GPL-licensed
+dependencies (Meshtastic via `mtjk`, Reticulum via `rns`/`lxmf`), making MIT
+incompatible with the actual distribution.
 
 
 ## 3. Project Architecture Relevant to Licensing
