@@ -1,20 +1,20 @@
 # Live Operational Evidence Runbook
 
 > Last updated: 2026-05-12
-> Tracks: 1, 2, 7, 8 (v2 consolidation + Wave 1 hardware probe)
-> Status: Procedures documented. Meshtastic serial live validation: **EXECUTED 2026-05-12** (CLI-level: device discovery, hardware/firmware capture, one outbound send on channel 0, 2 reconnect cycles). MEDRE adapter lifecycle and Matrix live tests: **NOT EXECUTED** (2026-05-12: sk.community access token rejected `M_UNKNOWN_TOKEN`; matrix.org password login rejected `M_FORBIDDEN Invalid username/password` — see §1.7). mtjk not in project venv. **Wave 1 hardware probe (2026-05-12):** CP2104 `/dev/ttyUSB0` (stable by-id, likely T-Beam) — no serial chatter observed; CH9102F `/dev/ttyACM0` (stable by-id, confirmed T-LoRa V2.1-1.6). MeshCore firmware flash and LXMF Reticulum live path pending Wave 2.
+> Tracks: 1, 2, 7, 8 (v2 consolidation + hardware probe)
+> Status: Procedures documented. Meshtastic serial live validation: **EXECUTED 2026-05-12** (CLI-level: device discovery, hardware/firmware capture, one outbound send on channel 0, 2 reconnect cycles). MEDRE adapter lifecycle and Matrix live tests: **NOT EXECUTED** (2026-05-12: sk.community access token rejected `M_UNKNOWN_TOKEN`; matrix.org password login rejected `M_FORBIDDEN Invalid username/password` — see §1.7). mtjk not in project venv. **Hardware probe (2026-05-12):** CP2104 `/dev/ttyUSB0` (stable by-id, likely T-Beam) — no serial chatter observed; CH9102F `/dev/ttyACM0` (stable by-id, confirmed T-LoRa V2.1-1.6). MeshCore firmware flash and LXMF Reticulum live path pending follow-up validation.
 > Evidence schema: `docs/contracts/61-operational-evidence-contract.md`
 > Maturity matrix: `docs/contracts/62-adapter-operational-maturity-matrix.md`
 > Primary evidence recording: `docs/runbooks/operational-evidence.md`
 > Boundary tests: `tests/test_deployment_boundaries.py`, `tests/test_runtime_deployment_boundaries.py`
 
-This runbook provides detailed live operational procedures for Matrix and Meshtastic transports. Each procedure specifies exact environment variables, expected durations, observations to record, and NOT EXECUTED sections when hardware or credentials are absent. Hardware probe findings from Wave 1 inform MeshCore and LXMF Wave 2 procedures.
+This runbook provides detailed live operational procedures for Matrix and Meshtastic transports. Each procedure specifies exact environment variables, expected durations, observations to record, and NOT EXECUTED sections when hardware or credentials are absent. Hardware probe findings inform MeshCore and LXMF follow-up procedures.
 
 **Evidence tier:** All procedures in this document, if executed against real endpoints, produce R-tier (real-live-runtime) evidence per Contract 61. If not executed, fields remain NOT EXECUTED with documented reasons.
 
 **v2 scope (Tracks 1/2/7/8/9):** This revision consolidates start/stop cycle, replay/restart, reconnect, long-running sync/runtime observation, diagnostics snapshot, E2EE store reuse, room-state boundedness, serial reconnect/outbound/degraded behavior, hardware/firmware field capture, actual runtime duration, restart/recovery/boundedness observation, deployment boundary enforcement evidence, and unresolved risks documentation. Every new procedure includes a NOT EXECUTED section for environments without live endpoints. Deployment boundary enforcement is verified by `tests/test_deployment_boundaries.py` and `tests/test_runtime_deployment_boundaries.py`.
 
-**Wave 1 facts incorporated (2026-05-12):** Hardware probe identified two serial devices: CP2104 at `/dev/ttyUSB0` (stable by-id path, likely T-Beam) with no serial chatter observed, and CH9102F at `/dev/ttyACM0` (stable by-id path, confirmed T-LoRa V2.1-1.6 running Meshtastic firmware). Local source repos available at `/home/jeremiah/dev` for LXMF, Reticulum, MeshCore firmware, and MeshCore Python library. `esptool` available via pipx. Docs cleanup resolved stale GPL/license claims. Operational maturity matrix (Contract 62) created. Wave 2 is required for: MeshCore firmware flash attempt on CP2104 device, LXMF/Reticulum live path setup.
+**Hardware probe facts incorporated (2026-05-12):** Hardware probe identified two serial devices: CP2104 at `/dev/ttyUSB0` (stable by-id path, likely T-Beam) with no serial chatter observed, and CH9102F at `/dev/ttyACM0` (stable by-id path, confirmed T-LoRa V2.1-1.6 running Meshtastic firmware). Local source repos available at `/home/jeremiah/dev` for LXMF, Reticulum, MeshCore firmware, and MeshCore Python library. `esptool` available via pipx. Docs cleanup resolved stale GPL/license claims. Operational maturity matrix (Contract 62) created. Follow-up validation required for: MeshCore firmware flash attempt on CP2104 device, LXMF/Reticulum live path setup.
 
 
 ## 1. Matrix Live Procedures
@@ -1001,9 +1001,9 @@ The Meshtastic adapter tracks `started` in diagnostics. To record actual runtime
 | **Reason** | No Meshtastic hardware available for live session timing. |
 | **Resolution** | Connect hardware, run procedure, record wall-clock durations. |
 
-### 2.13 Wave 1 Hardware Probe Evidence (2026-05-12)
+### 2.13 Hardware Probe Evidence (2026-05-12)
 
-> **Wave 1 findings.** Not live-transport evidence (no MEDRE adapter interaction). Documents physical serial device landscape for Wave 2 planning.
+> **Hardware probe findings.** Not live-transport evidence (no MEDRE adapter interaction). Documents physical serial device landscape for follow-up planning.
 
 | Field | Value |
 |-------|-------|
@@ -1011,7 +1011,7 @@ The Meshtastic adapter tracks `started` in diagnostics. To record actual runtime
 | **Device 1: CP2104** | `/dev/ttyUSB0`, stable by-id path `Silicon_Labs_CP2104_USB_to_UART_Bridge_Controller_*/if00-port0` |
 | **Device 1: Likely hardware** | T-Beam (CP2104 is typical T-Beam USB-UART bridge) |
 | **Device 1: Serial chatter** | None observed. Device present but no spontaneous serial output at 9600 or 115200 baud. May be unflashed or running non-Meshtastic firmware. |
-| **Device 1: esptool** | `esptool` available via pipx. `esptool chip_id` not yet run — pending Wave 2. |
+| **Device 1: esptool** | `esptool` available via pipx. `esptool chip_id` not yet run — pending follow-up. |
 | **Device 2: CH9102F** | `/dev/ttyACM0`, stable by-id path `1a86_USB_Serial_5435017226/if00` |
 | **Device 2: Confirmed hardware** | LilyGO T-LoRa V2.1-1.6 (TLORA_V2_1_1P6), node `!25d6e474`, running Meshtastic firmware 2.7.19.bb3d6d5 |
 | **Device 2: Status** | Active Meshtastic node. CLI-level R-tier evidence recorded (§2.2, §2.3). |
@@ -1022,35 +1022,35 @@ The Meshtastic adapter tracks `started` in diagnostics. To record actual runtime
 | **esptool** | Available via pipx (for ESP32 firmware flash operations) |
 | **pipx preference** | User prefers pipx for PyPI CLI tools |
 
-#### Wave 2 Pending Operations
+#### Pending Follow-Up Operations
 
 | Operation | Target Device | Prerequisite | Status |
 |-----------|--------------|--------------|--------|
-| `esptool chip_id` on CP2104 | `/dev/ttyUSB0` (likely T-Beam) | Physical access | **Pending Wave 2** |
-| MeshCore firmware flash attempt | `/dev/ttyUSB0` (likely T-Beam) | Confirm chip type, obtain MeshCore firmware binary | **Pending Wave 2** |
-| MeshCore live smoke test | TBD (depends on flash) | MeshCore firmware running on device | **Pending Wave 2** |
-| LXMF/Reticulum live path setup | N/A (software-only) | Install Reticulum from local source, configure transport | **Pending Wave 2** |
-| LXMF live smoke test | N/A (Reticulum instance) | Running Reticulum instance with identity file | **Pending Wave 2** |
+| `esptool chip_id` on CP2104 | `/dev/ttyUSB0` (likely T-Beam) | Physical access | **Pending** |
+| MeshCore firmware flash attempt | `/dev/ttyUSB0` (likely T-Beam) | Confirm chip type, obtain MeshCore firmware binary | **Pending** |
+| MeshCore live smoke test | TBD (depends on flash) | MeshCore firmware running on device | **Pending** |
+| LXMF/Reticulum live path setup | N/A (software-only) | Install Reticulum from local source, configure transport | **Pending** |
+| LXMF live smoke test | N/A (Reticulum instance) | Running Reticulum instance with identity file | **Pending** |
 
 
-### 2.14 MeshCore Live Procedure Placeholder (Wave 2)
+### 2.14 MeshCore Live Procedure Placeholder
 
-> **Status:** NOT EXECUTED. Wave 1 hardware probe identified CP2104 device at `/dev/ttyUSB0` (likely T-Beam). Firmware flash and live validation deferred to Wave 2.
+> **Status:** NOT EXECUTED. Hardware probe identified CP2104 device at `/dev/ttyUSB0` (likely T-Beam). Firmware flash and live validation deferred to follow-up validation.
 > **Maturity:** Alpha (Tier 2) per Contract 62 §3.3. Cannot promote beyond alpha until hardware-validated live evidence recorded.
 
 **Test file:** `tests/test_meshcore_live.py`
 **Required env vars:** `MESHCORE_CONNECTION_TYPE`, `MESHCORE_HOST` or `MESHCORE_SERIAL_PORT`
 
-#### NOT EXECUTED (Wave 1)
+#### NOT EXECUTED
 
 | Field | Value |
 |-------|-------|
 | **Execution date** | NOT EXECUTED |
-| **Reason** | CP2104 device at `/dev/ttyUSB0` has no serial chatter — likely unflashed or non-MeshCore firmware. MeshCore firmware flash required before live test. Local MeshCore firmware source repo available at `/home/jeremiah/dev`. |
-| **Wave 2 steps** | (1) Run `esptool chip_id` on `/dev/ttyUSB0` to confirm chip type. (2) Build/obtain MeshCore firmware binary from local source repo. (3) Flash firmware via `esptool`. (4) Verify serial chatter. (5) Run `pytest tests/test_meshcore_live.py -m live -v`. |
-| **Resolution** | Execute Wave 2 hardware operations, then record R-tier evidence here. |
+| **Reason** | No MeshCore firmware running on CP2104 device. Hardware probe identified `/dev/ttyUSB0` (likely T-Beam) but no serial chatter observed. Device is present but requires firmware flash. MeshCore firmware source available at `/home/jeremiah/dev`. `esptool` available via pipx. |
+| **Next validation steps** | (1) Run `esptool chip_id` on `/dev/ttyUSB0` to confirm chip type. (2) Build/obtain MeshCore firmware binary from local source repo. (3) Flash firmware via `esptool`. (4) Verify serial chatter. (5) Run `pytest tests/test_meshcore_live.py -m live -v`. |
+| **Resolution** | Execute follow-up hardware operations, then record R-tier evidence here. |
 
-#### Observations to Record (Wave 2)
+#### Observations to Record
 
 | Field | What to observe | Source |
 |-------|-----------------|--------|
@@ -1061,24 +1061,24 @@ The Meshtastic adapter tracks `started` in diagnostics. To record actual runtime
 | Stop → clean teardown | No leaked connections | Test output |
 
 
-### 2.15 LXMF/Reticulum Live Procedure Placeholder (Wave 2)
+### 2.15 LXMF/Reticulum Live Procedure Placeholder
 
-> **Status:** NOT EXECUTED. Local source repos for LXMF and Reticulum available at `/home/jeremiah/dev`. Reticulum live path setup deferred to Wave 2.
+> **Status:** NOT EXECUTED. Local source repos for LXMF and Reticulum available at `/home/jeremiah/dev`. Reticulum live path setup deferred to follow-up validation.
 > **Maturity:** Alpha (Tier 2) with experimental downgrade risk per Contract 62 §5.4. Cannot promote until Reticulum live path validated and delivery state model confirmed.
 
 **Test file:** `tests/test_lxmf_live.py`
 **Required env vars:** `LXMF_CONNECTION_TYPE`, `LXMF_IDENTITY_PATH`
 
-#### NOT EXECUTED (Wave 1)
+#### NOT EXECUTED
 
 | Field | Value |
 |-------|-------|
 | **Execution date** | NOT EXECUTED |
 | **Reason** | No Reticulum instance configured. Local source repos for Reticulum and LXMF available at `/home/jeremiah/dev` but not yet installed/configured for live testing. |
-| **Wave 2 steps** | (1) Install Reticulum from local source: `pip install -e /home/jeremiah/dev/rns` (or equivalent). (2) Install LXMF from local source: `pip install -e /home/jeremiah/dev/lxmf` (or equivalent). (3) Configure Reticulum transport (local TCP or serial). (4) Generate/create identity file. (5) Set `LXMF_CONNECTION_TYPE` and `LXMF_IDENTITY_PATH`. (6) Run `pytest tests/test_lxmf_live.py -m live -v`. |
-| **Resolution** | Execute Wave 2 Reticulum setup, then record R-tier evidence here. |
+| **Next validation steps** | (1) Install Reticulum from local source: `pip install -e /home/jeremiah/dev/rns` (or equivalent). (2) Install LXMF from local source: `pip install -e /home/jeremiah/dev/lxmf` (or equivalent). (3) Configure Reticulum transport (local TCP or serial). (4) Generate/create identity file. (5) Set `LXMF_CONNECTION_TYPE` and `LXMF_IDENTITY_PATH`. (6) Run `pytest tests/test_lxmf_live.py -m live -v`. |
+| **Resolution** | Execute follow-up Reticulum setup, then record R-tier evidence here. |
 
-#### Observations to Record (Wave 2)
+#### Observations to Record
 
 | Field | What to observe | Source |
 |-------|-----------------|--------|
@@ -1181,10 +1181,10 @@ This document contains the following evidence categories, clearly separated:
 |----------|---------|--------|
 | **R-tier (real-live-runtime)** | §2.2 (Meshtastic CLI-level serial validation 2026-05-12) | Meshtastic CLI-level evidence recorded |
 | **H-tier (historical)** | §1.3, §1.7, §1.8, §1.12 (Matrix); §2.2, §2.7, §2.11 (Meshtastic) | Historical evidence from 2026-05-10. May be stale. |
-| **Wave 1 hardware probe** | §2.13 | CP2104/ttyUSB0 (likely T-Beam, no serial chatter), CH9102F/ttyACM0 (confirmed T-LoRa). Not live-transport evidence. |
-| **Wave 2 placeholders** | §2.14 (MeshCore), §2.15 (LXMF) | Pending Wave 2 hardware/Reticulum operations. |
+| **Hardware probe** | §2.13 | CP2104/ttyUSB0 (likely T-Beam, no serial chatter), CH9102F/ttyACM0 (confirmed T-LoRa). Not live-transport evidence. |
+| **Follow-up placeholders** | §2.14 (MeshCore), §2.15 (LXMF) | Pending follow-up hardware/Reticulum operations. |
 | **S-tier (simulated/fake)** | §1.11, §1.10, §2.10, §3.1, §3.2, §3.3 | Deterministic unit test coverage confirmed |
-| **NOT EXECUTED** | All live procedure NOT EXECUTED sections | Live endpoints unavailable or pending Wave 2 |
+| **NOT EXECUTED** | All live procedure NOT EXECUTED sections | Live endpoints unavailable or pending follow-up validation |
 
 **No overclaims:** This document does not claim any transport is production-ready, reliable, or performs at any specific latency. All live procedures are documented as NOT EXECUTED unless explicitly marked with R-tier evidence and an execution date.
 
@@ -1194,9 +1194,9 @@ This document contains the following evidence categories, clearly separated:
 | Risk | Status | Affects | Mitigation |
 |------|--------|---------|------------|
 | No current-tranche live evidence | All historical (H-tier) from 2026-05-10 | All transports | Re-run live procedures at current commit to produce C-tier evidence. |
-| MeshCore has no live evidence | S-tier only; Wave 1 identified CP2104 device at `/dev/ttyUSB0` (likely T-Beam) | MeshCore | Wave 2: flash MeshCore firmware, run live smoke test. Alpha (Tier 2) per Contract 62. |
-| LXMF has no live evidence | S-tier only; local source repos available at `/home/jeremiah/dev` | LXMF | Wave 2: set up Reticulum from local source, configure live path, run live smoke test. Alpha (Tier 2) with experimental downgrade risk per Contract 62. |
-| CP2104 device may not be MeshCore-compatible | Unknown chip type, no serial chatter | MeshCore | Wave 2: run `esptool chip_id` to confirm. If incompatible, document as hardware gap. |
+| MeshCore has no live evidence | S-tier only; hardware probe identified CP2104 device at `/dev/ttyUSB0` (likely T-Beam) | MeshCore | Next: flash MeshCore firmware, run live smoke test. Alpha (Tier 2) per Contract 62. |
+| LXMF has no live evidence | S-tier only; local source repos available at `/home/jeremiah/dev` | LXMF | Next: set up Reticulum from local source, configure live path, run live smoke test. Alpha (Tier 2) with experimental downgrade risk per Contract 62. |
+| CP2104 device may not be MeshCore-compatible | Unknown chip type, no serial chatter | MeshCore | Next: run `esptool chip_id` to confirm. If incompatible, document as hardware gap. |
 | No soak/longrun evidence | NOT EXECUTED | All transports | Run soak procedures with live endpoints. Record evidence per Contract 61 §3.6. |
 | Container deployment unvalidated | NOT EXECUTED | All transports | Build container image and run validation per deployment-validation.md. |
 | Historical evidence may be stale | H-tier from 2026-05-10 | Matrix, Meshtastic | Adapter code may have changed since recording. Re-run live tests at current commit to confirm. |

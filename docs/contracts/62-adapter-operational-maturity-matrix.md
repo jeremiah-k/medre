@@ -35,7 +35,7 @@ No transport qualifies as production-ready.
 | **Live receive** | ⚠️ Partial H-tier (self-echo only) | ✅ H-tier (pubsub callback) | ❌ NOT EXECUTED | ❌ NOT EXECUTED |
 | **Repeated start/stop** | ✅ H-tier (2026-05-10) | ✅ H-tier (2026-05-10) | ❌ NOT EXECUTED | ❌ NOT EXECUTED |
 | **Cleanup/reconnect** | ✅ H-tier (2026-05-10) | ⚠️ R-tier CLI-level only | ❌ NOT EXECUTED | ❌ NOT EXECUTED |
-| **Deterministic suite** | ✅ 3237 passed (2026-05-11) | ✅ included in 3237 | ✅ included in 3237 | ✅ included in 3237 |
+| **Deterministic suite** | ✅ 4596 passed (2026-05-12) | ✅ included in 4596 | ✅ included in 4596 | ✅ included in 4596 |
 | **Known blockers** | Third-party inbound (M16) | mtjk not in project venv; BLE untested | No hardware available | No Reticulum instance; delivery state unvalidated |
 
 *\*LXMF is at risk of downgrade to Experimental (Tier 1) if Reticulum live path proves non-viable — see §5.4.*
@@ -127,14 +127,14 @@ No transport qualifies as production-ready.
 
 ### 5.1 What exists now (2026-05-12)
 
-- **Matrix:** H-tier evidence from 2026-05-10 (plaintext 13/13, E2EE 7/7, encrypted room 7/7 post-fix). 2026-05-12 live attempt failed (credential issues, not code issues). Deterministic: 3237 passed.
-- **Meshtastic:** H-tier adapter evidence from 2026-05-10 (10/10). R-tier CLI evidence from 2026-05-12 (serial validation, 4 reconnects, 1 outbound). Deterministic: 3237 passed.
-- **MeshCore:** S-tier only. Deterministic: 3237 passed.
-- **LXMF:** S-tier only. Deterministic: 3237 passed.
+- **Matrix:** H-tier evidence from 2026-05-10 (plaintext 13/13, E2EE 7/7, encrypted room 7/7 post-fix). 2026-05-12 live attempt failed (credential issues, not code issues). Deterministic: 4596 passed.
+- **Meshtastic:** H-tier adapter evidence from 2026-05-10 (10/10). R-tier CLI evidence from 2026-05-12 (serial validation, 4 reconnects, 1 outbound). Deterministic: 4596 passed.
+- **MeshCore:** S-tier only. Deterministic: 4596 passed.
+- **LXMF:** S-tier only. Deterministic: 4596 passed.
 
-### 5.2 What Wave 2 must produce
+### 5.2 Follow-Up Validation Requirements
 
-| Adapter | Minimum Wave 2 deliverable | Evidence tier target | Success criteria |
+| Adapter | Minimum follow-up deliverable | Evidence tier target | Success criteria |
 |---------|-----------------------------|---------------------|------------------|
 | Matrix | Current-tranche live re-run with valid credentials | C-tier | ≥13/13 plaintext passed. Previously passing tests still pass. |
 | Matrix | Third-party inbound live test | C-tier or R-tier | `test_inbound_message_received` passes with second account sending during 30s window. |
@@ -145,12 +145,12 @@ No transport qualifies as production-ready.
 | LXMF | **Any** live evidence | R-tier (minimum) | ≥1 adapter lifecycle test against real Reticulum instance. |
 | LXMF | Delivery state model validation | R-tier | Observe actual `OUTBOUND → SENDING → SENT → DELIVERED` transitions on real network. |
 
-### 5.3 What stays as-is (no Wave 2 dependency)
+### 5.3 What stays as-is (no follow-up dependency)
 
 - All S-tier evidence (fake modes, unit tests, mocked SDKs): confirmed and current.
 - Matrix H-tier evidence (2026-05-10): valid historical record. Not re-confirmed but not contradicted.
 - Meshtastic R-tier CLI evidence (2026-05-12): valid current-tranche hardware evidence.
-- Deterministic suite (3237 passed): confirmed 2026-05-11.
+- Deterministic suite (4596 passed, 25 skipped, 63 deselected): confirmed 2026-05-12.
 - Maturity labels: Matrix and Meshtastic beta-candidate justified on current evidence. MeshCore and LXMF alpha justified on unit-test-only basis.
 
 ### 5.4 Maturity promotion gates

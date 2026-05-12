@@ -47,8 +47,8 @@ pip install -e ".[matrix-e2e]"   # Matrix with E2EE (adds vodozemac, Rust)
 |-----------|---------------|----------|------------|---------|
 | **Matrix** | Yes | Beta-candidate | 2,903 LOC (10 files) | Fork dependency (`mindroom-nio`). E2EE requires Rust. Third-party inbound xfail (no second sender available). Federation validated (sk.community → matrix.org rooms). |
 | **Meshtastic** | Yes | Beta-candidate | 3,429 LOC (8 files) | Fire-and-forget delivery. Duplicate-send risk from retries. Fork dependency (`mtjk`). |
-| **MeshCore** | **No** | Alpha-operational | 2,321 LOC (7 files) | Unit-tested only. Wave 1: CP2104 `/dev/ttyUSB0` identified (likely T-Beam, no serial chatter). Firmware flash pending Wave 2. Maturity: Alpha (Tier 2) per Contract 62 — cannot promote until hardware-validated. |
-| **LXMF** | **No** | Alpha-operational (experimental risk) | 3,381 LOC (8 files) | Unit-tested only. Wave 1: local source repos available. Reticulum live path pending Wave 2. Delivery state model unvalidated. Experimental downgrade risk per Contract 62 §5.4 if live path proves non-viable. Reticulum non-standard license. |
+| **MeshCore** | **No** | Alpha-operational | 2,321 LOC (7 files) | Unit-tested only. Hardware probe: CP2104 `/dev/ttyUSB0` identified (likely T-Beam, no serial chatter). Firmware flash pending follow-up validation. Maturity: Alpha (Tier 2) per Contract 62 — cannot promote until hardware-validated. |
+| **LXMF** | **No** | Alpha-operational (experimental risk) | 3,381 LOC (8 files) | Unit-tested only. Local source repos available. Reticulum live path pending follow-up validation. Delivery state model unvalidated. Experimental downgrade risk per Contract 62 §5.4 if live path proves non-viable. Reticulum non-standard license. |
 
 **Live-validated means smoke-tested once against a real endpoint.** It does not
 mean sustained, reliable, or production-tested.
@@ -61,8 +61,8 @@ mean sustained, reliable, or production-tested.
 | Matrix | 2026-05-10 | 13/13 passed | matrix.org homeserver |
 | Matrix E2EE | 2026-05-10 | 7/7 passed | Encrypted room on matrix.org |
 | Meshtastic | 2026-05-12 | CLI validation: device info, 1 outbound, 4 reconnects | Serial `/dev/ttyACM0` (CH9102F, T-LoRa V2.1-1.6), firmware 2.7.19 |
-| MeshCore | — | Not run | CP2104 `/dev/ttyUSB0` (likely T-Beam) identified. No serial chatter. Firmware flash pending Wave 2. |
-| LXMF | — | Not run | Local source repos at `/home/jeremiah/dev`. Reticulum live path setup pending Wave 2. |
+| MeshCore | — | Not run | CP2104 `/dev/ttyUSB0` (likely T-Beam) identified. No serial chatter. Firmware flash pending follow-up validation. |
+| LXMF | — | Not run | Local source repos at `/home/jeremiah/dev`. Reticulum live path setup pending follow-up validation. |
 
 Per-transport maturity definitions:
 [docs/contracts/37-transport-maturity-classification.md](docs/contracts/37-transport-maturity-classification.md)
@@ -71,19 +71,19 @@ Cross-adapter operational maturity matrix (evidence-backed):
 [docs/contracts/62-adapter-operational-maturity-matrix.md](docs/contracts/62-adapter-operational-maturity-matrix.md)
 
 
-### Wave 2 Pending Operations
+### Follow-Up Validation (Pending)
 
-The following live validations require Wave 2 hardware/software operations. They are NOT blocking beta release for transports labeled alpha-operational.
+The following live validations require future hardware/software operations. They are NOT blocking beta release for transports labeled alpha-operational.
 
 | Operation | Transport | Prerequisite | Status |
 |-----------|-----------|--------------|--------|
-| `esptool chip_id` on CP2104 `/dev/ttyUSB0` | MeshCore | Physical access to device | Pending Wave 2 |
-| MeshCore firmware flash from local source | MeshCore | Confirm chip type, build firmware binary | Pending Wave 2 |
-| MeshCore live smoke test | MeshCore | MeshCore firmware running on CP2104 device | Pending Wave 2 |
-| Reticulum install from local source | LXMF | Configure transport, generate identity | Pending Wave 2 |
-| LXMF live smoke test | LXMF | Running Reticulum instance | Pending Wave 2 |
-| Matrix current-tranche live re-run | Matrix | Valid credentials (token or password) | Pending Wave 2 |
-| Meshtastic adapter live re-run | Meshtastic | `mtjk` in project venv | Pending Wave 2 |
+| `esptool chip_id` on CP2104 `/dev/ttyUSB0` | MeshCore | Physical access to device | Pending |
+| MeshCore firmware flash from local source | MeshCore | Confirm chip type, build firmware binary | Pending |
+| MeshCore live smoke test | MeshCore | MeshCore firmware running on CP2104 device | Pending |
+| Reticulum install from local source | LXMF | Configure transport, generate identity | Pending |
+| LXMF live smoke test | LXMF | Running Reticulum instance | Pending |
+| Matrix current-tranche live re-run | Matrix | Valid credentials (token or password) | Pending |
+| Meshtastic adapter live re-run | Meshtastic | `mtjk` in project venv | Pending |
 
 
 ## Known Limitations
@@ -103,7 +103,7 @@ These are not bugs. They are honest boundaries of what medre covers today.
   during real network failures.
 - **Text only.** No reactions, edits, deletes, attachments, media, or rich
   message types.
-- **Two transports lack live evidence.** MeshCore and LXMF are unit-tested only. MeshCore: CP2104 device at `/dev/ttyUSB0` identified (Wave 1, likely T-Beam) but no serial chatter — firmware flash required. LXMF: local source repos available, Reticulum live path setup pending. Both are Alpha (Tier 2) per Contract 62. LXMF has experimental downgrade risk if Reticulum live path proves non-viable. They may work perfectly or may have fundamental issues with real hardware/software — the gap is specific and documented, not vague.
+- **Two transports lack live evidence.** MeshCore and LXMF are unit-tested only. MeshCore: CP2104 device at `/dev/ttyUSB0` identified (hardware probe, likely T-Beam) but no serial chatter — firmware flash required. LXMF: local source repos available, Reticulum live path setup pending. Both are Alpha (Tier 2) per Contract 62. LXMF has experimental downgrade risk if Reticulum live path proves non-viable. They may work perfectly or may have fundamental issues with real hardware/software — the gap is specific and documented, not vague.
 - **Third-party Matrix inbound xfail.** Live test `test_inbound_message_received`
   xfails because no second Matrix account was available to send during the 30s
   window. Self-echo suppression verified; third-party inbound exercised only in

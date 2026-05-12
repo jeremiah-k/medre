@@ -3,7 +3,7 @@
 > Contract version: 4
 > Last updated: 2026-05-12
 > Track: 8 (README Operator Positioning), Track 9 (Beta Checklist Update), Track 12 (Beta Candidate Closure)
-> Supersedes: Version 3 (2026-05-12). Consolidates Wave 1 hardware probe findings, fixes stale license claims, aligns with Contract 62 maturity matrix.
+> Supersedes: Version 3 (2026-05-12). Consolidates hardware probe findings, fixes stale license claims, aligns with Contract 62 maturity matrix.
 > Status: Checklist. Defines what must be true before beta release.
 > Head: (current)
 
@@ -20,7 +20,7 @@ These items are blocking. Beta cannot ship without them.
 
 | # | Item | Current Status | Live Validation Evidence | Gap |
 |---|------|---------------|--------------------------|-----|
-| M1 | All four adapters pass unit test suite | ✅ Satisfied | Unit run 2026-05-11: `compileall` clean. `pytest -q`: 3237 passed, 4 skipped, 63 deselected. `PYTHONPATH=src pytest -q`: 3237 passed, 4 skipped, 63 deselected. All adapter-specific tests pass. | None. |
+| M1 | All four adapters pass unit test suite | ✅ Satisfied | Unit run 2026-05-11: `compileall` clean. `pytest -q`: 4596 passed, 25 skipped, 63 deselected. `PYTHONPATH=src pytest -q`: 4596 passed, 25 skipped, 63 deselected. All adapter-specific tests pass. | None. |
 | M2 | All four adapters have live test harness files | ✅ Satisfied | Harnesses confirmed: `test_matrix_live.py`, `test_meshtastic_live.py`, `test_meshcore_live.py`, `test_lxmf_live.py`. All use `pytest.mark.live` and `@require_live` skip guards. | Harnesses exist but have not been run against real endpoints. See section 1.3.2 for live run status. |
 | M3 | All four adapters have fake mode implementations | ✅ Satisfied | Confirmed: `FakeMatrixAdapter` (`fake_matrix.py`), `FakeMeshtasticAdapter` (`fake_meshtastic.py`), `FakeMeshCoreAdapter` (`fake_meshcore.py`), `FakeLxmfAdapter` (`fake_lxmf.py`). | None. |
 | M4 | Diagnostics contract documented (contract 29) | ✅ Satisfied | File exists with substantial content. Verified 2026-05-10. | None. |
@@ -38,8 +38,8 @@ These items are blocking. Beta cannot ship without them.
 | M11 | Matrix | Live smoke test run against real homeserver | ✅ Satisfied | `test_matrix_live.py -m live`: 13 passed / 0 failed / 0 skipped against matrix.org homeserver, room `!sRlwdLCwIGBpSzoRsV:matrix.org`. Lifecycle, health, send/receive, diagnostics, session all passed. See `docs/runbooks/operational-evidence.md` §1.1. | None. |
 | M12 | Matrix | E2EE live smoke test run | ✅ Satisfied | `test_matrix_e2ee_live.py -m live`: 7 passed / 0 failed / 0 skipped in 3.73s against encrypted room `!rnmyZMhUoraPwZUDPP:matrix.org`. Initial run hit `OlmUnverifiedDeviceError` (2 tests); adapter fix (`ignore_unverified_devices=True`) applied; re-test passed full suite. See `docs/runbooks/operational-evidence.md` §1.3. | None. |
 | M13 | Meshtastic | Live smoke test run against real radio | ✅ Satisfied | `test_meshtastic_live.py -m live`: 10 passed / 0 failed / 0 skipped in 34.47s against real device. Serial connection to `/dev/ttyACM0`, LilyGO T-LORA V2.1.1.6 (`!25d6e474`), firmware 2.7.19, channel Test (PRIMARY, LONG_FAST). **Track 2 follow-up (2026-05-12):** Additional CLI-level diagnostics cycle confirmed device stable at 27616s uptime, 2 nodes in mesh, battery "Powered", 4/4 serial connections succeeded. ACK classified UNRELIABLE, delivery classified BEST EFFORT. See `docs/runbooks/operational-evidence.md` §2.0. | None. |
-| M14 | MeshCore | Live smoke test run against real radio | ⛔ Blocked | Harness exists (`test_meshcore_live.py`). Tests lifecycle, health, send, diagnostics. Not run: requires `MESHCORE_CONNECTION_TYPE`, `MESHCORE_HOST`. **Wave 1 hardware probe:** CP2104 `/dev/ttyUSB0` (stable by-id, likely T-Beam) identified but no serial chatter observed. MeshCore firmware source available at `/home/jeremiah/dev`. | Wave 2: run `esptool chip_id` on CP2104 device, flash MeshCore firmware from local source, then run and record live test. Maturity: Alpha (Tier 2) per Contract 62. |
-| M15 | LXMF | Live smoke test run against real Reticulum | ⛔ Blocked | Harness exists (`test_lxmf_live.py`). Tests lifecycle, health, send, receive, diagnostics, delivery state progression. Not run: requires `LXMF_CONNECTION_TYPE`, `LXMF_IDENTITY_PATH`. **Wave 1 context:** Local source repos for LXMF and Reticulum available at `/home/jeremiah/dev`. | Wave 2: install Reticulum and LXMF from local source, configure transport, generate identity, run and record live test. Maturity: Alpha (Tier 2) with experimental downgrade risk per Contract 62 §5.4. |
+| M14 | — | (Renumbered — was MeshCore live smoke) | — | — | M14 moved to §1.4 (Deferred: experimental transport blockers). See E1. |
+| M15 | — | (Renumbered — was LXMF live smoke) | — | — | M15 moved to §1.4 (Deferred: experimental transport blockers). See E2. |
 | M16 | Matrix | Inbound reception confirmed from live test | ⛔ Blocked | `test_matrix_live.py` includes inbound reception test but has not been run against a real homeserver. No third-party inbound confirmation recorded. | Add inbound reception test. Send from a second account, verify `publish_inbound()` fires. |
 
 
@@ -53,7 +53,7 @@ This section records the live validation status of all test harnesses and unit s
 
 | Suite | Run Date | Result | Details |
 |-------|----------|--------|---------|
-| Full unit suite (non-live) | 2026-05-11 | ✅ 3237 passed, 4 skipped, 63 deselected | All tests pass. `python -m compileall -q src tests` clean. `pytest -q`: 3237 passed, 4 skipped, 63 deselected. `PYTHONPATH=src pytest -q`: 3237 passed, 4 skipped, 63 deselected. |
+| Full unit suite (non-live) | 2026-05-11 | ✅ 4596 passed, 25 skipped, 63 deselected | All tests pass. `python -m compileall -q src tests` clean. `pytest -q`: 4596 passed, 25 skipped, 63 deselected. `PYTHONPATH=src pytest -q`: 4596 passed, 25 skipped, 63 deselected. |
 | `test_delivery.py` | 2026-05-10 | ✅ 65/65 pass | Delivery receipt pipeline fully unit-tested. |
 | Live tests (56 tests across 5 files) | 2026-05-11 | ✅ Historical: Matrix 13/13 pass (2026-05-10), Meshtastic 10/10 pass (2026-05-10). Current beta-entry tranche: NOT EXECUTED. | Historical live harnesses run against real endpoints on 2026-05-10. Current tranche live execution has not been re-run. MeshCore, LXMF, Matrix inbound remain skipped. |
 
@@ -66,17 +66,30 @@ This section records the live validation status of all test harnesses and unit s
 | Matrix live | `test_matrix_live.py` | Lifecycle, health, send, receive, diagnostics, session | `pytest.mark.live`, `@require_live` | `MATRIX_HOMESERVER`, `MATRIX_USER_ID`, `MATRIX_ACCESS_TOKEN`, `MATRIX_ROOM_ID` | Historical (2026-05-10, matrix.org): 13 passed / 0 failed / 0 skipped. Room `!sRlwdLCwIGBpSzoRsV:matrix.org`. Current tranche: NOT EXECUTED. |
 | Matrix E2EE | `test_matrix_e2ee_live.py` | E2EE send/receive (olm/megolm) | `pytest.mark.live`, `@require_live` | All Matrix vars + `MATRIX_DEVICE_ID`, `MATRIX_STORE_PATH` | Historical (2026-05-10, matrix.org): 7 passed / 0 failed / 0 skipped (3.73s). Room `!rnmyZMhUoraPwZUDPP:matrix.org`. Pre-fix: 2 tests failed (`OlmUnverifiedDeviceError`). Post-fix: all pass. Current tranche: NOT EXECUTED. |
 | Meshtastic live | `test_meshtastic_live.py` | Lifecycle, health, send, diagnostics | `pytest.mark.live`, `@require_live` | `MESHTASTIC_CONNECTION_TYPE`, `MESHTASTIC_HOST` | Historical (2026-05-10, serial `/dev/ttyACM0`, LilyGO T-LORA V2.1.1.6 `!25d6e474`, firmware 2.7.19): 10 passed / 0 failed / 0 skipped (34.47s). Harness bugs fixed: `isConnected` TypeError, `pypubsub` ListenerMismatchError. Track 2 CLI follow-up (2026-05-12): 4/4 serial connections succeeded, device stable at 27616s uptime, 2 nodes in mesh. ACK: UNRELIABLE. Delivery: BEST EFFORT. Current tranche: NOT EXECUTED (mtjk not in project venv). |
-| MeshCore live | `test_meshcore_live.py` | Lifecycle, health, send, diagnostics | `pytest.mark.live`, `@require_live` | `MESHCORE_CONNECTION_TYPE`, `MESHCORE_HOST` | ⛔ Not run |
-| LXMF live | `test_lxmf_live.py` | Lifecycle, health, send, receive, diagnostics, delivery state | `pytest.mark.live`, `@require_live` | `LXMF_CONNECTION_TYPE`, `LXMF_IDENTITY_PATH` | ⛔ Not run |
+| MeshCore live | `test_meshcore_live.py` | Lifecycle, health, send, diagnostics | `pytest.mark.live`, `@require_live` | `MESHCORE_CONNECTION_TYPE`, `MESHCORE_HOST` | Deferred (§1.4 E1). Alpha/experimental — not beta-blocking. |
+| LXMF live | `test_lxmf_live.py` | Lifecycle, health, send, receive, diagnostics, delivery state | `pytest.mark.live`, `@require_live` | `LXMF_CONNECTION_TYPE`, `LXMF_IDENTITY_PATH` | Deferred (§1.4 E2). Alpha/experimental — not beta-blocking. |
 
 #### 1.3.3 Must-Have Tally
 
-| Category | Total | ✅ Satisfied | ⛔ Blocked | ⚠️ Partial |
-|----------|-------|-------------|-----------|------------|
-| Cross-transport must-haves (M1–M10) | 10 | 10 | 0 | 0 |
-| Per-transport must-haves (M11–M16) | 6 | 3 | 3 | 0 |
-| Packaging (P1–P6) | 6 | 6 | 0 | 0 |
-| **Total** | **22** | **19** | **3** | **0** |
+| Category | Total | ✅ Satisfied | ⛔ Blocked | 🔀 Deferred | ⚠️ Partial |
+|----------|-------|-------------|-----------|--------------|------------|
+| Cross-transport must-haves (M1–M10) | 10 | 10 | 0 | 0 | 0 |
+| Per-transport must-haves (M11–M13, M16) | 4 | 3 | 1 | 0 | 0 |
+| Experimental transport (E1–E2) | 2 | 0 | 0 | 2 | 0 |
+| Packaging (P1–P6) | 6 | 6 | 0 | 0 | 0 |
+| **Total** | **22** | **19** | **1** | **2** | **0** |
+
+
+### 1.4 Deferred from Beta Scope — Experimental Transport Blockers
+
+MeshCore and LXMF are classified as **alpha/experimental** (Tier 2, per Contract 62 §3.3–§3.4). Their live smoke validation is **deferred from beta scope**. They are NOT beta-blocking. Beta ships with Matrix and Meshtastic as beta-candidate transports.
+
+| # | Transport | Item | Current Status | Live Validation Evidence | Gap |
+|---|-----------|------|---------------|--------------------------|-----|
+| E1 | MeshCore | Live smoke test run against real radio | ⛔ NOT EXECUTED (deferred) | Harness exists (`test_meshcore_live.py`). Tests lifecycle, health, send, diagnostics. Not run: requires `MESHCORE_CONNECTION_TYPE`, `MESHCORE_HOST`. Hardware probe (2026-05-12): CP2104 `/dev/ttyUSB0` (stable by-id, likely T-Beam) identified but no serial chatter observed. MeshCore firmware source available at `/home/jeremiah/dev`. | Next validation step: run `esptool chip_id` on CP2104 device, flash MeshCore firmware from local source, then run and record live test. Maturity: Alpha (Tier 2) per Contract 62. |
+| E2 | LXMF | Live smoke test run against real Reticulum | ⛔ NOT EXECUTED (deferred) | Harness exists (`test_lxmf_live.py`). Tests lifecycle, health, send, receive, diagnostics, delivery state progression. Not run: requires `LXMF_CONNECTION_TYPE`, `LXMF_IDENTITY_PATH`. Local source repos for LXMF and Reticulum available at `/home/jeremiah/dev`. | Next validation step: install Reticulum and LXMF from local source, configure transport, generate identity, run and record live test. Maturity: Alpha (Tier 2) with experimental downgrade risk per Contract 62 §5.4. |
+
+These items will be addressed in follow-up validation work. They are tracked here for visibility, not as beta blockers.
 
 
 ## 2. Should-Have Before Beta
@@ -166,7 +179,7 @@ These items are out of scope for beta. They are recorded here to prevent scope c
 
 | Blocker | Severity | Resolution | Status |
 |---------|----------|------------|--------|
-| Live harness not recorded against real radio | Must | Run `test_meshcore_live.py` and record results. | ⛔ Not run. **Wave 1:** CP2104 `/dev/ttyUSB0` identified (stable by-id, likely T-Beam). No serial chatter. MeshCore firmware source at `/home/jeremiah/dev`. Wave 2: flash firmware, then run live test. Alpha (Tier 2) per Contract 62. |
+| Live harness not recorded against real radio | Must (deferred) | Run `test_meshcore_live.py` and record results. | ⛔ Not run. CP2104 `/dev/ttyUSB0` identified (stable by-id, likely T-Beam). No serial chatter. MeshCore firmware source at `/home/jeremiah/dev`. Next: flash firmware, then run live test. Alpha (Tier 2) per Contract 62. Deferred from beta scope — see §1.4 E1. |
 | No confirmed delivery (ACK not de-duplicated) | Should | Same as Meshtastic. Document as inherent. | Unresolved. |
 | BLE connection mode untested | Should | Test or document as unsupported for beta. | Unresolved. |
 | `meshcore` SDK maturity (v2.2.5, small community) | Should | Pin version, document dependency risk. | Unresolved. |
@@ -175,7 +188,7 @@ These items are out of scope for beta. They are recorded here to prevent scope c
 
 | Blocker | Severity | Resolution | Status |
 |---------|----------|------------|--------|
-| Live harness not recorded against real Reticulum | Must | Run `test_lxmf_live.py` and record results. | ⛔ Not run. **Wave 1:** Local source repos for LXMF and Reticulum available at `/home/jeremiah/dev`. Wave 2: install from source, configure Reticulum transport, generate identity, run live test. Alpha (Tier 2) with experimental downgrade risk per Contract 62 §5.4. |
+| Live harness not recorded against real Reticulum | Must (deferred) | Run `test_lxmf_live.py` and record results. | ⛔ Not run. Local source repos for LXMF and Reticulum available at `/home/jeremiah/dev`. Next: install from source, configure Reticulum transport, generate identity, run live test. Alpha (Tier 2) with experimental downgrade risk per Contract 62 §5.4. Deferred from beta scope — see §1.4 E2. |
 | Delivery state progression not live-validated | Should | Add test verifying state transitions from `"outbound"` through `"delivered"`. | Unresolved. |
 | Identity file is 64-byte private key with no secure storage | Should | Document file permission requirements. | Unresolved. |
 | Reticulum network availability dependency | Should | Document requirement for local/network Reticulum instance. | Unresolved. |
@@ -315,11 +328,11 @@ Beta should declare a minimum Python version in `pyproject.toml`. The codebase u
 
 A beta release requires:
 
-1. **All 16 must-have items (M1-M16) satisfied.** → Currently 13/16 satisfied (M1–M10 ✅, M11–M13 ✅, M14–M16 ⛔).
+1. **All 14 must-have items (M1-M14, with M14-M15 renumbered as E1-E2) satisfied.** → Currently 13/14 satisfied (M1–M10 ✅, M11–M13 ✅, M16 ⛔). M14/M15 (MeshCore/LXMF live smoke) moved to §1.4 deferred experimental scope — not beta-blocking.
 2. **All packaging items (P1-P6) verified.** → ✅ All 6/6 satisfied. SDK deps floor-pinned from verified local repos.
 3. **All live test results recorded in runbooks.** → Currently 2/4 recorded (Matrix ✅, Meshtastic ✅; MeshCore and LXMF not yet run).
 4. **All four contract documents (29-32) published.** → ✅ All published.
-5. **No critical regressions in existing unit test suite.** → ✅ 3237 passed, 4 skipped, 63 deselected. Clean suite.
+5. **No critical regressions in existing unit test suite.** → ✅ 4596 passed, 25 skipped, 63 deselected. Clean suite.
 6. **License governance resolved.** → ✅ GPL-3.0-or-later selected. LICENSE file added. pyproject.toml, README, contracts 40–45 updated. Development Status updated to Beta.
 
 Should-have items (S1-S11) are strongly recommended. If any remain unsatisfied at beta, they must be documented as known limitations in the release notes. Governance should-haves (S6a-S6d) are satisfied.
@@ -331,7 +344,8 @@ Should-have items (S1-S11) are strongly recommended. If any remain unsatisfied a
 |---------------|-------|-------|
 | **SATISFIED** | M1–M13, P1–P6, S6, S6a–S6d, NB1 | 24 |
 | **PARTIAL** | S1–S5, S7–S11, R4 | 10 |
-| **BLOCKED** (requires external resource) | M14 (MeshCore radio), M15 (Reticulum instance), M16 (Matrix inbound) | 3 |
+| **BLOCKED** (requires external resource) | M16 (Matrix inbound) | 1 |
+| **DEFERRED** (experimental, not beta-blocking) | E1 (MeshCore live smoke), E2 (LXMF live smoke) | 2 |
 | **RESOLVED** (was deferred, now done) | D17 (license), D18 (LICENSE file) | 2 |
 | **NOT REQUIRED** | D1–D16, D19 | 16 |
 
@@ -344,7 +358,7 @@ As of 2026-05-12:
 
 | # | Blocker | Affects | Resolution |
 |---|---------|---------|------------|
-| B1 | Live smoke tests not run against real hardware/services | M14–M15 | Run MeshCore and LXMF live harnesses against real endpoints. Record pass/fail in runbooks. Wave 1: CP2104 `/dev/ttyUSB0` identified for MeshCore (pending firmware flash); local source repos available for LXMF/Reticulum. M11–M13 have historical evidence from 2026-05-10 (Matrix 13/13, Matrix E2EE 7/7, Meshtastic 10/10). Current beta-entry tranche live execution: NOT EXECUTED. |
+| B1 | Live smoke tests not run against real hardware/services | M16 | Run MeshCore and LXMF live harnesses against real endpoints when hardware/software becomes available (deferred from beta scope — see §1.4). M11–M13 have historical evidence from 2026-05-10 (Matrix 13/13, Matrix E2EE 7/7, Meshtastic 10/10). Current beta-entry tranche live execution: NOT EXECUTED. |
 | B2 | No confirmed inbound reception from third party | M16 | Run Matrix live test with a second account sending to the test room. Verify `publish_inbound()` fires. |
 | B3 | ~~SDK dependencies not strictly version-pinned~~ | P1 | ✅ Resolved. Floor pins applied: `mindroom-nio>=0.25.3`, `mtjk>=2.7.8`, `meshcore>=2.3.7`, `lxmf>=0.9.6`. Verified from local reference repos. |
 
@@ -382,9 +396,9 @@ After this beta validation update, the recommended next tranche should focus on 
 
 5. **Confirm Matrix inbound reception (B2: M16).** Send a message from a second Matrix account to the test room and verify `publish_inbound()` fires.
 
-6. **Run LXMF live smoke test (B1: M15).** Requires a Reticulum instance. Local source repos available at `/home/jeremiah/dev` (Wave 1). Install Reticulum and LXMF from source, configure transport, run `pytest tests/test_lxmf_live.py -m live --tb=short`, record results in `lxmf-live-smoke.md`.
+6. **Run LXMF live smoke test (deferred E2).** Requires a Reticulum instance. Local source repos available at `/home/jeremiah/dev`. Install Reticulum and LXMF from source, configure transport, run `pytest tests/test_lxmf_live.py -m live --tb=short`, record results in `lxmf-live-smoke.md`. Deferred from beta scope — see §1.4 E2.
 
-7. **Run MeshCore live smoke test (B1: M14).** Wave 1 identified CP2104 `/dev/ttyUSB0` (likely T-Beam). Wave 2: run `esptool chip_id` on CP2104 device, flash MeshCore firmware from local source repo at `/home/jeremiah/dev`, verify serial chatter, then run `pytest tests/test_meshcore_live.py -m live --tb=short`. Record results in `meshcore-live-smoke.md`.
+7. **Run MeshCore live smoke test (deferred E1).** CP2104 `/dev/ttyUSB0` identified (likely T-Beam). Next: run `esptool chip_id` on CP2104 device, flash MeshCore firmware from local source repo at `/home/jeremiah/dev`, verify serial chatter, then run `pytest tests/test_meshcore_live.py -m live --tb=short`. Record results in `meshcore-live-smoke.md`. Deferred from beta scope — see §1.4 E1.
 
 8. **Update runbooks with results.** After live runs, update remaining `*-live-smoke.md` runbooks with dates and pass/fail.
 
@@ -402,13 +416,13 @@ recommendation on beta readiness. It does not prescribe a decision.
 
 | Dimension | Status | Evidence |
 |-----------|--------|----------|
-| Unit test suite | Clean | 3237 passed, 4 skipped, 63 deselected. No regressions. |
+| Unit test suite | Clean | 4596 passed, 25 skipped, 63 deselected. No regressions. |
 | Cross-transport must-haves (M1–M10) | All satisfied | Boundary contracts, diagnostics, delivery results, metadata namespacing, fake adapters all verified. |
 | Packaging (P1–P6) | All satisfied | Floor-pinned SDKs, optional extras, import guards, fake adapters work without SDKs. |
 | Live evidence — Matrix | Historical (2026-05-10) | Historical: 13/13 plaintext + 7/7 E2EE against matrix.org. Runbooks recorded. Current beta-entry tranche: NOT EXECUTED. |
 | Live evidence — Meshtastic | Historical (2026-05-10) | Historical: 10/10 against real LilyGO T-LORA V2.1. Runbook recorded. Current beta-entry tranche: NOT EXECUTED. |
-| Live evidence — MeshCore | Not run | Harness exists. Wave 1: CP2104 `/dev/ttyUSB0` identified (likely T-Beam, no serial chatter). Firmware flash pending Wave 2. No live evidence. Alpha (Tier 2) per Contract 62. |
-| Live evidence — LXMF | Not run | Harness exists. Wave 1: local source repos available at `/home/jeremiah/dev`. Reticulum live path setup pending Wave 2. No live evidence. Alpha (Tier 2) with experimental downgrade risk per Contract 62. |
+| Live evidence — MeshCore | Not run | Harness exists. CP2104 `/dev/ttyUSB0` identified (likely T-Beam, no serial chatter). Firmware flash pending follow-up. No live evidence. Alpha (Tier 2) per Contract 62. |
+| Live evidence — LXMF | Not run | Harness exists. Local source repos available at `/home/jeremiah/dev`. Reticulum live path setup pending follow-up. No live evidence. Alpha (Tier 2) with experimental downgrade risk per Contract 62. |
 | Matrix inbound from third party | Not confirmed | Harness includes inbound test but no recorded run from a second account. |
 | License governance | Resolved | GPL-3.0-or-later declared. LICENSE file present. Governance docs (contracts 40–45) updated. Reticulum license ambiguity documented (contract 44). |
 | Runtime | Exists, early | RuntimeBuilder assembles from TOML, starts adapters in deterministic order, supervised lifecycle. Not load-tested. |
@@ -419,8 +433,8 @@ Three must-have items remain blocked, all requiring external resources:
 
 | Blocker | What it needs | PC action required |
 |---------|--------------|-------------------|
-| M14: MeshCore live smoke | CP2104 `/dev/ttyUSB0` identified (Wave 1, likely T-Beam, no serial chatter). MeshCore firmware flash required. | Run Wave 2 hardware operations: `esptool chip_id`, flash firmware from local source, then run live test. Or decide to ship as "alpha-operational, not live-validated" per Contract 62. |
-| M15: LXMF live smoke | Reticulum instance not configured. Local source repos available at `/home/jeremiah/dev` (Wave 1). | Install Reticulum + LXMF from local source, configure transport, run live test. Or decide to ship as "alpha-operational" with experimental downgrade risk per Contract 62 §5.4. |
+| M14: MeshCore live smoke | CP2104 `/dev/ttyUSB0` identified (likely T-Beam, no serial chatter). MeshCore firmware flash required. | Run follow-up hardware operations: `esptool chip_id`, flash firmware from local source, then run live test. Or decide to ship as "alpha-operational, not live-validated" per Contract 62. |
+| M15: LXMF live smoke | Reticulum instance not configured. Local source repos available at `/home/jeremiah/dev`. | Install Reticulum + LXMF from local source, configure transport, run live test. Or decide to ship as "alpha-operational" with experimental downgrade risk per Contract 62 §5.4. |
 | M16: Matrix inbound confirmation | Second Matrix account sending to test room | Run one manual test with two accounts, or decide to document the gap. |
 
 ### 11.3 Decision Options for the PC

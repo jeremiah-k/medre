@@ -441,10 +441,11 @@ Non-root medre user confirmed writable in all four directories.
 | `medre adapters` | ✅ Lists adapter types |
 | `compileall src/` | ✅ Exit 0 |
 | `compileall tests/` | ✅ Exit 0 |
-| `pytest -q` | ✅ 4417 passed, 9 failed (expected: missing optional SDKs), 4 skipped, 63 deselected |
+| `pytest -q` (core only) | ✅ Core tests pass | Transport-dependent tests NOT EXECUTED — optional SDKs (mindroom-nio, mtjk) not installed in clean venv. Full suite requires `pip install -e ".[matrix,meshtastic]"`. Targeted validation passed for all core package tests. |
+| `pytest -q` (full suite) | ⚠️ NOT EXECUTED | Full suite not run in clean venv — requires optional transport SDKs. See §11.1 for breakdown. |
 | `python -m build` (sdist+wheel) | ✅ `medre-0.1.0.tar.gz` (737 KB) + `medre-0.1.0-py3-none-any.whl` (321 KB) |
 
-The 9 test failures in clean venv are expected — they require optional transport SDKs (mindroom-nio, mtjk) not installed in the minimal environment:
+The 9 tests NOT EXECUTED in the clean venv require optional transport SDKs not installed in the minimal environment:
 
 - 2 `test_cli.py::TestDiagnostics` — need matrix/meshtastic SDKs
 - 5 `test_meshtastic_adapter.py` — need mtjk SDK

@@ -1,6 +1,6 @@
 # Contract 57 — Runtime Event Accounting
 
-**Status:** Approved (Wave 1, Track 5)
+**Status:** Approved (Track 5)
 **Module:** `medre.core.runtime.accounting`
 **Depends on:** None (standalone, zero transport imports)
 
@@ -42,7 +42,7 @@ There are no unbounded dictionaries or growing lists.
 - `snapshot()` returns keys sorted alphabetically.
 - Output is JSON-safe: all values are `int`, no secrets, no SDK objects.
 - Repeated calls with no intervening mutations return identical output.
-- Suitable for inclusion in Wave 2 runtime diagnostics snapshots.
+- Suitable for inclusion in future runtime diagnostics snapshots.
 
 ### Copy-on-write semantics
 Each `record_*` call creates a new frozen `RuntimeCounters` instance.
@@ -94,7 +94,7 @@ lifetime of the `RuntimeAccounting` instance.  Specifically:
 3. No file I/O, no database writes, no network persistence.
 
 Operators must not rely on counter continuity across restarts.  For
-persistent metrics, use an external monitoring system (Wave 2+).
+persistent metrics, use an external monitoring system (future).
 
 ## Operator Interpretation Guide
 
@@ -105,7 +105,7 @@ persistent metrics, use an external monitoring system (Wave 2+).
 | `loop_prevented` high relative to `outbound_attempts` | Self-loop guard firing frequently. Check route topology for cycles. |
 | `capacity_rejections` rising | Capacity controller rejecting work. Consider increasing concurrency limits. |
 | `replay_rejected` rising with `replay_processed` flat | Replay filter rejecting all events. Check replay request parameters. |
-| All counters zero after uptime | Accounting not wired into the pipeline yet (Wave 2 integration). |
+| All counters zero after uptime | Accounting not wired into the pipeline yet (future integration). |
 
 ## Relationship to Existing Metrics
 
@@ -120,9 +120,9 @@ persistent metrics, use an external monitoring system (Wave 2+).
 the per-route/per-kind modules do not offer.  It does not replace or
 duplicate them.
 
-## Wave 2 Integration Points
+## Future Integration Points
 
-The accounting module is designed for Wave 2 consumption:
+The accounting module is designed for future consumption:
 
 1. **Snapshot integration**: `RuntimeAccounting.snapshot()` output can be
    included in `RuntimeSnapshot.accounting` (new field) or composed into
