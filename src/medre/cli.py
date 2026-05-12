@@ -33,7 +33,7 @@ from medre.config.loader import load_config, ConfigSource
 from medre.config.sample import generate_sample_config
 from medre.config.paths import resolve, MedrePaths
 from medre.config.env import apply_env_overrides
-from medre.config.errors import ConfigValidationError
+from medre.config.errors import ConfigError, ConfigValidationError
 from medre.logging import (
     adapter_logger,
     format_duration_ms,
@@ -272,6 +272,7 @@ def _config_check(config_path: str | None) -> None:
     print()
     if validation_errors:
         print(f"Config has {len(validation_errors)} error(s)")
+        sys.exit(1)
     else:
         print("Config valid")
     print(f"  {enabled_count}/{total} adapter(s) enabled")
@@ -638,7 +639,11 @@ def _diagnostics(config_path: str | None) -> None:
 
     from medre.runtime.builder import RuntimeBuilder
     builder = RuntimeBuilder(config, paths)
-    app = builder.build()
+    try:
+        app = builder.build()
+    except Exception as exc:
+        print(f"Runtime build error: {exc}", file=sys.stderr)
+        sys.exit(1)
 
     # Use fixed timestamps for deterministic output.
     fixed_now = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
@@ -670,7 +675,14 @@ async def _run(config_path: str | None) -> None:
     """Load config, build the runtime, and run until interrupted."""
     from medre.runtime.builder import RuntimeBuilder
 
-    config, source, paths = load_config(config_path)
+    try:
+        config, source, paths = load_config(config_path)
+    except ConfigError as exc:
+        print(f"Config error: {exc}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as exc:
+        print(f"Config error: {exc}", file=sys.stderr)
+        sys.exit(1)
     config = apply_env_overrides(config, paths)
 
     # Check for enabled adapters *before* building runtime.

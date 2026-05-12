@@ -283,3 +283,162 @@ pip install -e ".[dev]"
 | `vodozemac` build failure | No Rust toolchain | Install Rust: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
 | `RNS.Identity.from_file()` returns `None` | Identity file not found or corrupted | Check path, verify file is 64 bytes, check file permissions |
 | `ImportError: cannot import name 'HAS_E2EE'` | Old install without E2EE extra | Reinstall: `pip install -e ".[matrix-e2e]"` |
+
+
+## 8. Clean Environment Reproducibility Procedure
+
+This procedure validates MEDRE from a **clean slate** — no prior install, no cached
+state. It proves that another developer can reproduce the project from this
+document alone. Run every step in order; every step must pass.
+
+### 8.1 Prerequisites
+
+- Python >= 3.11 available as `python3` (or `python3.12`)
+- `git` installed
+- No existing `.venv` in the clone directory (delete if present)
+
+### 8.2 Step-by-step procedure
+
+```bash
+# ── 1. Clone and enter ──────────────────────────────────────────────
+git clone <repo-url> meshnet-framework
+cd meshnet-framework
+
+# ── 2. Create a fresh virtual environment ────────────────────────────
+python3 -m venv .venv
+source .venv/bin/activate
+
+# Verify: should show the venv python
+which python
+# Expected: .../meshnet-framework/.venv/bin/python
+
+# ── 3. Upgrade pip (avoids resolver issues on older pip) ────────────
+pip install --upgrade pip
+
+# ── 4. Install base package (editable mode) ──────────────────────────
+pip install -e .
+
+# Verify: medre console script is on PATH
+which medre
+# Expected: .../meshnet-framework/.venv/bin/medre
+
+# ── 5. Install test dependencies ─────────────────────────────────────
+pip install -e ".[dev]"
+
+# Verify: pytest is available
+which pytest
+# Expected: .../meshnet-framework/.venv/bin/pytest
+
+# ── 6. Compile check ─────────────────────────────────────────────────
+python -m compileall -q src tests
+# Expected: no output (clean compilation, all .pyc generated)
+
+# ── 7. Run unit test suite ───────────────────────────────────────────
+# pytest reads pyproject.toml [tool.pytest.ini_options] automatically.
+# addopts = "-m 'not live'" excludes live tests by default.
+pytest -q
+# Expected: all passed, 0 failed, live tests deselected.
+# (Exact test count varies by commit; expect ~2000+ passed.)
+
+# ── 8. Verify console script: medre version ──────────────────────────
+medre version
+# Expected: prints version, Python version, platform. Example:
+#   medre 0.1.0
+#   Python  3.12.x
+#   Platform Linux x.y.z (x86_64)
+
+# ── 9. Verify console script: medre config sample ────────────────────
+medre config sample
+# Expected: prints a TOML config to stdout containing [runtime],
+#   [logging], [storage], and adapter sections.
+
+# ── 10. Validate example configs with medre config check ─────────────
+medre config check --config examples/configs/fake-multi-adapter.toml
+# Expected: "Configuration is valid" or equivalent success message.
+
+medre config check --config examples/configs/matrix.toml
+# Expected: "Configuration is valid" (placeholder credentials are fine
+#   for structural validation).
+
+medre config check --config examples/configs/meshtastic-serial.toml
+# Expected: "Configuration is valid".
+
+medre config check --config examples/configs/mixed-matrix-meshtastic.toml
+# Expected: "Configuration is valid".
+
+# ── 11. Verify medre paths ──────────────────────────────────────────
+medre paths
+# Expected: prints resolved MEDRE paths (home, state, config, log).
+
+# ── 12. Verify medre adapters ───────────────────────────────────────
+medre adapters
+# Expected: lists available adapter types with import status.
+#   Transports without optional deps show as "not installed" — this is
+#   correct for a base install. Fake adapters should show as available.
+
+# ── 13. Verify live tests are excluded by default ────────────────────
+# This confirms the pytest addopts in pyproject.toml are effective.
+pytest --co -q 2>/dev/null | grep -c "test_"
+# Should report ~2000+ collected tests (none with the live marker).
+pytest -m live --co -q 2>/dev/null | grep -c "test_"
+# Should report ~61 live tests (all deselected during normal runs).
+```
+
+### 8.3 Expected summary
+
+| Check | Expected result |
+|-------|----------------|
+| `python -m compileall -q src tests` | No output (clean) |
+| `pytest -q` | All passed, 0 failed, live deselected |
+| `medre version` | Prints version + Python + platform |
+| `medre config sample` | Prints valid TOML config |
+| `medre config check` (all 4 examples) | All report valid |
+| `medre paths` | Prints resolved path directories |
+| `medre adapters` | Lists adapter types with availability |
+
+If any step fails, the environment is not correctly set up. Check the
+"Common Issues" section (§7) for resolution steps.
+
+### 8.4 Optional: Install transport SDKs
+
+If you need live transport testing, install the relevant extras:
+
+```bash
+# Matrix (plaintext)
+pip install -e ".[matrix]"
+
+# Matrix (E2EE — includes plaintext deps)
+pip install -e ".[matrix-e2e]"
+
+# Meshtastic
+pip install -e ".[meshtastic]"
+
+# MeshCore
+pip install -e ".[meshcore]"
+
+# LXMF / Reticulum
+pip install -e ".[lxmf]"
+
+# All transports + dev
+pip install -e ".[dev,matrix,matrix-e2e,meshtastic,meshcore,lxmf]"
+```
+
+After installing transport SDKs, re-run `medre adapters` to confirm
+they appear as "installed".
+
+### 8.5 Live tests remain excluded
+
+Live tests require real credentials and hardware. They are excluded by
+default via `pyproject.toml`:
+
+```toml
+[tool.pytest.ini_options]
+markers = [
+    "live: tests that connect to a real service or hardware (skipped by default)",
+]
+addopts = "-m 'not live'"
+```
+
+Do **not** run live tests in a clean environment validation. Live test
+procedures are documented in `docs/runbooks/operational-evidence.md`
+and `docs/runbooks/soak-testing.md`.

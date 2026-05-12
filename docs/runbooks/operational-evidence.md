@@ -1,11 +1,12 @@
 # Operational Evidence Runbook
 
-> Last updated: 2026-05-10
+> Last updated: 2026-05-11
 > Status: Partially populated. Matrix plaintext 13-pass, E2EE harness 7-pass,
 > encrypted-room follow-up 7-pass (post-fix), Track 2 inbound test harness
 > complete (deterministic 27/27 pass, live execution operator-dependent).
 > Meshtastic serial live 10-pass after two harness fixes.
 > MeshCore, LXMF, and soak tests remain **NOT EXECUTED**.
+> Live commands, env vars, and NOT EXECUTED reasoning in §6–§7.
 > Related: `docs/contracts/32-beta-readiness-checklist.md`, section 1.3.2.
 
 This document is the consolidated operational evidence record for each validated
@@ -337,15 +338,170 @@ live services. These are confirmed from CI runs.
 | **All adapters covered** | Yes (Matrix, Meshtastic, MeshCore, LXMF) |
 
 
-## 6. Evidence Integration Instructions
+## 6. Live Evidence Commands and Environment Variables
 
-When live agents report results:
+This section provides the exact commands and required environment variables
+for reproducing live evidence per transport. Every **NOT EXECUTED** entry
+in this document can be resolved by running the corresponding command with
+the required environment variables set.
 
-1. Replace **NOT EXECUTED** placeholders in the relevant transport section.
+### 6.1 Matrix (Plaintext)
+
+```bash
+# Install transport SDK
+pip install -e ".[matrix]"
+
+# Required environment variables
+export MATRIX_HOMESERVER="https://matrix.example.com"
+export MATRIX_USER_ID="@bot:example.com"
+export MATRIX_ACCESS_TOKEN="syt_..."
+export MATRIX_ROOM_ID="!room:example.com"
+
+# Run live smoke tests
+pytest tests/test_matrix_live.py -m live -v
+
+# Run Matrix soak tests (default 30s, max 300s)
+SOAK_DURATION_SECONDS=30 pytest tests/test_soak.py::TestMatrixSoak -m live -v -s
+```
+
+### 6.2 Matrix (E2EE)
+
+```bash
+# Install E2EE transport SDK
+pip install -e ".[matrix-e2e]"
+
+# Required environment variables (same as plaintext, plus)
+export MATRIX_HOMESERVER="https://matrix.example.com"
+export MATRIX_USER_ID="@bot:example.com"
+export MATRIX_ACCESS_TOKEN="syt_..."
+export MATRIX_ROOM_ID="!room:example.com"
+export MATRIX_ENCRYPTION_MODE="e2ee_required"
+
+# Run E2EE live tests
+pytest tests/test_matrix_e2ee_live.py -m live -v
+```
+
+### 6.3 Meshtastic
+
+```bash
+# Install transport SDK
+pip install -e ".[meshtastic]"
+
+# Required environment variables (connection-type-dependent)
+# For serial:
+export MESHTASTIC_CONNECTION_TYPE="serial"
+export MESHTASTIC_SERIAL_PORT="/dev/ttyACM0"
+
+# For TCP:
+export MESHTASTIC_CONNECTION_TYPE="tcp"
+export MESHTASTIC_HOST="192.168.1.100"
+export MESHTASTIC_PORT="4403"  # optional, default 4403
+
+# Optional:
+export MESHTASTIC_CHANNEL_INDEX="0"  # default 0
+
+# Run live smoke tests
+pytest tests/test_meshtastic_live.py -m live -v
+
+# Run Meshtastic soak tests (default 30s, max 300s)
+SOAK_DURATION_SECONDS=30 pytest tests/test_soak.py::TestMeshtasticSoak -m live -v -s
+```
+
+### 6.4 MeshCore
+
+```bash
+# Install transport SDK
+pip install -e ".[meshcore]"
+
+# Required environment variables (connection-type-dependent)
+# For TCP:
+export MESHCORE_CONNECTION_TYPE="tcp"
+export MESHCORE_HOST="192.168.1.100"
+# MESHCORE_PORT defaults to 4000
+
+# For serial:
+export MESHCORE_CONNECTION_TYPE="serial"
+export MESHCORE_SERIAL_PORT="/dev/ttyUSB0"
+
+# Run live smoke tests
+pytest tests/test_meshcore_live.py -m live -v
+
+# No soak test class exists for MeshCore yet.
+```
+
+### 6.5 LXMF / Reticulum
+
+```bash
+# Install transport SDK
+pip install -e ".[lxmf]"
+
+# Required environment variables
+export LXMF_CONNECTION_TYPE="reticulum"
+export LXMF_IDENTITY_PATH="/path/to/identity.key"
+# Reticulum config defaults to ~/.reticulum/config
+
+# Run live smoke tests
+pytest tests/test_lxmf_live.py -m live -v
+
+# No soak test class exists for LXMF yet.
+```
+
+### 6.6 Soak Tests
+
+```bash
+# Environment variable controlling soak duration
+# Default: 30 seconds. Maximum: 300 seconds (hard cap in test_soak.py).
+export SOAK_DURATION_SECONDS=30
+
+# Matrix soak
+pytest tests/test_soak.py::TestMatrixSoak -m live -v -s
+
+# Meshtastic soak
+pytest tests/test_soak.py::TestMeshtasticSoak -m live -v -s
+```
+
+### 6.7 Harness Soak Tests (No Hardware Required)
+
+```bash
+# These test the soak harness itself — no real transport needed.
+pytest tests/test_soak_harness.py tests/test_soak_config_builder.py -q
+```
+
+
+## 7. NOT EXECUTED Reasoning
+
+The following table documents why specific evidence has not been collected.
+This section exists to ensure honesty: absence of evidence is not evidence
+of absence, and every gap is traceable to a specific reason.
+
+| Transport | Evidence type | Status | Reason | Required command | Required env vars |
+|-----------|--------------|--------|--------|------------------|-------------------|
+| Matrix | Soak test | NOT EXECUTED | No sustained Matrix session executed against real homeserver | `SOAK_DURATION_SECONDS=30 pytest tests/test_soak.py::TestMatrixSoak -m live -v -s` | `MATRIX_HOMESERVER`, `MATRIX_USER_ID`, `MATRIX_ACCESS_TOKEN`, `MATRIX_ROOM_ID` |
+| Meshtastic | Soak test | NOT EXECUTED | No sustained Meshtastic session executed against real hardware | `SOAK_DURATION_SECONDS=30 pytest tests/test_soak.py::TestMeshtasticSoak -m live -v -s` | `MESHTASTIC_CONNECTION_TYPE`, `MESHTASTIC_HOST` or `MESHTASTIC_SERIAL_PORT` |
+| Meshtastic | Second-node inbound | NOT EXECUTED | No second Meshtastic node available in test environment | (same as Meshtastic live smoke, with second node transmitting) | Same as Meshtastic live + second node on same channel |
+| MeshCore | Live smoke | NOT EXECUTED | No MeshCore hardware or TCP endpoint available in test environment | `pytest tests/test_meshcore_live.py -m live -v` | `MESHCORE_CONNECTION_TYPE`, `MESHCORE_HOST` or `MESHCORE_SERIAL_PORT` |
+| MeshCore | Soak test | NOT EXECUTED | No soak test class exists for MeshCore; no hardware available | N/A (test class does not exist yet) | N/A |
+| LXMF | Live smoke | NOT EXECUTED | No Reticulum network or identity file available in test environment | `pytest tests/test_lxmf_live.py -m live -v` | `LXMF_CONNECTION_TYPE`, `LXMF_IDENTITY_PATH` |
+| LXMF | Soak test | NOT EXECUTED | No soak test class exists for LXMF; no Reticulum network available | N/A (test class does not exist yet) | N/A |
+
+**To resolve any NOT EXECUTED entry:** set the required environment variables,
+ensure the transport SDK is installed, run the command, and record results
+in the relevant section of this document.
+
+
+## 8. Evidence Integration Instructions
+
+When live agents or operators report results:
+
+1. Replace **NOT EXECUTED** placeholders in the relevant transport section
+   (§1–§4) with actual values.
 2. Include the commit hash, Python version, dependency versions, and
    environment details.
 3. Record any caveats, reconnect observations, or unexpected behavior
    exactly as observed.
 4. Update this document's "Last updated" header.
-5. Update `docs/contracts/32-beta-readiness-checklist.md` section 1.3.2
+5. Remove the resolved entry from §7 (NOT EXECUTED Reasoning).
+6. Update `docs/contracts/32-beta-readiness-checklist.md` section 1.3.2
    to reflect the new evidence status.
+7. Follow the evidence honesty requirements in
+   `docs/runbooks/beta-entry-validation.md` §4.

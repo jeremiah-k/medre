@@ -1,11 +1,11 @@
 # Beta Readiness Checklist
 
-> Contract version: 1
-> Last updated: 2026-05-10
-> Track: 9 (Transport Capability Contracts)
-> Supersedes: Nothing. Consolidates beta criteria from contract 28 sections 4, 5, 6.
+> Contract version: 2
+> Last updated: 2026-05-11
+> Track: 8 (README Operator Positioning), Track 9 (Beta Checklist Update)
+> Supersedes: Version 1 (2026-05-10). Consolidates beta criteria from contract 28 sections 4, 5, 6.
 > Status: Checklist. Defines what must be true before beta release.
-> Head: 7046ecc
+> Head: 36d3706
 
 This document is the beta readiness checklist for the MEDRE framework. It defines three tiers: must-have before beta, should-have before beta, and explicitly deferred. It records per-transport beta blockers, live-test requirements, docs/runbook requirements, and packaging/dependency requirements.
 
@@ -43,7 +43,7 @@ These items are blocking. Beta cannot ship without them.
 | M16 | Matrix | Inbound reception confirmed from live test | ⛔ Blocked | `test_matrix_live.py` includes inbound reception test but has not been run against a real homeserver. No third-party inbound confirmation recorded. | Add inbound reception test. Send from a second account, verify `publish_inbound()` fires. |
 
 
-### 1.3 Live Validation Summary (Evidence as of 2026-05-10, head `7046ecc`)
+### 1.3 Live Validation Summary (Evidence as of 2026-05-11, head `36d3706`)
 
 > **Review scope note:** Commit `9c93e05` (`chore(tooling): add trunk configuration and linting setup`) is an intentional unrelated/tooling change that adds Trunk linting config (`.trunk/trunk.yaml`, `.trunk/configs/.markdownlint.yaml`). It does not affect runtime behavior, test outcomes, or adapter code. It is excluded from this beta readiness review.
 
@@ -53,9 +53,9 @@ This section records the live validation status of all test harnesses and unit s
 
 | Suite | Run Date | Result | Details |
 |-------|----------|--------|---------|
-| Full unit suite (non-live) | 2026-05-10 | ✅ 2127 passed, 61 deselected | All tests pass. `python -m compileall -q src tests` clean. `PYTHONPATH=src pytest -q`: 2127 passed, 61 deselected. |
+| Full unit suite (non-live) | 2026-05-11 | ✅ 3304 collected, 63 deselected | All tests pass. `python -m compileall -q src tests` clean. `PYTHONPATH=src pytest -q`: 3241 passed, 63 deselected. |
 | `test_delivery.py` | 2026-05-10 | ✅ 65/65 pass | Delivery receipt pipeline fully unit-tested. |
-| Live tests (56 tests across 5 files) | 2026-05-10 | ✅ Matrix 13/13 pass, Meshtastic 10/10 pass | Matrix and Meshtastic live harnesses run against real endpoints. MeshCore, LXMF, Matrix inbound remain skipped. |
+| Live tests (56 tests across 5 files) | 2026-05-11 | ✅ Matrix 13/13 pass, Meshtastic 10/10 pass | Matrix and Meshtastic live harnesses run against real endpoints. MeshCore, LXMF, Matrix inbound remain skipped. Suite now 3304 tests collected (3241 run, 63 deselected). |
 
 #### 1.3.2 Live Test Harness Inventory
 
@@ -74,7 +74,7 @@ This section records the live validation status of all test harnesses and unit s
 | Cross-transport must-haves (M1–M10) | 10 | 10 | 0 | 0 |
 | Per-transport must-haves (M11–M16) | 6 | 3 | 3 | 0 |
 | Packaging (P1–P6) | 6 | 6 | 0 | 0 |
-| **Total** | **22** | **18** | **3** | **1** |
+| **Total** | **22** | **19** | **3** | **0** |
 
 
 ## 2. Should-Have Before Beta
@@ -314,18 +314,28 @@ Beta should declare a minimum Python version in `pyproject.toml`. The codebase u
 A beta release requires:
 
 1. **All 16 must-have items (M1-M16) satisfied.** → Currently 13/16 satisfied (M1–M10 ✅, M11–M13 ✅, M14–M16 ⛔).
-2. **All packaging items (P1-P6) verified.** → ✅ All 6/6 satisfied. SDK deps now floor-pinned from verified local repos.
+2. **All packaging items (P1-P6) verified.** → ✅ All 6/6 satisfied. SDK deps floor-pinned from verified local repos.
 3. **All live test results recorded in runbooks.** → Currently 2/4 recorded (Matrix ✅, Meshtastic ✅; MeshCore and LXMF not yet run).
 4. **All four contract documents (29-32) published.** → ✅ All published.
-5. **No critical regressions in existing unit test suite.** → ✅ 2127/2127 pass, 61 deselected. Clean suite.
+5. **No critical regressions in existing unit test suite.** → ✅ 3241/3241 pass, 63 deselected (3304 collected). Clean suite.
 6. **License governance status honestly documented.** → ✅ README updated, risk register updated, pyproject.toml comment in place. Final selection deferred (D17).
 
 Should-have items (S1-S11) are strongly recommended. If any remain unsatisfied at beta, they must be documented as known limitations in the release notes. Governance should-haves (S6a-S6d) are satisfied.
 
 
+## 8.1 Classification Summary
+
+| Classification | Items | Count |
+|---------------|-------|-------|
+| **Satisfied** | M1–M13, P1–P6, S6, S6a–S6d | 23 |
+| **Partial** | S1–S5, S7–S11, R4 | 10 |
+| **Blocked** (requires external resource) | M14 (MeshCore radio), M15 (Reticulum instance), M16 (Matrix inbound) | 3 |
+| **Not required for beta** | D1–D19 | 19 |
+
+
 ## 9. Remaining Beta Blockers (Consolidated)
 
-As of 2026-05-10, head `7046ecc`:
+As of 2026-05-11, head `36d3706`:
 
 ### 9.1 Must-Fix (Blocking Beta)
 
@@ -370,4 +380,65 @@ After this beta validation update, the recommended next tranche should focus on 
 
 9. ~~**Document should-fix items (R2–R4).**~~ ✅ R2 and R3 resolved this tranche (secure-credentials runbook, radio limitations contract). R4 (BLE mode) remains open.
 
-**Estimated effort:** Steps 4–5 can be completed in a single session with Matrix credentials available. Steps 6–7 depend on infrastructure availability. Steps 8–9 are documentation-only.
+**Estimated effort:** Step 5 can be completed in a single session with Matrix credentials available. Steps 6–7 depend on infrastructure availability. Step 8 is documentation-only.
+
+
+## 11. PC Decision Recommendation
+
+This section provides the project coordinator with an evidence-based
+recommendation on beta readiness. It does not prescribe a decision.
+
+### 11.1 Evidence Summary
+
+| Dimension | Status | Evidence |
+|-----------|--------|----------|
+| Unit test suite | Clean | 3241/3241 pass, 63 deselected (3304 collected). No regressions. |
+| Cross-transport must-haves (M1–M10) | All satisfied | Boundary contracts, diagnostics, delivery results, metadata namespacing, fake adapters all verified. |
+| Packaging (P1–P6) | All satisfied | Floor-pinned SDKs, optional extras, import guards, fake adapters work without SDKs. |
+| Live evidence — Matrix | Satisfied | 13/13 plaintext + 7/7 E2EE against matrix.org. Runbooks recorded. |
+| Live evidence — Meshtastic | Satisfied | 10/10 against real LilyGO T-LORA V2.1. Runbook recorded. |
+| Live evidence — MeshCore | Not run | Harness exists. Requires radio hardware. No live evidence. |
+| Live evidence — LXMF | Not run | Harness exists. Requires Reticulum instance. No live evidence. |
+| Matrix inbound from third party | Not confirmed | Harness includes inbound test but no recorded run from a second account. |
+| License governance | Honestly documented | MIT declared, GPL/LGPL under evaluation, Reticulum license ambiguity documented. No top-level LICENSE file. Final selection deferred (D17). |
+| Runtime | Exists, early | RuntimeBuilder assembles from TOML, starts adapters in deterministic order, supervised lifecycle. Not load-tested. |
+
+### 11.2 Remaining Blockers
+
+Three must-have items remain blocked, all requiring external resources:
+
+| Blocker | What it needs | PC action required |
+|---------|--------------|-------------------|
+| M14: MeshCore live smoke | Physical MeshCore radio hardware | Provide hardware, or decide to ship MeshCore as "alpha-operational, not live-validated" with a known limitation note. |
+| M15: LXMF live smoke | Reticulum instance (local or network) | Provide Reticulum instance, or decide to ship LXMF as "alpha-operational, not live-validated" with a known limitation note. |
+| M16: Matrix inbound confirmation | Second Matrix account sending to test room | Run one manual test with two accounts, or decide to document the gap. |
+
+### 11.3 Decision Options for the PC
+
+**Option A: Resolve all three blockers before beta tag.**
+- Requires: MeshCore radio, Reticulum instance, and a second Matrix account.
+- Result: All 16/16 must-haves satisfied. Clean beta gate.
+- Risk: Hardware/infrastructure may not be available immediately. Beta delivery delayed.
+
+**Option B: Resolve M16 only, ship M14/M15 as documented alpha-operational.**
+- Requires: A second Matrix account (low effort).
+- Result: 15/16 must-haves satisfied. MeshCore and LXMF shipped with explicit "unit-tested only, no live evidence" labeling in README and release notes.
+- Risk: MeshCore and LXMF may have fundamental issues undiscoverable without live testing. This is already the honest status quo — the gap is explicitly documented.
+- Precedent: Contract 38 (RC criteria) section 1.2 already allows transports without live evidence to be "explicitly labeled 'alpha-operational, not live-validated' in the README and release notes."
+
+**Option C: Ship beta with all three unresolved, all documented.**
+- Requires: No external resources.
+- Result: 13/16 must-haves satisfied. All three gaps explicitly documented.
+- Risk: Same as Option B, plus the Matrix inbound gap. The Matrix adapter's send capability is live-validated; only inbound from a third party is unconfirmed. The inbound code path is unit-tested and works against fake adapters.
+
+### 11.4 Recommendation
+
+**Option B is recommended.** Rationale:
+
+1. Matrix inbound confirmation (M16) is low-effort and removes the most visible gap for the most mature transport.
+2. MeshCore and LXMF live validation depends on hardware/infrastructure that may not be available on the PC's timeline. Their alpha-operational status is already honestly documented in the README, the maturity classification contract (37), and this checklist.
+3. The RC criteria (contract 38, section 1.2) explicitly anticipate this scenario: transports without live evidence may ship if labeled.
+4. The unit test suite provides strong structural coverage for all four transports. Live smoke tests confirm integration; they do not prove reliability. The gap is real but bounded.
+5. Shipping beta with two transports clearly labeled "alpha-operational" is more honest than delaying beta indefinitely for hardware access.
+
+The PC should make the final call. This recommendation is based on evidence, not urgency.

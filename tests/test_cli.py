@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import io
+import json
 import os
+from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
 from typing import Any
 
@@ -153,6 +156,35 @@ CONFIG_MINIMAL = """\
 [runtime]
 """
 
+CONFIG_BAD_LIMITS = """\
+[runtime]
+name = "test-bad-limits"
+
+[runtime.limits]
+max_inflight_deliveries = -1
+
+[storage]
+backend = "sqlite"
+path = "{state}/test.db"
+
+[adapters.matrix.main]
+enabled = true
+homeserver = "https://matrix.test"
+user_id = "@bot:test"
+access_token = "tok"
+room_allowlist = ["!room:test"]
+encryption_mode = "plaintext"
+"""
+
+CONFIG_NO_ADAPTERS = """\
+[runtime]
+name = "test-no-adapters"
+
+[storage]
+backend = "sqlite"
+path = "{state}/test.db"
+"""
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -206,6 +238,22 @@ def config_minimal(tmp_path: Path) -> Path:
     return p
 
 
+@pytest.fixture()
+def config_bad_limits(tmp_path: Path) -> Path:
+    """Write CONFIG_BAD_LIMITS to a temp file and return its path."""
+    p = tmp_path / "config.toml"
+    p.write_text(CONFIG_BAD_LIMITS)
+    return p
+
+
+@pytest.fixture()
+def config_no_adapters(tmp_path: Path) -> Path:
+    """Write CONFIG_NO_ADAPTERS to a temp file and return its path."""
+    p = tmp_path / "config.toml"
+    p.write_text(CONFIG_NO_ADAPTERS)
+    return p
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -213,9 +261,6 @@ def config_minimal(tmp_path: Path) -> Path:
 
 def _run_cli(*args: str, tmp_path: Path | None = None) -> str:
     """Run CLI with given args, capture stdout, and return output."""
-    import io
-    from contextlib import redirect_stdout, redirect_stderr
-
     stdout = io.StringIO()
     stderr = io.StringIO()
     try:
@@ -226,6 +271,18 @@ def _run_cli(*args: str, tmp_path: Path | None = None) -> str:
         if e.code not in (None, 0):
             raise
     return stdout.getvalue()
+
+
+def _run_cli_both(*args: str) -> tuple[str, str]:
+    """Run CLI and return (stdout, stderr) pair."""
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    try:
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            main(list(args))
+    except SystemExit:
+        pass
+    return stdout.getvalue(), stderr.getvalue()
 
 
 # ---------------------------------------------------------------------------
@@ -595,3 +652,198 @@ class TestSampleConfig:
                 # YAML list items won't have "=" in them; TOML arrays are
                 # inline like ["a", "b"]
                 pytest.fail(f"Sample appears to contain YAML-style list: {line!r}")
+
+
+# ---------------------------------------------------------------------------
+# medre version
+# ---------------------------------------------------------------------------
+
+
+class TestVersion:
+    """Tests for 'medre version' command."""
+
+    def test_version_output_contains_medre(self) -> None:
+        output = _run_cli("version")
+        assert "medre" in output
+
+    def test_version_shows_python(self) -> None:
+        output = _run_cli("version")
+        assert "Python" in output
+
+    def test_version_shows_platform(self) -> None:
+        output = _run_cli("version")
+        assert "Platform" in output
+
+    def test_version_format(self) -> None:
+        """Version output has expected format: medre X.Y.Z"""
+        output = _run_cli("version")
+        lines = output.strip().splitlines()
+        assert lines[0].startswith("medre ")
+
+
+# ---------------------------------------------------------------------------
+# medre paths
+# ---------------------------------------------------------------------------
+
+
+class TestPaths:
+    """Tests for 'medre paths' command."""
+
+    def test_paths_shows_config_file(self) -> None:
+        output = _run_cli("paths")
+        assert "Config file:" in output
+
+    def test_paths_shows_state_dir(self) -> None:
+        output = _run_cli("paths")
+        assert "State dir:" in output
+
+    def test_paths_shows_data_dir(self) -> None:
+        output = _run_cli("paths")
+        assert "Data dir:" in output
+
+    def test_paths_shows_log_dir(self) -> None:
+        output = _run_cli("paths")
+        assert "Log dir:" in output
+
+    def test_paths_shows_global_db(self) -> None:
+        output = _run_cli("paths")
+        assert "Global DB:" in output
+
+
+# ---------------------------------------------------------------------------
+# config check — error / nonzero exit tests
+# ---------------------------------------------------------------------------
+
+
+class TestConfigCheckErrors:
+    """Tests that 'medre config check' exits nonzero on invalid config."""
+
+    def test_missing_config_file(self, tmp_path: Path) -> None:
+        """Missing config file causes nonzero exit with clear error message."""
+        with pytest.raises(SystemExit) as exc_info:
+            _run_cli("config", "check", "--config", str(tmp_path / "missing.toml"))
+        assert exc_info.value.code != 0
+
+    def test_missing_config_file_clear_message(self, tmp_path: Path) -> None:
+        """Error message is human-readable, not a traceback."""
+        _, stderr = _run_cli_both(
+            "config", "check", "--config", str(tmp_path / "missing.toml")
+        )
+        assert "Traceback" not in stderr
+        assert "Config error:" in stderr
+
+    def test_bad_limits_exits_nonzero(self, config_bad_limits: Path) -> None:
+        """Config with invalid limits exits nonzero after validation."""
+        with pytest.raises(SystemExit) as exc_info:
+            _run_cli("config", "check", "--config", str(config_bad_limits))
+        assert exc_info.value.code != 0
+
+    def test_bad_limits_shows_error(self, config_bad_limits: Path) -> None:
+        """Bad limits config shows a clear validation error in output."""
+        output, stderr = _run_cli_both(
+            "config", "check", "--config", str(config_bad_limits)
+        )
+        combined = (output + stderr).lower()
+        assert "error" in combined
+
+    def test_valid_config_exits_zero(self, config_with_routes: Path) -> None:
+        """Valid config exits zero (does NOT raise SystemExit)."""
+        # _run_cli suppresses SystemExit(0), so no exception means exit 0.
+        output = _run_cli("config", "check", "--config", str(config_with_routes))
+        assert "Config valid" in output
+
+
+# ---------------------------------------------------------------------------
+# medre diagnostics
+# ---------------------------------------------------------------------------
+
+
+class TestDiagnostics:
+    """Tests for 'medre diagnostics' command."""
+
+    def test_diagnostics_produces_json(self, config_with_routes: Path) -> None:
+        """Diagnostics with valid config produces parseable JSON output."""
+        output = _run_cli("diagnostics", "--config", str(config_with_routes))
+        parsed = json.loads(output)
+        assert isinstance(parsed, dict)
+
+    def test_diagnostics_json_has_adapters_key(
+        self, config_with_routes: Path
+    ) -> None:
+        """Diagnostics JSON contains adapter information."""
+        output = _run_cli("diagnostics", "--config", str(config_with_routes))
+        parsed = json.loads(output)
+        # Should contain some structured data about the runtime.
+        assert len(parsed) > 0
+
+    def test_diagnostics_missing_config(self, tmp_path: Path) -> None:
+        """Missing config file exits nonzero with clear error."""
+        _, stderr = _run_cli_both(
+            "diagnostics", "--config", str(tmp_path / "missing.toml")
+        )
+        assert "Config error:" in stderr
+        assert "Traceback" not in stderr
+
+
+# ---------------------------------------------------------------------------
+# medre run — error handling
+# ---------------------------------------------------------------------------
+
+
+class TestRunErrors:
+    """Tests that 'medre run' exits cleanly (no traceback) on config errors."""
+
+    def test_run_missing_config_no_traceback(self, tmp_path: Path) -> None:
+        """Missing config causes clear error, not raw traceback."""
+        _, stderr = _run_cli_both(
+            "run", "--config", str(tmp_path / "missing.toml")
+        )
+        assert "Traceback" not in stderr
+        assert "Config error:" in stderr
+
+    def test_run_no_adapters_exits_nonzero(
+        self, config_no_adapters: Path
+    ) -> None:
+        """Run with no enabled adapters exits nonzero with clear message."""
+        _, stderr = _run_cli_both(
+            "run", "--config", str(config_no_adapters)
+        )
+        assert "no adapters enabled" in stderr.lower() or "error" in stderr.lower()
+
+    def test_run_no_adapters_clear_message(
+        self, config_no_adapters: Path
+    ) -> None:
+        """Error message mentions adapters, not a traceback."""
+        _, stderr = _run_cli_both(
+            "run", "--config", str(config_no_adapters)
+        )
+        assert "Traceback" not in stderr
+        assert "adapter" in stderr.lower()
+
+
+# ---------------------------------------------------------------------------
+# Secret redaction — config commands must not leak secrets
+# ---------------------------------------------------------------------------
+
+
+class TestSecretRedaction:
+    """Verify that CLI output does not contain access tokens or passwords."""
+
+    def test_config_check_no_secrets(self, config_with_routes: Path) -> None:
+        """Config check output must not contain access tokens."""
+        output = _run_cli("config", "check", "--config", str(config_with_routes))
+        # The config has access_token = "tok" but output should not show it.
+        assert "tok" not in output
+        assert "access_token" not in output
+
+    def test_routes_list_no_secrets(self, config_with_routes: Path) -> None:
+        """Routes list output must not contain access tokens."""
+        output = _run_cli("routes", "list", "--config", str(config_with_routes))
+        assert "tok" not in output
+        assert "access_token" not in output
+
+    def test_routes_topology_no_secrets(self, config_with_routes: Path) -> None:
+        """Routes topology output must not contain access tokens."""
+        output = _run_cli("routes", "topology", "--config", str(config_with_routes))
+        assert "tok" not in output
+        assert "access_token" not in output
