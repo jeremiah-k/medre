@@ -768,7 +768,8 @@ class TestBoundednessAndTruncation:
 
     def test_build_failure_error_truncated(self) -> None:
         """Error strings beyond _MAX_ERROR_DETAIL_LEN are truncated."""
-        long_error = "E" * (_MAX_ERROR_DETAIL_LEN + 500)
+        # Use spaces/punctuation to avoid matching base64-like token patterns
+        long_error = "Build error: " + "retry failed. " * 60
         app = _make_fake_app(build_failures=[_FakeBuildFailure("bf", long_error)])
         snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
         bf_err = snap["build_failures"][0]["error"]
@@ -777,14 +778,16 @@ class TestBoundednessAndTruncation:
 
     def test_build_failure_error_exactly_at_limit(self) -> None:
         """Error string exactly at _MAX_ERROR_DETAIL_LEN is not truncated."""
-        exact_error = "E" * _MAX_ERROR_DETAIL_LEN
+        # Use spaces to avoid matching base64-like token patterns
+        exact_error = "Build error: " + " " * (_MAX_ERROR_DETAIL_LEN - 13)
+        assert len(exact_error) == _MAX_ERROR_DETAIL_LEN
         app = _make_fake_app(build_failures=[_FakeBuildFailure("bf", exact_error)])
         snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
         assert len(snap["build_failures"][0]["error"]) == _MAX_ERROR_DETAIL_LEN
 
     def test_build_failure_error_one_over_limit(self) -> None:
         """Error string one char over limit is truncated."""
-        error = "E" * (_MAX_ERROR_DETAIL_LEN + 1)
+        error = "Build error: " + " " * (_MAX_ERROR_DETAIL_LEN - 12)
         app = _make_fake_app(build_failures=[_FakeBuildFailure("bf", error)])
         snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
         bf_err = snap["build_failures"][0]["error"]

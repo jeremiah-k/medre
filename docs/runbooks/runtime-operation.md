@@ -314,8 +314,6 @@ Inside the container, `MEDRE_HOME=/opt/medre`. All paths resolve under this root
 ├── config.toml
 ├── state/
 │   ├── medre.sqlite
-│   ├── logs/
-│   │   └── medre.log
 │   └── adapters/
 │       ├── bot/
 │       │   └── matrix/
@@ -323,7 +321,9 @@ Inside the container, `MEDRE_HOME=/opt/medre`. All paths resolve under this root
 │       └── radio/
 │           └── meshtastic/
 ├── data/
-└── cache/
+├── cache/
+└── logs/
+    └── medre.log
 ```
 
 
@@ -335,7 +335,7 @@ When `MEDRE_HOME` is set (or using XDG defaults), the runtime creates this layou
 |------|-------------|
 | `{config}/config.toml` | Primary configuration file |
 | `{state}/medre.sqlite` | Single global database |
-| `{state}/logs/medre.log` | Global log file |
+| `{log_dir}/medre.log` | Global log file (`{state}/logs` in XDG mode, `$MEDRE_HOME/logs` in MEDRE_HOME mode) |
 | `{state}/adapters/{adapter_id}/` | Per-adapter state root |
 | `{state}/adapters/{adapter_id}/matrix/store/` | Matrix E2EE crypto store (non-plaintext only) |
 | `{state}/adapters/{adapter_id}/meshtastic/` | Meshtastic transport state |
@@ -351,6 +351,120 @@ To inspect resolved paths:
 ```bash
 medre paths
 ```
+
+
+## Container Deployment Hardening
+
+This section covers path, storage, device, and isolation guarantees relevant to container deployments. It is platform-agnostic — it applies to any container runtime (Docker, Podman, containerd, etc.) that sets `MEDRE_HOME`.
+
+### Path Resolution Modes
+
+MEDRE supports two path resolution modes controlled by environment variables:
+
+**MEDRE_HOME mode** (recommended for containers): Set `MEDRE_HOME` to a single directory. All paths resolve under it. This produces a deterministic layout regardless of user or distribution.
+
+**XDG mode** (default): Each path category resolves independently against `XDG_*_HOME` variables with spec-defined fallbacks. Intended for interactive desktop use, not containers.
+
+Path resolution is pure computation — no filesystem I/O occurs during config loading. `MedrePaths` is an immutable, frozen dataclass returned by `resolve()`. See Contract 46 (Runtime Storage and Path Model) for the authoritative specification.
+
+### MEDRE_HOME Bind Mount Strategy
+
+When running in a container, set `MEDRE_HOME=/opt/medre` (or any absolute path) and mount a single volume at that path. The runtime creates all subdirectories on startup via `_ensure_dirs()`.
+
+```
+docker run -d \
+  --env MEDRE_HOME=/opt/medre \
+  -v medre-data:/opt/medre \
+  medre:latest
+```
+
+The volume must be writable by the container's runtime user. The runtime does not manage file ownership or permissions — ensure the container user has read/write access to the mounted volume.
+
+### Directory Creation at Startup
+
+`MedreApp._ensure_dirs()` creates the following directories during startup (before any adapter starts):
+
+1. `state_dir` — mutable application state
+2. `data_dir` — persistent application data
+3. `cache_dir` — disposable cached data
+4. `log_dir` — log files
+5. Database parent directory (parent of the SQLite database path)
+6. Per-adapter state roots: `{state_dir}/adapters/{adapter_id}/` for every enabled adapter
+7. Matrix store directories: `{state_dir}/adapters/{adapter_id}/matrix/store/` for enabled Matrix adapters with non-plaintext `encryption_mode`
+
+All directories are created with `mkdir(parents=True, exist_ok=True)`. Creation is idempotent — restarting with an existing volume is safe.
+
+### SQLite Persistence
+
+MEDRE uses a single SQLite database at `{state_dir}/medre.sqlite`. This is the authoritative persistent state:
+
+- Uses WAL (Write-Ahead Logging) journal mode for crash consistency.
+- Holds canonical events, delivery receipts, replay state, cross-adapter relationships, and route attribution.
+- There are **no per-adapter databases**. Transport-local state (crypto stores, identity files) lives on the filesystem under each adapter's state root, not in SQLite.
+- The database file must be on a writable, non-memory filesystem for persistence across container restarts. Mount the volume at `MEDRE_HOME` (or at least at `{state_dir}`) to preserve it.
+
+### Matrix Store Persistence
+
+When a Matrix adapter uses non-plaintext `encryption_mode`, the runtime derives a crypto store path:
+
+```
+{state_dir}/adapters/{adapter_id}/matrix/store/
+```
+
+This path is derived by `RuntimeBuilder` from `MedrePaths.adapter_transport_state_dir(adapter_id, "matrix") / "store"` when `store_path` is not explicitly configured. The builder does not override an explicit `store_path`.
+
+The store contains Olm/Megolm session keys and device keys managed by the nio library. It must persist across container restarts to avoid E2EE session loss and mandatory re-verification. Mount the volume at `MEDRE_HOME` to preserve it.
+
+### Serial Device Passthrough
+
+For Meshtastic adapters using serial connections, pass the host device into the container:
+
+```
+docker run -d \
+  --device /dev/ttyACM0 \
+  -v medre-data:/opt/medre \
+  medre:latest
+```
+
+The container's runtime user must have read/write access to the device. On most Linux distributions, the device is owned by the `dialout` group. Options:
+
+- Run the container process as a user in the `dialout` group.
+- Use `--group-add dialout` if the container runtime supports it.
+- Set `udev` rules on the host to adjust permissions.
+
+The serial port path is configured via `MEDRE_MESHTASTIC_SERIAL_PORT` (default: `/dev/ttyACM0`). The path inside the container must match the `--device` mapping.
+
+### Deterministic Path Resolution
+
+Paths are fully deterministic given the same environment variables:
+
+- In MEDRE_HOME mode, all paths are computed relative to `MEDRE_HOME` with no external state lookups.
+- In XDG mode, paths are computed relative to `XDG_*_HOME` variables (or their defaults).
+- `resolve()` reads environment variables once and returns an immutable `MedrePaths`. There is no subsequent filesystem access during resolution.
+- Two containers with the same `MEDRE_HOME` value produce identical path layouts.
+
+### No Cross-Adapter State Collision
+
+Each adapter receives an isolated state root at `{state_dir}/adapters/{adapter_id}/`. The `adapter_id` acts as a namespace:
+
+- `MedrePaths.adapter_state_dir(adapter_id)` validates that `adapter_id` is non-empty and contains no path separators, preventing path traversal.
+- Two adapters with different IDs never share a state directory, even if they use the same transport.
+- Two adapters of different transports with the same ID would collide at the adapter root — the config system enforces unique `adapter_id` values across all adapters.
+- Transport-specific subdirectories (e.g., `matrix/`, `meshtastic/`) are nested inside the adapter root, so a multi-transport adapter (if it existed) would also be isolated at the transport level.
+
+### Container Checklist
+
+| Concern | Mechanism |
+|---------|-----------|
+| Persistent state | Mount volume at `MEDRE_HOME` |
+| SQLite durability | WAL mode, file on mounted volume |
+| Matrix crypto persistence | Auto-derived store path under adapter state root |
+| Log persistence | `{log_dir}/medre.log` on mounted volume |
+| Serial device access | `--device` passthrough, correct permissions |
+| Deterministic paths | `MEDRE_HOME` set to fixed absolute path |
+| Adapter isolation | Unique `adapter_id` per adapter, path separator validation |
+| Idempotent startup | `_ensure_dirs()` uses `exist_ok=True` |
+| Config injection | Environment variables or mounted `config.toml` |
 
 
 ## Expected Startup Output
@@ -396,7 +510,7 @@ INFO  medre.runtime: Shutdown complete in 70ms
 - **Global database** (`{state}/medre.sqlite`) survives restarts. All events, delivery receipts, and replay state are retained.
 - **Crypto stores** (Matrix Olm/Megolm keys at `{state}/adapters/{adapter_id}/matrix/store/`) survive restarts. E2EE sessions resume without re-verification.
 - **Transport identity files** (LXMF identities, etc.) survive restarts.
-- **Logs** are appended to `{state}/logs/medre.log`, not rotated by MEDRE itself.
+- **Logs** are appended to `{log_dir}/medre.log`, not rotated by MEDRE itself.
 
 ### No Manual Cleanup Required
 
@@ -542,8 +656,13 @@ Diagnostics are per-adapter. Each adapter's snapshot is isolated from other adap
 ## Log File Location
 
 ```
-{state}/logs/medre.log
+{log_dir}/medre.log
 ```
+
+The resolved log directory depends on the active path mode:
+
+- **XDG mode** (default): `~/.local/state/medre/logs/medre.log` (log directory is `{state}/logs`)
+- **MEDRE_HOME mode** (container): `$MEDRE_HOME/logs/medre.log` (log directory is a direct child of `MEDRE_HOME`, not under `state/`)
 
 This is the single global log file. All adapter and runtime events are written here. Log format is controlled by `[logging]` configuration:
 
@@ -564,7 +683,7 @@ MEDRE does not rotate logs internally. Use external log rotation (logrotate, Doc
 1. Restart the runtime with the same config: `medre run --config config.toml`
 2. State persists on disk — no cleanup needed.
 3. Crypto stores survive — E2EE sessions resume.
-4. Check logs for the crash cause: `grep ERROR {state}/logs/medre.log`
+4. Check logs for the crash cause: `grep ERROR {log_dir}/medre.log`
 
 ### Adapter Not Connecting
 

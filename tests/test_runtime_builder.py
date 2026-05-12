@@ -750,3 +750,90 @@ class TestEnsureDirsMatrixStore:
 
         expected = paths.state_dir / "adapters" / "dirtest" / "matrix" / "store"
         assert expected.is_dir()
+
+
+class TestEnsureDirsBaseDirectories:
+    """_ensure_dirs creates state, data, cache, log, and database parent dirs."""
+
+    def test_creates_all_base_directories(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
+        paths = resolve()
+
+        config = RuntimeConfig(
+            storage=StorageConfig(backend="memory"),
+            adapters=AdapterConfigSet(),
+        )
+        builder = RuntimeBuilder(config, paths)
+        app = builder.build()
+
+        app._ensure_dirs()
+
+        assert paths.state_dir.is_dir()
+        assert paths.data_dir.is_dir()
+        assert paths.cache_dir.is_dir()
+        assert paths.log_dir.is_dir()
+        assert paths.database_path.parent.is_dir()
+
+    def test_idempotent_rerun(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
+        paths = resolve()
+
+        config = RuntimeConfig(
+            storage=StorageConfig(backend="memory"),
+            adapters=AdapterConfigSet(),
+        )
+        builder = RuntimeBuilder(config, paths)
+        app = builder.build()
+
+        app._ensure_dirs()
+        app._ensure_dirs()  # second call must not raise
+
+        assert paths.state_dir.is_dir()
+
+
+class TestEnsureDirsMultiAdapterIsolation:
+    """Multiple adapters get isolated state roots; no directory collision."""
+
+    def test_two_adapters_isolated_roots(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
+        paths = resolve()
+
+        rt_a = MatrixRuntimeConfig(
+            adapter_id="alpha",
+            enabled=True,
+            adapter_kind="fake",
+            config=_make_fake_matrix_config(),
+        )
+        rt_b = MeshtasticRuntimeConfig(
+            adapter_id="beta",
+            enabled=True,
+            adapter_kind="fake",
+            config=_make_fake_meshtastic_config(),
+        )
+        config = RuntimeConfig(
+            storage=StorageConfig(backend="memory"),
+            adapters=AdapterConfigSet(
+                matrix={"alpha": rt_a},
+                meshtastic={"beta": rt_b},
+            ),
+        )
+        builder = RuntimeBuilder(config, paths)
+        app = builder.build()
+
+        app._ensure_dirs()
+
+        root_a = paths.adapter_state_dir("alpha")
+        root_b = paths.adapter_state_dir("beta")
+
+        assert root_a.is_dir()
+        assert root_b.is_dir()
+        assert root_a != root_b
+        # Verify no overlap: neither is a parent of the other
+        assert not str(root_a).startswith(str(root_b))
+        assert not str(root_b).startswith(str(root_a))

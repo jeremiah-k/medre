@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 _TOKEN_PATTERNS = re.compile(
     r'(syt_[A-Za-z0-9]+)'           # Matrix access token prefix
     r'|(MDAx[A-Za-z0-9+/=]{20,})'   # Matrix device / session IDs
-    r'|([A-Za-z0-9+/=]{40,})'       # long base64-like strings (tokens/keys)
+    r'|(?!(.)\3{39,})[A-Za-z0-9+/=]{40,}'  # long base64-like strings (tokens/keys), not repeated chars
     r'|(sk-[A-Za-z0-9]{20,})'       # OpenAI-style API keys
     r'|(api[_-]?key[=:]\s*\S+)'     # api_key=xxx patterns
     r'|(access_token[=:]\s*\S+)'    # access_token=xxx patterns
@@ -32,7 +32,7 @@ _TOKEN_PATTERNS = re.compile(
 )
 
 _SDK_REPR_PATTERN = re.compile(
-    r'<\w+\.\w+ object at 0x[0-9a-fA-F]+>'
+    r'<[\w.]+ object at 0x[0-9a-fA-F]+>'
 )
 
 

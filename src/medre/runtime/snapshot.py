@@ -241,15 +241,40 @@ def _snapshot_limits(limits: Any) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+def _sanitize_error(error: str) -> str:
+    """Sanitize an error string for safe inclusion in snapshots.
+
+    Strips likely token/secret patterns and SDK object repr strings,
+    then truncates to :data:`_MAX_ERROR_DETAIL_LEN`.
+    """
+    import re as _re
+
+    _TOKEN = _re.compile(
+        r'(syt_[A-Za-z0-9]+)'
+        r'|(MDAx[A-Za-z0-9+/=]{20,})'
+        r'|(?!(.)\3{39,})[A-Za-z0-9+/=]{40,}'
+        r'|(sk-[A-Za-z0-9]{20,})'
+        r'|(api[_-]?key[=:]\s*\S+)'
+        r'|(access_token[=:]\s*\S+)'
+        r'|(password[=:]\s*\S+)'
+        r'|(secret[=:]\s*\S+)'
+    )
+    _SDK = _re.compile(r'<[\w.]+ object at 0x[0-9a-fA-F]+>')
+
+    sanitized = _TOKEN.sub('[REDACTED]', error)
+    sanitized = _SDK.sub('[OBJECT_REPR]', sanitized)
+    if len(sanitized) > _MAX_ERROR_DETAIL_LEN:
+        sanitized = sanitized[: _MAX_ERROR_DETAIL_LEN - 3] + "..."
+    return sanitized
+
+
 def _snapshot_build_failures(failures: list[Any]) -> list[dict[str, Any]]:
     """Extract JSON-safe build-failure records."""
     entries: list[dict[str, Any]] = []
     for bf in failures[:_MAX_BUILD_FAILURES]:
         adapter_id = getattr(bf, "adapter_id", "unknown")
         error = getattr(bf, "error", "unknown error")
-        error_str = str(error)
-        if len(error_str) > _MAX_ERROR_DETAIL_LEN:
-            error_str = error_str[: _MAX_ERROR_DETAIL_LEN - 3] + "..."
+        error_str = _sanitize_error(str(error))
         entries.append({
             "adapter_id": adapter_id,
             "error": error_str,

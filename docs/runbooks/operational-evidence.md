@@ -1,6 +1,6 @@
 # Operational Evidence Runbook
 
-> Last updated: 2026-05-11
+> Last updated: 2026-05-12
 > Status: Partially populated. Current deterministic suite: 3237 passed, 4 skipped,
 > 63 deselected (2026-05-11). Live evidence is historical from 2026-05-10:
 > Matrix plaintext 13/13, E2EE harness 7/7, Meshtastic serial 10/10.
@@ -8,10 +8,22 @@
 > MeshCore, LXMF, and soak tests remain **NOT EXECUTED**.
 > Live commands, env vars, and NOT EXECUTED reasoning in §6–§7.
 > Related: `docs/contracts/32-beta-readiness-checklist.md`, section 1.3.2.
+> Evidence schema: `docs/contracts/61-operational-evidence-contract.md`.
+> Live procedures: `docs/runbooks/live-operational-evidence.md`.
+> Longrun validation: `docs/runbooks/longrun-validation.md`.
 
 This document is the consolidated operational evidence record for each validated
 transport. Each transport section contains fields for actual test date,
 environment, results, caveats, reconnect observations, and limitations.
+
+**Evidence classification (per Contract 61):**
+
+| Tier | Label | Meaning |
+|------|-------|---------|
+| **H** | Historical | Recorded during a prior phase. May be stale. |
+| **C** | Current-tranche | Recorded against current codebase during active tranche. |
+| **S** | Simulated / Fake-runtime | Recorded using mocks/fakes. No real endpoint. |
+| **R** | Real-live-runtime | Recorded against a real transport endpoint. |
 
 **How to use this document:**
 
@@ -23,17 +35,20 @@ environment, results, caveats, reconnect observations, and limitations.
    including date, environment details, and observed behavior.
 4. Do not invent, fabricate, or extrapolate live evidence from unit test
    results. Unit tests are recorded separately.
+5. Every evidence entry must include a `tier` field per Contract 61 §2.
 
 
 ## 1. Matrix Operational Evidence
 
-> **Historical evidence note:** Live results in this section were recorded on 2026-05-10 against matrix.org. Current beta-entry tranche live execution: **NOT EXECUTED**.
+> **Evidence tier:** H (historical, recorded 2026-05-10 against matrix.org). Current beta-entry tranche live execution: **NOT EXECUTED**.
+> **Live procedures:** `docs/runbooks/live-operational-evidence.md` §1.
 
-### 1.1 Live Smoke Test Evidence (Historical — recorded 2026-05-10)
+### 1.1 Live Smoke Test Evidence (Tier: H — recorded 2026-05-10)
 
 | Field | Value |
 |-------|-------|
 | **Test file** | `tests/test_matrix_live.py` |
+| **Evidence tier** | H (historical) |
 | **Last execution date** | 2026-05-10 |
 | **Executor** | Live agent (automated) |
 | **Homeserver** | matrix.org (public homeserver) |
@@ -56,11 +71,12 @@ environment, results, caveats, reconnect observations, and limitations.
 | **Caveats observed** | Initial harness had a bug where `health_check()` was awaited as a coroutine instead of called as a regular method. Fixed in-tree before final run. No remaining issues. |
 | **Restart idempotency** | ✅ Stop → start cycle re-establishes sync; second `health_check()` returns `healthy` |
 
-### 1.2 E2EE Live Test Evidence (Historical — recorded 2026-05-10)
+### 1.2 E2EE Live Test Evidence (Tier: H — recorded 2026-05-10)
 
 | Field | Value |
 |-------|-------|
 | **Test file** | `tests/test_matrix_e2ee_live.py` |
+| **Evidence tier** | H (historical) |
 | **Last execution date** | 2026-05-10 |
 | **Executor** | Live agent (automated) |
 | **Homeserver** | matrix.org (public homeserver) |
@@ -75,7 +91,7 @@ environment, results, caveats, reconnect observations, and limitations.
 | **Undecryptable events** | 0 observed during run |
 | **Caveats observed** | E2EE tests validated startup with crypto deps against an unencrypted room. See §1.3 for encrypted-room follow-up results. |
 
-### 1.3 Encrypted Room Follow-up Evidence (Historical — recorded 2026-05-10)
+### 1.3 Encrypted Room Follow-up Evidence (Tier: H — recorded 2026-05-10)
 
 #### 1.3.1 Pre-fix Run (initial)
 
@@ -113,7 +129,7 @@ environment, results, caveats, reconnect observations, and limitations.
 | **Encrypted send → event_id** | ✅ Outbound encrypted send succeeds — MEDRE passes `ignore_unverified_devices=True` for non-plaintext modes |
 | **Caveats** | This is not a security downgrade — `ignore_unverified_devices=True` is required by the upstream nio client (no cross-signing support, MSC1756). MEDRE applies this automatically based on `encryption_mode`. Device verification via cross-signing is an upstream nio gap, not a MEDRE deferral. |
 
-### 1.4 Soak Test Evidence
+### 1.4 Soak Test Evidence (Tier: NOT EXECUTED)
 
 | Field | Value |
 |-------|-------|
@@ -195,13 +211,15 @@ pytest tests/test_matrix_live.py::TestMatrixLiveSmoke::test_inbound_message_rece
 
 ## 2. Meshtastic Operational Evidence
 
-> **Historical evidence note:** Live results in this section were recorded on 2026-05-10 against real hardware. Current beta-entry tranche live execution: **NOT EXECUTED**.
+> **Evidence tier:** H (historical, recorded 2026-05-10 against real hardware). Current beta-entry tranche live execution: **NOT EXECUTED**.
+> **Live procedures:** `docs/runbooks/live-operational-evidence.md` §2.
 
-### 2.1 Live Smoke Test Evidence (Historical — recorded 2026-05-10)
+### 2.1 Live Smoke Test Evidence (Tier: H — recorded 2026-05-10)
 
 | Field | Value |
 |-------|-------|
 | **Test file** | `tests/test_meshtastic_live.py` |
+| **Evidence tier** | H (historical) |
 | **Last execution date** | 2026-05-10 |
 | **Executor** | Live agent (automated) |
 | **Connection type** | Serial (direct USB connection to `/dev/ttyACM0`) |
@@ -227,7 +245,7 @@ pytest tests/test_matrix_live.py::TestMatrixLiveSmoke::test_inbound_message_rece
 | **Destructive operations** | None performed. No admin packets, no firmware changes, no config writes. |
 | **Second-node inbound** | **NOT EXECUTED** — requires a second Meshtastic node not present in this run. |
 
-### 2.2 Soak Test Evidence
+### 2.2 Soak Test Evidence (Tier: NOT EXECUTED)
 
 | Field | Value |
 |-------|-------|
@@ -254,7 +272,10 @@ pytest tests/test_matrix_live.py::TestMatrixLiveSmoke::test_inbound_message_rece
 
 ## 3. MeshCore Operational Evidence
 
-### 3.1 Live Smoke Test Evidence
+> **Evidence tier:** NOT EXECUTED. No live evidence of any tier. S-tier unit tests pass.
+> **Live procedures:** Not yet documented (no hardware available).
+
+### 3.1 Live Smoke Test Evidence (Tier: NOT EXECUTED)
 
 | Field | Value |
 |-------|-------|
@@ -290,7 +311,10 @@ pytest tests/test_matrix_live.py::TestMatrixLiveSmoke::test_inbound_message_rece
 
 ## 4. LXMF/Reticulum Operational Evidence
 
-### 4.1 Live Smoke Test Evidence
+> **Evidence tier:** NOT EXECUTED. No live evidence of any tier. S-tier unit tests pass.
+> **Live procedures:** Not yet documented (no Reticulum network available).
+
+### 4.1 Live Smoke Test Evidence (Tier: NOT EXECUTED)
 
 | Field | Value |
 |-------|-------|
@@ -325,7 +349,7 @@ pytest tests/test_matrix_live.py::TestMatrixLiveSmoke::test_inbound_message_rece
 - Production deployment readiness is not claimed.
 
 
-## 5. Deterministic Test Evidence (confirmed)
+## 5. Deterministic Test Evidence (Tier: S — confirmed)
 
 This section records evidence from deterministic/unit tests that do not require
 live services. These are confirmed from CI runs.
@@ -523,4 +547,22 @@ When live agents or operators report results:
 6. Update `docs/contracts/32-beta-readiness-checklist.md` section 1.3.2
    to reflect the new evidence status.
 7. Follow the evidence honesty requirements in
-   `docs/runbooks/beta-entry-validation.md` §4.
+    `docs/runbooks/beta-entry-validation.md` §4.
+8. Ensure every new evidence entry includes a `tier` field per
+   `docs/contracts/61-operational-evidence-contract.md` §2.
+9. Record longrun evidence in `docs/runbooks/longrun-validation.md` §5.
+
+
+## 9. Cross-References
+
+| Document | Relationship |
+|----------|-------------|
+| `docs/contracts/61-operational-evidence-contract.md` | Evidence schema, classification tiers, required fields |
+| `docs/runbooks/live-operational-evidence.md` | Detailed Matrix and Meshtastic live procedures |
+| `docs/runbooks/longrun-validation.md` | Longrun evidence capture and recording |
+| `docs/runbooks/soak-testing.md` | Soak harness infrastructure and procedures |
+| `docs/contracts/32-beta-readiness-checklist.md` | Beta entry criteria referencing evidence status |
+| `docs/contracts/37-transport-maturity-classification.md` | Transport maturity tiers using evidence scores |
+| `docs/contracts/39-operational-risk-register.md` | Risk register informed by evidence gaps |
+| `docs/contracts/48-runtime-observability-contract.md` | Diagnostics field definitions |
+| `docs/contracts/59-runtime-durability-contract.md` | Durability claims requiring evidence |

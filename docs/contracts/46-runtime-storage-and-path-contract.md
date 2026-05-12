@@ -31,7 +31,7 @@ When `MEDRE_HOME` is set, all categories resolve under one root:
 | State | `$MEDRE_HOME/state/` |
 | Data | `$MEDRE_HOME/data/` |
 | Cache | `$MEDRE_HOME/cache/` |
-| Logs | `$MEDRE_HOME/state/logs/` |
+| Logs | `$MEDRE_HOME/logs/` |
 
 Use this mode for Docker, Kubernetes, and portable deployments.
 
@@ -173,10 +173,12 @@ Environment variables like `MEDRE_MATRIX_STORE_PATH` and `MEDRE_MATRIX_DEVICE_ID
 
 ```
 {state}/medre.sqlite                                   — Global database (one backend)
-{state}/logs/medre.log                                 — Global log file
+{log_dir}/medre.log                                    — Global log file
 {state}/adapters/{adapter_id}/                         — Per-adapter state root
 {state}/adapters/{adapter_id}/matrix/store/            — Matrix E2EE crypto store
 {state}/adapters/{adapter_id}/meshtastic/              — Meshtastic state (future)
 {state}/adapters/{adapter_id}/meshcore/                — MeshCore state (future)
 {state}/adapters/{adapter_id}/lxmf/                    — LXMF state (future)
 ```
+
+In XDG mode, `{log_dir}` resolves to `{state}/logs` (i.e., `~/.local/state/medre/logs`). In MEDRE_HOME mode, `{log_dir}` resolves to `$MEDRE_HOME/logs` — a direct child of `MEDRE_HOME`, not under `state/`.
