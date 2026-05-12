@@ -1,9 +1,9 @@
 # Contract 61 — Operational Evidence Contract
 
-> Contract version: 1
+> Contract version: 2
 > Last updated: 2026-05-12
-> Track: 2 (Transport Maturity Evidence), Track 3 (Live Operational Evidence), Track 7 (Live Evidence Documentation)
-> Supersedes: Nothing. Formalizes evidence schema referenced by `docs/runbooks/operational-evidence.md`.
+> Track: 1 (Transport Maturity Evidence), Track 2 (Live Operational Evidence), Track 7 (Live Evidence Documentation)
+> Supersedes: Contract 61 v1 (2026-05-12). Adds v2 runtime observation fields, diagnostics snapshot fields, restart/recovery/boundedness observation fields.
 > Status: Active contract. Defines the schema, classification, and recording protocol for all operational evidence.
 > References: Contract 32 (Beta Readiness), Contract 37 (Transport Maturity), Contract 39 (Risk Register), Contract 48 (Observability), Contract 59 (Durability).
 
@@ -86,6 +86,13 @@ Simulated evidence (`S`) may never be upgraded to `R` without a real endpoint ru
 | `e2ee_store_reuse` | Conditional | Required for E2EE mode. Whether crypto store loads across restarts. |
 | `third_party_inbound` | Yes | Whether third-party inbound was tested and confirmed |
 | `undecryptable_events` | Conditional | Required for E2EE mode. Count of undecryptable events observed. |
+| `repeated_start_stop_cycles` | Yes (v2) | Number of start/stop cycles completed, or NOT EXECUTED |
+| `replay_restart_recovery` | Yes (v2) | Observations from restart after offline gap, or NOT EXECUTED |
+| `long_running_sync_observation` | Yes (v2) | Soak/sustained sync evidence: duration, reconnect count, health, or NOT EXECUTED |
+| `room_state_boundedness` | Yes (v2) | Whether room count stayed within `_MAX_ROOM_STATES` (10,000), or NOT EXECUTED |
+| `diagnostics_snapshot_at_start` | Yes (v2) | Full `diagnostics()` dict captured immediately after start |
+| `diagnostics_snapshot_at_end` | Yes (v2) | Full `diagnostics()` dict captured at end of observation |
+| `runtime_duration_seconds` | Yes (v2) | Wall-clock duration of the observation session, or NOT EXECUTED |
 
 ### 3.3 Meshtastic-Specific Fields
 
@@ -105,6 +112,15 @@ Simulated evidence (`S`) may never be upgraded to `R` without a real endpoint ru
 | `inbound_second_node` | Yes | Whether inbound from a second node was tested |
 | `diagnostics_snapshot_fields` | Yes | List of fields present in `diagnostics()` output |
 | `destructive_operations` | Yes | Whether any destructive operations were performed (must be "None") |
+| `repeated_start_stop_cycles` | Yes (v2) | Number of start/stop cycles completed, or NOT EXECUTED |
+| `serial_reconnect_degraded` | Yes (v2) | Observed health transitions during serial reconnect, or NOT EXECUTED |
+| `outbound_degraded_behavior` | Yes (v2) | Observed transient retry / permanent failure behavior, or NOT EXECUTED |
+| `long_running_runtime_observation` | Yes (v2) | Sustained runtime evidence: duration, connection stability, queue stats, or NOT EXECUTED |
+| `hardware_firmware_snapshot` | Yes (v2) | Full hardware/firmware field capture per §2.11 of live procedures |
+| `diagnostics_snapshot_at_start` | Yes (v2) | Full `diagnostics()` dict captured immediately after start |
+| `diagnostics_snapshot_at_end` | Yes (v2) | Full `diagnostics()` dict captured at end of observation |
+| `runtime_duration_seconds` | Yes (v2) | Wall-clock duration of the observation session, or NOT EXECUTED |
+| `connection_establishment_time_ms` | Yes (v2) | Time from `start()` to `connected == True`, or NOT EXECUTED |
 
 ### 3.4 MeshCore-Specific Fields
 
@@ -128,6 +144,21 @@ Simulated evidence (`S`) may never be upgraded to `R` without a real endpoint ru
 | `identity_source` | Yes | loaded or generated |
 | `delivery_state_progression` | Yes | Observed state transitions (OUTBOUND → DELIVERED) |
 | `propagation_node` | Yes | Whether store-and-forward was tested |
+
+### 3.6 Common Runtime Observation Fields (v2)
+
+These fields apply to all transports when recording extended runtime observations (soak, longrun, or sustained operation).
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `observation_type` | Yes | `smoke`, `soak`, `longrun`, `sustained`, or `manual` |
+| `observation_duration_seconds` | Yes | Wall-clock duration of the observation |
+| `health_transitions_observed` | Yes | List of health state transitions observed (e.g., `["healthy", "degraded", "healthy"]`) |
+| `reconnect_events` | Yes | Number of reconnect events during observation, or NOT EXECUTED |
+| `diagnostics_drift` | Yes | Delta of key diagnostics fields between start and end snapshots |
+| `memory_rss_start_bytes` | Conditional | Process RSS at observation start (if `psutil` available) |
+| `memory_rss_end_bytes` | Conditional | Process RSS at observation end (if `psutil` available) |
+| `boundedness_confirmed` | Yes (v2) | Whether all bounded resources stayed within limits during observation |
 
 
 ## 4. Evidence Recording Protocol
@@ -180,12 +211,12 @@ Each transport's evidence maturity is scored based on the evidence collected:
 | **4** | Current-tranche (C) real-live evidence exists for smoke + soak + diagnostics. |
 | **5** | Current-tranche (C) real-live evidence exists for all required fields. |
 
-### 5.1 Current Scores (as of 2026-05-12)
+### 5.1 Current Scores (as of 2026-05-12, v2)
 
 | Transport | Evidence Score | Justification |
 |-----------|---------------|---------------|
-| Matrix | 3 | Historical R-tier smoke evidence (2026-05-10), current C-tier deterministic evidence (3237 pass). Soak, third-party inbound, and sustained diagnostics NOT EXECUTED. |
-| Meshtastic | 3 | Historical R-tier smoke evidence (2026-05-10), current C-tier deterministic evidence. Soak, second-node inbound, serial reconnect, send_one NOT EXECUTED. |
+| Matrix | 3 | Historical R-tier smoke evidence (2026-05-10, 13/13 passed), historical R-tier E2EE evidence (7/7 passed, 3.73s). Current C-tier deterministic evidence (3237 pass). v2 fields (repeated start/stop cycles, replay/restart/recovery, long-running sync, room-state boundedness, diagnostics snapshots, runtime durations) all NOT EXECUTED. Soak, third-party inbound, sustained diagnostics NOT EXECUTED. |
+| Meshtastic | 3 | Historical R-tier smoke evidence (2026-05-10, 10/10 passed, 34.47s). Current C-tier deterministic evidence. v2 fields (repeated start/stop cycles, serial reconnect/degraded, outbound degraded behavior, long-running runtime, hardware/firmware snapshot, connection establishment time) all NOT EXECUTED. Soak, second-node inbound, send_one NOT EXECUTED. |
 | MeshCore | 1 | S-tier unit test evidence only. All R-tier fields NOT EXECUTED. No hardware available. |
 | LXMF | 1 | S-tier unit test evidence only. All R-tier fields NOT EXECUTED. No Reticulum network available. |
 
@@ -200,6 +231,8 @@ The following claims are prohibited without explicit R-tier evidence:
 4. "Transport X is production-ready." — No transport qualifies. See Contract 37 §6.
 5. "Messages are delivered in order." — No evidence supports ordering claims.
 6. "Delivery latency is bounded by X ms." — Requires R-tier evidence with timing measurements.
+7. "Repeated start/stop is safe in production." — Requires R-tier start/stop cycle evidence. (v2)
+8. "Boundedness guarantees hold under load." — Requires R-tier sustained operation evidence. (v2)
 
 ### 6.1 Honest Claims Allowed
 
@@ -211,6 +244,8 @@ The following claims are prohibited without explicit R-tier evidence:
 | "Radio send returned MeshPacket with populated id." | R-tier Meshtastic evidence |
 | "Crypto store loads across restarts." | R-tier E2EE restart evidence |
 | "No transport has live evidence." | NOT EXECUTED entries for all fields |
+| "Boundedness logic is implemented with limit X." | S-tier deterministic test + source reference (v2) |
+| "Repeated start/stop cycle tests pass against mocks." | S-tier deterministic test (v2) |
 
 
 ## 7. Relationship to Other Documents
@@ -225,10 +260,12 @@ The following claims are prohibited without explicit R-tier evidence:
 | `docs/contracts/39-operational-risk-register.md` | Risk ratings informed by evidence gaps identified via this contract. |
 | `docs/contracts/48-runtime-observability-contract.md` | Defines diagnostics fields referenced in `diagnostics_snapshot_fields`. |
 | `docs/contracts/59-runtime-durability-contract.md` | Durability claims must be backed by evidence per this contract. |
+| `docs/runbooks/soak-testing.md` | Soak harness infrastructure. Produces evidence that must comply with this contract's §3.6. |
 
 
 ## 8. Changelog
 
-| Date | Change |
-|------|--------|
-| 2026-05-12 | Contract 61 created. Formalizes evidence schema from operational-evidence.md. Defines 4 evidence tiers, required fields per transport, evidence maturity scores, prohibited claims. |
+| Date | Version | Change |
+|------|---------|--------|
+| 2026-05-12 | v1 | Contract 61 created. Formalizes evidence schema from operational-evidence.md. Defines 4 evidence tiers, required fields per transport, evidence maturity scores, prohibited claims. |
+| 2026-05-12 | v2 | Tracks 1/2/7 consolidation. Added: Matrix v2 fields (§3.2: `repeated_start_stop_cycles`, `replay_restart_recovery`, `long_running_sync_observation`, `room_state_boundedness`, `diagnostics_snapshot_at_start/end`, `runtime_duration_seconds`). Meshtastic v2 fields (§3.3: `repeated_start_stop_cycles`, `serial_reconnect_degraded`, `outbound_degraded_behavior`, `long_running_runtime_observation`, `hardware_firmware_snapshot`, `diagnostics_snapshot_at_start/end`, `runtime_duration_seconds`, `connection_establishment_time_ms`). Common runtime observation fields (§3.6). Updated prohibited claims (§6). Updated transport scores with v2 field status (§5.1). |

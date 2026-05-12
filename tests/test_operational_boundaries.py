@@ -516,6 +516,7 @@ class TestNoLiveTestsRunByDefault:
             "test_lxmf_boundaries.py",
             "test_cross_transport_boundaries.py",
             "test_operational_boundaries.py",
+            "test_deployment_boundaries.py",
         }
 
         violations: list[str] = []

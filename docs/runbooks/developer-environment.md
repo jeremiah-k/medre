@@ -232,6 +232,25 @@ PYTHONPATH=src pytest tests/test_meshtastic_live.py -m live -v
 - Running `pytest` without `-m live` will never execute live tests.
 
 
+### 4.3 Clean-Environment Validation Tests
+
+Track 3 clean-environment tests validate deterministic packaging/install
+metadata, import boundaries, and CLI workflows from a bare-install
+perspective.  They exercise metadata/docs checks only — no live SDKs, no
+actual installs.
+
+```bash
+# Run clean-environment validation suite specifically
+PYTHONPATH=src pytest tests/test_clean_environment.py -v
+```
+
+These tests cover: editable-install command documentation, build-system
+metadata, extras dependency graph consistency, console-script resolution,
+broad subpackage import boundaries, config sample generation, CLI smoke
+commands, environment-variable override machinery, compileall verification,
+and package layout invariants.
+
+
 ## 5. Tested Environment Reference
 
 This is the exact environment used for validation as of 2026-05-10:

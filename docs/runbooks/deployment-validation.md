@@ -1,0 +1,401 @@
+# Deployment Validation Runbook
+
+This runbook documents how MEDRE's path model, startup directory creation, and state persistence behave in container and non-container deployments. It provides validation procedures operators can follow to verify correct deployment before running production traffic.
+
+All path behaviour described here is governed by **Contract 46** (Runtime Storage and Path Model) and **Contract 55** (Runtime Persistence Contract). If this document contradicts those contracts, the contracts win.
+
+
+## 1. Path Resolution Modes
+
+MEDRE has exactly two path resolution modes, controlled by the `MEDRE_HOME` environment variable.
+
+### 1.1 XDG Mode (default)
+
+When `MEDRE_HOME` is unset, empty, or whitespace-only, MEDRE follows the XDG Base Directory Specification:
+
+| Category  | Default Path                  | Override Variable   |
+|-----------|-------------------------------|---------------------|
+| Config    | `~/.config/medre/`            | `XDG_CONFIG_HOME`   |
+| State     | `~/.local/state/medre/`       | `XDG_STATE_HOME`    |
+| Data      | `~/.local/share/medre/`       | `XDG_DATA_HOME`     |
+| Cache     | `~/.cache/medre/`             | `XDG_CACHE_HOME`    |
+| Logs      | `{state}/logs/`               | (follows state)     |
+| Database  | `{state}/medre.sqlite`        | (follows state)     |
+
+XDG mode is appropriate for local development and workstation installations. Each path category resolves independently against its XDG variable or spec-defined fallback.
+
+### 1.2 MEDRE_HOME Mode (container / unified)
+
+When `MEDRE_HOME` is set to a non-empty, non-whitespace value, all paths resolve under that single root:
+
+| Category  | Path                        |
+|-----------|-----------------------------|
+| Config    | `$MEDRE_HOME/config.toml`   |
+| State     | `$MEDRE_HOME/state/`        |
+| Data      | `$MEDRE_HOME/data/`         |
+| Cache     | `$MEDRE_HOME/cache/`        |
+| Logs      | `$MEDRE_HOME/logs/`         |
+| Database  | `$MEDRE_HOME/state/medre.sqlite` |
+
+This mode is intended for Docker, Kubernetes, and any environment where a unified data layout is preferred. The `docker.env.example` sets `MEDRE_HOME=/opt/medre`.
+
+**Priority:** `MEDRE_HOME` takes precedence over all `XDG_*` variables. If both are set, `MEDRE_HOME` wins.
+
+
+## 2. MEDRE_HOME Container Layout
+
+The canonical container layout when `MEDRE_HOME=/opt/medre`:
+
+```
+/opt/medre/
+  config.toml                          # Main configuration file
+  state/
+    medre.sqlite                       # Global SQLite database
+    logs/
+      medre.log                        # Runtime log file
+    adapters/
+      {adapter_id}/                    # Per-adapter state root
+        {transport}/                   # Transport-specific state
+          matrix/
+            store/                     # nio E2EE crypto store (Matrix only)
+  data/                                # Persistent application data
+  cache/                               # Disposable cached data
+```
+
+### 2.1 Volume Mount Strategy
+
+For persistence across container restarts, mount a Docker volume or host bind mount at `MEDRE_HOME`:
+
+```bash
+docker run -v /host/medre-data:/opt/medre ... medre
+```
+
+This single mount captures all persistent state: configuration, SQLite database, adapter state, crypto stores, and logs.
+
+### 2.2 What Requires Persistence
+
+| Path                              | Must Persist | Reason                                    |
+|-----------------------------------|-------------|-------------------------------------------|
+| `$MEDRE_HOME/config.toml`         | Yes         | Operator configuration                    |
+| `$MEDRE_HOME/state/medre.sqlite`  | Yes         | Events, delivery receipts, replay state   |
+| `$MEDRE_HOME/state/adapters/*/`   | Yes         | E2EE crypto keys, transport state         |
+| `$MEDRE_HOME/logs/`               | Optional    | Debugging; logs rotate and are disposable |
+| `$MEDRE_HOME/cache/`              | No          | Disposable; recreated on startup          |
+| `$MEDRE_HOME/data/`               | Depends     | Currently unused; reserved for future use |
+
+
+## 3. Startup Directory Creation
+
+Path resolution (`medre.config.paths.resolve()`) is a **pure computation**. No directories are created during path resolution.
+
+Directories are created by `MedreApp._ensure_dirs()` during `app.start()`, **before** storage initialization and adapter startup. The creation order:
+
+1. `state_dir` — `$MEDRE_HOME/state/`
+2. `data_dir` — `$MEDRE_HOME/data/`
+3. `cache_dir` — `$MEDRE_HOME/cache/`
+4. `log_dir` — `$MEDRE_HOME/logs/`
+5. Database parent — `$MEDRE_HOME/state/` (same as `state_dir`)
+6. Per-adapter roots — `$MEDRE_HOME/state/adapters/{adapter_id}/` for each enabled adapter
+7. Matrix store dirs — `$MEDRE_HOME/state/adapters/{adapter_id}/matrix/store/` for each enabled Matrix adapter
+
+All directories are created with `mkdir(parents=True, exist_ok=True)`, meaning:
+- Intermediate directories are created automatically
+- Repeated calls are idempotent (no error on existing dirs)
+- No permissions are explicitly set (inherits from parent)
+
+**Disabled adapters** do not get state directories created. Only enabled adapters are processed.
+
+### 3.1 Validation: Verify Directory Creation After Startup
+
+After MEDRE starts, verify the expected directory tree exists:
+
+```bash
+ls -la /opt/medre/state/
+ls -la /opt/medre/state/adapters/
+ls -la /opt/medre/data/
+ls -la /opt/medre/cache/
+ls -la /opt/medre/logs/
+```
+
+For each enabled adapter (e.g., `matrix_main`):
+
+```bash
+ls -la /opt/medre/state/adapters/matrix_main/
+ls -la /opt/medre/state/adapters/matrix_main/matrix/store/   # Matrix only
+```
+
+
+## 4. SQLite Persistence
+
+### 4.1 Location
+
+The SQLite database is always at `{state}/medre.sqlite`:
+- XDG mode: `~/.local/state/medre/medre.sqlite`
+- MEDRE_HOME mode: `$MEDRE_HOME/state/medre.sqlite`
+
+### 4.2 Persistence Semantics
+
+- SQLite uses WAL (Write-Ahead Logging) journal mode for crash consistency.
+- Events are stored **before** delivery begins (write-ahead).
+- If the runtime crashes after storing but before delivery, the event persists with no delivery receipt. Replay can reprocess it.
+- The database is a single file. No per-adapter databases exist.
+
+### 4.3 Validation: Verify Database Persistence
+
+```bash
+# After runtime start with sqlite backend
+ls -la /opt/medre/state/medre.sqlite
+sqlite3 /opt/medre/state/medre.sqlite ".tables"
+```
+
+After a clean shutdown and restart, the database file should still exist with all data intact.
+
+### 4.4 Validation: No Per-Adapter Databases
+
+```bash
+# Should return no results
+find /opt/medre/state/adapters/ -name "medre.sqlite"
+```
+
+The global database must be the only `.sqlite` file in the state tree.
+
+
+## 5. Matrix Store Persistence
+
+### 5.1 Store Path Derivation
+
+The Matrix E2EE crypto store path is derived automatically by `RuntimeBuilder` when `MatrixConfig.store_path` is `None`:
+
+```
+{state}/adapters/{adapter_id}/matrix/store/
+```
+
+This derivation happens during `builder.build()`, before the adapter is constructed. The derived path is injected into the `MatrixConfig.store_path` field.
+
+### 5.2 Isolation
+
+Each Matrix adapter gets its own store directory. Two Matrix adapters with IDs `alpha` and `beta` get separate stores:
+
+```
+{state}/adapters/alpha/matrix/store/
+{state}/adapters/beta/matrix/store/
+```
+
+Non-Matrix adapters (Meshtastic, MeshCore, LXMF) do **not** get `matrix/store/` directories.
+
+### 5.3 Validation: Matrix Store Isolation
+
+```bash
+# For each Matrix adapter, verify store exists
+ls -la /opt/medre/state/adapters/{matrix_adapter_id}/matrix/store/
+
+# Verify non-Matrix adapters have no matrix/store
+ls /opt/medre/state/adapters/{meshtastic_adapter_id}/matrix/store/ 2>&1
+# Expected: No such file or directory
+```
+
+
+## 6. Non-Root Assumptions
+
+### 6.1 No System Directory Writes
+
+MEDRE does not write to:
+- `/usr/`, `/etc/`, `/var/` (system directories)
+- `/tmp/` (temporary directory, unless explicitly configured)
+- Any path outside the resolved `MEDRE_HOME` or XDG directories
+
+### 6.2 No Privilege Requirements
+
+MEDRE does not:
+- Bind to privileged ports (< 1024)
+- Require `CAP_NET_ADMIN` or `CAP_SYS_ADMIN`
+- Modify system configuration
+- Create system users or groups
+- Write to `/proc/` or `/sys/`
+
+### 6.3 Validation: Non-Root Operation
+
+```bash
+# Run as non-root user
+id
+# Expected: uid != 0
+
+# Verify no writes outside MEDRE_HOME
+find / -newer /opt/medre/config.toml -not -path "/opt/medre/*" -not -path "/proc/*" -not -path "/sys/*" 2>/dev/null
+```
+
+
+## 7. Serial Passthrough Assumptions
+
+### 7.1 Device Availability
+
+The Meshtastic serial adapter expects the configured serial device to exist and be accessible:
+
+```
+MEDRE_MESHTASTIC_SERIAL_PORT=/dev/ttyACM0
+```
+
+In Docker, this requires device passthrough:
+
+```bash
+docker run --device /dev/ttyACM0:/dev/ttyACM0 ...
+```
+
+### 7.2 Device Permissions
+
+The MEDRE process user must have read/write access to the serial device:
+
+```bash
+ls -la /dev/ttyACM0
+# Expected: crw-rw---- 1 dialout ... /dev/ttyACM0
+
+# User must be in the dialout group or device must be world-readable
+groups $(whoami)
+```
+
+### 7.3 Validation: Serial Device Availability
+
+```bash
+# Inside container
+ls -la /dev/ttyACM0
+cat /dev/ttyACM0 < /dev/null  # Test read access (will timeout, not error)
+```
+
+If the device is not available, the Meshtastic adapter will fail to start. This is a partial failure — other adapters continue running. Check `boot_summary` for adapter startup status.
+
+
+## 8. Adapter-State Isolation
+
+### 8.1 Per-Adapter State Root
+
+Each enabled adapter gets an isolated state root at:
+
+```
+{state}/adapters/{adapter_id}/
+```
+
+Two adapters never share the same state root. The isolation guarantee is enforced by `MedrePaths.adapter_state_dir()`, which rejects empty `adapter_id` and `adapter_id` containing path separators.
+
+### 8.2 Transport Subdirectory
+
+Within each adapter root, transport-specific state lives in:
+
+```
+{state}/adapters/{adapter_id}/{transport}/
+```
+
+Currently, only Matrix creates a transport subdirectory (`matrix/store/`). Meshtastic, MeshCore, and LXMF transport subdirectories are reserved but not yet created at runtime.
+
+### 8.3 Validation: Adapter Isolation
+
+```bash
+# List all adapter state roots
+ls /opt/medre/state/adapters/
+
+# Verify no overlap — each adapter_id is a unique directory
+# Verify no adapter state root contains medre.sqlite
+find /opt/medre/state/adapters/ -name "medre.sqlite"
+# Expected: no results
+```
+
+
+## 9. XDG Behavior Verification
+
+### 9.1 XDG Fallback Paths
+
+When no environment variables are set, MEDRE uses these XDG spec fallbacks:
+
+```
+~/.config/medre/config.toml
+~/.local/state/medre/medre.sqlite
+~/.local/state/medre/logs/
+~/.local/share/medre/
+~/.cache/medre/
+```
+
+### 9.2 XDG Override Variables
+
+Each XDG category can be independently overridden:
+
+```bash
+export XDG_CONFIG_HOME=/custom/config
+export XDG_STATE_HOME=/custom/state
+export XDG_DATA_HOME=/custom/data
+export XDG_CACHE_HOME=/custom/cache
+```
+
+### 9.3 MEDRE_HOME Precedence
+
+When `MEDRE_HOME` is set, it overrides all XDG variables. This is by design for container deployments where a unified path simplifies volume management.
+
+### 9.4 Empty/Whitespace MEDRE_HOME
+
+An empty or whitespace-only `MEDRE_HOME` value is treated as unset. XDG mode is used.
+
+### 9.5 Validation: XDG vs MEDRE_HOME
+
+```bash
+# Verify XDG mode
+unset MEDRE_HOME
+python -c "from medre.config.paths import resolve; p=resolve(); print(p.state_dir)"
+
+# Verify MEDRE_HOME mode
+export MEDRE_HOME=/opt/medre
+python -c "from medre.config.paths import resolve; p=resolve(); print(p.state_dir)"
+# Expected: /opt/medre/state
+```
+
+
+## 10. Deployment Observations
+
+### 10.1 Path Resolution Is No-I/O
+
+`resolve()` reads environment variables and computes paths. It does not touch the filesystem. This means:
+- Config validation can happen before directories exist
+- Path resolution errors are caught at config time, not runtime
+- No side effects during import or config loading
+
+### 10.2 Directory Creation Is Idempotent
+
+`_ensure_dirs()` can be called multiple times safely. `exist_ok=True` means existing directories are not errors. This supports:
+- Container restart scenarios
+- Crash recovery where directories already exist
+- Testing where setup and teardown overlap
+
+### 10.3 Crash Consistency
+
+SQLite WAL mode ensures that committed transactions survive process crashes. The runtime does not implement additional crash recovery logic beyond what SQLite provides.
+
+### 10.4 No Hidden State
+
+All persistent state lives in the filesystem under `MEDRE_HOME` or XDG directories. There is no:
+- Hidden dotfile state
+- Registry or database outside the configured paths
+- Network-stored state (all state is local)
+- Environment-dependent state beyond the documented env vars
+
+### 10.5 Adapter Build Failures Are Non-Fatal
+
+If an adapter fails to build (missing optional dependency, invalid config), the runtime continues with remaining adapters. The failure is recorded in `build_failures` and the boot summary. Check `app.build_failures` or `boot_summary` after startup.
+
+
+## 11. Container Execution: NOT EXECUTED
+
+**Status: NOT EXECUTED**
+
+No container runtime (Docker, Podman, etc.) was invoked during the preparation of this runbook. The observations above are derived from:
+
+- Source code analysis of `src/medre/config/paths.py`
+- Source code analysis of `src/medre/runtime/app.py` (`_ensure_dirs()`)
+- Source code analysis of `src/medre/runtime/builder.py` (Matrix store path derivation)
+- Contract 46 (Runtime Storage and Path Model)
+- Contract 55 (Runtime Persistence Contract)
+- `examples/env/docker.env.example`
+- Existing unit tests in `test_config_paths.py`, `test_storage_path_validation.py`, `test_runtime_builder.py`
+
+The validation commands provided are procedural checks an operator can run. They have not been executed in a live container environment. To validate in production:
+
+1. Start a container with `MEDRE_HOME=/opt/medre` and a bind-mounted volume
+2. Run each validation command in Section 3-9
+3. Stop the container, restart it, and verify state persistence
+4. Check `boot_summary` for adapter startup status
