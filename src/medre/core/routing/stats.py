@@ -26,6 +26,7 @@ _TOKEN_PATTERNS = re.compile(
     r'|([A-Za-z0-9+/=]{40,})'       # long base64-like strings (tokens/keys)
     r'|(sk-[A-Za-z0-9]{20,})'       # OpenAI-style API keys
     r'|(api[_-]?key[=:]\s*\S+)'     # api_key=xxx patterns
+    r'|(access_token[=:]\s*\S+)'    # access_token=xxx patterns
     r'|(password[=:]\s*\S+)'        # password=xxx patterns
     r'|(secret[=:]\s*\S+)'          # secret=xxx patterns
 )

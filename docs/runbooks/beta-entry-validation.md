@@ -2,7 +2,7 @@
 
 > Last updated: 2026-05-11
 > Status: Evidence requirements for beta entry. Defines the minimum gate.
-> Related: `docs/contracts/32-beta-readiness-checklist.md`
+> Related: `docs/contracts/32-beta-readiness-checklist.md`, Contract 59 (Runtime Durability), Contract 60 (Runtime Cancellation)
 
 This document specifies the **minimum evidence required** before the MEDRE
 project can enter beta. It is a gate checklist: every item must be satisfied
@@ -101,11 +101,30 @@ All evidence must follow these rules:
    and MEDRE commit must be recorded for every live execution.
 
 
-## 5. Beta Entry Decision Checklist
+## 5. Runtime Guarantee Verification
+
+The following runtime guarantees must be verifiable (via existing tests, not live evidence) before beta entry. These are documented in Contract 59 (Runtime Durability) and Contract 60 (Runtime Cancellation).
+
+| # | Guarantee | Verified By | Contract Reference |
+|---|-----------|-------------|-------------------|
+| G1 | Events stored before delivery | `test_runtime_recovery.py` | Contract 59 §2.1 |
+| G2 | Delivery receipts written after completion | `test_runtime_recovery.py` | Contract 59 §2.2 |
+| G3 | Capacity bounded by semaphores | `test_runtime_cancellation.py` | Contract 59 §2.5 |
+| G4 | Counter resets on restart | `test_runtime_recovery.py` | Contract 59 §4.2 |
+| G5 | In-flight work lost on crash (no recovery) | By design — no test asserts absence of feature | Contract 59 §4.1 |
+| G6 | Stop-during-startup cleans up resources | `test_runtime_cancellation.py` | Contract 60 §7 |
+| G7 | Idempotent stop | `test_runtime_cancellation.py` | Contract 60 §7.2 |
+| G8 | CapacityController stop gates new work | `test_runtime_cancellation.py` | Contract 60 §3 |
+
+All G1–G8 must be verified by passing tests. G5 is a non-guarantee documented by design.
+
+
+## 6. Beta Entry Decision Checklist
 
 Before declaring beta:
 
 - [ ] All D1–D11 deterministic checks pass in a clean environment
+- [ ] All G1–G8 runtime guarantee checks pass (see §5)
 - [ ] At least one transport has live smoke evidence recorded
 - [ ] All transports without live evidence have **NOT EXECUTED** with reasons
 - [ ] Operational evidence document is up to date
@@ -125,7 +144,7 @@ If any item is deferred, record it here:
 | (example) LXMF live soak | No Reticulum network | Operator with Reticulum setup executes |
 
 
-## 6. Relationship to Other Documents
+## 7. Relationship to Other Documents
 
 | Document | Relationship |
 |----------|-------------|
@@ -133,3 +152,5 @@ If any item is deferred, record it here:
 | `docs/runbooks/operational-evidence.md` | Records live evidence and NOT EXECUTED status |
 | `docs/runbooks/soak-testing.md` | Procedures for soak evidence |
 | `docs/contracts/32-beta-readiness-checklist.md` | Contract-level beta criteria (references this runbook) |
+| `docs/contracts/59-runtime-durability-contract.md` | Durability guarantees verified by G1–G5 |
+| `docs/contracts/60-runtime-cancellation-contract.md` | Cancellation guarantees verified by G6–G8 |

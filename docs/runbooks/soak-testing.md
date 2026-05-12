@@ -2,7 +2,7 @@
 
 > Last updated: 2026-05-11
 > Status: Procedures defined. No live soak evidence recorded yet.
-> Related: `docs/runbooks/operational-evidence.md`, `tests/test_soak.py`
+> Related: `docs/runbooks/operational-evidence.md`, `tests/test_soak.py`, Contract 59 (Runtime Durability), Contract 60 (Runtime Cancellation)
 
 This document defines three tiers of soak testing for MEDRE, from CI-friendly
 dry runs to manual extended soaks against live endpoints. Soak tests prove that
@@ -246,7 +246,22 @@ credentials become available. See `docs/runbooks/operational-evidence.md` §7
 for reasoning and required commands.
 
 
-## 7. Relationship to Other Documents
+## 7. Soak Observations and Contracts
+
+Soak tests exercise the runtime over sustained periods. The following contracts define the guarantees and non-guarantees that soak tests may validate:
+
+| Topic | Contract | Soak-relevant guarantee |
+|-------|----------|------------------------|
+| Capacity boundedness | Contract 53 | `max_inflight_deliveries` and `max_inflight_replay_events` prevent unbounded memory growth |
+| Shutdown drain | Contract 54 | In-flight work is drained (or abandoned) within `shutdown_drain_timeout_seconds` |
+| Crash durability | Contract 59 | SQLite events and receipts survive hard crash; in-flight work is lost |
+| Cancellation under load | Contract 60 | `CapacityController.stop_accepting()` gates new work; drain polls `snapshot()` |
+| Counter resets on restart | Contract 59 | All process-local counters reset to zero on every startup |
+
+Soak tests are **observational** — they do not assert on throughput, latency, or ordering. They report whether the runtime maintained its guarantees over the soak duration.
+
+
+## 8. Relationship to Other Documents
 
 | Document | Relationship |
 |----------|-------------|

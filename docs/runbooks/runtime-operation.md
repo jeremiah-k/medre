@@ -215,16 +215,25 @@ shutdown_drain_timeout_seconds = 10.0
 
 ## Shutdown Behavior
 
-MEDRE shuts down in reverse dependency order: adapters → pipeline runner → storage.
+MEDRE shuts down in reverse dependency order: adapters → pipeline runner → storage. The runtime state transitions from `RUNNING` to `STOPPING` when `stop()` is called, and from `STOPPING` to either `STOPPED` or `FAILED` when complete. There are no substates for individual shutdown phases.
+
+### Shutdown Sequence
+
+1. **Stop accepting new work** — `CapacityController.stop_accepting()` blocks new delivery and replay acquire calls.
+2. **Drain in-flight work** — Poll `CapacityController.snapshot()` until both `delivery_current` and `replay_current` reach 0, or `shutdown_drain_timeout_seconds` expires.
+3. **Signal shutdown** — `shutdown_event.set()` notifies adapters and waiters.
+4. **Stop adapters** — Reverse start order, each with `shutdown_timeout_seconds` from the `[runtime]` section.
+5. **Stop pipeline runner** — Remove middleware, release resources.
+6. **Close storage** — Flush and release SQLite resources.
 
 ### Drain Phase
 
 When shutdown begins (SIGTERM, SIGINT, or programmatic):
 
-1. `shutdown_event` is set — signals all adapters and waiters.
-2. Adapters are stopped in reverse start order. Each adapter's `stop()` is called with `shutdown_timeout_seconds` from the `[runtime]` section.
-3. The pipeline runner stops. It awaits any in-flight delivery tasks for up to `shutdown_drain_timeout_seconds` (from `[runtime.limits]`). Deliveries completing within this window produce normal receipts. After the timeout, remaining deliveries are cancelled.
-4. Storage is closed (flushes and releases SQLite resources).
+1. `CapacityController.stop_accepting()` blocks new delivery and replay work.
+2. In-flight work is drained by polling capacity counters until both reach zero, or `shutdown_drain_timeout_seconds` (from `[runtime.limits]`) expires.
+3. `shutdown_event` is set — signals all adapters and waiters.
+4. Adapters are stopped in reverse start order. Each adapter's `stop()` is called with `shutdown_timeout_seconds`.
 
 ### What Gets Drained vs Cancelled
 
@@ -255,6 +264,8 @@ If the overall budget is exceeded, `RuntimeShutdownError` is raised with a summa
 - **No replay deduplication on restart.** If the runtime restarts, replayed events may be delivered again.
 - **No persistent queue.** Delivery state is in-memory only. In-flight deliveries that are cancelled on shutdown are lost.
 - **No distributed coordination.** Shutdown is local to the process.
+
+See Contract 54 (Runtime Shutdown), Contract 59 (Runtime Durability), and Contract 60 (Runtime Cancellation) for full specifications.
 
 
 ## Docker Deployment
@@ -394,7 +405,7 @@ After a clean shutdown, restarting with the same config resumes normal operation
 
 ## Persistence and Crash Semantics
 
-This section summarizes what MEDRE state survives restarts and what is lost. For the full contract, see Contract 55 (Runtime Persistence).
+This section summarizes what MEDRE state survives restarts and what is lost. For the full contracts, see Contract 55 (Runtime Persistence) and Contract 59 (Runtime Durability).
 
 ### What Is Persisted (Survives Crash and Restart)
 
@@ -448,7 +459,7 @@ MEDRE persists state to a local SQLite database and local filesystem. There is n
 - Log rotation and log aggregation.
 - External monitoring of disk space (a full disk stops event persistence).
 
-See Contract 55 for the complete persistence contract.
+See Contract 55 (Runtime Persistence) and Contract 59 (Runtime Durability) for the complete specifications.
 
 
 ## Failure Expectations

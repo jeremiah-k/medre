@@ -148,11 +148,25 @@ def _snapshot_adapter(adapter: Any) -> dict[str, Any]:
     Reads only static attributes; does **not** call
     :meth:`~medre.adapters.base.BaseAdapter.health_check` (which is async).
     """
-    adapter_id = getattr(adapter, "adapter_id", "unknown")
-    platform = getattr(adapter, "platform", "unknown")
+    try:
+        adapter_id = getattr(adapter, "adapter_id", "unknown")
+        if adapter_id is None:
+            adapter_id = "unknown"
+    except Exception:
+        adapter_id = "unknown"
+
+    try:
+        platform = getattr(adapter, "platform", "unknown")
+        if platform is None:
+            platform = "unknown"
+    except Exception:
+        platform = "unknown"
 
     # Role — may be an enum or a string.
-    role_attr = getattr(adapter, "role", None)
+    try:
+        role_attr = getattr(adapter, "role", None)
+    except Exception:
+        role_attr = None
     if role_attr is not None and hasattr(role_attr, "value"):
         role: str = role_attr.value
     elif role_attr is not None:
@@ -162,13 +176,19 @@ def _snapshot_adapter(adapter: Any) -> dict[str, Any]:
 
     # Version — adapters typically don't expose this as a class attribute;
     # it lives on the AdapterInfo returned by health_check.  Try common names.
-    version = getattr(adapter, "_version", None)
-    if version is None:
-        version = getattr(adapter, "version", "unknown")
+    try:
+        version = getattr(adapter, "_version", None)
+        if version is None:
+            version = getattr(adapter, "version", "unknown")
+    except Exception:
+        version = "unknown"
     version = str(version)
 
     # Capabilities — may be stored as _capabilities (AdapterCapabilities).
-    caps_raw = getattr(adapter, "_capabilities", None)
+    try:
+        caps_raw = getattr(adapter, "_capabilities", None)
+    except Exception:
+        caps_raw = None
     caps: dict[str, Any]
     if caps_raw is not None and dataclasses.is_dataclass(caps_raw):
         caps = {}
@@ -185,7 +205,10 @@ def _snapshot_adapter(adapter: Any) -> dict[str, Any]:
     # adapter's _last_health attribute (set during build/startup) rather
     # than calling async health_check().  Health values are startup-derived
     # unless explicitly refreshed by an external caller.
-    health = getattr(adapter, "_last_health", "unknown")
+    try:
+        health = getattr(adapter, "_last_health", "unknown")
+    except Exception:
+        health = "unknown"
 
     return {
         "adapter_id": adapter_id,
@@ -362,7 +385,11 @@ def build_runtime_snapshot(
     cap_ctrl: Any = getattr(app, "_capacity_controller", None)
     capacity_snapshot: dict[str, Any] | None
     if cap_ctrl is not None and hasattr(cap_ctrl, "snapshot"):
-        capacity_snapshot = cap_ctrl.snapshot()
+        try:
+            capacity_snapshot = cap_ctrl.snapshot()
+        except Exception:
+            _logger.warning("Capacity controller snapshot() failed", exc_info=True)
+            capacity_snapshot = None
     else:
         capacity_snapshot = None
 

@@ -1,9 +1,9 @@
 # Contract 53 — Runtime Resource Control Contract
 
-**Status:** v2 Partial Implementation — CapacityController wired; adapter-level queue bounds in Meshtastic; design sections 2–13 remain as reference
+**Status:** Active — CapacityController wired; adapter-level queue bounds in Meshtastic; design sections 2–13 remain as reference
 **Scope:** Resource control for the MEDRE runtime: delivery concurrency limits, replay event limiting, shutdown drain, capacity timeout behavior, capacity exhaustion behavior, and diagnostics. Sections 2–13 are design reference — some decisions deferred. Section 14 describes the v1 implementation. Section 15 describes the v2 implementation.
 **Audience:** Runtime builders, adapter authors, operators, future implementors.
-**References:** Contract 47 (Runtime Assembly), Contract 48 (Runtime Observability), Contract 31 (Session Boundary), Contract 49 (Routing and Bridge).
+**References:** Contract 47 (Runtime Assembly), Contract 48 (Runtime Observability), Contract 31 (Session Boundary), Contract 49 (Routing and Bridge), Contract 54 (Runtime Shutdown), Contract 59 (Runtime Durability), Contract 60 (Runtime Cancellation).
 
 Every agent or document that references MEDRE capacity limits, backpressure semantics, delivery throttling, or resource containment must defer to this contract.
 
@@ -548,3 +548,14 @@ The following from the design sections (2–13) remain deferred:
 - **Persistent queue or in-flight recovery.** Delivery state is in-memory only. No recovery of in-flight work after shutdown.
 - **Per-adapter restart.** Only full runtime stop/start is supported.
 - **Distributed coordination.** Limits and state are local to the process.
+
+
+## 16. Cross-References
+
+| Topic | Contract |
+|-------|----------|
+| Shutdown ordering, drain phases, in-flight work handling | Contract 54 (Runtime Shutdown) |
+| Durability semantics, what survives crash, process-local vs persisted | Contract 59 (Runtime Durability) |
+| Cancellation semantics, CapacityController stop behavior, stop-during-startup | Contract 60 (Runtime Cancellation) |
+| Persistence timing, WAL consistency, receipt durability | Contract 55 (Runtime Persistence) |
+| Runtime assembly, lifecycle states, startup classification | Contract 47 (Runtime Assembly) |
