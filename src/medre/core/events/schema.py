@@ -276,8 +276,9 @@ class _MigrationRegistry:
     * Migrations are keyed by ``(event_kind, from_version, to_version)``.
     * A migration receives the payload dict and returns a **new** dict
       with any appended default fields.
-    * Fields are never removed – only appended or deprecated-in-place.
+    * Within a stability guarantee cycle: fields are never removed — only appended or deprecated-in-place.
     * Deprecated fields remain populated for at least one version cycle once a public stability guarantee is in effect.
+      (No public stability guarantee is currently declared; pre-release migration rules apply, see module docstring.)
 
     Thread-safety is the caller's responsibility, same as :class:`SchemaRegistry`.
     """

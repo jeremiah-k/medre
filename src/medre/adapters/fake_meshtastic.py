@@ -177,9 +177,13 @@ class FakeMeshtasticAdapter(BaseAdapter):
     def __init__(
         self,
         config: MeshtasticConfig | None = None,
+        *,
+        adapter_id: str | None = None,
     ) -> None:
         if config is None:
-            config = MeshtasticConfig(adapter_id="fake_meshtastic")
+            if adapter_id is None:
+                adapter_id = "fake_meshtastic"
+            config = MeshtasticConfig(adapter_id=adapter_id)
         self._config = config
         self.adapter_id = config.adapter_id
         self.ctx: AdapterContext | None = None

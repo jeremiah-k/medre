@@ -716,7 +716,7 @@ class PipelineRunner:
                     if self._runtime_accounting is not None:
                         self._runtime_accounting.record_outbound_failed()
                     # Use pre-classified failure_kind when available (e.g.
-                    # TARGET_NOT_FOUND, DEADLINE_EXCEEDED); otherwise classify
+                    # ADAPTER_MISSING, DEADLINE_EXCEEDED); otherwise classify
                     # based on the original adapter exception.
                     if exc.failure_kind is not None:
                         failure_kind = exc.failure_kind
@@ -764,6 +764,10 @@ class PipelineRunner:
                         error=exc.error,
                         duration_ms=elapsed,
                     )
+                except asyncio.CancelledError:
+                    # Shutdown cancellation must propagate cleanly and not
+                    # be swallowed as a permanent delivery failure.
+                    raise
                 except Exception as exc:
                     elapsed = (time.monotonic() - t0) * 1000.0
                     exc_type = type(exc)
@@ -914,7 +918,7 @@ class PipelineRunner:
             raise _AdapterDeliveryError(
                 adapter_id or "",
                 f"Adapter {adapter_id!r} not registered",
-                failure_kind=DeliveryFailureKind.TARGET_NOT_FOUND,
+                failure_kind=DeliveryFailureKind.ADAPTER_MISSING,
             ) from None
 
         # Check delivery plan deadline.

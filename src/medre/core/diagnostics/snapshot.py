@@ -2,8 +2,9 @@
 
 Composes :class:`~medre.core.routing.stats.RouteStats` and
 :class:`~medre.core.diagnostics.replay_metrics.ReplayMetrics` into a
-single, JSON-safe, alphabetically-sorted snapshot suitable for dashboards
-and audit logs.
+single, JSON-safe, alphabetically-sorted snapshot suitable for operator
+dashboards.  All counters are process-local and reset on restart; they
+are not durable audit history.
 
 Guarantees
 ----------

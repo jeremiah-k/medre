@@ -153,19 +153,28 @@ class DeliveryFailureKind(Enum):
     ADAPTER_PERMANENT:
         Permanent adapter error (malformed payload, business-logic
         rejection).  Not retryable.
+    ADAPTER_MISSING:
+        The target adapter ID is not registered in the pipeline config
+        (no adapter instance exists for that ID).  Always permanent.
     TARGET_NOT_FOUND:
-        The target adapter is not registered in the pipeline config.
-        Always permanent.
+        The target adapter ID exists in config, but the adapter returned
+        no route target at delivery time (e.g. channel not found in
+        transport).  Always permanent.
     DEADLINE_EXCEEDED:
         The delivery plan's ``deadline`` has passed.  Not retryable.
+    SHUTDOWN_REJECTION:
+        Delivery was attempted while the pipeline is shutting down.
+        Not retryable — the attempt should not have been issued.
     """
 
     PLANNER_FAILURE = "planner_failure"
     RENDERER_FAILURE = "renderer_failure"
     ADAPTER_TRANSIENT = "adapter_transient"
     ADAPTER_PERMANENT = "adapter_permanent"
+    ADAPTER_MISSING = "adapter_missing"
     TARGET_NOT_FOUND = "target_not_found"
     DEADLINE_EXCEEDED = "deadline_exceeded"
+    SHUTDOWN_REJECTION = "shutdown_rejection"
 
     @property
     def is_retryable(self) -> bool:
@@ -400,7 +409,7 @@ class RetryExecutor:
         if renderer_failed:
             return DeliveryFailureKind.RENDERER_FAILURE
         if not adapter_registered:
-            return DeliveryFailureKind.TARGET_NOT_FOUND
+            return DeliveryFailureKind.ADAPTER_MISSING
         if deadline is not None and datetime.now(tz=timezone.utc) > deadline:
             return DeliveryFailureKind.DEADLINE_EXCEEDED
         transient_types = (

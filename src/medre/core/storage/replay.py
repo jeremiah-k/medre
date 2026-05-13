@@ -9,6 +9,10 @@ Replay is **read-only** for STRICT, RE_RENDER, RE_ROUTE, and DRY_RUN modes –
 stored canonical events are never mutated.  Only BEST_EFFORT mode permits the
 delivery side-effect.
 
+Replay is a **best-effort operation**; event delivery is not re-guaranteed
+by replay.  Success depends on adapter availability, route configuration,
+and transport state at the time of replay.
+
 Mode guarantees
 ---------------
 +------------+----------+--------+---------+---------+-------------------+
@@ -508,9 +512,10 @@ _MAX_ERROR_LENGTH = 512
 class ReplaySummary:
     """Immutable, JSON-safe snapshot of a completed replay operation.
 
-    Designed for operator dashboards and audit logs.  All fields are
-    read-only after construction and :meth:`to_dict` produces a
-    deterministic, ``json.dumps``-compatible mapping.
+    Designed for operator dashboards.  All fields are read-only after
+    construction and :meth:`to_dict` produces a deterministic,
+    ``json.dumps``-compatible mapping.  Replay is a best-effort
+    operation; event delivery is not re-guaranteed by replay.
 
     Attributes
     ----------

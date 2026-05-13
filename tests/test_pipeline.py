@@ -1224,11 +1224,11 @@ class TestDeliveryFailureClassification:
         self,
         temp_storage: SQLiteStorage,
     ) -> None:
-        """Missing adapter produces permanent_failure with TARGET_NOT_FOUND.
+        """Missing adapter produces permanent_failure with ADAPTER_MISSING.
 
         ``deliver_to_target`` persists a failed receipt and raises so that
         ``_deliver_one`` classifies the outcome as ``permanent_failure``
-        with ``failure_kind == TARGET_NOT_FOUND``.  No adapter delivery
+        with ``failure_kind == ADAPTER_MISSING``.  No adapter delivery
         is attempted.
         """
         from medre.core.planning.delivery_plan import DeliveryFailureKind
@@ -1256,7 +1256,7 @@ class TestDeliveryFailureClassification:
             outcomes = await runner.handle_ingress(event)
             assert len(outcomes) == 1
             assert outcomes[0].status == "permanent_failure"
-            assert outcomes[0].failure_kind is DeliveryFailureKind.TARGET_NOT_FOUND
+            assert outcomes[0].failure_kind is DeliveryFailureKind.ADAPTER_MISSING
             assert outcomes[0].target_adapter == "nonexistent"
             assert "not registered" in (outcomes[0].error or "")
 

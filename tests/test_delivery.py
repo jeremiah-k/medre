@@ -518,8 +518,10 @@ class TestDeliveryFailureKind:
             "RENDERER_FAILURE",
             "ADAPTER_TRANSIENT",
             "ADAPTER_PERMANENT",
+            "ADAPTER_MISSING",
             "TARGET_NOT_FOUND",
             "DEADLINE_EXCEEDED",
+            "SHUTDOWN_REJECTION",
         }
         actual = {m.name for m in DeliveryFailureKind}
         assert actual == expected
@@ -532,8 +534,10 @@ class TestDeliveryFailureKind:
             DeliveryFailureKind.PLANNER_FAILURE,
             DeliveryFailureKind.RENDERER_FAILURE,
             DeliveryFailureKind.ADAPTER_PERMANENT,
+            DeliveryFailureKind.ADAPTER_MISSING,
             DeliveryFailureKind.TARGET_NOT_FOUND,
             DeliveryFailureKind.DEADLINE_EXCEEDED,
+            DeliveryFailureKind.SHUTDOWN_REJECTION,
         ]
         for kind in non_retryable:
             assert kind.is_retryable is False, f"{kind.name} should not be retryable"
@@ -582,11 +586,11 @@ class TestDeliveryFailureKind:
         )
         assert kind is DeliveryFailureKind.RENDERER_FAILURE
 
-    def test_classify_target_not_found(self) -> None:
+    def test_classify_adapter_missing(self) -> None:
         kind = RetryExecutor.classify_failure(
             RuntimeError("x"), adapter_registered=False
         )
-        assert kind is DeliveryFailureKind.TARGET_NOT_FOUND
+        assert kind is DeliveryFailureKind.ADAPTER_MISSING
 
     def test_classify_deadline_exceeded(self) -> None:
         past = datetime.now(timezone.utc) - timedelta(hours=1)
@@ -1041,10 +1045,10 @@ class TestRetryDeadLetterObservability:
             RuntimeError("x"), renderer_failed=True,
         ) is DeliveryFailureKind.RENDERER_FAILURE
 
-        # TARGET_NOT_FOUND
+        # ADAPTER_MISSING
         assert RetryExecutor.classify_failure(
             RuntimeError("x"), adapter_registered=False,
-        ) is DeliveryFailureKind.TARGET_NOT_FOUND
+        ) is DeliveryFailureKind.ADAPTER_MISSING
 
         # DEADLINE_EXCEEDED
         past = datetime.now(timezone.utc) - timedelta(hours=1)

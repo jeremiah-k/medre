@@ -186,16 +186,13 @@ def _build_fake_adapter(transport: str, adapter_id: str) -> BaseAdapter:
         return FakeMatrixAdapter(adapter_id=adapter_id)
     if transport == "meshtastic":
         from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
-        from medre.adapters.meshtastic.config import MeshtasticConfig
-        return FakeMeshtasticAdapter(MeshtasticConfig(adapter_id=adapter_id))
+        return FakeMeshtasticAdapter(adapter_id=adapter_id)
     if transport == "meshcore":
         from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
-        from medre.adapters.meshcore.config import MeshCoreConfig
-        return FakeMeshCoreAdapter(MeshCoreConfig(adapter_id=adapter_id))
+        return FakeMeshCoreAdapter(adapter_id=adapter_id)
     if transport == "lxmf":
         from medre.adapters.fake_lxmf import FakeLxmfAdapter
-        from medre.adapters.lxmf.config import LxmfConfig
-        return FakeLxmfAdapter(LxmfConfig(adapter_id=adapter_id))
+        return FakeLxmfAdapter(adapter_id=adapter_id)
     raise RuntimeConfigError(
         f"Unknown transport type {transport!r} for fake adapter "
         f"{adapter_id!r}. Known types: {', '.join(sorted(_ADAPTER_BUILDERS))}"

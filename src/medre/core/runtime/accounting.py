@@ -242,6 +242,8 @@ class RuntimeAccounting:
 
         Keys are sorted alphabetically for deterministic ordering.
         All values are plain ``int`` (no secrets, no SDK objects).
+        These are process-local counters that reset on restart; they
+        are not durable audit history.
 
         Returns
         -------

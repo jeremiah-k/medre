@@ -186,9 +186,13 @@ class FakeLxmfAdapter(BaseAdapter):
     def __init__(
         self,
         config: LxmfConfig | None = None,
+        *,
+        adapter_id: str | None = None,
     ) -> None:
         if config is None:
-            config = LxmfConfig(adapter_id="fake_lxmf")
+            if adapter_id is None:
+                adapter_id = "fake_lxmf"
+            config = LxmfConfig(adapter_id=adapter_id)
         self._config = config
         self.adapter_id = config.adapter_id
         self.ctx: AdapterContext | None = None

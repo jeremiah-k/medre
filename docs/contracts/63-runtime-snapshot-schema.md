@@ -223,7 +223,6 @@ Per-route operational state mapping from build time. Scope: `build`.
 |-------|-------------|
 | `configured` | Route is enabled in config (initial state before build) |
 | `registered` | Route successfully registered with all adapters built |
-| `active` | Reserved for future enum value — not currently defined in `RouteOperationalState` |
 | `degraded` | Route registered but some target adapters failed to build, or some expanded routes skipped while others registered |
 | `skipped` | Route could not register (source failed or all targets failed) |
 | `unavailable` | Route references adapter IDs not in configured set |
@@ -420,7 +419,7 @@ All tuple fields contain deterministically sorted route IDs. `route_states` keys
 
 ### 7.3 `RouteOperationalState`
 
-Enum with values: `configured`, `registered`, `degraded`, `skipped`, `unavailable`, `disabled`. (`active` is reserved for future use but not currently defined.)
+Enum with values: `configured`, `registered`, `degraded`, `skipped`, `unavailable`, `disabled`.
 
 
 ### 7.4 `ExpandedRouteProvenance`

@@ -37,7 +37,7 @@ class CanonicalEvent(msgspec.Struct, frozen=True):
 
 ### Field Notes
 
-**`schema_version`** must be `>= 1`. The current schema contract is `v1` (`CURRENT_SCHEMA_VERSION = 1`). Future versions append fields with defaults; existing fields are never removed.
+**`schema_version`** must be `>= 1`. The current schema contract is `v1` (`CURRENT_SCHEMA_VERSION = 1`). During pre-release development, schema fields may change directly — see the Migration Contract section below for pre-release vs post-release stability policy.
 
 **`source_transport_id`** identifies the native actor, not the native message. Native message IDs belong in `native_message_refs` (Section 12.2 of the master spec).
 
