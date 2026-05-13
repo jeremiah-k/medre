@@ -138,6 +138,8 @@ The pipeline classifies delivery failures using `DeliveryFailureKind`:
 | `ADAPTER_MISSING` | Adapter ID not registered | No |
 | `TARGET_NOT_FOUND` | Channel not found | No |
 | `DEADLINE_EXCEEDED` | Plan deadline passed | No |
+| `CAPACITY_REJECTION` | Capacity controller exhausted or timed out while accepting work | No |
+| `SHUTDOWN_REJECTION` | Runtime shutdown cancelled delivery before capacity acquire | No |
 | `CAPACITY_REJECTION` | All delivery slots occupied | No |
 | `SHUTDOWN_REJECTION` | Capacity controller stopped | No |
 

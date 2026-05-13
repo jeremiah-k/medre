@@ -146,7 +146,7 @@ If zero adapters start (including build failures), the runtime:
 
 When `CapacityController` reaches its semaphore limit:
 
-- New delivery attempts wait up to `delivery_acquire_timeout_seconds`, then fail with `status="permanent_failure"` and `error="delivery_capacity_exceeded"`.
+- New delivery attempts wait up to `delivery_acquire_timeout_seconds`, then fail with `status="permanent_failure"` and `error="delivery_capacity_exceeded"` (or `error="delivery_rejected_shutdown"` if the runtime has stopped accepting work).
 - No retry is attempted — capacity timeout is a backpressure signal, not a transient error.
 - The runtime continues operating; existing in-flight work completes normally.
 - Counters (`delivery_timeouts`, `delivery_rejections`) are incremented and visible via `snapshot()`.

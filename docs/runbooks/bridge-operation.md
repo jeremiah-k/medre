@@ -262,7 +262,7 @@ When bridging events across transports with different speed profiles (e.g., Matr
 
 - Replay in `BEST_EFFORT` mode acquires a separate replay semaphore (`max_inflight_replay_events`, default 100).
 - Replay does not starve real-time delivery — the semaphores are independent.
-- If the replay semaphore is exhausted, replay events are rejected with `error="replay_capacity_exceeded"`.
+- If the replay semaphore is exhausted, replay events are rejected with `error="replay_capacity_exceeded"` (or `error="replay_rejected_shutdown"` during runtime shutdown).
 
 ### Monitoring Bridge Pressure
 

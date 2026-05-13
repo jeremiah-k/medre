@@ -147,7 +147,7 @@ Looping routes are skipped with `loop_warnings` attached to `ReplayRouteAttribut
 Replay routing participates in the `CapacityController` (see Contract 53, §15) during `BEST_EFFORT` mode:
 
 1. Before each replay delivery, `ReplayEngine._stage_deliver()` acquires a replay slot via `capacity_controller.acquire_replay()`.
-2. If the acquire fails (capacity exhausted or shutdown signaled), the replay result records `status="error"` with `error="replay_capacity_exceeded"`. The route was matched but the delivery was not attempted.
+2. If the acquire fails (capacity exhausted or shutdown signaled), the replay result records `status="error"` with `error="replay_capacity_exceeded"` (or `error="replay_rejected_shutdown"` during shutdown). The route was matched but the delivery was not attempted.
 3. If the acquire succeeds, the replay slot is released after the delivery completes.
 
 Non-delivery replay modes (`RE_RENDER`, `RE_ROUTE`, `DRY_RUN`) do not acquire capacity slots — they are read-only.
@@ -158,7 +158,7 @@ During shutdown, `capacity_controller.stop_accepting()` prevents new replay work
 
 Capacity is acquired **per destination, not per route**. Each target in a fan-out independently calls `capacity_controller.acquire_delivery()` before its delivery proceeds:
 
-- If the acquire fails for a given target, **that target** receives a `DeliveryOutcome` with `status="permanent_failure"`, `failure_kind=DEADLINE_EXCEEDED`, and `error="delivery_capacity_exceeded"`. Other targets may still succeed if they acquire capacity.
+- If the acquire fails for a given target, **that target** receives a `DeliveryOutcome` with `status="permanent_failure"`, `failure_kind=CAPACITY_REJECTION` (or `SHUTDOWN_REJECTION` during shutdown), and `error="delivery_capacity_exceeded"` (or `error="delivery_rejected_shutdown"`). Other targets may still succeed if they acquire capacity.
 - The route was matched correctly and the delivery plan was created — the failure is a capacity issue, not a routing issue.
 - `RouteStats.record_failed()` is called on the capacity-rejected target so per-route counters reflect the failure.
 

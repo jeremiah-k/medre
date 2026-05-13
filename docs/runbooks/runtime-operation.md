@@ -171,7 +171,7 @@ The pipeline runner uses an `asyncio.Semaphore` to bound the number of concurren
 1. The per-target coroutine attempts to acquire a semaphore slot.
 2. If a slot is available immediately, the delivery proceeds.
 3. If all slots are occupied, the coroutine waits up to `delivery_acquire_timeout_seconds`.
-4. If the wait times out, the delivery fails with `status="permanent_failure"` and `error="delivery_capacity_exceeded"`. A diagnostic counter is incremented. **No retry** — capacity timeout is a backpressure signal.
+4. If the wait times out, the delivery fails with `status="permanent_failure"` and `error="delivery_capacity_exceeded"` (or `error="delivery_rejected_shutdown"` during shutdown). A diagnostic counter is incremented. **No retry** — capacity timeout is a backpressure signal.
 
 This prevents unbounded memory growth from concurrent deliveries. Fan-out is correct: if 10 targets are matched and `max_inflight_deliveries=1`, only one target acquires capacity at a time while the rest wait on the semaphore.
 
@@ -736,7 +736,7 @@ Other adapters (Matrix, LXMF, MeshCore) rely on the `CapacityController` semapho
 When capacity is exhausted:
 
 1. The delivery or replay acquire fails.
-2. The outcome records `status="permanent_failure"` with `error="delivery_capacity_exceeded"` (delivery) or `error="replay_capacity_exceeded"` (replay).
+2. The outcome records `status="permanent_failure"` with `error="delivery_capacity_exceeded"` (delivery) or `error="delivery_rejected_shutdown"` (delivery during shutdown). For replay, the result records `status="error"` with `error="replay_capacity_exceeded"` or `error="replay_rejected_shutdown"` (replay during shutdown).
 3. A diagnostic counter is incremented (`delivery_timeouts`, `delivery_rejections`, `replay_timeouts`, or `replay_rejections`).
 4. A WARNING log is emitted with the current vs. limit counts.
 5. **No retry.** The delivery is abandoned. The operator can re-trigger replay manually if needed.

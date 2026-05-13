@@ -146,7 +146,8 @@ Each per-target delivery acquires a `CapacityController` slot in a `try/finally`
 ```
 async def _deliver_to_target(...):
     if not await capacity_controller.acquire_delivery():
-        return DeliveryOutcome(status="permanent_failure", error="delivery_capacity_exceeded")
+        return DeliveryOutcome(status="permanent_failure", error="delivery_capacity_exceeded", failure_kind=CAPACITY_REJECTION)
+# (or error="delivery_rejected_shutdown", failure_kind=SHUTDOWN_REJECTION if runtime has stopped accepting work)
     try:
         result = await adapter.deliver(payload)
     finally:
@@ -174,6 +175,7 @@ Replay deliveries acquire a replay slot via `acquire_replay()`:
 async def _stage_deliver(...):
     if not await capacity_controller.acquire_replay():
         return ReplayResult(status="error", error="replay_capacity_exceeded")
+# (or error="replay_rejected_shutdown" if runtime has stopped accepting work)
     try:
         result = await pipeline_runner.handle_ingress(event)
     finally:

@@ -352,7 +352,7 @@ delivery_acquire_timeout_seconds = 15.0
 `PipelineRunner` holds an `asyncio.Semaphore(max_inflight_deliveries)`. Before each **per-target** delivery attempt, the runner acquires the semaphore:
 
 - **Acquire succeeds:** the delivery proceeds normally.
-- **Acquire times out** (after `delivery_acquire_timeout_seconds`): the delivery fails with `status="permanent_failure"` and `failure_kind=DEADLINE_EXCEEDED`. A capacity counter is incremented. The delivery is not retried — capacity timeout is treated as a backpressure signal, not a transient error.
+- **Acquire times out** (after `delivery_acquire_timeout_seconds`): the delivery fails with `status="permanent_failure"` and `failure_kind=CAPACITY_REJECTION` (or `SHUTDOWN_REJECTION` if the runtime is no longer accepting work). A capacity rejection counter is incremented. The delivery is not retried — capacity timeout is treated as a backpressure signal, not a transient error.
 
 The semaphore is released after the adapter's `deliver()` returns (success, failure, or skip). This bounds the total number of concurrent adapter `deliver()` calls across all adapters to `max_inflight_deliveries`. Each target in a fan-out independently acquires/releases, so the limit bounds true delivery concurrency, not batch-level throughput.
 
@@ -366,7 +366,7 @@ The replay semaphore is independent of the delivery semaphore. Replay deliveries
 
 When a delivery cannot acquire a semaphore slot within `delivery_acquire_timeout_seconds`:
 
-1. The delivery outcome records `status="permanent_failure"` with `failure_kind=DEADLINE_EXCEEDED`.
+1. The delivery outcome records `status="permanent_failure"` with `failure_kind=CAPACITY_REJECTION` (or `SHUTDOWN_REJECTION` during shutdown).
 2. `CapacityController` increments its `delivery_timeouts` counter (available via `snapshot()`).
 3. No retry is attempted. Capacity timeout is a backpressure signal.
 4. A WARNING log is emitted: `"Capacity timeout: delivery to {adapter_id} timed out waiting for slot ({current}/{limit})"`.
@@ -480,7 +480,7 @@ Matrix, LXMF, and MeshCore adapters do not currently have explicit bounded queue
 The `PipelineRunner` uses `CapacityController` to gate delivery execution **per target**. Before each per-target delivery inside `_deliver_to_targets_inner`, the runner calls `acquire_delivery()`. If the controller rejects the acquire (work stopped or timeout), the runner returns `DeliveryOutcome` with:
 
 - `status="permanent_failure"`
-- `error="delivery_capacity_exceeded"`
+- `error="delivery_capacity_exceeded"` (or `error="delivery_rejected_shutdown"` if the runtime has stopped accepting work)
 - `_delivery_rejection_count` incremented
 
 The capacity slot is released in a `finally` block after the per-target delivery completes (success, failure, or skip). This ensures forward progress: the pipeline never blocks indefinitely on capacity — it either proceeds within the timeout or rejects with diagnostics. Fan-out is correct: each target independently acquires/releases, so `max_inflight_deliveries` bounds the true concurrency of adapter `deliver()` calls.
@@ -492,7 +492,7 @@ The `ReplayEngine` participates in capacity control during `BEST_EFFORT` mode. T
 1. Before delivery, `_stage_deliver()` calls `capacity_controller.acquire_replay()`.
 2. If the acquire fails (work stopped or timeout), the replay result records:
    - `status="error"`
-   - `error="replay_capacity_exceeded"`
+   - `error="replay_capacity_exceeded"` (or `error="replay_rejected_shutdown"` if the runtime has stopped accepting work)
 3. If the acquire succeeds, the replay slot is released in a `finally` block after delivery.
 
 Non-delivery replay modes (`RE_RENDER`, `RE_ROUTE`, `DRY_RUN`) do not acquire replay slots — they are read-only and do not consume delivery capacity.
@@ -503,8 +503,8 @@ When capacity is exhausted, the system applies one of three behaviors depending 
 
 | Subsystem | Default behavior | Alternative (documented) |
 |-----------|-----------------|--------------------------|
-| `PipelineRunner` delivery | **Reject** — return `permanent_failure` with `delivery_capacity_exceeded`; increment diagnostics | N/A (reject is the only policy at this layer) |
-| `ReplayEngine` delivery | **Reject** — return `error` with `replay_capacity_exceeded`; increment diagnostics | N/A (reject is the only policy at this layer) |
+| `PipelineRunner` delivery | **Reject** — return `permanent_failure` with `CAPACITY_REJECTION`/`SHUTDOWN_REJECTION`; increment diagnostics | N/A (reject is the only policy at this layer) |
+| `ReplayEngine` delivery | **Reject** — return `error` with `replay_capacity_exceeded`/`replay_rejected_shutdown`; increment diagnostics | N/A (reject is the only policy at this layer) |
 | Meshtastic outbound queue | **Drop-oldest** — `deque(maxlen)` silently discards oldest item; increment `total_dropped` | `max_queue_size=None` for unbounded (not recommended) |
 | Design reference (§3) | — | **Drop-newest** — preserves earliest queued items, loses newest arrivals. Appropriate for command-and-control where ordering matters. |
 

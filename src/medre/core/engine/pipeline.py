@@ -606,8 +606,10 @@ class PipelineRunner:
                     # Classify: shutdown vs capacity exhaustion.
                     if not self._capacity_controller.accepting_work:
                         capacity_failure_kind = DeliveryFailureKind.SHUTDOWN_REJECTION
+                        capacity_error = "delivery_rejected_shutdown"
                     else:
                         capacity_failure_kind = DeliveryFailureKind.CAPACITY_REJECTION
+                        capacity_error = "delivery_capacity_exceeded"
                     elapsed = (time.monotonic() - t0) * 1000.0
                     return DeliveryOutcome(
                         event_id=event.event_id,
@@ -620,7 +622,7 @@ class PipelineRunner:
                         status="permanent_failure",
                         failure_kind=capacity_failure_kind,
                         receipt=None,
-                        error="delivery_capacity_exceeded",
+                        error=capacity_error,
                         duration_ms=elapsed,
                     )
             try:

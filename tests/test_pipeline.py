@@ -2795,7 +2795,7 @@ class TestCapacityRejectionTaxonomy:
             assert (
                 outcomes[0].failure_kind is DeliveryFailureKind.SHUTDOWN_REJECTION
             )
-            assert outcomes[0].error == "delivery_capacity_exceeded"
+            assert outcomes[0].error == "delivery_rejected_shutdown"
 
             # Accounting: capacity_rejections incremented.
             assert accounting.counters().capacity_rejections == 1

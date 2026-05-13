@@ -13,7 +13,7 @@ This document explicitly records what Phase 1 does **not** implement, what is re
 
 | Feature | Location | Status |
 |---|---|---|
-| Delivery failure taxonomy | `DeliveryFailureKind` enum | 6 categories: PLANNER, RENDERER, ADAPTER_TRANSIENT, ADAPTER_PERMANENT, TARGET_NOT_FOUND, DEADLINE_EXCEEDED |
+| Delivery failure taxonomy | `DeliveryFailureKind` enum | 9 categories: PLANNER_FAILURE, RENDERER_FAILURE, ADAPTER_TRANSIENT, ADAPTER_PERMANENT, ADAPTER_MISSING, TARGET_NOT_FOUND, DEADLINE_EXCEEDED, CAPACITY_REJECTION, SHUTDOWN_REJECTION |
 | RetryExecutor | `RetryExecutor` class | Backoff computation, exhaustion detection, retry/dead-letter receipt construction |
 | Receipt lineage | `DeliveryReceipt.attempt_number`, `parent_receipt_id` | Explicit 1-indexed attempt numbering and parent linkage |
 | Lineage persistence | `delivery_receipts` table columns | `attempt_number INTEGER NOT NULL DEFAULT 1`, `parent_receipt_id TEXT` |

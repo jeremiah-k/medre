@@ -1683,11 +1683,16 @@ class ReplayEngine:
             if not acquired:
                 if self._accounting is not None:
                     self._accounting.record_capacity_rejection()
+                replay_error = (
+                    "replay_rejected_shutdown"
+                    if not self._capacity_controller.accepting_work
+                    else "replay_capacity_exceeded"
+                )
                 return ReplayResult(
                     event_id=event.event_id,
                     stage="deliver",
                     status="error",
-                    error="replay_capacity_exceeded",
+                    error=replay_error,
                     duration_ms=_elapsed_ms(t0),
                 )
             _capacity_acquired = True
