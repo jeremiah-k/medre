@@ -1,4 +1,4 @@
-# 12: Constrained Transport Comparison
+# 65: Constrained Transport Comparison
 
 **Status:** Draft  
 **Scope:** MEDRE adapter families, protocol neutrality audit
@@ -118,7 +118,7 @@ The platform identity audit (documented in the companion file `12-adapter-platfo
 
 **Renderer selection uses platform identity.** The `RenderingPipeline` maintains an `adapter_platforms` registry that maps adapter IDs to platform names (e.g., `"local-radio"` to `"meshtastic"`). At render time, the pipeline resolves the platform from the registry and passes it to each renderer's `can_render()` as `target_platform`. Renderers match on the platform string directly, independent of the adapter instance name. This breaks the coupling between adapter naming conventions and renderer dispatch.
 
-**Adapter-name prefixes and known_adapters are now fallbacks only.** The three-tier `can_render()` dispatch (platform match, then prefix match, then known_adapters set) still exists for backward compatibility, but the platform match is always tried first. In production paths where the registry is populated, the prefix and known_adapters fallbacks are never reached. Tests that don't populate the registry still work via the fallback tiers. No existing test broke during this change.
+**Adapter-name prefixes and known_adapters are now fallback tiers only.** The three-tier `can_render()` dispatch (platform match, then prefix match, then known_adapters set) exists with the platform registry as the primary tier. In production paths where the registry is populated, the prefix and known_adapters fallbacks are never reached. Tests that don't populate the registry still work via the fallback tiers. No existing test broke during this change.
 
 **Transport-family semantic differences are now documented.** Section 6 of the companion audit covers message graph richness, reply semantics, native ref types, actor identity, addressing models, delivery expectations, constrained payloads, and pacing ownership across all three adapter families. The capability-gated relation model for MeshCore is identified as the one real abstraction leak.
 

@@ -60,7 +60,7 @@ from typing import (
 import msgspec
 
 from medre.core.events import CanonicalEvent, is_registered
-from medre.core.storage.backend import EventFilter, StorageBackend
+from medre.core.storage.backend import DEFAULT_QUERY_LIMIT, EventFilter, StorageBackend
 
 if TYPE_CHECKING:
     from medre.core.observability.metrics import Diagnostician
@@ -287,7 +287,9 @@ class ReplayRequest:
     mode:
         The replay behavioural mode.
     limit:
-        Maximum number of events to replay.
+        Maximum number of events to replay.  Defaults to
+        :data:`~medre.core.storage.backend.DEFAULT_QUERY_LIMIT`
+        (``1000``), shared with :class:`EventFilter`.
     target_adapters:
         Restrict delivery to these adapter names.  ``None`` = all
         adapters resolved by routing.  Only meaningful for modes that
@@ -318,7 +320,7 @@ class ReplayRequest:
     target_stages: list[str] | None = None
     correlation_ids: list[str] | None = None
     mode: ReplayMode = ReplayMode.STRICT
-    limit: int = 1000
+    limit: int = DEFAULT_QUERY_LIMIT
     target_adapters: list[str] | None = None
     route_ids: tuple[str, ...] = ()
     run_id: str = ""

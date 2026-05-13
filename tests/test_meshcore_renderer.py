@@ -40,36 +40,27 @@ class TestMeshCoreRenderer:
         renderer = MeshCoreRenderer()
         assert renderer.name == "meshcore"
 
-    def test_can_render_meshcore_adapter(self) -> None:
+    def test_can_render_meshcore_platform(self) -> None:
+        """Renderer matches when target_platform is meshcore."""
         renderer = MeshCoreRenderer()
         event = _make_event()
-        assert renderer.can_render(event, "meshcore_node") is True
+        assert renderer.can_render(event, "local-radio", target_platform="meshcore") is True
 
     def test_can_render_non_meshcore(self) -> None:
         renderer = MeshCoreRenderer()
         event = _make_event()
-        assert renderer.can_render(event, "fake_presentation") is False
+        assert renderer.can_render(event, "fake_presentation", target_platform="fake") is False
 
     def test_can_render_rejects_matrix(self) -> None:
         renderer = MeshCoreRenderer()
         event = _make_event()
-        assert renderer.can_render(event, "matrix_instance") is False
+        assert renderer.can_render(event, "matrix_instance", target_platform="matrix") is False
 
-    def test_can_render_known_adapters(self) -> None:
-        """Renderer matches realistic IDs via known_adapters, not prefix."""
-        renderer = MeshCoreRenderer(known_adapters={"local-radio", "garage-mesh"})
-        event = _make_event()
-        assert renderer.can_render(event, "local-radio") is True
-        assert renderer.can_render(event, "garage-mesh") is True
-        assert renderer.can_render(event, "unknown-node") is False
-
-    def test_can_render_prefix_still_works(self) -> None:
-        """Prefix matching still works alongside known_adapters."""
+    def test_can_render_without_platform_returns_false(self) -> None:
+        """Without platform info, renderer cannot match (no prefix fallback)."""
         renderer = MeshCoreRenderer()
         event = _make_event()
-        assert renderer.can_render(event, "meshcore_node") is True
-        assert renderer.can_render(event, "meshcore-node") is True
-        assert renderer.can_render(event, "meshcore_out") is True
+        assert renderer.can_render(event, "meshcore_node") is False
 
     async def test_render_basic_text(self) -> None:
         renderer = MeshCoreRenderer()

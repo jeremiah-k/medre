@@ -121,7 +121,6 @@ class MeshCoreAdapter(BaseAdapter):
         self._classifier = MeshCorePacketClassifier(config)
         self.ctx: AdapterContext | None = None
         self._started: bool = False
-        self._subscribed: bool = False
         self._background_tasks: set[asyncio.Task] = set()
 
         # Session boundary — owns SDK lifecycle.
@@ -187,9 +186,6 @@ class MeshCoreAdapter(BaseAdapter):
         if self._session is not None:
             await self._session.stop()
             self._session = None
-
-        # Unsubscribe event callbacks (legacy compat).
-        self._unsubscribe_events()
 
         self._client = None
         self._started = False
@@ -372,15 +368,6 @@ class MeshCoreAdapter(BaseAdapter):
                     self.adapter_id,
                 )
 
-    # Legacy inbound — retained for backward compat with _on_packet name.
-    def _on_packet(self, packet: dict[str, Any]) -> None:
-        """Process an inbound MeshCore event payload.
-
-        .. deprecated::
-            Use :meth:`_on_message` instead.  Retained for backward compat.
-        """
-        self._on_message(packet)
-
     async def simulate_inbound(self, packet: dict[str, Any]) -> None:
         """Simulate an inbound MeshCore event payload for testing.
 
@@ -431,38 +418,6 @@ class MeshCoreAdapter(BaseAdapter):
                 self._session.diagnostics()
             )
         return base
-
-    # -- Event subscription (legacy scaffold) --------------------------------
-
-    def _subscribe_events(self) -> None:
-        """Subscribe to MeshCore SDK event callbacks.
-
-        .. deprecated::
-            Subscription is now managed by the session.  This method is
-            retained for backward compat with existing tests.
-        """
-        if self.ctx is not None:
-            self.ctx.logger.debug(
-                "MeshCoreAdapter %s: _subscribe_events() delegated to session",
-                self.adapter_id,
-            )
-        self._subscribed = True
-
-    def _unsubscribe_events(self) -> None:
-        """Unsubscribe from MeshCore SDK event callbacks.
-
-        .. deprecated::
-            Unsubscription is now managed by the session.  This method is
-            retained for backward compat.
-        """
-        if not self._subscribed:
-            return
-        if self.ctx is not None:
-            self.ctx.logger.debug(
-                "MeshCoreAdapter %s: _unsubscribe_events() delegated to session",
-                self.adapter_id,
-            )
-        self._subscribed = False
 
     # -- Background task management -----------------------------------------
 

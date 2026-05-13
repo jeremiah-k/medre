@@ -247,7 +247,7 @@ The SDK does NOT define custom exception classes. CONFIRMED (no `exceptions.py`,
 
 ### 2.11 Zero MeshCore Materials in MEDRE
 
-No `meshcore` imports exist anywhere in the MEDRE codebase. The adapter uses fake delivery only. Contract 11 confirmed this; it remains true. CONFIRMED (`pip show meshcore` → NOT_INSTALLED).
+No `meshcore` imports exist anywhere in the MEDRE codebase. The adapter uses fake delivery only. Contract 64 confirmed this; it remains true. CONFIRMED (`pip show meshcore` → NOT_INSTALLED).
 
 
 ## 3. Send Semantics
@@ -428,7 +428,7 @@ Can MeshCore and Meshtastic coexist on the same hardware? Can messages be bridge
 
 ### 5.4 Real Packet Shape Accuracy
 
-The event payload shapes used in MEDRE fixtures are derived from the source audit (contract 11). Whether real MeshCore hardware produces exactly these shapes has not been verified. Fields like `pubkey_prefix` truncation length, `txt_type` values, and `sender_timestamp` behavior need live validation.
+The event payload shapes used in MEDRE fixtures are derived from the source audit (Contract 64). Whether real MeshCore hardware produces exactly these shapes has not been verified. Fields like `pubkey_prefix` truncation length, `txt_type` values, and `sender_timestamp` behavior need live validation.
 
 ### 5.5 expected_ack Collision Behavior
 
@@ -548,7 +548,7 @@ MeshCore is third out of four adapters in readiness (per contract 16):
 
 | Topic | Contract |
 |-------|----------|
-| MeshCore source audit (identity, packets, wire protocol) | `11-meshcore-source-audit.md` |
+| MeshCore source audit (identity, packets, wire protocol) | `64-meshcore-source-audit.md` |
 | Production connectivity readiness per adapter | `16-production-connectivity-readiness.md` |
 | Operational readiness gaps | `18-operational-readiness-gaps.md` |
 | Live smoke runbook | `docs/runbooks/meshcore-live-smoke.md` |

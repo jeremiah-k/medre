@@ -471,16 +471,16 @@ class TestRuntimeSnapshotCapturesState:
         try:
             snap = build_runtime_snapshot(app)
             assert snap["schema_version"] == SCHEMA_VERSION
-            assert snap["runtime_state"] == "running"
+            assert snap["lifecycle"]["runtime_state"] == "running"
             assert "adapters" in snap
             assert "routes" in snap
             assert "limits" in snap
             assert "capacity" in snap
             assert "snapshot_at" in snap
-            assert "startup_timestamp" in snap
-            assert "uptime_seconds" in snap
-            assert snap["uptime_seconds"] is not None
-            assert snap["uptime_seconds"] >= 0
+            assert "startup_timestamp" in snap["lifecycle"]
+            assert "uptime_seconds" in snap["lifecycle"]
+            assert snap["lifecycle"]["uptime_seconds"] is not None
+            assert snap["lifecycle"]["uptime_seconds"] >= 0
         finally:
             await _clean_stop(app)
 
@@ -714,11 +714,11 @@ class TestSoakWithDiagnosticsSnapshots:
             try:
                 # Capture snapshot while running.
                 snap = build_runtime_snapshot(app)
-                assert snap["runtime_state"] == "running"
+                assert snap["lifecycle"]["runtime_state"] == "running"
                 assert snap["schema_version"] == SCHEMA_VERSION
                 assert len(snap["adapters"]) == 4
-                assert snap["uptime_seconds"] is not None
-                assert snap["uptime_seconds"] >= 0
+                assert snap["lifecycle"]["uptime_seconds"] is not None
+                assert snap["lifecycle"]["uptime_seconds"] >= 0
 
                 # JSON-serialisable each time.
                 json.dumps(snap, sort_keys=True)

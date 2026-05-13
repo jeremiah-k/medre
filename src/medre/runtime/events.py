@@ -11,7 +11,9 @@ Design constraints
 * Deterministic: sequence numbers are monotonically increasing integers;
   timestamps use an injectable monotonic clock for test determinism.
 * JSON-safe: every event serialises to a plain dict with ``str``/``int``/
-  ``float``/``dict`` values — no SDK objects, no secrets.
+  ``float``/``dict`` values — no SDK objects, no secrets.  Detail dicts
+  are sanitised via the central diagnostics sanitizer
+  (:mod:`~medre.core.runtime.diagnostic_contract`).
 * Read-only surface: events are emitted by the runtime; external consumers
   read via :meth:`EventBuffer.snapshot` or the runtime snapshot.
 * No async: all operations are synchronous.
@@ -31,6 +33,8 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from medre.core.runtime.diagnostic_contract import _sanitize_dict
+
 __all__ = ["RuntimeEvent", "RuntimeEventType", "EventBuffer"]
 
 # ---------------------------------------------------------------------------
@@ -39,9 +43,6 @@ __all__ = ["RuntimeEvent", "RuntimeEventType", "EventBuffer"]
 
 DEFAULT_EVENT_BUFFER_MAXLEN: int = 256
 """Default maximum number of events retained in the buffer."""
-
-_MAX_DETAIL_VALUE_LEN: int = 256
-"""Truncation limit for string values inside event detail dicts."""
 
 
 # ---------------------------------------------------------------------------
@@ -72,14 +73,19 @@ class RuntimeEventType(str, enum.Enum):
 
 
 def _sanitize_detail(detail: dict[str, Any]) -> dict[str, Any]:
-    """Return a copy of *detail* with string values truncated."""
-    out: dict[str, Any] = {}
-    for key, value in detail.items():
-        if isinstance(value, str) and len(value) > _MAX_DETAIL_VALUE_LEN:
-            out[key] = value[: _MAX_DETAIL_VALUE_LEN - 3] + "..."
-        else:
-            out[key] = value
-    return out
+    """Return a JSON-safe, bounded, secret-free copy of *detail*.
+
+    Delegates to the central diagnostics sanitizer
+    (:func:`~medre.core.runtime.diagnostic_contract._sanitize_dict`)
+    which:
+
+    * Strips keys matching known secret patterns (password, api_key, etc.).
+    * Recursively sanitises nested dicts and collections.
+    * Replaces non-serialisable objects (exceptions, bytes, SDK objects)
+      with safe type-name placeholders.
+    * Truncates oversized string values.
+    """
+    return _sanitize_dict(detail)
 
 
 @dataclass(frozen=True)

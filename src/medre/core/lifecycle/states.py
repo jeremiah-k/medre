@@ -19,6 +19,8 @@ class AdapterState(Enum):
     The state machine models the full lifecycle from initialization through
     shutdown, including degraded and back-pressured operating modes.
 
+    Terminal states (no outgoing transitions): ``FAILED``, ``STOPPED``.
+
     Attributes
     ----------
     INITIALIZING:
@@ -34,7 +36,9 @@ class AdapterState(Enum):
     STOPPING:
         Adapter is shutting down gracefully.
     FAILED:
-        Adapter has encountered an unrecoverable error.
+        Adapter has encountered an unrecoverable error.  Terminal state.
+    STOPPED:
+        Adapter has shut down cleanly.  Terminal state.
     """
 
     INITIALIZING = "initializing"
@@ -44,6 +48,7 @@ class AdapterState(Enum):
     DISCONNECTED = "disconnected"
     STOPPING = "stopping"
     FAILED = "failed"
+    STOPPED = "stopped"
 
 
 # ---------------------------------------------------------------------------
@@ -96,14 +101,12 @@ VALID_TRANSITIONS: dict[AdapterState, frozenset[AdapterState]] = {
     ),
     AdapterState.STOPPING: frozenset(
         {
+            AdapterState.STOPPED,
             AdapterState.FAILED,
         }
     ),
-    AdapterState.FAILED: frozenset(
-        {
-            AdapterState.INITIALIZING,
-        }
-    ),
+    AdapterState.FAILED: frozenset(),
+    AdapterState.STOPPED: frozenset(),
 }
 """Directed graph of legal state transitions.
 

@@ -989,6 +989,6 @@ rnsd &
 | Delivery semantics comparison across all transports | `docs/contracts/22-delivery-semantics-matrix.md` |
 | Live smoke test procedures and SDK verification | `docs/runbooks/lxmf-live-smoke.md` |
 | Metadata embedding contract | `docs/contracts/06-metadata-embedding-contract.md` |
-| Constrained transport comparison | `docs/contracts/12-constrained-transport-comparison.md` |
+| Constrained transport comparison | `docs/contracts/65-constrained-transport-comparison.md` |
 | Production connectivity readiness | `docs/contracts/16-production-connectivity-readiness.md` |
 | Operational readiness gaps | `docs/contracts/18-operational-readiness-gaps.md` |

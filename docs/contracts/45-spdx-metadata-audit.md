@@ -116,8 +116,8 @@ GPL-3.0-or-later transition:
 | `docs/contracts/42-contributor-governance.md` | ✅ Updated | License grant updated to GPL-3.0-or-later. |
 | `docs/contracts/44-reticulum-license-notes.md` | ✅ Updated | MEDRE license references updated. |
 | `docs/contracts/45-spdx-metadata-audit.md` | ✅ Updated | This document. |
-| `docs/contracts/38-release-hygiene-audit.md` | Historical | Records "Added license = MIT" as historical fact. No change needed. |
-| `docs/contracts/38-release-candidate-criteria.md` | Needs check | May still reference MIT in RC gate. |
+| `docs/contracts/66-release-hygiene-audit.md` | Historical | Records "Added license = MIT" as historical fact. No change needed. |
+| `docs/contracts/38-release-candidate-criteria.md` | ✅ Updated | RC gate license field updated to GPL-3.0-or-later (resolved). |
 
 These docs referencing **dependency** licenses are not project-license issues:
 

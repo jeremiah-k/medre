@@ -3,7 +3,7 @@
 > Contract version: 1
 > Last updated: 2026-05-09
 > Track: 9 (Transport Capability Contracts)
-> Supersedes: Partially supersedes 12-adapter-platform-identity.md and 12-constrained-transport-comparison.md (identity sections). This document is the canonical reference for cross-transport identity semantics.
+> Supersedes: Partially supersedes 12-adapter-platform-identity.md and 65-constrained-transport-comparison.md (identity sections). This document is the canonical reference for cross-transport identity semantics.
 > Supplements: Contracts 01, 02, 15.
 
 This document compares identity and addressing across MEDRE's four adapter families, defines what goes into canonical metadata, what never goes into canonical metadata, and what envelopes may expose. It is explicit about privacy boundaries and the limits of cross-transport identity normalization.

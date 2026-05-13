@@ -114,9 +114,19 @@ None of them check actual transport connectivity, because none of them have real
 
 ### 2.4 LifecycleManager Health Aggregation
 
-`LifecycleManager.health_check_all()` queries each adapter's `health_check()` and updates the internal state registry. It handles illegal transitions by forcing to the reported state with a warning.
+> **Note (Wave 1 cleanup):** `LifecycleManager` has been removed as dead code.
+> :class:`~medre.runtime.app.MedreApp` is the sole runtime lifecycle authority.
+> Adapter state tracking uses the state machine in
+> :mod:`~medre.core.lifecycle.states` directly.
 
-**Gap:** The `LifecycleManager` has no periodic health polling. It only checks when explicitly called. There is no watchdog, no health check interval, and no automatic state transition based on health degradation. An operator must manually invoke `health_check_all()` to discover adapter failures.
+The runtime previously had a `LifecycleManager.health_check_all()` method that
+queried each adapter's `health_check()` and updated the internal state registry.
+It handled illegal transitions by forcing to the reported state with a warning.
+
+**Gap:** The runtime has no periodic health polling. Health is classified at
+startup via :func:`~medre.core.runtime.supervision.classify_runtime_health` but
+there is no watchdog, no health check interval, and no automatic state
+transition based on health degradation during steady-state operation.
 
 
 ## 3. Logging Gaps
@@ -161,9 +171,9 @@ The observability subsystem provides:
 
 ### 5.1 No Aggregate Health Endpoint
 
-There is no HTTP endpoint, CLI command, or API to query the overall health of the runtime. `LifecycleManager.health_check_all()` returns a `dict[str, AdapterState]` but is only accessible programmatically.
+There is no HTTP endpoint, CLI command, or API to query the overall health of the runtime. Health classification is available programmatically via :func:`~medre.core.runtime.supervision.classify_runtime_health` and the boot summary produced by :class:`~medre.runtime.app.MedreApp`.
 
-An operator has no way to ask "is the system healthy?" without writing code that instantiates a `LifecycleManager` and calls the method.
+An operator has no way to ask "is the system healthy?" without accessing the runtime's diagnostic snapshot programmatically.
 
 ### 5.2 No Health-Based Routing Decisions
 

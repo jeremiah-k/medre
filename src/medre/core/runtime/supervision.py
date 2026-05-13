@@ -121,8 +121,10 @@ _PARTIAL_STATES: frozenset[AdapterState] = frozenset(
     }
 )
 
-# States that indicate complete failure.
-_FAILED_STATE: frozenset[AdapterState] = frozenset({AdapterState.FAILED})
+# States that indicate complete failure or clean shutdown (adapter unavailable).
+_DEAD_STATES: frozenset[AdapterState] = frozenset(
+    {AdapterState.FAILED, AdapterState.STOPPED}
+)
 
 
 def _count_by_category(
@@ -144,10 +146,10 @@ def _count_by_category(
             operational += 1
         elif state in _PARTIAL_STATES:
             partial += 1
-        elif state in _FAILED_STATE:
+        elif state in _DEAD_STATES:
             failed += 1
         else:
-            # INITIALIZING, STOPPING — transitional
+            # INITIALIZING, STOPPING — transitional (not STOPPED, which is dead)
             transitional += 1
     return operational, partial, failed, transitional
 

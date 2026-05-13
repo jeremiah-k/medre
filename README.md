@@ -13,7 +13,7 @@ Today: import the pieces you need, or use the config-file-first runtime to start
 adapters and routes from a TOML file. The event contracts, adapters, codecs,
 renderers, and session types all work as library components in any async Python
 application. The runtime (`medre run`) assembles adapters from config, starts
-them in deterministic order, and manages a supervised lifecycle. No API
+them in deterministic order, and manages deterministic lifecycle classification and shutdown. No API
 endpoints, webhooks, or deployment tooling are provided.
 
 
@@ -22,7 +22,7 @@ endpoints, webhooks, or deployment tooling are provided.
 - **Importable toolkit** — adapters, codecs, sessions, and the event model are
   library components with no mandatory runtime or server.
 - **Optional runtime** — `medre run` reads a TOML config file, assembles
-  adapters, and starts a supervised process. Config-file-first, no flags or
+  adapters, and starts a managed process. Config-file-first, no flags or
   environment-only paths.
 - **Explicit routes** — routes are declared in the config file as named
   entries. No auto-discovery, no implicit bridging. What you declare is what
@@ -55,7 +55,7 @@ policy, and cleanup. No cross-session coordination.
 
 **Runtime orchestration.** `RuntimeBuilder` assembles adapters from parsed TOML
 config, starts them in deterministic order (alphabetical by transport, then
-adapter ID), and provides supervised lifecycle (`start` / `stop`). Routes are
+adapter ID), and provides deterministic lifecycle management (`start` / `stop`). Routes are
 explicit entries declared in the config — no auto-discovery. The runtime exists
 and passes its test suite, but has not been exercised under sustained load or
 real operational conditions. See

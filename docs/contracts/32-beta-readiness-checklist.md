@@ -425,7 +425,7 @@ recommendation on beta readiness. It does not prescribe a decision.
 | Live evidence — LXMF | Not run | Harness exists. Local source repos available at `/home/jeremiah/dev`. Reticulum live path setup pending follow-up. No live evidence. Alpha (Tier 2) with experimental downgrade risk per Contract 62. |
 | Matrix inbound from third party | Not confirmed | Harness includes inbound test but no recorded run from a second account. |
 | License governance | Resolved | GPL-3.0-or-later declared. LICENSE file present. Governance docs (contracts 40–45) updated. Reticulum license ambiguity documented (contract 44). |
-| Runtime | Exists, early | RuntimeBuilder assembles from TOML, starts adapters in deterministic order, supervised lifecycle. Not load-tested. |
+| Runtime | Exists, early | RuntimeBuilder assembles from TOML, starts adapters in deterministic order, deterministic lifecycle. Not load-tested. |
 
 ### 11.2 Remaining Blockers and Deferred Items
 

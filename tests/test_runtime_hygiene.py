@@ -289,13 +289,13 @@ class TestSnapshotRouteCap:
         }
         app = _make_fake_app(route_stats=_FakeRouteStats(data=route_data))
         snap = build_runtime_snapshot(app)
-        assert len(snap["routes"]) == _MAX_ROUTES
+        assert len(snap["routes"]["stats"]) == _MAX_ROUTES
 
     def test_routes_below_cap_unchanged(self) -> None:
         route_data = {f"r-{i}": {"delivered": i} for i in range(5)}
         app = _make_fake_app(route_stats=_FakeRouteStats(data=route_data))
         snap = build_runtime_snapshot(app)
-        assert len(snap["routes"]) == 5
+        assert len(snap["routes"]["stats"]) == 5
 
 
 class TestSnapshotBuildFailureCap:
@@ -308,7 +308,7 @@ class TestSnapshotBuildFailureCap:
         ]
         app = _make_fake_app(build_failures=failures)
         snap = build_runtime_snapshot(app)
-        assert len(snap["build_failures"]) == _MAX_BUILD_FAILURES
+        assert len(snap["startup"]["build_failures"]) == _MAX_BUILD_FAILURES
 
     def test_build_failure_error_truncation(self) -> None:
         """Build failure error strings are truncated at _MAX_ERROR_DETAIL_LEN."""
@@ -316,7 +316,7 @@ class TestSnapshotBuildFailureCap:
         failures = [_FakeBuildFailure(adapter_id="bad-1", error=long_error)]
         app = _make_fake_app(build_failures=failures)
         snap = build_runtime_snapshot(app)
-        error_str = snap["build_failures"][0]["error"]
+        error_str = snap["startup"]["build_failures"][0]["error"]
         assert len(error_str) <= _MAX_ERROR_DETAIL_LEN
         assert error_str.endswith("...")
 
@@ -905,13 +905,13 @@ class TestSnapshotBootSummaryIntegration:
         )
         app = _make_fake_app(boot_summary=bs)
         snap = build_runtime_snapshot(app)
-        assert snap["boot_summary"] is not None
-        assert snap["boot_summary"]["startup_outcome"] == "success"
+        assert snap["startup"]["boot_summary"] is not None
+        assert snap["startup"]["boot_summary"]["startup_outcome"] == "success"
 
     def test_boot_summary_null_when_absent(self) -> None:
         app = _make_fake_app(boot_summary=None)
         snap = build_runtime_snapshot(app)
-        assert snap["boot_summary"] is None
+        assert snap["startup"]["boot_summary"] is None
 
 
 # =====================================================================

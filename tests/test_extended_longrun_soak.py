@@ -448,7 +448,7 @@ class TestCombinedReplayDiagnosticsDegraded:
             # Capture diagnostics.
             raw = build_runtime_snapshot(app)
             all_adapter_counts.append(len(app.adapters))
-            all_states.append(raw.get("runtime_state", "unknown"))
+            all_states.append(raw.get("lifecycle", {}).get("runtime_state", "unknown"))
 
             # ReplayMetrics churn alongside.
             metrics = ReplayMetrics()

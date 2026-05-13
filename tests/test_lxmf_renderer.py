@@ -40,36 +40,27 @@ class TestLxmfRenderer:
         renderer = LxmfRenderer()
         assert renderer.name == "lxmf"
 
-    def test_can_render_lxmf_adapter(self) -> None:
+    def test_can_render_lxmf_platform(self) -> None:
+        """Renderer matches when target_platform is lxmf."""
         renderer = LxmfRenderer()
         event = _make_event()
-        assert renderer.can_render(event, "lxmf_node") is True
+        assert renderer.can_render(event, "local-rnode", target_platform="lxmf") is True
 
     def test_can_render_non_lxmf(self) -> None:
         renderer = LxmfRenderer()
         event = _make_event()
-        assert renderer.can_render(event, "fake_presentation") is False
+        assert renderer.can_render(event, "fake_presentation", target_platform="fake") is False
 
     def test_can_render_rejects_matrix(self) -> None:
         renderer = LxmfRenderer()
         event = _make_event()
-        assert renderer.can_render(event, "matrix_instance") is False
+        assert renderer.can_render(event, "matrix_instance", target_platform="matrix") is False
 
-    def test_can_render_known_adapters(self) -> None:
-        """Renderer matches realistic IDs via known_adapters, not prefix."""
-        renderer = LxmfRenderer(known_adapters={"local-rnode", "garage-lxmf"})
-        event = _make_event()
-        assert renderer.can_render(event, "local-rnode") is True
-        assert renderer.can_render(event, "garage-lxmf") is True
-        assert renderer.can_render(event, "unknown-node") is False
-
-    def test_can_render_prefix_still_works(self) -> None:
-        """Prefix matching still works alongside known_adapters."""
+    def test_can_render_without_platform_returns_false(self) -> None:
+        """Without platform info, renderer cannot match (no prefix fallback)."""
         renderer = LxmfRenderer()
         event = _make_event()
-        assert renderer.can_render(event, "lxmf_node") is True
-        assert renderer.can_render(event, "lxmf-node") is True
-        assert renderer.can_render(event, "lxmf_out") is True
+        assert renderer.can_render(event, "lxmf_node") is False
 
     async def test_render_basic_content(self) -> None:
         renderer = LxmfRenderer()

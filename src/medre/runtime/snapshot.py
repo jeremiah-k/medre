@@ -4,34 +4,49 @@ Provides :func:`build_runtime_snapshot` which reads the current state of a
 :class:`~medre.runtime.app.MedreApp` and returns a plain-dict, JSON-safe,
 deterministic snapshot.  No SDK objects, no secrets, no async I/O.
 
-Snapshot schema (``schema_version`` 1)
+Snapshot schema (``schema_version`` 2)
 --------------------------------------
-Top-level keys are alphabetically sorted for stable serialisation::
+Top-level keys are alphabetically sorted for stable serialisation.
+The snapshot is structured into intentional sections that separate
+stable operator-facing data from unstable/debug internals::
 
     {
+      "schema_version": 2,
+      "snapshot_at": str,
       "accounting": {...} | null,
       "adapters": {adapter_id: {...}},
-      "boot_summary": {...} | null,
-      "build_failures": [...],
       "capacity": {...} | null,
-      "delivery_counters": {route_id: {...}} | null,
+      "diagnostics": {
+        "runtime_events": {...} | null,
+      },
+      "health": {
+        "live_health": null,
+      },
+      "identity": {},
+      "lifecycle": {
+        "runtime_state": str,
+        "startup_timestamp": str | null,
+        "uptime_seconds": float | null,
+      },
       "limits": {...},
-      "live_health": null,
+      "persistence": {},
       "replay": {"available": bool, "counters": {...} | null},
-      "route_eligibility": {...} | null,
-      "routes": {route_id: {...}},
-      "runtime_events": {...} | null,
-      "runtime_state": str,
-      "schema_version": 1,
-      "snapshot_at": str,
-      "startup_health": {...} | null,
-      "startup_timestamp": str | null,
-      "uptime_seconds": float | null,
+      "routes": {
+        "eligibility": {...} | null,
+        "readiness": {route_id: str} | null,
+        "stats": {route_id: {...}},
+      },
+      "startup": {
+        "boot_summary": {...} | null,
+        "build_failures": [...],
+        "startup_health": {...} | null,
+      },
+      "unstable": {},
     }
 
 Key guarantees:
 
-* Deterministic key ordering (sorted dicts).
+* Deterministic key ordering (sorted dicts at every level).
 * No SDK objects — only plain ``dict`` / ``list`` / ``str`` / ``int`` /
   ``float`` / ``bool`` / ``None``.
 * No secrets — adapter configs are never introspected.
@@ -39,31 +54,47 @@ Key guarantees:
 * Graceful degradation — absent optional subsystems report ``null``
   rather than raising.
 
+Section purpose
+---------------
+identity:
+    Reserved for future runtime identity metadata.
+lifecycle:
+    Runtime state transitions, startup timing, and uptime.
+startup:
+    One-time boot summary, health classification, and build failures.
+health:
+    Current and reserved health surfaces. ``live_health`` is always
+    ``null`` until active health polling is implemented.
+adapters:
+    Per-adapter static metadata (capabilities, role, version, health).
+routes:
+    Route delivery stats, eligibility, per-route readiness state.
+persistence:
+    Reserved for future durable-storage surface.
+accounting:
+    Bounded runtime event counters.
+replay:
+    Replay engine availability and counters.
+capacity:
+    In-flight delivery and replay capacity state.
+diagnostics:
+    Internal debug/diagnostic surfaces (runtime events buffer).
+    Shape may change without a schema version bump.
+unstable:
+    Reserved for future unstable/debug data that may evolve freely.
+
 Health freshness:
 
 * Adapter-level ``"health"`` values come from the adapter's
   ``_last_health`` attribute (static, set during build/startup), not
   from live ``health_check()`` calls.  Values are startup-derived
   unless explicitly refreshed by an external caller.
-* The ``"startup_health"`` field reflects the runtime health state
-  initialized at startup; it is not automatically refreshed by
-  post-start health polling.
-* The ``"live_health"`` field is always ``null`` because active
-  post-start health polling is not implemented.  Operators must not
-  mistake ``startup_health`` for current/live health.
-
-Future extensions
------------------
-* ``"live_health"`` is reserved for a :class:`RuntimeHealth` aggregate
-  that may be populated by a future active health-polling integration.
-  Until that integration exists, the field is always ``null``.
-* ``"startup_timestamp"`` and ``"uptime_seconds"`` read
-  ``app._startup_monotonic`` (float, monotonic epoch) and
-  ``app._startup_wall`` (ISO-8601 string).  If those attributes do not
-  exist yet (the runtime sets them during ``start()``), both report ``null``.
-* The function signature accepts injectable ``now_fn`` and
-  ``monotonic_fn`` callables so the CLI and diagnostics can supply a
-  frozen clock.
+* The ``startup_health`` field (inside ``startup`` section) reflects the
+  runtime health state initialized at startup; it is not automatically
+  refreshed by post-start health polling.
+* The ``live_health`` field (inside ``health`` section) is always
+  ``null`` because active post-start health polling is not implemented.
+  Operators must not mistake ``startup_health`` for current/live health.
 
 Public symbols
 --------------
@@ -89,7 +120,7 @@ _logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-SCHEMA_VERSION: int = 1
+SCHEMA_VERSION: int = 2
 """Current snapshot schema version.  Bumped when the top-level shape changes."""
 
 _MAX_ADAPTERS: int = 256
@@ -330,22 +361,23 @@ def build_runtime_snapshot(
     ``_last_health`` attribute; live health checks are the
      responsibility of the caller or a future integration.
 
-    **Health freshness:** The ``"startup_health"`` field reflects the
-    latest runtime-owned health snapshot, which is currently
-    initialized at startup and not automatically refreshed.  Adapter-level
-    health values come from the adapter's ``_last_health`` attribute
-    (static, set during build) rather than from live ``health_check()``
-    calls.  The ``"live_health"`` field is always ``null`` because
-    active post-start health polling is not implemented.  Callers and
-    operators must not assume ``startup_health`` represents real-time
-    adapter health.
+    **Health freshness:** The ``startup_health`` field (inside the
+    ``startup`` section) reflects the latest runtime-owned health
+    snapshot, which is currently initialized at startup and not
+    automatically refreshed.  Adapter-level health values come from
+    the adapter's ``_last_health`` attribute (static, set during build)
+    rather than from live ``health_check()`` calls.  The ``live_health``
+    field (inside ``health`` section) is always ``null`` because active
+    post-start health polling is not implemented.  Callers and operators
+    must not assume ``startup_health`` represents real-time adapter
+    health.
     """
     _now = now_fn or _now_utc
     _mono = monotonic_fn or _monotonic_now
 
     snapshot_at = _utc_iso(_now())
 
-    # -- Runtime state -------------------------------------------------------
+    # -- Lifecycle section ---------------------------------------------------
     state_attr = getattr(app, "state", None)
     if state_attr is not None and hasattr(state_attr, "value"):
         runtime_state: str = state_attr.value
@@ -355,9 +387,6 @@ def build_runtime_snapshot(
         runtime_state = "unknown"
 
     # -- Startup timestamp & uptime ------------------------------------------
-    # The runtime may add _startup_wall (ISO string) and _startup_monotonic
-    # (float, monotonic seconds) to MedreApp during start().  Tolerate
-    # absence gracefully.
     startup_wall: str | None = getattr(app, "_startup_wall", None)
     startup_mono: float | None = getattr(app, "_startup_monotonic", None)
 
@@ -369,6 +398,12 @@ def build_runtime_snapshot(
                 uptime_seconds = 0.0
         except Exception:
             uptime_seconds = None
+
+    lifecycle: dict[str, Any] = {
+        "runtime_state": runtime_state,
+        "startup_timestamp": startup_wall,
+        "uptime_seconds": uptime_seconds,
+    }
 
     # -- Adapters (sorted, bounded) ------------------------------------------
     adapters_raw: dict[str, Any] = getattr(app, "adapters", {}) or {}
@@ -383,25 +418,20 @@ def build_runtime_snapshot(
     # -- Routes (from route_stats) -------------------------------------------
     route_stats: Any = getattr(app, "route_stats", None)
     routes_snapshot: dict[str, Any]
-    delivery_counters: dict[str, Any] | None
     if route_stats is not None and hasattr(route_stats, "snapshot"):
         raw_routes = route_stats.snapshot()
         # Apply bound and sort.
         routes_snapshot = {}
         for rid in sorted(raw_routes.keys())[:_MAX_ROUTES]:
             routes_snapshot[rid] = raw_routes[rid]
-        delivery_counters = dict(routes_snapshot)
     else:
         routes_snapshot = {}
-        delivery_counters = None
 
     # -- Replay availability & counters --------------------------------------
     replay_engine: Any = getattr(app, "_replay_engine", None)
     replay_available = replay_engine is not None
 
     # Try to get replay counters from an observability collector if wired.
-    # The DiagnosticsCollector (runtime/observability.py) is injected by
-    # the builder; check for _diagnostics_collector or diagnostician.
     replay_counters: dict[str, Any] | None = None
     diag: Any = getattr(app, "_diagnostics_collector", None)
     if diag is None:
@@ -434,10 +464,6 @@ def build_runtime_snapshot(
     limits_snapshot = _snapshot_limits(limits_obj)
 
     # -- Health state (startup-derived, not live-refreshed) ------------------
-    # The _health_state attribute is set during startup classification.
-    # It reflects the health assessment made at boot time and is not
-    # automatically refreshed by post-start health polling (not implemented).
-    # Callers must not assume this represents real-time adapter health.
     health_state: Any = getattr(app, "_health_state", None)
     if health_state is not None:
         if hasattr(health_state, "to_dict"):
@@ -472,6 +498,13 @@ def build_runtime_snapshot(
         route_eligibility_snapshot = {
             "configured": list(route_elig_obj.configured),
             "disabled": list(route_elig_obj.disabled),
+            "degraded": [
+                {
+                    "failed_adapter_ids": list(d.failed_adapter_ids),
+                    "route_id": d.route_id,
+                }
+                for d in route_elig_obj.degraded
+            ],
             "registered": list(route_elig_obj.registered),
             "skipped": [
                 {
@@ -493,6 +526,16 @@ def build_runtime_snapshot(
     else:
         route_eligibility_snapshot = None
 
+    # -- Route readiness (per-route operational states) ----------------------
+    route_readiness_snapshot: dict[str, str] | None
+    if route_elig_obj is not None and hasattr(route_elig_obj, "route_states"):
+        route_readiness_snapshot = {
+            rid: state.value
+            for rid, state in sorted(route_elig_obj.route_states.items())
+        }
+    else:
+        route_readiness_snapshot = None
+
     # -- Runtime events (bounded, debug/unstable) ----------------------------
     event_buffer_obj: Any = getattr(app, "_event_buffer", None)
     runtime_events_snapshot: dict[str, Any] | None
@@ -501,29 +544,38 @@ def build_runtime_snapshot(
     else:
         runtime_events_snapshot = None
 
-    # -- Assemble final snapshot (sorted keys) -------------------------------
+    # -- Assemble final sectioned snapshot (sorted keys) ---------------------
     snap: dict[str, Any] = {
+        "schema_version": SCHEMA_VERSION,
+        "snapshot_at": snapshot_at,
         "accounting": accounting_snapshot,
         "adapters": adapters,
-        "boot_summary": boot_summary_snapshot,
-        "build_failures": build_failures,
         "capacity": capacity_snapshot,
-        "delivery_counters": delivery_counters,
+        "diagnostics": {
+            "runtime_events": runtime_events_snapshot,
+        },
+        "health": {
+            "live_health": None,
+        },
+        "identity": {},
+        "lifecycle": lifecycle,
         "limits": limits_snapshot,
-        "live_health": None,
+        "persistence": {},
         "replay": {
             "available": replay_available,
             "counters": replay_counters,
         },
-        "route_eligibility": route_eligibility_snapshot,
-        "routes": routes_snapshot,
-        "runtime_events": runtime_events_snapshot,
-        "runtime_state": runtime_state,
-        "schema_version": SCHEMA_VERSION,
-        "snapshot_at": snapshot_at,
-        "startup_health": startup_health_snapshot,
-        "startup_timestamp": startup_wall,
-        "uptime_seconds": uptime_seconds,
+        "routes": {
+            "eligibility": route_eligibility_snapshot,
+            "readiness": route_readiness_snapshot,
+            "stats": routes_snapshot,
+        },
+        "startup": {
+            "boot_summary": boot_summary_snapshot,
+            "build_failures": build_failures,
+            "startup_health": startup_health_snapshot,
+        },
+        "unstable": {},
     }
 
     return _sorted_dict(snap)

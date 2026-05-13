@@ -2,7 +2,7 @@
 
 **Status:** Draft
 **Scope:** Tracks 1 (adapter identity concepts) and 4 (canonical identity pressure) from the PC specification
-**Related:** 12-constrained-transport-comparison.md, 02-adapter-runtime-contract.md
+**Related:** 65-constrained-transport-comparison.md, 02-adapter-runtime-contract.md
 
 ## Overview
 
@@ -138,11 +138,11 @@ target_adapter: str
 
 ### 1.10 Renderer.can_render(target_adapter) dispatch mechanism
 
-The current renderer dispatch works through a three-tier fallback in each renderer's `can_render()` method:
+The renderer dispatch is a capability-tiered lookup in each renderer's `can_render()` method:
 
-1. **Platform match** (preferred): `target_platform == "meshtastic"`. The pipeline passes the platform string from its internal registry.
-2. **Adapter-name prefix** (backward compat): `target_adapter.startswith("meshtastic")`.
-3. **known_adapters set** (deprecated): `target_adapter in self._known_adapters`.
+1. **Platform match** (primary): `target_platform == "meshtastic"`. The pipeline passes the platform string from its internal registry.
+2. **Adapter-name prefix** (fallback): `target_adapter.startswith("meshtastic")`.
+3. **known_adapters set** (fallback): `target_adapter in self._known_adapters`.
 
 ```python
 # MeshtasticRenderer.can_render() (src/medre/adapters/meshtastic/renderer.py)
@@ -153,7 +153,7 @@ if target_adapter.startswith("meshtastic"):
 return target_adapter in self._known_adapters
 ```
 
-All three renderers (Matrix, Meshtastic, MeshCore) follow this same pattern with their respective platform names and prefixes.
+All three renderers (Matrix, Meshtastic, MeshCore) follow this same pattern with their respective platform names and prefixes. The platform registry on `RenderingPipeline` populates the primary tier at build time. Prefix and `known_adapters` fallback tiers serve test code and ad hoc usage where the registry is not populated.
 
 ---
 
@@ -163,13 +163,13 @@ All three renderers (Matrix, Meshtastic, MeshCore) follow this same pattern with
 
 The `can_render()` prefix match (`target_adapter.startswith("meshtastic")`) means the renderer selection logic is coupled to how operators name their adapters. If someone names a Meshtastic adapter `"local-radio"`, the prefix match fails and the renderer won't select it.
 
-The `known_adapters` workaround was introduced to handle this case: operators pass the set of adapter IDs that should match. But this is manual configuration that duplicates per-transport-family. Every Meshtastic adapter ID has to be listed in the MeshtasticRenderer constructor. Every MeshCore adapter ID has to be listed in the MeshCoreRenderer constructor. This is fragile and doesn't scale.
+The `known_adapters` fallback was introduced to handle this case: operators pass the set of adapter IDs that should match. But this is manual configuration that duplicates per-transport-family. Every Meshtastic adapter ID has to be listed in the MeshtasticRenderer constructor. Every MeshCore adapter ID has to be listed in the MeshCoreRenderer constructor. This is fragile and doesn't scale.
 
 ### 2.2 known_adapters duplicates per-transport-family
 
 The `known_adapters` parameter exists on both `MeshtasticRenderer` and `MeshCoreRenderer`. Each renderer instance maintains its own set of adapter IDs. When a new adapter is added, every renderer that might need to handle it must be updated. There's no central registry.
 
-This was a stopgap. The platform registry on `RenderingPipeline` is the proper fix, and it's now in place. The `known_adapters` sets are retained for backward compatibility only.
+The platform registry on `RenderingPipeline` is the proper fix, and it is now in place as the primary dispatch tier. The `known_adapters` sets serve as fallback tiers for test and ad hoc usage where the registry is not populated.
 
 ### 2.3 target_adapter is overloaded
 

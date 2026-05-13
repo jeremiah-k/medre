@@ -388,22 +388,19 @@ class TestSnapshotReadability:
         expected_keys = [
             "accounting",
             "adapters",
-            "boot_summary",
-            "build_failures",
             "capacity",
-            "delivery_counters",
+            "diagnostics",
+            "health",
+            "identity",
+            "lifecycle",
             "limits",
-            "live_health",
+            "persistence",
             "replay",
-            "route_eligibility",
             "routes",
-            "runtime_events",
-            "runtime_state",
             "schema_version",
             "snapshot_at",
-            "startup_health",
-            "startup_timestamp",
-            "uptime_seconds",
+            "startup",
+            "unstable",
         ]
         actual_keys = list(snap.keys())
         assert actual_keys == expected_keys, (
@@ -421,7 +418,7 @@ class TestSnapshotReadability:
         # Must be parseable
         parsed = json.loads(rendered)
         assert parsed["schema_version"] == SCHEMA_VERSION
-        assert parsed["runtime_state"] == "running"
+        assert parsed["lifecycle"]["runtime_state"] == "running"
 
         # Must contain key identifiers an operator would look for
         assert "matrix-1" in rendered
@@ -459,7 +456,7 @@ class TestRouteStatsUsefulness:
         snap = build_runtime_snapshot(
             app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
         )
-        general = snap["routes"]["matrix-to-mesh-general"]
+        general = snap["routes"]["stats"]["matrix-to-mesh-general"]
         assert general["delivered"] == 150
         assert general["failed"] == 3
         assert general["skipped"] == 0
@@ -472,7 +469,7 @@ class TestRouteStatsUsefulness:
         snap = build_runtime_snapshot(
             app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
         )
-        failing = snap["routes"]["matrix-2-to-lxmf-alerts"]
+        failing = snap["routes"]["stats"]["matrix-2-to-lxmf-alerts"]
         assert failing["failed"] == 7
         assert "last_error" in failing
         assert "connection refused" in failing["last_error"]
@@ -485,7 +482,7 @@ class TestRouteStatsUsefulness:
         snap = build_runtime_snapshot(
             app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
         )
-        status_route = snap["routes"]["mesh-to-matrix-status"]
+        status_route = snap["routes"]["stats"]["mesh-to-matrix-status"]
         assert status_route["loop_prevented"] == 4
         assert status_route["delivered"] == 12
 
@@ -518,9 +515,9 @@ class TestDegradedStateClarity:
         snap = build_runtime_snapshot(
             app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
         )
-        assert snap["startup_health"] is not None
-        assert snap["startup_health"]["overall"] == "degraded"
-        assert "matrix-2" in snap["startup_health"]["unhealthy_adapters"]
+        assert snap["startup"]["startup_health"] is not None
+        assert snap["startup"]["startup_health"]["overall"] == "degraded"
+        assert "matrix-2" in snap["startup"]["startup_health"]["unhealthy_adapters"]
 
     def test_boot_summary_shows_partial_failure(self) -> None:
         """Boot summary captures partial startup outcome."""
@@ -528,7 +525,7 @@ class TestDegradedStateClarity:
         snap = build_runtime_snapshot(
             app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
         )
-        bs = snap["boot_summary"]
+        bs = snap["startup"]["boot_summary"]
         assert bs is not None
         assert bs["startup_outcome"] == "partial"
         assert bs["runtime_health"] == "degraded"
@@ -551,8 +548,8 @@ class TestDegradedStateClarity:
         snap = build_runtime_snapshot(
             app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
         )
-        assert len(snap["build_failures"]) == 1
-        bf = snap["build_failures"][0]
+        assert len(snap["startup"]["build_failures"]) == 1
+        bf = snap["startup"]["build_failures"][0]
         assert bf["adapter_id"] == "lxmf-bad"
         # Token in error must be redacted
         assert "syt_deadbeef" not in bf["error"]
@@ -636,7 +633,7 @@ class TestStartupSummaryUsefulness:
         snap = build_runtime_snapshot(
             app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
         )
-        bs = snap["boot_summary"]
+        bs = snap["startup"]["boot_summary"]
         assert bs is not None
         # Operator can compute success ratio
         assert bs["adapters_total"] > 0
@@ -855,7 +852,7 @@ class TestBoundedTruncation:
         snap = build_runtime_snapshot(
             app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
         )
-        error_val = snap["build_failures"][0]["error"]
+        error_val = snap["startup"]["build_failures"][0]["error"]
         assert len(error_val) <= _MAX_ERROR_DETAIL_LEN
         assert error_val.endswith("...")
 
@@ -878,7 +875,7 @@ class TestBoundedTruncation:
         snap = build_runtime_snapshot(
             app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
         )
-        assert len(snap["build_failures"]) == _MAX_BUILD_FAILURES
+        assert len(snap["startup"]["build_failures"]) == _MAX_BUILD_FAILURES
 
 
 # =====================================================================
@@ -897,7 +894,7 @@ class TestDegradedAttribution:
         )
         # Operator can find the failing route
         failing_routes = {
-            rid: r for rid, r in snap["routes"].items() if r.get("failed", 0) > 0
+            rid: r for rid, r in snap["routes"]["stats"].items() if r.get("failed", 0) > 0
         }
         assert "matrix-2-to-lxmf-alerts" in failing_routes
         assert "last_error" in failing_routes["matrix-2-to-lxmf-alerts"]
@@ -920,7 +917,7 @@ class TestDegradedAttribution:
         snap = build_runtime_snapshot(
             app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
         )
-        bf = snap["build_failures"][0]
+        bf = snap["startup"]["build_failures"][0]
         assert bf["adapter_id"] == "lxmf-bad"
         assert "error" in bf
         assert len(bf["error"]) > 0
@@ -931,7 +928,7 @@ class TestDegradedAttribution:
         snap = build_runtime_snapshot(
             app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
         )
-        bs = snap["boot_summary"]
+        bs = snap["startup"]["boot_summary"]
         assert bs["build_failure_count"] == 1
         assert bs["adapters_total"] == 4
         assert bs["adapters_started"] == 3
@@ -1094,8 +1091,8 @@ class TestUptimeTimestampRealism:
         snap = build_runtime_snapshot(
             app, now_fn=_fixed_now, monotonic_fn=lambda: 5042.5
         )
-        assert snap["uptime_seconds"] == pytest.approx(42.5, abs=0.001)
-        assert snap["startup_timestamp"] == "2026-05-12T10:00:00+00:00"
+        assert snap["lifecycle"]["uptime_seconds"] == pytest.approx(42.5, abs=0.001)
+        assert snap["lifecycle"]["startup_timestamp"] == "2026-05-12T10:00:00+00:00"
 
     def test_uptime_null_before_startup(self) -> None:
         """Before startup, uptime and startup_timestamp are null."""
@@ -1103,8 +1100,8 @@ class TestUptimeTimestampRealism:
         snap = build_runtime_snapshot(
             app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
         )
-        assert snap["uptime_seconds"] is None
-        assert snap["startup_timestamp"] is None
+        assert snap["lifecycle"]["uptime_seconds"] is None
+        assert snap["lifecycle"]["startup_timestamp"] is None
 
     def test_snapshot_at_is_iso_format(self) -> None:
         """snapshot_at is a valid ISO-8601 timestamp."""

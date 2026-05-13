@@ -5,8 +5,11 @@ content payloads (``m.room.message`` dicts with ``msgtype``, ``body``,
 optional ``m.relates_to``, and a MEDRE metadata envelope).
 
 This renderer is owned by the Matrix adapter package and is registered
-with the rendering pipeline.  It dispatches events whose
-``target_adapter`` starts with ``"matrix"``.
+with the rendering pipeline.
+
+Selection is via the rendering pipeline's platform registry: when the
+pipeline populates the adapter's platform as ``"matrix"``, the renderer
+matches on that platform string directly.
 
 **Tranche 1 scope**: text messages and native replies are supported.
 Reactions are deferred to a later tranche.
@@ -26,7 +29,7 @@ class MatrixRenderer:
     a body string, optional relation metadata (replies only in tranche 1),
     and a MEDRE provenance envelope.
 
-    Matches any ``target_adapter`` that starts with ``"matrix"``.
+    Selection is via the pipeline's platform registry.
     """
 
     name: str = "matrix"
@@ -44,13 +47,7 @@ class MatrixRenderer:
         target_adapter: str,
         target_platform: str | None = None,
     ) -> bool:
-        """Return ``True`` when *target_adapter* is a Matrix target.
-
-        Selection order (first match wins):
-
-        1. **Platform match** — ``target_platform == "matrix"``.
-        2. **Adapter-name prefix** — ``target_adapter`` starts with
-           ``"matrix"`` (backward compatibility).
+        """Return ``True`` when *target_platform* is ``"matrix"``.
 
         Parameters
         ----------
@@ -59,17 +56,15 @@ class MatrixRenderer:
         target_adapter:
             Name of the target adapter.
         target_platform:
-            Platform name of the target adapter.  ``None`` when the
-            pipeline registry is not populated.
+            Platform name of the target adapter, supplied by the
+            rendering pipeline's platform registry.
 
         Returns
         -------
         bool
             Whether this renderer handles events for the given adapter.
         """
-        if target_platform == "matrix":
-            return True
-        return target_adapter.startswith("matrix")
+        return target_platform == self._PLATFORM
 
     # ------------------------------------------------------------------
     # Rendering

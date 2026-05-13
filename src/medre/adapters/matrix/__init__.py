@@ -12,8 +12,8 @@ Public symbols
   dataclass.
 * :class:`~medre.adapters.matrix.session.MatrixSession` — session
   lifecycle boundary owning the nio client.
-* :class:`~medre.adapters.matrix.codec.MatrixCodec` — encode / decode
-  helper.
+* :class:`~medre.adapters.matrix.codec.MatrixCodec` — decode
+  helper (native → canonical).
 * :class:`~medre.adapters.matrix.renderer.MatrixRenderer` — platform
   renderer for Matrix content payloads.
 * :class:`~medre.adapters.matrix.metadata.MatrixMetadataEnvelope` —

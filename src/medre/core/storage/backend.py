@@ -24,6 +24,18 @@ from medre.core.events import (
 
 
 # ---------------------------------------------------------------------------
+# Shared defaults
+# ---------------------------------------------------------------------------
+
+#: Maximum number of events returned by a single query when the caller
+#: does not specify an explicit limit.  Used by both :class:`EventFilter`
+#: (low-level storage queries) and :class:`ReplayRequest` (high-level
+#: replay operations).  Callers that need different paging behaviour
+#: should pass an explicit ``limit`` value.
+DEFAULT_QUERY_LIMIT: int = 1000
+
+
+# ---------------------------------------------------------------------------
 # Exceptions
 # ---------------------------------------------------------------------------
 
@@ -68,14 +80,15 @@ class EventFilter:
     time_end:
         Latest event timestamp (inclusive).
     limit:
-        Maximum number of events to return.
+        Maximum number of events to return.  Defaults to
+        :data:`DEFAULT_QUERY_LIMIT` (``1000``).
     """
 
     event_kinds: list[str] | None = None
     source_adapters: list[str] | None = None
     time_start: datetime | None = None
     time_end: datetime | None = None
-    limit: int = 100
+    limit: int = DEFAULT_QUERY_LIMIT
 
 
 # ---------------------------------------------------------------------------

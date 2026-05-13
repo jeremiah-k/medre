@@ -88,11 +88,9 @@ class Renderer(Protocol):
     **Platform-aware dispatch**
 
     When ``target_platform`` is provided (via the rendering pipeline's
-    platform registry), renderers should prefer checking it over adapter
-    name heuristics such as ``target_adapter.startswith(...)`` or
-    ``known_adapters`` sets.  The platform string is the authoritative
-    identifier — adapter IDs are routing identifiers and should not be
-    overloaded with platform semantics.
+    platform registry), renderers match on it directly.  The platform
+    string is the authoritative identifier — adapter IDs are routing
+    identifiers and should not be overloaded with platform semantics.
     """
 
     @property
@@ -116,8 +114,7 @@ class Renderer(Protocol):
             Name of the target adapter (routing identifier).
         target_platform:
             Platform name of the target adapter, or ``None`` if unknown.
-            Renderers should prefer checking this over adapter name
-            heuristics.
+            Renderers should match on this directly.
         """
         ...
 
@@ -153,8 +150,7 @@ class RenderingPipeline:
     The pipeline maintains an optional ``adapter_platforms`` mapping from
         adapter ID to platform name (e.g. ``"local-radio"`` → ``"radio-alpha"``).
     When populated, the pipeline passes the platform to each renderer's
-    ``can_render()``, enabling platform-aware dispatch without relying on
-    adapter-name prefixes or ad hoc ``known_adapters`` sets.
+    ``can_render()``, enabling platform-aware dispatch.
 
     Populate the registry via :meth:`register_adapter_platform` or
     :meth:`register_platforms_from`.  The pipeline runner automatically

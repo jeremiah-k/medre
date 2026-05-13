@@ -1,23 +1,25 @@
 # Contract 59 — Runtime Durability Contract
 
 **Status:** Active
-**Scope:** Durability semantics for the MEDRE runtime: what is durable, what is process-local, crash recovery expectations, boundedness guarantees, and explicit non-guarantees.
+**Scope:** Durability semantics for the MEDRE runtime: what is durable, what is process-local, crash recovery expectations, boundedness guarantees, and explicit non-guarantees. For **where** state is stored and **when** it is written, see Contract 55 (Runtime Persistence).
 **Audience:** Runtime builders, adapter authors, operators.
 **Tracks:** 9 (evidence consolidation and boundary enforcement)
 **References:** Contract 47 (Runtime Assembly), Contract 53 (Resource Control), Contract 54 (Runtime Shutdown), Contract 55 (Runtime Persistence), Contract 60 (Runtime Cancellation), Contract 61 (Operational Evidence).
 
-Every agent or document that references MEDRE durability, crash recovery, what survives restart, or boundedness must defer to this contract and Contract 55 (Runtime Persistence).
+Every agent or document that references MEDRE **durability guarantees**, **crash recovery**, **what survives restart**, or **boundedness** must defer to this contract. For **storage locations**, **file formats**, and **write timing**, see Contract 55.
 
 **Evidence separation (Track 9):** Durability claims in this contract are backed by S-tier (simulated/fake) evidence from deterministic unit tests. R-tier (real-live-runtime) evidence for crash recovery, sustained operation boundedness, and restart durability has NOT been collected. See Contract 61 §5.1 for current evidence scores per transport. Do not claim production durability without R-tier evidence per Contract 61 §6.
 
 
 ## 1. Scope
 
-This contract specifies the durability boundary of the MEDRE runtime. It distinguishes between:
+This contract specifies the **durability boundary** of the MEDRE runtime — what behavioral guarantees the runtime provides around state survival, crash recovery, and resource boundedness. It distinguishes between:
 
 - **Durable state** — survives process termination, crash, and restart.
 - **Process-local state** — exists only within a running process; lost on crash or shutdown.
 - **Bounded state** — resource usage is capped by the runtime to prevent unbounded growth.
+
+For the **storage locations** and **write timing** of persisted state (SQLite tables, file paths, WAL mode details), see Contract 55 (Runtime Persistence). This contract references those storage details but does not duplicate them.
 
 This contract describes the current runtime's actual behavior. No new storage mechanisms or durability features are introduced.
 
@@ -26,15 +28,15 @@ This contract describes the current runtime's actual behavior. No new storage me
 
 ### 2.1 Events Are Stored Before Delivery
 
-Every normalized event that enters the pipeline is written to SQLite **before** delivery begins. If the runtime crashes after storing an event but before delivering it, the event exists in the database with no delivery receipt. The event was preserved; the delivery was not.
+Every normalized event that enters the pipeline is written to durable storage **before** delivery begins (see Contract 55 §4.1 for write ordering). If the runtime crashes after storing but before delivering, the event is preserved with no delivery receipt.
 
 ### 2.2 Delivery Receipts Are Written After Completion
 
-A delivery receipt is written to SQLite after each delivery attempt completes (success or failure). If the runtime crashes during a delivery, no receipt is written for that attempt. The event remains in storage without a receipt.
+A delivery receipt is written to durable storage after each delivery attempt completes (success or failure). If the runtime crashes during a delivery, no receipt is written for that attempt. The event remains in storage without a receipt.
 
-### 2.3 SQLite WAL Mode Provides Crash Consistency
+### 2.3 Committed Transactions Survive Hard Crash
 
-SQLite operates in WAL (Write-Ahead Logging) journal mode. Committed transactions are durable even if the process is killed without a clean shutdown (`kill -9`, OOM, power loss). SQLite's own crash recovery mechanism handles incomplete WAL frames on the next open.
+SQLite operates in WAL mode (see Contract 55 §2.1). Committed transactions are durable even if the process is killed without a clean shutdown (`kill -9`, OOM, power loss). SQLite's crash recovery mechanism handles incomplete WAL frames on the next open.
 
 ### 2.4 Shutdown Completes Persisted Writes
 
@@ -63,30 +65,28 @@ These bounds prevent unbounded memory growth from concurrent operations or queue
 
 ## 3. Durable State
 
-The following state survives process termination (crash, shutdown, or restart):
+The following state survives process termination (crash, shutdown, or restart). Storage locations and write timing are in **Contract 55 §2** and **§4**.
 
-| State | Storage | Written When |
-|-------|---------|--------------|
-| Canonical events | SQLite | During pipeline store step, before delivery |
-| Delivery receipts | SQLite | After each delivery attempt completes |
-| Route attribution (`route_id` on receipts) | SQLite | With the delivery receipt |
-| Native references (platform message IDs) | SQLite | With the delivery receipt |
-| Replay run metadata and results | SQLite | After each replay run completes |
-| Cross-adapter relationships | SQLite | During pipeline store step |
-| Global runtime metadata (schema version) | SQLite | On first creation and migration |
-| Matrix E2EE crypto keys | Filesystem (`{state}/adapters/{id}/matrix/store/`) | SDK-managed |
-| LXMF identities | Filesystem (`{state}/adapters/{id}/lxmf/`) | Transport-managed |
-| Log history | Filesystem (`{state}/logs/medre.log`) | Append-only |
+| State | Survives Crash | Written When |
+|-------|---------------|--------------|
+| Canonical events | Yes | During pipeline store step, before delivery |
+| Delivery receipts | Yes | After each delivery attempt completes |
+| Route attribution (`route_id` on receipts) | Yes | With the delivery receipt |
+| Native references (platform message IDs) | Yes | With the delivery receipt |
+| Replay run metadata and results | Yes (completed runs) | After each replay run completes |
+| Cross-adapter relationships | Yes | During pipeline store step |
+| Global runtime metadata (schema version) | Yes | On first creation and migration |
+| Matrix E2EE crypto keys | Yes | SDK-managed (see Contract 55 §2.2) |
+| LXMF identities | Yes | Transport-managed (see Contract 55 §2.2) |
+| Log history | Yes (up to last flush) | Append-only |
 
 ### 3.1 Persistence Timing
 
-- **Events:** Written synchronously during the pipeline store step. An event is durable before the pipeline begins delivery planning.
-- **Receipts:** Written after the adapter's `deliver()` returns. The receipt reflects the outcome of that delivery attempt.
-- **Crypto keys:** Written by the Matrix SDK (nio) according to its own persistence schedule. MEDRE does not control nio's write timing.
+Write timing and atomicity details are in **Contract 55 §4**. Key guarantee: events are durable before delivery begins; receipts are durable after delivery completes.
 
 ### 3.2 Single-Machine Persistence
 
-MEDRE persists state to a local SQLite database and local filesystem. There is:
+MEDRE persists state to a local SQLite database and local filesystem (see Contract 55 §2.3). There is:
 
 - No replication.
 - No remote backup.
@@ -231,9 +231,9 @@ The following are explicitly **not** provided:
 
 | Topic | Contract |
 |-------|----------|
+| Storage locations, file paths, SQLite schema, write timing, WAL mode details | Contract 55 (Runtime Persistence) |
 | CapacityController, delivery/replay capacity bounds, exhaustion behavior | Contract 53 (Resource Control) |
 | Shutdown ordering, drain phases, in-flight work handling | Contract 54 (Runtime Shutdown) |
 | Cancellation semantics, CapacityController stop behavior, stop-during-startup | Contract 60 (Runtime Cancellation) |
-| Persistence timing, WAL consistency, receipt durability, storage schema | Contract 55 (Runtime Persistence) |
 | Runtime assembly, `RuntimeState` lifecycle, startup classification | Contract 47 (Runtime Assembly) |
 | Runtime observability, diagnostic snapshots | Contract 48 (Runtime Observability) |

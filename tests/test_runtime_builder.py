@@ -881,8 +881,8 @@ class TestDegradedRouteValidation:
             configured_adapter_ids := frozenset({"a", "b"}),
             built_adapter_ids := frozenset({"a", "b"}),
         )
-        assert len(result) == 1
-        assert result[0].id == "r1"
+        assert len(result.registered_routes) == 1
+        assert result.registered_routes[0].id == "r1"
 
     def test_route_with_failed_source_adapter_skipped(self) -> None:
         """Route whose source adapter failed to build is entirely skipped."""
@@ -896,7 +896,7 @@ class TestDegradedRouteValidation:
             frozenset({"a", "b"}),
             frozenset({"b"}),
         )
-        assert result == []
+        assert result.registered_routes == ()
 
     def test_route_with_failed_dest_adapter_degraded(self) -> None:
         """Route with a failed dest adapter gets that target removed."""
@@ -910,8 +910,8 @@ class TestDegradedRouteValidation:
             frozenset({"a", "b", "c"}),
             frozenset({"a", "b"}),
         )
-        assert len(result) == 1
-        route = result[0]
+        assert len(result.registered_routes) == 1
+        route = result.registered_routes[0]
         assert route.source.adapter == "a"
         assert [t.adapter for t in route.targets] == ["b"]
 
@@ -927,7 +927,7 @@ class TestDegradedRouteValidation:
             frozenset({"a", "b"}),
             frozenset({"a"}),
         )
-        assert result == []
+        assert result.registered_routes == ()
 
     def test_mixed_routes_partial_degradation(self) -> None:
         """Multiple routes: some survive, some degraded, some skipped."""
@@ -942,12 +942,12 @@ class TestDegradedRouteValidation:
             frozenset({"a", "b", "c"}),
             frozenset({"a", "b"}),
         )
-        ids = [r.id for r in result]
+        ids = [r.id for r in result.registered_routes]
         assert "good_route" in ids
         assert "degraded_route" in ids
         assert "dead_route" not in ids
         # Verify degraded_route has only "b" as target
-        degraded = next(r for r in result if r.id == "degraded_route")
+        degraded = next(r for r in result.registered_routes if r.id == "degraded_route")
         assert [t.adapter for t in degraded.targets] == ["b"]
 
     def test_unknown_adapter_still_raises(self) -> None:
@@ -970,7 +970,7 @@ class TestDegradedRouteValidation:
         ))
         router = Router()
         result = register_routes(router, rcs, frozenset({"a", "b"}))
-        assert len(result) == 1
+        assert len(result.registered_routes) == 1
 
     def test_backward_compat_unknown_raises_without_built_ids(self) -> None:
         """Without built_adapter_ids, unknown adapter IDs still raise."""

@@ -405,25 +405,23 @@ but does not protect against discovered vulnerabilities in the pinned version.
 
 ## 6. Governance Risks
 
-### G1: License under review, not final
+### G1: License decided — GPL-3.0-or-later
 
 | Field | Value |
 |-------|-------|
 | **Category** | Governance |
-| **Risk** | The project declares MIT in `pyproject.toml` but is evaluating GPL-3.0-or-later and LGPL-3.0-or-later as alternatives. MIT no longer clearly matches the Meshtastic ecosystem, where upstream SDKs and firmware use GPL or LGPL. No decision has been made. If the license changes, downstream consumers may face different obligations. The evaluation is documented in contract 42 §5 and the README license section. |
-| **Severity** | Medium |
-| **Likelihood** | Medium — a license change is plausible given the dependency landscape |
-| **Mitigation** | No code change needed. Governance review in progress. README and pyproject.toml honestly document the uncertainty. |
-| **Residual exposure** | Consumers who build on medre today do so under MIT but should expect potential relicensing. |
-| **Ownership** | Project maintainer owns the license decision. |
-| **Source** | Contract 42 §5, pyproject.toml GOVERNANCE-PENDING comment |
+| **Status** | **Resolved** (2026-05-12). Project license is GPL-3.0-or-later. |
+| **Risk** | ~~The project declares MIT in `pyproject.toml` but is evaluating GPL-3.0-or-later and LGPL-3.0-or-later as alternatives.~~ Resolved: the project adopted GPL-3.0-or-later to align with the dependency reality (Meshtastic SDK is GPL-3.0-only, Reticulum/LXMF use the Reticulum License). Downstream consumers are subject to GPL-3.0-or-later terms. See contract 40 (License Governance). |
+| **Severity** | ~~Medium~~ N/A (resolved) |
+| **Mitigation** | License decided. `pyproject.toml` updated. `LICENSE` file added. See contract 40 §2. |
+| **Residual exposure** | Consumers who built on medre before 2026-05-12 did so under MIT. The relicensing to GPL-3.0-or-later applies from that date forward. |
 
 ### G2: Reticulum license ambiguity
 
 | Field | Value |
 |-------|-------|
 | **Category** | Governance |
-| **Risk** | The LXMF adapter depends on Reticulum, which uses a non-OSI-approved license (the Reticulum License). Even if medre selects MIT, GPL, or LGPL for its own code, the Reticulum dependency introduces a license that downstream consumers must evaluate independently. medre's license choice does not resolve the upstream question for anyone using the LXMF transport. This ambiguity is unresolved. |
+| **Risk** | The LXMF adapter depends on Reticulum, which uses a non-OSI-approved license (the Reticulum License). medre's own GPL-3.0-or-later license does not resolve the upstream Reticulum License question for anyone using the LXMF transport. Downstream consumers must evaluate the Reticulum License independently. This ambiguity is unresolved. |
 | **Severity** | Medium |
 | **Likelihood** | High — the ambiguity exists regardless of medre's own license choice |
 | **Mitigation** | LXMF is an optional dependency. README documents the ambiguity. Risk register records it here. |
@@ -436,13 +434,10 @@ but does not protect against discovered vulnerabilities in the pinned version.
 | Field | Value |
 |-------|-------|
 | **Category** | Governance |
-| **Risk** | No top-level `LICENSE` file exists. The license is declared in `pyproject.toml` metadata but is not present as a standalone file. This is a packaging gap that may cause issues for package indices, automated license scanning tools, and contributors who expect a standard repository layout. |
-| **Severity** | Low |
-| **Likelihood** | High — the file simply does not exist |
-| **Mitigation** | Creating a LICENSE file is straightforward once the license selection is final. Tracked in contract 45 §3. |
-| **Residual exposure** | Low — metadata declaration is sufficient for current stage, but the gap is real |
-| **Ownership** | Project maintainer owns the packaging gap. |
-| **Source** | Contract 45 §3, Contract 38 §6.3 |
+| **Status** | **Resolved** (2026-05-12). `LICENSE` file present with standard FSF GPLv3 text. |
+| **Risk** | ~~No top-level `LICENSE` file exists.~~ Resolved: `LICENSE` file added with GPL-3.0-or-later text. |
+| **Severity** | ~~Low~~ N/A (resolved) |
+| **Mitigation** | `LICENSE` file created. `pyproject.toml` license field updated. See contract 45 §3. |
 
 
 ## 7. Reconnect Risks

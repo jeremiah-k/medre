@@ -462,8 +462,9 @@ class TestDiagnosticsWorkflow:
     def test_diagnostics_has_runtime_state(self, config_fake_multi: Path) -> None:
         output = _run_cli("diagnostics", "--config", str(config_fake_multi))
         parsed = json.loads(output)
-        assert "runtime_state" in parsed
-        assert isinstance(parsed["runtime_state"], str)
+        assert "lifecycle" in parsed
+        assert "runtime_state" in parsed["lifecycle"]
+        assert isinstance(parsed["lifecycle"]["runtime_state"], str)
 
     def test_diagnostics_has_adapters(self, config_fake_multi: Path) -> None:
         output = _run_cli("diagnostics", "--config", str(config_fake_multi))
@@ -735,7 +736,7 @@ class TestShutdownRestartWorkflow:
         )
         assert isinstance(snapshot, dict)
         assert "schema_version" in snapshot
-        assert snapshot["schema_version"] == 1
+        assert snapshot["schema_version"] == 2
         assert "adapters" in snapshot
 
 

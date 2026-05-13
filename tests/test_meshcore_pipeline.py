@@ -82,7 +82,8 @@ async def _make_pipeline(
     out_adapter = FakeMeshCoreAdapter(out_config)
 
     rp = rendering_pipeline or RenderingPipeline()
-    rp.register(MeshCoreRenderer(known_adapters={out_adapter_id}), priority=50)
+    rp.register(MeshCoreRenderer(), priority=50)
+    rp.register_adapter_platform(out_adapter_id, "meshcore")
     rp.register(TextRenderer(), priority=100)
 
     config = PipelineConfig(
@@ -124,6 +125,7 @@ class TestMeshCorePipelineIntegration:
         """MeshCoreRenderer can be registered in the rendering pipeline."""
         rp = RenderingPipeline()
         rp.register(MeshCoreRenderer(), priority=50)
+        rp.register_adapter_platform("meshcore_node", "meshcore")
         rp.register(TextRenderer(), priority=100)
 
         event = CanonicalEvent(
@@ -206,7 +208,7 @@ class TestMeshCorePipelineIntegration:
         self, temp_storage
     ) -> None:
         """Outbound delivery to MeshCore IDs uses MeshCoreRenderer,
-        not TextRenderer. Proves can_render selection via known_adapters works."""
+        not TextRenderer. Proves can_render selection via platform registry."""
         in_adapter = FakeMeshCoreAdapter(MeshCoreConfig(adapter_id="mc-in"))
         out_adapter = FakeMeshCoreAdapter(MeshCoreConfig(adapter_id="local-mesh"))
 
@@ -222,7 +224,8 @@ class TestMeshCorePipelineIntegration:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        rp.register(MeshCoreRenderer(known_adapters={"local-mesh"}), priority=50)
+        rp.register(MeshCoreRenderer(), priority=50)
+        rp.register_adapter_platform("local-mesh", "meshcore")
         rp.register(TextRenderer(), priority=100)
 
         runner = PipelineRunner(PipelineConfig(
@@ -324,7 +327,8 @@ class TestMeshCoreNativeRefPersistence:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        rp.register(MeshCoreRenderer(known_adapters={"meshcore-out"}), priority=50)
+        rp.register(MeshCoreRenderer(), priority=50)
+        rp.register_adapter_platform("meshcore-out", "meshcore")
         rp.register(TextRenderer(), priority=100)
 
         runner = PipelineRunner(PipelineConfig(
@@ -375,7 +379,8 @@ class TestMeshCoreNativeRefPersistence:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        rp.register(MeshCoreRenderer(known_adapters={"meshcore-fail-out"}), priority=50)
+        rp.register(MeshCoreRenderer(), priority=50)
+        rp.register_adapter_platform("meshcore-fail-out", "meshcore")
         rp.register(TextRenderer(), priority=100)
 
         runner = PipelineRunner(PipelineConfig(
@@ -482,7 +487,7 @@ class TestMeshCoreNativeRefPersistence:
 
 class TestMeshCorePlatformRendererSelection:
     """Prove platform-aware renderer selection works for MeshCore
-    without relying on adapter-name prefixes or known_adapters."""
+    via the pipeline's platform registry."""
 
     async def test_platform_aware_renderer_selection(
         self, temp_storage
@@ -495,7 +500,6 @@ class TestMeshCorePlatformRendererSelection:
         - The RenderingPipeline platform registry maps adapter_id -> platform
         - MeshCoreRenderer.can_render matches on target_platform == "meshcore"
         - TextRenderer is NOT selected for MeshCore routes
-        - known_adapters is NOT required
         """
         # 1. Create adapters with realistic IDs that do NOT start with "meshcore"
         in_adapter = FakeMeshCoreAdapter(MeshCoreConfig(adapter_id="field-node"))
@@ -514,7 +518,7 @@ class TestMeshCorePlatformRendererSelection:
         )
         router = Router(routes=[route])
 
-        # 3. RenderingPipeline with MeshCoreRenderer — NO known_adapters (critical!)
+        # 3. RenderingPipeline with MeshCoreRenderer via platform registry
         rp = RenderingPipeline()
         rp.register(MeshCoreRenderer(), priority=50)
         rp.register(TextRenderer(), priority=100)

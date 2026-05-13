@@ -148,13 +148,13 @@ Connect to a real Meshtastic node via TCP. Receive text packets, decode them, se
 ### What is still fake/scaffolded
 
 - **No real MeshCore SDK or connectivity.** `start()` raises `MeshCoreConnectionError` for any non-fake connection type. There is no real client code at all.
-- **No real MeshCore packet format verification.** The packet shape used in tests is based on the source audit (contract 11) but has not been validated against real MeshCore event payloads.
+- **No real MeshCore packet format verification.** The packet shape used in tests is based on the source audit (Contract 64) but has not been validated against real MeshCore event payloads.
 - **No outbound delivery.** `deliver()` returns `None` in tranche 1.
 - **No real dependency.** MeshCore doesn't have a known stable PyPI package yet.
 
 ### What must be done before real operation
 
-1. **Identify and integrate the MeshCore Python SDK.** The source audit (contract 11) documented the available interfaces, but no SDK has been selected or integrated.
+1. **Identify and integrate the MeshCore Python SDK.** The source audit (Contract 64) documented the available interfaces, but no SDK has been selected or integrated.
 2. **Verify real packet format against real MeshCore events.** The current packet shape is based on documentation and source review, not live observation.
 3. **Implement real connection code.** TCP, serial, or BLE connection in `start()`.
 4. **Implement real send.** Wire `deliver()` to the actual MeshCore send API.

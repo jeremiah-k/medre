@@ -10,7 +10,7 @@ Hierarchy::
     ├── MatrixConnectionError   — connection / authentication failures
     ├── MatrixSendError         — message send failures
     ├── MatrixConfigError       — invalid configuration (also ValueError)
-    └── MatrixCodecError        — encode / decode failures
+    └── MatrixCodecError        — decode failures
 """
 from __future__ import annotations
 
@@ -38,4 +38,4 @@ class MatrixConfigError(MatrixError, ValueError):
 
 
 class MatrixCodecError(MatrixError):
-    """Raised when encode or decode operations fail."""
+    """Raised when decode operations fail."""

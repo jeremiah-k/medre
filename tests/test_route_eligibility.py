@@ -7,11 +7,14 @@ Covers:
 * Skipped routes (no surviving targets) are captured
 * Unavailable is always empty in normal flow
 * Unknown adapter refs still raise RouteValidationError
-* Backward compat: RouteRegistrationResult behaves as a list
+* RouteRegistrationResult is a frozen dataclass (not list)
+* RouteOperationalState enum semantics
+* DegradedRoute tracking for partial target failure
 * Deterministic sorted ordering in configured/registered/disabled tuples
 * Empty config produces empty eligibility
 * Mixed scenario with registered, disabled, and skipped routes
 * Builder integration: MedreApp.route_eligibility is populated
+* Per-route readiness states via route_states dict
 """
 
 from __future__ import annotations
@@ -24,7 +27,9 @@ import pytest
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.routing import Router
 from medre.runtime.route_engine import (
+    DegradedRoute,
     RouteEligibility,
+    RouteOperationalState,
     RouteRegistrationResult,
     RouteValidationError,
     SkippedRoute,
@@ -307,60 +312,191 @@ class TestUnknownAdapterRefsRaise:
 
 
 # ===================================================================
-# Backward compat: RouteRegistrationResult is a list
+# RouteRegistrationResult is a frozen dataclass
 # ===================================================================
 
 
-class TestBackwardCompat:
-    """RouteRegistrationResult behaves as a list for existing callers."""
+class TestRouteRegistrationResultIsDataclass:
+    """RouteRegistrationResult is a frozen dataclass (not a list)."""
 
-    def test_len_works(self) -> None:
+    def test_registered_routes_attribute(self) -> None:
         rcs = RouteConfigSet(routes=(
             _rc("r1", ("a",), ("b",)),
             _rc("r2", ("c",), ("d",)),
         ))
         router = Router()
         result = register_routes(router, rcs, frozenset({"a", "b", "c", "d"}))
-        assert len(result) == 2
+        assert len(result.registered_routes) == 2
 
-    def test_iteration_works(self) -> None:
+    def test_registered_routes_iteration(self) -> None:
         rcs = RouteConfigSet(routes=(
             _rc("r1", ("a",), ("b",)),
         ))
         router = Router()
         result = register_routes(router, rcs, frozenset({"a", "b"}))
-        route_ids = [r.id for r in result]
+        route_ids = [r.id for r in result.registered_routes]
         assert route_ids == ["r1"]
 
-    def test_indexing_works(self) -> None:
+    def test_registered_routes_indexing(self) -> None:
         rcs = RouteConfigSet(routes=(
             _rc("r1", ("a",), ("b",)),
             _rc("r2", ("c",), ("d",)),
         ))
         router = Router()
         result = register_routes(router, rcs, frozenset({"a", "b", "c", "d"}))
-        assert result[0].id == "r1"
-        assert result[1].id == "r2"
+        assert result.registered_routes[0].id == "r1"
+        assert result.registered_routes[1].id == "r2"
 
-    def test_empty_result_equality(self) -> None:
-        rcs = RouteConfigSet()
-        router = Router()
-        result = register_routes(router, rcs, frozenset({"a"}))
-        assert result == []
-
-    def test_bool_truthy(self) -> None:
+    def test_result_is_frozen(self) -> None:
         rcs = RouteConfigSet(routes=(
             _rc("r1", ("a",), ("b",)),
         ))
         router = Router()
         result = register_routes(router, rcs, frozenset({"a", "b"}))
-        assert bool(result) is True
+        with pytest.raises(AttributeError):
+            result.registered_routes = ()  # type: ignore[misc]
 
-    def test_bool_falsy(self) -> None:
+    def test_empty_result_has_no_routes(self) -> None:
         rcs = RouteConfigSet()
         router = Router()
         result = register_routes(router, rcs, frozenset({"a"}))
-        assert bool(result) is False
+        assert result.registered_routes == ()
+
+    def test_result_has_eligibility(self) -> None:
+        rcs = RouteConfigSet(routes=(
+            _rc("r1", ("a",), ("b",)),
+        ))
+        router = Router()
+        result = register_routes(router, rcs, frozenset({"a", "b"}))
+        assert result.eligibility is not None
+        assert isinstance(result.eligibility, RouteEligibility)
+
+
+# ===================================================================
+# RouteOperationalState enum
+# ===================================================================
+
+
+class TestRouteOperationalState:
+    """RouteOperationalState enum has expected values."""
+
+    def test_all_states_defined(self) -> None:
+        expected = {"configured", "registered", "active", "degraded",
+                    "skipped", "unavailable", "disabled"}
+        actual = {s.value for s in RouteOperationalState}
+        assert actual == expected
+
+    def test_registered_route_state(self) -> None:
+        rcs = RouteConfigSet(routes=(
+            _rc("r1", ("a",), ("b",)),
+        ))
+        router = Router()
+        result = register_routes(router, rcs, frozenset({"a", "b"}))
+        assert result.eligibility.route_states["r1"] == RouteOperationalState.REGISTERED
+
+    def test_disabled_route_state(self) -> None:
+        rcs = RouteConfigSet(routes=(
+            _rc("r1", ("a",), ("b",), enabled=False),
+        ))
+        router = Router()
+        result = register_routes(router, rcs, frozenset({"a", "b"}))
+        assert result.eligibility.route_states["r1"] == RouteOperationalState.DISABLED
+
+    def test_skipped_source_failed_state(self) -> None:
+        rcs = RouteConfigSet(routes=(
+            _rc("r1", ("a",), ("b",)),
+        ))
+        router = Router()
+        result = register_routes(
+            router, rcs,
+            adapter_ids=frozenset({"a", "b"}),
+            built_adapter_ids=frozenset({"b"}),  # "a" failed
+        )
+        assert result.eligibility.route_states["r1"] == RouteOperationalState.SKIPPED
+
+    def test_skipped_no_targets_state(self) -> None:
+        rcs = RouteConfigSet(routes=(
+            _rc("r1", ("a",), ("b",)),
+        ))
+        router = Router()
+        result = register_routes(
+            router, rcs,
+            adapter_ids=frozenset({"a", "b"}),
+            built_adapter_ids=frozenset({"a"}),  # "b" failed
+        )
+        assert result.eligibility.route_states["r1"] == RouteOperationalState.SKIPPED
+
+    def test_route_states_sorted_keys(self) -> None:
+        rcs = RouteConfigSet(routes=(
+            _rc("z_route", ("a",), ("b",)),
+            _rc("a_route", ("c",), ("d",)),
+        ))
+        router = Router()
+        result = register_routes(
+            router, rcs,
+            frozenset({"a", "b", "c", "d"}),
+        )
+        keys = list(result.eligibility.route_states.keys())
+        assert keys == sorted(keys)
+
+
+# ===================================================================
+# DegradedRoute tracking
+# ===================================================================
+
+
+class TestDegradedRouteTracking:
+    """Routes with partial target failure are tracked as degraded."""
+
+    def test_degraded_when_partial_targets_fail(self) -> None:
+        rcs = RouteConfigSet(routes=(
+            _rc("r1", ("a",), ("b", "c")),
+        ))
+        router = Router()
+        result = register_routes(
+            router, rcs,
+            adapter_ids=frozenset({"a", "b", "c"}),
+            built_adapter_ids=frozenset({"a", "c"}),  # "b" failed
+        )
+        assert result.eligibility.registered == ("r1",)
+        assert len(result.eligibility.degraded) == 1
+        degraded = result.eligibility.degraded[0]
+        assert degraded.route_id == "r1"
+        assert degraded.failed_adapter_ids == ("b",)
+
+    def test_degraded_state_in_route_states(self) -> None:
+        rcs = RouteConfigSet(routes=(
+            _rc("r1", ("a",), ("b", "c")),
+        ))
+        router = Router()
+        result = register_routes(
+            router, rcs,
+            adapter_ids=frozenset({"a", "b", "c"}),
+            built_adapter_ids=frozenset({"a", "c"}),  # "b" failed
+        )
+        assert result.eligibility.route_states["r1"] == RouteOperationalState.DEGRADED
+
+    def test_no_degraded_when_all_targets_ok(self) -> None:
+        rcs = RouteConfigSet(routes=(
+            _rc("r1", ("a",), ("b",)),
+        ))
+        router = Router()
+        result = register_routes(router, rcs, frozenset({"a", "b"}))
+        assert result.eligibility.degraded == ()
+
+    def test_no_degraded_when_all_targets_fail(self) -> None:
+        """All targets fail → skipped, not degraded."""
+        rcs = RouteConfigSet(routes=(
+            _rc("r1", ("a",), ("b", "c")),
+        ))
+        router = Router()
+        result = register_routes(
+            router, rcs,
+            adapter_ids=frozenset({"a", "b", "c"}),
+            built_adapter_ids=frozenset({"a"}),  # "b" and "c" failed
+        )
+        assert result.eligibility.degraded == ()
+        assert len(result.eligibility.skipped) == 1
 
 
 # ===================================================================
@@ -422,8 +558,10 @@ class TestEmptyConfig:
         assert e.configured == ()
         assert e.registered == ()
         assert e.disabled == ()
+        assert e.degraded == ()
         assert e.skipped == ()
         assert e.unavailable == ()
+        assert e.route_states == {}
 
 
 # ===================================================================
@@ -454,6 +592,8 @@ class TestMixedScenario:
         assert e.registered == ("active1", "active2")
         # Disabled
         assert e.disabled == ("disabled1",)
+        # Degraded: none in this scenario
+        assert e.degraded == ()
         # Skipped
         assert len(e.skipped) == 1
         assert e.skipped[0].route_id == "will_skip"
@@ -461,6 +601,11 @@ class TestMixedScenario:
         assert e.skipped[0].failed_adapter_ids == ("g",)
         # Unavailable empty
         assert e.unavailable == ()
+        # Route states
+        assert e.route_states["active1"] == RouteOperationalState.REGISTERED
+        assert e.route_states["active2"] == RouteOperationalState.REGISTERED
+        assert e.route_states["disabled1"] == RouteOperationalState.DISABLED
+        assert e.route_states["will_skip"] == RouteOperationalState.SKIPPED
 
 
 # ===================================================================
@@ -508,7 +653,7 @@ class TestRouterBehaviorUnchanged:
 
 
 # ===================================================================
-# SkippedRoute / UnavailableRoute frozen dataclass
+# SkippedRoute / UnavailableRoute / DegradedRoute frozen dataclass
 # ===================================================================
 
 
@@ -525,16 +670,35 @@ class TestFrozenModels:
         with pytest.raises(AttributeError):
             u.route_id = "other"  # type: ignore[misc]
 
+    def test_degraded_route_frozen(self) -> None:
+        d = DegradedRoute("r1", ("b",))
+        with pytest.raises(AttributeError):
+            d.route_id = "other"  # type: ignore[misc]
+
     def test_route_eligibility_frozen(self) -> None:
         e = RouteEligibility(
             configured=("r1",),
             registered=("r1",),
             disabled=(),
+            degraded=(),
             skipped=(),
             unavailable=(),
+            route_states={},
         )
         with pytest.raises(AttributeError):
             e.registered = ()  # type: ignore[misc]
+
+    def test_route_registration_result_frozen(self) -> None:
+        r = RouteRegistrationResult(
+            registered_routes=(),
+            eligibility=RouteEligibility(
+                configured=(), registered=(), disabled=(),
+                degraded=(), skipped=(), unavailable=(),
+                route_states={},
+            ),
+        )
+        with pytest.raises(AttributeError):
+            r.registered_routes = ()  # type: ignore[misc]
 
 
 # ===================================================================
@@ -608,5 +772,7 @@ class TestBuilderIntegration:
         assert "bridge" in app.route_eligibility.registered
         assert app.route_eligibility.configured == ("bridge",)
         assert app.route_eligibility.disabled == ()
+        assert app.route_eligibility.degraded == ()
         assert app.route_eligibility.skipped == ()
         assert app.route_eligibility.unavailable == ()
+        assert app.route_eligibility.route_states["bridge"] == RouteOperationalState.REGISTERED

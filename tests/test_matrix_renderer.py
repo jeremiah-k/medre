@@ -42,15 +42,22 @@ class TestMatrixRenderer:
         renderer = MatrixRenderer()
         assert renderer.name == "matrix"
 
-    def test_can_render_matrix_adapter(self) -> None:
+    def test_can_render_matrix_platform(self) -> None:
+        """Renderer matches when target_platform is matrix."""
         renderer = MatrixRenderer()
         event = _make_event()
-        assert renderer.can_render(event, "matrix_instance") is True
+        assert renderer.can_render(event, "chat-instance", target_platform="matrix") is True
 
     def test_can_render_non_matrix(self) -> None:
         renderer = MatrixRenderer()
         event = _make_event()
-        assert renderer.can_render(event, "fake_presentation") is False
+        assert renderer.can_render(event, "fake_presentation", target_platform="fake") is False
+
+    def test_can_render_without_platform_returns_false(self) -> None:
+        """Without platform info, renderer cannot match (no prefix fallback)."""
+        renderer = MatrixRenderer()
+        event = _make_event()
+        assert renderer.can_render(event, "matrix_instance") is False
 
     async def test_render_simple_message(self) -> None:
         renderer = MatrixRenderer()

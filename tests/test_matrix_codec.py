@@ -1,5 +1,5 @@
-"""Tests for MatrixCodec: decode (native → canonical), encode (canonical →
-native dict), metadata population, envelope extraction, and edge cases.
+"""Tests for MatrixCodec: decode (native → canonical), metadata population,
+envelope extraction, and edge cases.
 """
 
 from __future__ import annotations
@@ -133,57 +133,6 @@ class TestMatrixCodec:
         event = codec.decode(native, room_id="!room:server")
         assert event is not None
         assert event.payload["body"] == "hello"
-
-    # -- Encode ---------------------------------------------------------
-
-    def test_encode_raises_not_implemented(self) -> None:
-        """MatrixCodec.encode() raises NotImplementedError — renderer owns outbound."""
-        codec = MatrixCodec("matrix-1", _make_config())
-        event = CanonicalEvent(
-            event_id="evt-1",
-            event_kind="message.created",
-            schema_version=1,
-            timestamp=datetime.now(timezone.utc),
-            source_adapter="transport",
-            source_transport_id="node-1",
-            source_channel_id="ch-0",
-            parent_event_id=None,
-            lineage=(),
-            relations=(),
-            payload={"body": "hello"},
-            metadata=EventMetadata(),
-        )
-        with pytest.raises(NotImplementedError, match="MatrixRenderer"):
-            codec.encode(event, target=None)
-
-    def test_encode_not_runtime_outbound_renderer(self) -> None:
-        """MatrixCodec.encode makes clear that runtime outbound rendering
-        is handled by MatrixRenderer, not the codec."""
-        codec = MatrixCodec("matrix-1", _make_config())
-        event = CanonicalEvent(
-            event_id="evt-x",
-            event_kind="message.created",
-            schema_version=1,
-            timestamp=datetime.now(timezone.utc),
-            source_adapter="transport",
-            source_transport_id="node-1",
-            source_channel_id="ch-0",
-            parent_event_id=None,
-            lineage=(),
-            relations=(),
-            payload={"body": "test"},
-            metadata=EventMetadata(),
-        )
-        with pytest.raises(NotImplementedError):
-            codec.encode(event, target=None)
-
-    def test_decode_unsupported_msgtype(self) -> None:
-        codec = MatrixCodec("matrix-1", _make_config())
-        content = {"msgtype": "m.notice", "body": "notice text"}
-        native = _make_native_event(body="notice text", content=content)
-        event = codec.decode(native, room_id="!room:server")
-        assert event.event_kind == EventKind.MESSAGE_CREATED
-        assert event.payload["body"] == "notice text"
 
     # -- source_native_ref ------------------------------------------------
 

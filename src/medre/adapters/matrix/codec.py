@@ -1,8 +1,12 @@
-"""Matrix adapter codec for converting between native and canonical events.
+"""Matrix adapter codec for converting native events to canonical events.
 
 :class:`MatrixCodec` implements the :class:`~medre.adapters.base.AdapterCodec`
 interface, converting nio-agnostic event objects into
-:class:`~medre.core.events.canonical.CanonicalEvent` instances and back.
+:class:`~medre.core.events.canonical.CanonicalEvent` instances.
+
+Outbound rendering is handled by
+:class:`~medre.adapters.matrix.renderer.MatrixRenderer`; this codec
+provides decode-only (native → canonical) conversion.
 
 The codec is deliberately **nio-agnostic**: it expects the native event
 object to carry ``.sender``, ``.body``, ``.event_id``, and ``.source``
@@ -25,7 +29,7 @@ from medre.core.events.metadata import EventMetadata, NativeMetadata
 
 
 class MatrixCodec(AdapterCodec):
-    """Encode / decode helper for the Matrix adapter.
+    """Decode helper for the Matrix adapter (native → canonical).
 
     Parameters
     ----------
@@ -138,32 +142,6 @@ class MatrixCodec(AdapterCodec):
             payload=payload,
             metadata=metadata,
             source_native_ref=source_native_ref,
-        )
-
-    # ------------------------------------------------------------------
-    # Encode: canonical → native dict
-    # ------------------------------------------------------------------
-
-    def encode(self, event: CanonicalEvent, target: Any) -> dict:
-        """Encode a canonical event into a Matrix content dict.
-
-        .. deprecated::
-            Runtime outbound rendering is handled by
-            :class:`~medre.adapters.matrix.renderer.MatrixRenderer`.
-            This method raises :class:`NotImplementedError` to signal
-            that the codec should not be used for runtime outbound
-            payload construction.
-
-        Raises
-        ------
-        NotImplementedError
-            Always.  Use :class:`~medre.adapters.matrix.renderer.MatrixRenderer`
-            for outbound rendering.
-        """
-        raise NotImplementedError(
-            "MatrixCodec.encode() is not the runtime outbound renderer. "
-            "Use medre.adapters.matrix.renderer.MatrixRenderer for "
-            "outbound payload construction."
         )
 
     # ------------------------------------------------------------------

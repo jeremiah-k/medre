@@ -359,7 +359,7 @@ class TestCombinedSixAxisChurn:
 
             # Diagnostics.
             raw = build_runtime_snapshot(app)
-            all_states.append(raw.get("runtime_state", "unknown"))
+            all_states.append(raw.get("lifecycle", {}).get("runtime_state", "unknown"))
 
             # Route expansion via RouteStats.
             stats = RouteStats()
@@ -913,7 +913,7 @@ class TestMultiAdapterDegradedCycling:
 
             await app.start()
             raw = build_runtime_snapshot(app)
-            states.append(raw.get("runtime_state", "unknown"))
+            states.append(raw.get("lifecycle", {}).get("runtime_state", "unknown"))
             await app.stop()
 
         assert all(s == "running" for s in states)

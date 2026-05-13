@@ -258,13 +258,16 @@ class AdapterContext:
 
 
 class AdapterCodec(ABC):
-    """Optional encode/decode helper for converting between native and
-    canonical representations.
+    """Decode helper for converting between native and canonical
+    representations.
 
     Adapters that follow the codec pattern can expose a codec instance
     via :meth:`BaseAdapter.get_codec`.  The framework may use the codec
     for batch transformations, testing, or payload inspection without
     coupling to a specific adapter class.
+
+    Outbound rendering is handled by :class:`~medre.core.rendering.renderer.Renderer`
+    instances, not by the codec's ``encode`` method.
     """
 
     @abstractmethod
@@ -282,9 +285,14 @@ class AdapterCodec(ABC):
             The framework-standard event.
         """
 
-    @abstractmethod
     def encode(self, event: CanonicalEvent, target: Any) -> Any:
         """Encode a canonical event into an adapter-specific representation.
+
+        **Default**: raises :class:`NotImplementedError`.  Outbound rendering
+        is handled by renderers registered with the
+        :class:`~medre.core.rendering.renderer.RenderingPipeline`.
+        Subclasses should not override this unless they have a legacy
+        encode contract.
 
         Parameters
         ----------
@@ -297,7 +305,16 @@ class AdapterCodec(ABC):
         -------
         Any
             The native representation suitable for the target adapter.
+
+        Raises
+        ------
+        NotImplementedError
+            Always, unless overridden by a subclass.
         """
+        raise NotImplementedError(
+            "AdapterCodec.encode() is not used for runtime outbound rendering. "
+            "Use a Renderer registered with the RenderingPipeline."
+        )
 
 
 # ---------------------------------------------------------------------------

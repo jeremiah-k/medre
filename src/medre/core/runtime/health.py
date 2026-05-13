@@ -50,9 +50,10 @@ _STATE_TO_HEALTH: dict[AdapterState, str] = {
     AdapterState.DISCONNECTED: "degraded",
     AdapterState.STOPPING: "stopping",
     AdapterState.FAILED: "failed",
+    AdapterState.STOPPED: "unknown",
 }
 
-# Lifecycle states that represent transitions only the lifecycle manager
+# Lifecycle states that represent transitions only the runtime lifecycle
 # can observe.  When present, these override the adapter's self-reported
 # health because the adapter itself may not yet be running (or may
 # already be shutting down).
@@ -125,8 +126,8 @@ def normalize_adapter_health(
         Fresh health snapshot from
         :meth:`~medre.adapters.base.BaseAdapter.health_check`.
     lifecycle_state:
-        Optional lifecycle state from the
-        :class:`~medre.core.lifecycle.manager.LifecycleManager`.  When the
+        Optional lifecycle state from
+        :class:`~medre.core.lifecycle.states.AdapterState`.  When the
         state is transitional (``INITIALIZING`` → ``"starting"``,
         ``STOPPING`` → ``"stopping"``) it overrides the adapter's
         self-reported health string.
@@ -162,6 +163,10 @@ def normalize_adapter_health(
     # Transitional lifecycle states override adapter self-report.
     if lifecycle_state is not None and lifecycle_state in _TRANSITIONAL_STATES:
         health = _TRANSITIONAL_STATES[lifecycle_state]
+    # STOPPED is terminal: the adapter is no longer running so its
+    # self-reported health is stale.  Override to "unknown".
+    elif lifecycle_state is AdapterState.STOPPED:
+        health = "unknown"
 
     # -- Detect fake / live mode ----------------------------------------
     mode = _detect_adapter_mode(adapter, info)

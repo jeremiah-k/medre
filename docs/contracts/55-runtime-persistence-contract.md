@@ -1,16 +1,18 @@
 # Contract 55 — Runtime Persistence Contract
 
 **Status:** Active
-**Scope:** Authoritative specification for what MEDRE runtime state is persisted, what is process-local, persistence timing semantics, crash consistency expectations, replay persistence guarantees, route attribution persistence guarantees, and observability persistence.
+**Scope:** Authoritative specification for what MEDRE runtime state is persisted where, persistence timing semantics, per-subsystem persistence mapping, and persistence failure modes. For crash recovery expectations, durability guarantees, non-guarantees, and boundedness, see Contract 59 (Runtime Durability).
 **Audience:** Runtime builders, adapter authors, operators, supervision implementors.
-**References:** Contract 46 (Runtime Storage and Path Model), Contract 47 (Runtime Assembly), Contract 48 (Runtime Observability), Contract 49 (Routing and Bridge), Contract 51 (Route Attribution), Contract 53 (Resource Control), Contract 54 (Runtime Shutdown).
+**References:** Contract 46 (Runtime Storage and Path Model), Contract 47 (Runtime Assembly), Contract 48 (Runtime Observability), Contract 49 (Routing and Bridge), Contract 51 (Route Attribution), Contract 53 (Resource Control), Contract 54 (Runtime Shutdown), Contract 59 (Runtime Durability).
 
-Every agent or document that references MEDRE persistence behavior, crash recovery expectations, what survives restart, or what is lost on process termination must defer to this contract.
+Every agent or document that references **where** MEDRE state is stored, **what format** it uses, or **when** it is written must defer to this contract. For **whether** state survives a specific failure scenario, see Contract 59.
 
 
 ## 1. Scope
 
-This contract defines the persistence boundary for the MEDRE runtime. It establishes what state is durable (survives process termination and restart), what state is process-local (lost on crash or shutdown), and what timing guarantees apply to durable writes.
+This contract defines **where** MEDRE runtime state is stored and **when** it is written. It establishes the storage format (SQLite, filesystem), file locations, write timing, and per-subsystem persistence mapping.
+
+Crash recovery expectations, durability guarantees and non-guarantees, boundedness, and degraded-runtime behavior are in **Contract 59 (Runtime Durability)**. This contract focuses on the storage layer; Contract 59 focuses on the behavioral guarantees that layer provides.
 
 This is not a persistence design document. It describes the current runtime's actual persistence behavior. No new storage mechanisms are introduced by this contract.
 
@@ -58,11 +60,11 @@ These survive crashes and restarts. The MEDRE runtime does not manage their cons
 
 ## 3. Process-Local State (NOT Persisted)
 
-The following runtime state is held in memory only. It is lost when the process terminates, whether by clean shutdown or hard crash.
+The following runtime state is held in memory only and is never written to SQLite or disk. For the implications of losing this state on crash or shutdown, see **Contract 59 §4**.
 
 ### 3.1 RouteStats
 
-`RouteStats` — per-route delivery counters (deliveries attempted, succeeded, failed, skipped, loop-prevented). These are process-local counters for in-flight observability. They are never written to SQLite or to disk.
+`RouteStats` — per-route delivery counters (deliveries attempted, succeeded, failed, skipped, loop-prevented). Process-local, never persisted.
 
 ### 3.2 CapacityController State
 
@@ -83,28 +85,15 @@ All of these reset to zero on startup. No history is retained across restarts.
 
 ### 3.3 In-Flight Deliveries
 
-Active adapter `deliver()` calls that have not yet completed. If the runtime crashes while deliveries are in-flight:
-
-- No receipt is written for in-flight deliveries.
-- The delivery is not retried on restart.
-- The event is already stored in SQLite (it was stored before delivery began), but there is no receipt indicating the delivery outcome.
-- Operators can identify these orphaned events by querying for events that have no corresponding delivery receipt.
-
-In-flight deliveries are **not crash-recoverable**. This is an explicit non-guarantee.
+Active adapter `deliver()` calls that have not yet completed. Not persisted. Events are already stored in SQLite (§2.1), but no receipt exists until the delivery attempt completes.
 
 ### 3.4 Active Replay Runs
 
-In-progress replay operations. If the runtime crashes during a replay run:
-
-- The replay run is lost. It does not resume on restart.
-- Any deliveries that completed before the crash produced receipts — those receipts are persisted.
-- The remaining replay events are not retried automatically.
-
-Replay requests are **not durable jobs**. They are ephemeral operations that run to completion or are lost on crash. There is no persistent replay queue, no replay resume mechanism, and no replay deduplication.
+In-progress replay operations. Not persisted. Replay is an ephemeral operation — there is no persistent replay queue, no replay resume mechanism, and no replay deduplication.
 
 ### 3.5 Adapter Health and Connection State
 
-Current adapter health state (`healthy`, `degraded`, `failed`, `stopped`), connection state (`connected`, `disconnected`, `reconnecting`), and reconnect attempt counts. All ephemeral. Adapters rebuild their state from the transport on startup.
+Current adapter health state, connection state, and reconnect attempt counts. Ephemeral.
 
 ### 3.6 Pipeline Runner State
 
@@ -112,7 +101,7 @@ Which events are currently being processed by the pipeline runner (routing, plan
 
 ### 3.7 RoutingMetadata (In-Flight)
 
-`RoutingMetadata.route_trace` on in-flight `CanonicalEvent` instances. This is populated during route matching and travels with the event through the pipeline. It is never written to SQLite. See Contract 51 §2.1.
+`RoutingMetadata.route_trace` on in-flight `CanonicalEvent` instances. Populated during route matching, travels with the event through the pipeline, never written to SQLite. See Contract 51 §2.1.
 
 
 ## 4. Persistence Timing Semantics
@@ -146,39 +135,15 @@ During the Persist phase of shutdown (Contract 54 §1, Phase 4), the runtime ens
 This flush does **not** happen on hard crash. On hard crash, only transactions that were committed before the crash are preserved. WAL mode makes committed transactions robust against corruption.
 
 
-## 5. Crash Consistency Expectations
+## 5. Crash Consistency
 
-### 5.1 Hard Crash (kill -9, OOM, power loss)
+The persistence layer (SQLite WAL mode) provides crash consistency for committed transactions. The detailed crash recovery expectations — what survives hard crash vs. clean shutdown, database integrity verification, and startup-after-crash procedures — are in **Contract 59 §7 (Crash Recovery)** and **Contract 59 §2 (Runtime Guarantees)**.
 
-| What Happens | Result |
-|-------------|--------|
-| SQLite database | **Preserved.** WAL mode ensures committed transactions survive. The database may contain events without receipts. |
-| In-flight deliveries | **Lost.** No receipts, no retry, no recovery. |
-| Active replay runs | **Lost.** No resume, no durable queue. |
-| Runtime counters (RouteStats, CapacityController) | **Lost.** All counters reset to zero on restart. |
-| Adapter health/connection state | **Lost.** Adapters reconnect from scratch. |
-| Transport-owned files (crypto stores, identities) | **Preserved.** These are managed by their respective SDKs/transports. |
-| Log file | **Preserved.** Appended up to the point of crash. The last few lines may be lost if not flushed. |
-
-### 5.2 Clean Shutdown
-
-| What Happens | Result |
-|-------------|--------|
-| SQLite database | **Preserved.** Shutdown Phase 4 (Persist) flushes pending writes. |
-| In-flight deliveries | **Drained or cancelled.** See Contract 54 §3. Drained deliveries produce receipts. Cancelled deliveries do not. |
-| Active replay runs | **Cancelled.** Completed replay deliveries that produced receipts are preserved. Remaining replay events are lost. |
-| Runtime counters | **Lost.** Not persisted, even on clean shutdown. |
-| Adapter state | **Clean stop.** Each adapter stops in reverse start order. |
-
-### 5.3 Database Integrity After Crash
-
-SQLite with WAL mode is designed to survive hard crashes without database corruption. However, operators should verify integrity after a suspected crash:
+From a storage perspective: committed SQLite transactions survive hard crash. The database may contain events without receipts. WAL mode makes committed transactions robust against corruption. Operators can verify database integrity with:
 
 ```bash
 sqlite3 {state}/medre.sqlite "PRAGMA integrity_check;"
 ```
-
-If the integrity check fails, the database file may need to be restored from backup. Deleting the database and restarting creates a fresh database but loses all event history (see runtime-operation.md Recovery Procedures).
 
 
 ## 6. Replay Persistence Guarantees
@@ -231,43 +196,11 @@ There is no persistent metrics store. Observability is split into two categories
 **Operator implication:** If you need historical metrics (delivery rates over time, capacity timeout trends), you must implement external log aggregation and metric extraction. MEDRE does not retain runtime counters across restarts.
 
 
-## 9. Operator Crash Recovery Matrix
+## 9. Crash Recovery Matrix
 
-### 9.1 What Survives Restart
+The full crash recovery matrix (what survives hard crash, what survives clean shutdown, startup-after-crash procedures, and SQL queries for identifying orphaned events) is in **Contract 59 §7 (Crash Recovery)**.
 
-| State | Location | Recovery |
-|-------|----------|----------|
-| Canonical events | SQLite `{state}/medre.sqlite` | Fully available. Query by time range, source adapter, event type. |
-| Delivery receipts | SQLite | Fully available. Query by status, route, adapter, time range. |
-| Native references | SQLite | Fully available. |
-| Route attribution on receipts | SQLite (receipt `route_id`) | Fully available. |
-| Replay run metadata (completed runs) | SQLite | Available for completed replay runs only. |
-| Matrix crypto keys | `{state}/adapters/{id}/matrix/store/` | E2EE sessions resume without re-verification. |
-| LXMF identities | `{state}/adapters/{id}/lxmf/` | Identity preserved. |
-| Log history | `{state}/logs/medre.log` | Available for post-mortem analysis. |
-| Configuration | Config file (operator-managed) | Unchanged. |
-
-### 9.2 What Does NOT Survive Hard Crash
-
-| State | Nature | Operator Impact |
-|-------|--------|----------------|
-| In-flight deliveries | Lost | Events exist in SQLite but have no receipt. Operator cannot distinguish "delivery was attempted but crashed" from "delivery was never attempted." |
-| Active replay runs | Lost | Must be re-initiated manually. |
-| Runtime counters (all) | Lost | No history of delivery timeouts, rejections, capacity pressure from prior run. |
-| RouteStats | Lost | Per-route delivery counts reset. No historical route-level statistics. |
-| CapacityController gauges | Lost | Current capacity usage resets. |
-| Adapter health/connection state | Lost | Adapters reconnect from scratch. Startup backlog suppression may apply. |
-| Pipeline work in progress | Lost | Events that were in the routing/planning/delivering pipeline stages are not retried. |
-
-### 9.3 Startup After Crash — What to Expect
-
-1. Runtime reads config and initializes storage.
-2. SQLite integrity is implicitly checked on connection. WAL mode recovery is automatic.
-3. Adapters start in deterministic order (Contract 47 §3).
-4. Adapters reconnect to their transports. The `startup_backlog_suppress_seconds` setting controls how each adapter handles stale backlog from the transport.
-5. Runtime counters begin at zero.
-6. No automatic replay. No automatic re-delivery of in-flight events from the crashed run.
-7. Events in SQLite without receipts are orphaned — they can be identified by querying for events with no matching receipt, but there is no built-in mechanism to re-deliver them.
+From a storage perspective: SQLite data and transport-owned files survive crash. All process-local state (§3) is lost. Recovery begins with a clean runtime start that reopens the existing database.
 
 
 ## 10. Runtime Snapshot Semantics

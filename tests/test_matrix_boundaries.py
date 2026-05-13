@@ -74,7 +74,7 @@ class TestMatrixBoundaries:
         assert not hasattr(renderer, "deliver")
 
     def test_matrix_codec_does_not_route_or_plan(self) -> None:
-        """MatrixCodec has decode/encode but no route/match/plan methods."""
+        """MatrixCodec has decode but no route/match/plan methods."""
         config = MatrixConfig(
             adapter_id="test",
             homeserver="https://example.com",
@@ -83,7 +83,6 @@ class TestMatrixBoundaries:
         )
         codec = MatrixCodec("test", config)
         assert hasattr(codec, "decode")
-        assert hasattr(codec, "encode")
         assert not hasattr(codec, "route")
         assert not hasattr(codec, "match")
         assert not hasattr(codec, "plan")
@@ -92,32 +91,6 @@ class TestMatrixBoundaries:
         """MatrixRenderer is in the adapter package, not core."""
         from medre.adapters.matrix.renderer import MatrixRenderer
         assert "adapters.matrix" in MatrixRenderer.__module__
-
-    def test_matrix_codec_does_not_render_outbound_payloads(self) -> None:
-        """MatrixCodec.encode() raises NotImplementedError."""
-        config = MatrixConfig(
-            adapter_id="test",
-            homeserver="https://example.com",
-            user_id="@bot:example.com",
-            access_token="tok",
-        )
-        codec = MatrixCodec("test", config)
-        event = CanonicalEvent(
-            event_id="evt-1",
-            event_kind="message.created",
-            schema_version=1,
-            timestamp=datetime.now(timezone.utc),
-            source_adapter="transport",
-            source_transport_id="node-1",
-            source_channel_id="ch-0",
-            parent_event_id=None,
-            lineage=(),
-            relations=(),
-            payload={"body": "hello"},
-            metadata=EventMetadata(),
-        )
-        with pytest.raises(NotImplementedError, match="MatrixRenderer"):
-            codec.encode(event, target=None)
 
     async def test_fake_matrix_rejects_raw_canonical_event(self) -> None:
         """FakeMatrixAdapter.deliver raises TypeError for CanonicalEvent."""

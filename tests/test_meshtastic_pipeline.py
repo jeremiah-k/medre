@@ -75,7 +75,8 @@ async def _make_pipeline(
     out_adapter = FakeMeshtasticAdapter(out_config)
 
     rp = rendering_pipeline or RenderingPipeline()
-    rp.register(MeshtasticRenderer(known_adapters={out_adapter_id}), priority=50)
+    rp.register(MeshtasticRenderer(), priority=50)
+    rp.register_adapter_platform(out_adapter_id, "meshtastic")
     rp.register(TextRenderer(), priority=100)
 
     config = PipelineConfig(
@@ -117,6 +118,7 @@ class TestMeshtasticPipelineIntegration:
         """MeshtasticRenderer can be registered in the rendering pipeline."""
         rp = RenderingPipeline()
         rp.register(MeshtasticRenderer(), priority=50)
+        rp.register_adapter_platform("meshtastic_node", "meshtastic")
         rp.register(TextRenderer(), priority=100)
 
         event = CanonicalEvent(
@@ -199,7 +201,7 @@ class TestMeshtasticPipelineIntegration:
         self, temp_storage
     ) -> None:
         """Outbound delivery to realistic Meshtastic IDs uses MeshtasticRenderer,
-        not TextRenderer. Proves can_render selection via known_adapters works."""
+        not TextRenderer. Proves can_render selection via platform registry."""
         in_adapter = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="radio-in"))
         out_adapter = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="local-radio"))
 
@@ -215,7 +217,8 @@ class TestMeshtasticPipelineIntegration:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        rp.register(MeshtasticRenderer(known_adapters={"local-radio"}), priority=50)
+        rp.register(MeshtasticRenderer(), priority=50)
+        rp.register_adapter_platform("local-radio", "meshtastic")
         rp.register(TextRenderer(), priority=100)
 
         runner = PipelineRunner(PipelineConfig(
@@ -349,7 +352,8 @@ class TestMeshtasticNativeRefPersistence:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        rp.register(MeshtasticRenderer(known_adapters={"mesh-out"}), priority=50)
+        rp.register(MeshtasticRenderer(), priority=50)
+        rp.register_adapter_platform("mesh-out", "meshtastic")
         rp.register(TextRenderer(), priority=100)
 
         runner = PipelineRunner(PipelineConfig(
@@ -400,7 +404,8 @@ class TestMeshtasticNativeRefPersistence:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        rp.register(MeshtasticRenderer(known_adapters={"mesh-fail-out"}), priority=50)
+        rp.register(MeshtasticRenderer(), priority=50)
+        rp.register_adapter_platform("mesh-fail-out", "meshtastic")
         rp.register(TextRenderer(), priority=100)
 
         runner = PipelineRunner(PipelineConfig(
@@ -683,7 +688,7 @@ class TestMeshtasticReplyRelation:
 
 class TestMeshtasticPlatformRendererSelection:
     """Prove platform-aware renderer selection works for Meshtastic
-    without relying on adapter-name prefixes or known_adapters."""
+    via the pipeline's platform registry."""
 
     async def test_platform_aware_renderer_selection(
         self, temp_storage
@@ -696,7 +701,6 @@ class TestMeshtasticPlatformRendererSelection:
         - The RenderingPipeline platform registry maps adapter_id -> platform
         - MeshtasticRenderer.can_render matches on target_platform == "meshtastic"
         - TextRenderer is NOT selected for Meshtastic routes
-        - known_adapters is NOT required
         """
         # 1. Create adapters with realistic IDs that do NOT start with "meshtastic"
         in_adapter = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="local-node"))
@@ -715,7 +719,7 @@ class TestMeshtasticPlatformRendererSelection:
         )
         router = Router(routes=[route])
 
-        # 3. RenderingPipeline with MeshtasticRenderer — NO known_adapters (critical!)
+        # 3. RenderingPipeline with MeshtasticRenderer via platform registry
         rp = RenderingPipeline()
         rp.register(MeshtasticRenderer(), priority=50)
         rp.register(TextRenderer(), priority=100)

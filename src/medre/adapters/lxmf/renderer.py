@@ -7,24 +7,9 @@ LXMF-ready content payloads (dicts with ``content``, ``title``,
 This renderer is owned by the LXMF adapter package and is registered
 with the rendering pipeline.
 
-Three selection strategies are available (checked in order, first match
-wins):
-
-**Platform match**
-
-When the rendering pipeline's platform registry is populated, the pipeline
-passes the target adapter's platform (``"lxmf"``) to ``can_render``.
-The renderer matches on this platform string directly.
-
-**Adapter-name prefix**
-
-When ``target_platform`` is ``None``, the renderer checks whether
-``target_adapter.startswith("lxmf")``.
-
-**Explicit adapter IDs (``known_adapters``)**
-
-The ``known_adapters`` constructor accepts a set of adapter IDs that this
-renderer should handle regardless of naming convention.
+Selection is via the rendering pipeline's platform registry: when the
+pipeline populates the adapter's platform as ``"lxmf"``, the renderer
+matches on that platform string directly.
 
 **Tranche 1 scope**: text messages with optional title and fields
 envelope.  Length-limit enforcement is noted but not applied.
@@ -49,13 +34,10 @@ class LxmfRenderer:
     embeds a MEDRE envelope in the ``fields`` dict containing the
     event ID, relations, and metadata keys.
 
-    Three selection strategies are supported: platform match,
-    adapter-name prefix, and explicit adapter IDs.
+    Selection is via the pipeline's platform registry.
 
     Parameters
     ----------
-    known_adapters:
-        Optional set of adapter IDs that this renderer should handle.
     metadata_embedding:
         Whether to embed MEDRE metadata envelopes in LXMF fields.
     """
@@ -68,10 +50,8 @@ class LxmfRenderer:
 
     def __init__(
         self,
-        known_adapters: set[str] | None = None,
         metadata_embedding: bool = True,
     ) -> None:
-        self._known_adapters: set[str] = known_adapters or set()
         self._metadata_embedding = metadata_embedding
 
     # ------------------------------------------------------------------
@@ -84,14 +64,7 @@ class LxmfRenderer:
         target_adapter: str,
         target_platform: str | None = None,
     ) -> bool:
-        """Return ``True`` when *target_adapter* is an LXMF target.
-
-        Three selection strategies are checked in order (first match wins):
-
-        1. **Platform match** — ``target_platform == "lxmf"``.
-        2. **Adapter-name prefix** — ``target_adapter`` starts with
-           ``"lxmf"``.
-        3. **Known adapters** — ``target_adapter`` is in the explicit set.
+        """Return ``True`` when *target_platform* is ``"lxmf"``.
 
         Parameters
         ----------
@@ -100,18 +73,15 @@ class LxmfRenderer:
         target_adapter:
             Name of the target adapter.
         target_platform:
-            Platform name of the target adapter.
+            Platform name of the target adapter, supplied by the
+            rendering pipeline's platform registry.
 
         Returns
         -------
         bool
             Whether this renderer handles events for the given adapter.
         """
-        if target_platform == self._PLATFORM:
-            return True
-        if target_adapter.startswith("lxmf"):
-            return True
-        return target_adapter in self._known_adapters
+        return target_platform == self._PLATFORM
 
     # ------------------------------------------------------------------
     # Rendering

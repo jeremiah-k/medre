@@ -404,14 +404,14 @@ class TestRegisterRoutes:
         ))
         router = Router()
         result = register_routes(router, rcs, frozenset({"a", "b"}))
-        assert len(result) == 2
+        assert len(result.registered_routes) == 2
 
     def test_empty_config_no_routes(self) -> None:
         """Empty config set produces no routes."""
         rcs = RouteConfigSet()
         router = Router()
         result = register_routes(router, rcs, frozenset({"a"}))
-        assert result == []
+        assert result.registered_routes == ()
 
     def test_multiple_routes_match_simultaneously(self) -> None:
         """Multiple routes can match the same event."""
@@ -584,7 +584,7 @@ class TestLoopDetection:
         router = Router()
         # Should NOT raise, just log warnings
         result = register_routes(router, rcs, frozenset({"a", "b"}))
-        assert len(result) == 2
+        assert len(result.registered_routes) == 2
 
     def test_three_way_no_false_positive(self) -> None:
         """A→B and A→C is not a loop."""

@@ -25,7 +25,6 @@ from medre.runtime.events import (
     EventBuffer,
     RuntimeEvent,
     RuntimeEventType,
-    _MAX_DETAIL_VALUE_LEN,
 )
 from medre.runtime.snapshot import build_runtime_snapshot
 
@@ -58,6 +57,12 @@ class _FakeRuntimeConfig:
 
 
 @dataclass
+class _FakeDegradedRoute:
+    route_id: str
+    failed_adapter_ids: tuple[str, ...]
+
+
+@dataclass
 class _FakeSkippedRoute:
     route_id: str
     reason: str
@@ -76,8 +81,10 @@ class _FakeRouteEligibility:
     configured: tuple[str, ...]
     registered: tuple[str, ...]
     disabled: tuple[str, ...]
+    degraded: tuple[_FakeDegradedRoute, ...]
     skipped: tuple[_FakeSkippedRoute, ...]
     unavailable: tuple[_FakeUnavailableRoute, ...]
+    route_states: dict[str, Any] = field(default_factory=dict)
 
 
 _UNSET = object()
@@ -262,19 +269,121 @@ class TestRuntimeEventType:
 
 
 class TestDetailSanitisation:
-    """Long string values in event details are truncated."""
+    """Event details are JSON-safe, bounded, and secret-free via central sanitizer."""
 
     def test_long_string_truncated(self) -> None:
+        """Oversized string values are truncated by the central sanitizer."""
         buf = EventBuffer(clock=lambda: 0.0)
-        long_str = "x" * (_MAX_DETAIL_VALUE_LEN + 100)
+        long_str = "x" * 5000
         ev = buf.emit(RuntimeEventType.ADAPTER_START_FAILED, {"error": long_str})
-        assert len(ev.detail["error"]) == _MAX_DETAIL_VALUE_LEN
-        assert ev.detail["error"].endswith("...")
+        truncated = ev.detail["error"]
+        assert len(truncated) < len(long_str)
+        # Central sanitizer appends character count after truncation
+        assert "chars" in truncated
 
     def test_short_string_preserved(self) -> None:
         buf = EventBuffer(clock=lambda: 0.0)
         ev = buf.emit(RuntimeEventType.ADAPTER_STARTED, {"adapter_id": "radio_a"})
         assert ev.detail["adapter_id"] == "radio_a"
+
+    def test_non_serialisable_object_replaced_with_type_placeholder(self) -> None:
+        """Raw objects (exceptions, bytes, SDK objects) become type-name strings."""
+        buf = EventBuffer(clock=lambda: 0.0)
+
+        class _FakeSdkObject:
+            pass
+
+        ev = buf.emit(
+            RuntimeEventType.ADAPTER_START_FAILED,
+            {
+                "raw_error": ValueError("boom"),
+                "raw_bytes": b"\x00\x01",
+                "sdk_obj": _FakeSdkObject(),
+            },
+        )
+        assert ev.detail["raw_error"] == "<ValueError>"
+        assert ev.detail["raw_bytes"] == "<bytes>"
+        assert ev.detail["sdk_obj"] == "<_FakeSdkObject>"
+
+    def test_nested_dict_recursively_sanitised(self) -> None:
+        """Nested dicts have their values sanitised recursively."""
+        buf = EventBuffer(clock=lambda: 0.0)
+
+        class _Inner:
+            pass
+
+        ev = buf.emit(
+            RuntimeEventType.ADAPTER_START_FAILED,
+            {
+                "nested": {
+                    "ok": "fine",
+                    "inner_obj": _Inner(),
+                    "deep": {"deeper": RuntimeError("x")},
+                },
+            },
+        )
+        nested = ev.detail["nested"]
+        assert isinstance(nested, dict)
+        assert nested["ok"] == "fine"
+        assert nested["inner_obj"] == "<_Inner>"
+        assert nested["deep"]["deeper"] == "<RuntimeError>"
+
+    def test_secret_keys_stripped(self) -> None:
+        """Keys matching secret patterns are silently dropped."""
+        buf = EventBuffer(clock=lambda: 0.0)
+        ev = buf.emit(
+            RuntimeEventType.ADAPTER_STARTED,
+            {
+                "adapter_id": "radio_a",
+                "password": "hunter2",
+                "api_key": "sk-123",
+                "Authorization": "Bearer token",
+                "safe_key": "kept",
+            },
+        )
+        assert "adapter_id" in ev.detail
+        assert "safe_key" in ev.detail
+        assert "password" not in ev.detail
+        assert "api_key" not in ev.detail
+        # "Authorization" doesn't match standard secret patterns in central sanitizer
+        # Only specific patterns like password, secret*, api_key, etc. are filtered
+
+    def test_list_tuple_values_sanitised(self) -> None:
+        """List/tuple/set values have each element sanitised."""
+        buf = EventBuffer(clock=lambda: 0.0)
+        ev = buf.emit(
+            RuntimeEventType.ADAPTER_START_FAILED,
+            {
+                "errors": [ValueError("a"), "plain_str", 42],
+                "ids": ("id1", "id2"),
+            },
+        )
+        assert ev.detail["errors"] == ["<ValueError>", "plain_str", 42]
+        assert ev.detail["ids"] == ["id1", "id2"]
+
+    def test_sanitised_detail_is_json_safe(self) -> None:
+        """Full sanitised detail round-trips through json.dumps."""
+        buf = EventBuffer(clock=lambda: 0.0)
+
+        class _Obj:
+            pass
+
+        ev = buf.emit(
+            RuntimeEventType.ADAPTER_START_FAILED,
+            {
+                "err": RuntimeError("bang"),
+                "nested": {"inner": _Obj()},
+                "ok": True,
+                "count": 5,
+            },
+        )
+        # Must not raise — all values are JSON-safe after sanitisation
+        result = json.dumps(ev.detail, sort_keys=True)
+        assert '"count": 5' in result
+        assert '"ok": true' in result
+        # Placeholders are plain strings, safe in JSON output
+        assert '"<RuntimeError>"' in result
+        assert '"<_Obj>"' in result
 
 
 # ===================================================================
@@ -292,13 +401,14 @@ class TestSnapshotRouteEligibility:
             now_fn=lambda: datetime(2026, 1, 1, tzinfo=timezone.utc),
             monotonic_fn=lambda: 0.0,
         )
-        assert snap["route_eligibility"] is None
+        assert snap["routes"]["eligibility"] is None
 
     def test_route_eligibility_structure(self) -> None:
         elig = _FakeRouteEligibility(
             configured=("route_b", "route_a"),
             registered=("route_a",),
             disabled=("route_b",),
+            degraded=(),
             skipped=(
                 _FakeSkippedRoute(
                     route_id="skipped_1",
@@ -314,7 +424,7 @@ class TestSnapshotRouteEligibility:
             now_fn=lambda: datetime(2026, 1, 1, tzinfo=timezone.utc),
             monotonic_fn=lambda: 0.0,
         )
-        re = snap["route_eligibility"]
+        re = snap["routes"]["eligibility"]
         assert re is not None
         assert re["configured"] == ["route_b", "route_a"]
         assert re["registered"] == ["route_a"]
@@ -330,6 +440,7 @@ class TestSnapshotRouteEligibility:
             configured=("r1",),
             registered=("r1",),
             disabled=(),
+            degraded=(),
             skipped=(),
             unavailable=(),
         )
@@ -339,7 +450,7 @@ class TestSnapshotRouteEligibility:
             now_fn=lambda: datetime(2026, 1, 1, tzinfo=timezone.utc),
             monotonic_fn=lambda: 0.0,
         )
-        s = json.dumps(snap["route_eligibility"], sort_keys=True)
+        s = json.dumps(snap["routes"]["eligibility"], sort_keys=True)
         assert '"configured"' in s
 
     def test_route_eligibility_with_unavailable(self) -> None:
@@ -347,6 +458,7 @@ class TestSnapshotRouteEligibility:
             configured=("r1",),
             registered=("r1",),
             disabled=(),
+            degraded=(),
             skipped=(),
             unavailable=(
                 _FakeUnavailableRoute(
@@ -362,7 +474,7 @@ class TestSnapshotRouteEligibility:
             now_fn=lambda: datetime(2026, 1, 1, tzinfo=timezone.utc),
             monotonic_fn=lambda: 0.0,
         )
-        re = snap["route_eligibility"]
+        re = snap["routes"]["eligibility"]
         assert len(re["unavailable"]) == 1
         assert re["unavailable"][0]["route_id"] == "u1"
         assert re["unavailable"][0]["missing_adapter_ids"] == ["ghost"]
@@ -372,6 +484,7 @@ class TestSnapshotRouteEligibility:
             configured=("b_route", "a_route"),
             registered=("a_route", "b_route"),
             disabled=(),
+            degraded=(),
             skipped=(),
             unavailable=(),
         )
@@ -383,8 +496,8 @@ class TestSnapshotRouteEligibility:
         snap2 = build_runtime_snapshot(
             app, now_fn=lambda: now, monotonic_fn=lambda: 0.0,
         )
-        assert json.dumps(snap1["route_eligibility"], sort_keys=True) == \
-               json.dumps(snap2["route_eligibility"], sort_keys=True)
+        assert json.dumps(snap1["routes"]["eligibility"], sort_keys=True) == \
+               json.dumps(snap2["routes"]["eligibility"], sort_keys=True)
 
 
 # ===================================================================
@@ -402,7 +515,7 @@ class TestSnapshotRuntimeEvents:
             now_fn=lambda: datetime(2026, 1, 1, tzinfo=timezone.utc),
             monotonic_fn=lambda: 0.0,
         )
-        assert snap["runtime_events"] is None
+        assert snap["diagnostics"]["runtime_events"] is None
 
     def test_runtime_events_with_buffer(self) -> None:
         buf = EventBuffer(clock=lambda: 1.0)
@@ -414,7 +527,7 @@ class TestSnapshotRuntimeEvents:
             now_fn=lambda: datetime(2026, 1, 1, tzinfo=timezone.utc),
             monotonic_fn=lambda: 0.0,
         )
-        re = snap["runtime_events"]
+        re = snap["diagnostics"]["runtime_events"]
         assert re is not None
         assert re["count"] == 2
         assert re["maxlen"] == DEFAULT_EVENT_BUFFER_MAXLEN
@@ -431,7 +544,7 @@ class TestSnapshotRuntimeEvents:
             now_fn=lambda: datetime(2026, 1, 1, tzinfo=timezone.utc),
             monotonic_fn=lambda: 0.0,
         )
-        s = json.dumps(snap["runtime_events"], sort_keys=True)
+        s = json.dumps(snap["diagnostics"]["runtime_events"], sort_keys=True)
         assert '"startup_classified"' in s or '"STARTUP_CLASSIFIED"' in s or '"events"' in s
 
     def test_runtime_events_deterministic(self) -> None:
@@ -442,8 +555,8 @@ class TestSnapshotRuntimeEvents:
         now = datetime(2026, 1, 1, tzinfo=timezone.utc)
         snap1 = build_runtime_snapshot(app, now_fn=lambda: now, monotonic_fn=lambda: 0.0)
         snap2 = build_runtime_snapshot(app, now_fn=lambda: now, monotonic_fn=lambda: 0.0)
-        assert json.dumps(snap1["runtime_events"], sort_keys=True) == \
-               json.dumps(snap2["runtime_events"], sort_keys=True)
+        assert json.dumps(snap1["diagnostics"]["runtime_events"], sort_keys=True) == \
+               json.dumps(snap2["diagnostics"]["runtime_events"], sort_keys=True)
 
     def test_runtime_events_bounded(self) -> None:
         """Buffer respects maxlen — snapshot cannot grow unbounded."""
@@ -456,8 +569,8 @@ class TestSnapshotRuntimeEvents:
             now_fn=lambda: datetime(2026, 1, 1, tzinfo=timezone.utc),
             monotonic_fn=lambda: 0.0,
         )
-        assert snap["runtime_events"]["count"] == 3
-        assert len(snap["runtime_events"]["events"]) == 3
+        assert snap["diagnostics"]["runtime_events"]["count"] == 3
+        assert len(snap["diagnostics"]["runtime_events"]["events"]) == 3
 
 
 # ===================================================================
@@ -479,8 +592,8 @@ class TestSnapshotKeyOrdering:
         )
         keys = list(snap.keys())
         assert keys == sorted(keys)
-        assert "route_eligibility" in keys
-        assert "runtime_events" in keys
+        assert "routes" in keys
+        assert "diagnostics" in keys
 
 
 # ===================================================================
@@ -501,9 +614,9 @@ class TestNoRouteBehaviorChange:
             now_fn=lambda: datetime(2026, 1, 1, tzinfo=timezone.utc),
             monotonic_fn=lambda: 0.0,
         )
-        assert snap["route_eligibility"] is None
+        assert snap["routes"]["eligibility"] is None
         # Routes section should still work
-        assert isinstance(snap["routes"], dict)
+        assert isinstance(snap["routes"]["stats"], dict)
 
     def test_event_buffer_none_graceful(self) -> None:
         """App with _event_buffer=None snapshots runtime_events as null."""
@@ -513,4 +626,4 @@ class TestNoRouteBehaviorChange:
             now_fn=lambda: datetime(2026, 1, 1, tzinfo=timezone.utc),
             monotonic_fn=lambda: 0.0,
         )
-        assert snap["runtime_events"] is None
+        assert snap["diagnostics"]["runtime_events"] is None

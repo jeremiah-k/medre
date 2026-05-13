@@ -15,14 +15,17 @@ Public symbols
 * :func:`validate_route_adapter_refs` — validate adapter references
 * :func:`register_routes` — build, validate, and register routes on a Router
 * :class:`RouteValidationError` — raised on invalid route adapter references
+* :class:`RouteOperationalState` — typed route readiness / state enum
+* :class:`DegradedRoute` — a route registered with partial target loss
 * :class:`SkippedRoute` — a route skipped due to adapter build failure
 * :class:`UnavailableRoute` — a route unavailable due to unknown adapter refs
 * :class:`RouteEligibility` — structured route readiness metadata
-* :class:`RouteRegistrationResult` — list subclass with eligibility metadata
+* :class:`RouteRegistrationResult` — frozen dataclass with routes and eligibility
 """
 
 from __future__ import annotations
 
+import enum
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -35,22 +38,81 @@ if TYPE_CHECKING:
     from medre.runtime.routes import RouteConfig, RouteConfigSet
 
 __all__ = [
+    "DegradedRoute",
+    "RouteEligibility",
+    "RouteOperationalState",
+    "RouteRegistrationResult",
     "RouteValidationError",
     "SkippedRoute",
     "UnavailableRoute",
-    "RouteEligibility",
-    "RouteRegistrationResult",
     "build_runtime_routes",
-    "validate_route_adapter_refs",
     "register_routes",
+    "validate_route_adapter_refs",
 ]
 
 _logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# Route operational state enum
+# ---------------------------------------------------------------------------
+
+
+class RouteOperationalState(enum.Enum):
+    """Typed route readiness / operational state.
+
+    Semantics
+    ---------
+    CONFIGURED:
+        Route is declared in configuration and enabled (not disabled).
+        This is the initial state before adapter build outcomes are known.
+    REGISTERED:
+        Route was successfully registered on the :class:`Router` with
+        all source and target adapters built.
+    ACTIVE:
+        Reserved for future use — route is actively processing events.
+        Not assigned by current registration logic.
+    DEGRADED:
+        Route is registered but one or more target adapters failed to
+        build.  The route delivers only to surviving targets.
+    SKIPPED:
+        Route could not be registered because its source adapter failed
+        to build, or all target adapters failed.
+    UNAVAILABLE:
+        Route references adapter IDs that are not present in the
+        configured adapter set (config error).
+    DISABLED:
+        Route is explicitly disabled (``enabled=False``) in configuration.
+    """
+
+    CONFIGURED = "configured"
+    REGISTERED = "registered"
+    ACTIVE = "active"
+    DEGRADED = "degraded"
+    SKIPPED = "skipped"
+    UNAVAILABLE = "unavailable"
+    DISABLED = "disabled"
+
+
+# ---------------------------------------------------------------------------
 # Route eligibility metadata models
 # ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class DegradedRoute:
+    """A route registered with partial target loss due to adapter build failures.
+
+    Attributes
+    ----------
+    route_id:
+        The expanded route ID that was degraded.
+    failed_adapter_ids:
+        Adapter IDs of targets that failed to build (sorted).
+    """
+
+    route_id: str
+    failed_adapter_ids: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -113,38 +175,49 @@ class RouteEligibility:
         on the :class:`Router`.
     disabled:
         Sorted config route IDs where ``enabled=False``.
+    degraded:
+        Expanded routes registered with partial target loss.
     skipped:
         Expanded routes skipped due to adapter build failures.
     unavailable:
         Routes that could not be registered (empty in normal operation;
         unknown refs raise before reaching this stage).
+    route_states:
+        Mapping from config route ID to :class:`RouteOperationalState`.
+        Keys are deterministically sorted.  Covers all config route IDs:
+        enabled routes are REGISTERED, DEGRADED, or SKIPPED; disabled
+        routes are DISABLED.
     """
 
     configured: tuple[str, ...]
     registered: tuple[str, ...]
     disabled: tuple[str, ...]
+    degraded: tuple[DegradedRoute, ...]
     skipped: tuple[SkippedRoute, ...]
     unavailable: tuple[UnavailableRoute, ...]
+    route_states: dict[str, RouteOperationalState]
 
 
-class RouteRegistrationResult(list[Route]):  # type: ignore[type-arg]
-    """A list of registered routes that also carries :class:`RouteEligibility`.
+@dataclass(frozen=True)
+class RouteRegistrationResult:
+    """Frozen result of route registration carrying routes and eligibility.
 
-    Subclasses :class:`list` so existing callers using ``len()``, iteration,
-    indexing, or equality checks continue to work without changes.
+    Attributes
+    ----------
+    registered_routes:
+        Tuple of routes that were successfully registered on the Router.
+    eligibility:
+        Structured readiness metadata describing configured, registered,
+        disabled, degraded, skipped, and unavailable routes.
     """
 
-    def __init__(
-        self,
-        routes: list[Route],
-        eligibility: RouteEligibility,
-    ) -> None:
-        super().__init__(routes)
-        self.eligibility = eligibility
+    registered_routes: tuple[Route, ...]
+    eligibility: RouteEligibility
 
     def __repr__(self) -> str:
         return (
-            f"RouteRegistrationResult(routes={list.__repr__(self)}, "
+            f"RouteRegistrationResult("
+            f"registered_routes=({len(self.registered_routes)} routes), "
             f"eligibility={self.eligibility!r})"
         )
 
@@ -509,10 +582,10 @@ def register_routes(
     Returns
     -------
     RouteRegistrationResult
-        A list-subclass of registered routes.  Access
-        ``result.eligibility`` for structured readiness metadata.
-        Existing callers treating the return value as ``list[Route]``
-        are unaffected.
+        A frozen dataclass of registered routes and structured eligibility
+        metadata.  Access ``result.registered_routes`` for the tuple of
+        registered :class:`Route` objects and ``result.eligibility`` for
+        readiness metadata including per-route operational states.
 
     Raises
     ------
@@ -540,17 +613,24 @@ def register_routes(
 
     if not routes:
         _logger.info("No enabled routes to register")
+        # Build route_states for disabled routes only.
+        route_states: dict[str, RouteOperationalState] = {}
+        for rid in sorted(disabled_config_ids):
+            route_states[rid] = RouteOperationalState.DISABLED
         eligibility = RouteEligibility(
             configured=tuple(sorted(enabled_config_ids)),
             registered=(),
             disabled=tuple(sorted(disabled_config_ids)),
+            degraded=(),
             skipped=(),
             unavailable=(),
+            route_states=route_states,
         )
-        return RouteRegistrationResult([], eligibility)
+        return RouteRegistrationResult((), eligibility)
 
     # Step 3: Degrade routes referencing adapters that failed to build.
     skipped_routes: list[SkippedRoute] = []
+    degraded_routes: list[DegradedRoute] = []
     registered_routes: list[Route] = []
     for route in routes:
         src = route.source.adapter
@@ -601,6 +681,13 @@ def register_routes(
             ))
             continue
 
+        # Track degraded routes (registered with partial target loss).
+        if all_failed_target_ids:
+            degraded_routes.append(DegradedRoute(
+                route_id=route.id,
+                failed_adapter_ids=all_failed_target_ids,
+            ))
+
         registered_routes.append(route)
 
     if skipped_routes:
@@ -626,11 +713,41 @@ def register_routes(
 
     _logger.info("Registered %d route(s)", len(registered_routes))
 
+    # Build per-route operational states.
+    skipped_ids = {sr.route_id for sr in skipped_routes}
+    degraded_ids = {dr.route_id for dr in degraded_routes}
+    registered_ids = {r.id for r in registered_routes}
+
+    route_states: dict[str, RouteOperationalState] = {}
+    # Disabled routes.
+    for rid in sorted(disabled_config_ids):
+        route_states[rid] = RouteOperationalState.DISABLED
+    # Enabled routes: map expanded route IDs to their operational state.
+    for rid in sorted(enabled_config_ids):
+        # Check expanded route IDs derived from this config route.
+        # A config route may expand to multiple route IDs (e.g. __0, __1).
+        # We map the config route ID to the worst state among its expansions.
+        matching_skipped = [sr for sr in skipped_routes if sr.route_id.startswith(rid)]
+        matching_degraded = [dr for dr in degraded_routes if dr.route_id.startswith(rid)]
+        matching_registered = [r for r in registered_routes if r.id.startswith(rid)]
+
+        if matching_skipped and not matching_registered:
+            route_states[rid] = RouteOperationalState.SKIPPED
+        elif matching_degraded:
+            route_states[rid] = RouteOperationalState.DEGRADED
+        elif matching_registered:
+            route_states[rid] = RouteOperationalState.REGISTERED
+        else:
+            # Should not happen, but defensive.
+            route_states[rid] = RouteOperationalState.SKIPPED
+
     eligibility = RouteEligibility(
         configured=tuple(sorted(enabled_config_ids)),
         registered=tuple(sorted(r.id for r in registered_routes)),
         disabled=tuple(sorted(disabled_config_ids)),
+        degraded=tuple(degraded_routes),
         skipped=tuple(skipped_routes),
         unavailable=(),
+        route_states=route_states,
     )
-    return RouteRegistrationResult(registered_routes, eligibility)
+    return RouteRegistrationResult(tuple(registered_routes), eligibility)

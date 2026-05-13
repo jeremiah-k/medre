@@ -286,22 +286,19 @@ _EXPECTED_RUNTIME_SNAPSHOT_TOP_KEYS: frozenset[str] = frozenset(
     {
         "accounting",
         "adapters",
-        "boot_summary",
-        "build_failures",
         "capacity",
-        "delivery_counters",
+        "diagnostics",
+        "health",
+        "identity",
+        "lifecycle",
         "limits",
-        "live_health",
+        "persistence",
         "replay",
-        "route_eligibility",
         "routes",
-        "runtime_events",
-        "runtime_state",
         "schema_version",
         "snapshot_at",
-        "startup_health",
-        "startup_timestamp",
-        "uptime_seconds",
+        "startup",
+        "unstable",
     }
 )
 
@@ -499,7 +496,7 @@ class TestRuntimeSnapshotSchemaConsistency:
             health_state={"overall": "healthy"},
         )
         snap = build_runtime_snapshot(app)
-        assert snap["live_health"] is None
+        assert snap["health"]["live_health"] is None
 
     def test_startup_health_reflects_health_state(self) -> None:
         """startup_health carries the startup-derived supervision snapshot."""
@@ -507,13 +504,13 @@ class TestRuntimeSnapshotSchemaConsistency:
             health_state={"overall": "degraded", "adapters": 2},
         )
         snap = build_runtime_snapshot(app)
-        assert snap["startup_health"] == {"overall": "degraded", "adapters": 2}
+        assert snap["startup"]["startup_health"] == {"overall": "degraded", "adapters": 2}
 
     def test_startup_health_null_when_absent(self) -> None:
         """startup_health is null when no health state is wired."""
         app = _make_fake_app()
         snap = build_runtime_snapshot(app)
-        assert snap["startup_health"] is None
+        assert snap["startup"]["startup_health"] is None
 
 
 # ===================================================================
@@ -609,7 +606,7 @@ class TestBoundedExports:
         rs = self._make_large_route_stats(n)
         app = _make_fake_app(route_stats=rs)
         snap = build_runtime_snapshot(app)
-        assert len(snap["routes"]) <= _MAX_ROUTES
+        assert len(snap["routes"]["stats"]) <= _MAX_ROUTES
 
     def test_adapters_capped_at_max(self) -> None:
         adapters = {
@@ -627,7 +624,7 @@ class TestBoundedExports:
         ]
         app = _make_fake_app(build_failures=failures)
         snap = build_runtime_snapshot(app)
-        assert len(snap["build_failures"]) <= _MAX_BUILD_FAILURES
+        assert len(snap["startup"]["build_failures"]) <= _MAX_BUILD_FAILURES
 
     def test_error_strings_truncated_at_max_len(self) -> None:
         long_error = "x" * (_MAX_ERROR_DETAIL_LEN + 100)
@@ -729,9 +726,8 @@ class TestMalformedAdapterResilience:
         )
         snap = build_runtime_snapshot(app)
         assert snap["adapters"] == {}
-        assert snap["routes"] == {}
+        assert snap["routes"]["stats"] == {}
         assert snap["capacity"] is None
-        assert snap["delivery_counters"] is None
         assert snap["accounting"] is None
 
 

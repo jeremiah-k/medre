@@ -746,7 +746,7 @@ This is an honest list. Everything here is real.
 
 13. **Identity collision risk.** The `pubkey_prefix` used as `sender_id` is a truncated prefix (default 12 hex chars / 6 bytes). Two different nodes could theoretically share the same prefix. Do not assume `sender_id` is globally unique.
 
-14. **Packet shapes unverified.** The event payload shapes used in MEDRE fixtures are derived from source audit (contract 11). Whether real MeshCore hardware produces exactly these shapes has not been verified. Fields like `pubkey_prefix` truncation length, `txt_type` values, and `sender_timestamp` behavior need live validation.
+14. **Packet shapes unverified.** The event payload shapes used in MEDRE fixtures are derived from source audit (Contract 64). Whether real MeshCore hardware produces exactly these shapes has not been verified. Fields like `pubkey_prefix` truncation length, `txt_type` values, and `sender_timestamp` behavior need live validation.
 
 
 ## 14. Operational Risks

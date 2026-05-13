@@ -68,6 +68,7 @@ class TestLxmfPipelineIntegration:
         """LxmfRenderer can be registered in the rendering pipeline."""
         rp = RenderingPipeline()
         rp.register(LxmfRenderer(), priority=50)
+        rp.register_adapter_platform("lxmf_node", "lxmf")
         rp.register(TextRenderer(), priority=100)
 
         event = CanonicalEvent(
@@ -165,7 +166,8 @@ class TestLxmfPipelineIntegration:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        rp.register(LxmfRenderer(known_adapters={"local-lxmf"}), priority=50)
+        rp.register(LxmfRenderer(), priority=50)
+        rp.register_adapter_platform("local-lxmf", "lxmf")
         rp.register(TextRenderer(), priority=100)
 
         runner = PipelineRunner(PipelineConfig(
@@ -211,7 +213,8 @@ class TestLxmfPipelineIntegration:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        rp.register(LxmfRenderer(known_adapters={"lxmf-fields-out"}), priority=50)
+        rp.register(LxmfRenderer(), priority=50)
+        rp.register_adapter_platform("lxmf-fields-out", "lxmf")
         rp.register(TextRenderer(), priority=100)
 
         runner = PipelineRunner(PipelineConfig(
@@ -311,7 +314,8 @@ class TestLxmfNativeRefPersistence:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        rp.register(LxmfRenderer(known_adapters={"lxmf-out"}), priority=50)
+        rp.register(LxmfRenderer(), priority=50)
+        rp.register_adapter_platform("lxmf-out", "lxmf")
         rp.register(TextRenderer(), priority=100)
 
         runner = PipelineRunner(PipelineConfig(
@@ -364,7 +368,8 @@ class TestLxmfNativeRefPersistence:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        rp.register(LxmfRenderer(known_adapters={"lxmf-fail-out"}), priority=50)
+        rp.register(LxmfRenderer(), priority=50)
+        rp.register_adapter_platform("lxmf-fail-out", "lxmf")
         rp.register(TextRenderer(), priority=100)
 
         runner = PipelineRunner(PipelineConfig(
@@ -467,7 +472,7 @@ class TestLxmfNativeRefPersistence:
 
 class TestLxmfPlatformRendererSelection:
     """Prove platform-aware renderer selection works for LXMF
-    without relying on adapter-name prefixes or known_adapters."""
+    via the pipeline's platform registry."""
 
     async def test_platform_aware_renderer_selection(
         self, temp_storage
@@ -480,7 +485,6 @@ class TestLxmfPlatformRendererSelection:
         - The RenderingPipeline platform registry maps adapter_id -> platform
         - LxmfRenderer.can_render matches on target_platform == "lxmf"
         - TextRenderer is NOT selected for LXMF routes
-        - known_adapters is NOT required
         """
         # 1. Create adapters with realistic IDs that do NOT start with "lxmf"
         in_adapter = FakeLxmfAdapter(LxmfConfig(adapter_id="field-node"))
@@ -499,7 +503,7 @@ class TestLxmfPlatformRendererSelection:
         )
         router = Router(routes=[route])
 
-        # 3. RenderingPipeline with LxmfRenderer — NO known_adapters (critical!)
+        # 3. RenderingPipeline with LxmfRenderer via platform registry
         rp = RenderingPipeline()
         rp.register(LxmfRenderer(), priority=50)
         rp.register(TextRenderer(), priority=100)

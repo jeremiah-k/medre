@@ -350,7 +350,7 @@ ignored.
 | `version` | `0.1.0` | Must be bumped for RC (e.g. `0.2.0rc1`) |
 | `description` | Present | ✅ |
 | `readme` | `README.md` | ✅ |
-| `license` | `MIT` | ⚠️ MIT declared; under governance review. GPL-3.0-or-later and LGPL-3.0-or-later under evaluation. See contract 42 §5, README §License. Final selection is deferred (contract 32 D17). |
+| `license` | `GPL-3.0-or-later` | ✅ Resolved. GPL-3.0-or-later per contract 42 §5 and contract 40. |
 | `classifiers` | Present | ✅ |
 | `requires-python` | `>=3.11` | ✅ |
 | `authors` | **Missing** | ⛔ Must add before RC |

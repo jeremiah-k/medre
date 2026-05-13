@@ -1,7 +1,6 @@
 """Tests for FakeMeshCoreAdapter and MeshCoreAdapter: capabilities,
 lifecycle (start/stop idempotence), delivery contract, inbound simulation,
-rendering boundary enforcement, task scheduling, event subscription
-scaffolding, and session delegation.
+rendering boundary enforcement, task scheduling, and session delegation.
 """
 
 from __future__ import annotations
@@ -276,50 +275,6 @@ class TestMeshCoreAdapterSessionDelegation:
         assert adapter._session.connected is True
         info = await adapter.health_check()
         assert info.health == "healthy"
-
-
-# ===================================================================
-# Event subscription
-# ===================================================================
-
-
-class TestMeshCoreAdapterEventSubscription:
-    """Event subscription scaffolding tests (legacy compat)."""
-
-    async def test_subscribe_events_scaffolded(
-        self, make_adapter_context
-    ) -> None:
-        """_subscribe_events() runs without error (delegated to session)."""
-        config = _make_config(connection_type="fake")
-        adapter = MeshCoreAdapter(config)
-        ctx = make_adapter_context("meshcore-1")
-        await adapter.start(ctx)
-        # Direct call should not raise
-        adapter._subscribe_events()
-        assert adapter._subscribed is True
-
-    async def test_unsubscribe_events_without_subscribe(
-        self, make_adapter_context
-    ) -> None:
-        """_unsubscribe_events() when not subscribed is a no-op."""
-        config = _make_config(connection_type="fake")
-        adapter = MeshCoreAdapter(config)
-        ctx = make_adapter_context("meshcore-1")
-        await adapter.start(ctx)
-        adapter._unsubscribe_events()  # no-op — no error
-
-    async def test_unsubscribe_events_after_subscribe(
-        self, make_adapter_context
-    ) -> None:
-        """_unsubscribe_events() clears the subscribed flag."""
-        config = _make_config(connection_type="fake")
-        adapter = MeshCoreAdapter(config)
-        ctx = make_adapter_context("meshcore-1")
-        await adapter.start(ctx)
-        adapter._subscribe_events()
-        assert adapter._subscribed is True
-        adapter._unsubscribe_events()
-        assert adapter._subscribed is False
 
 
 # ===================================================================

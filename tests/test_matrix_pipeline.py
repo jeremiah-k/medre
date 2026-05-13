@@ -381,7 +381,7 @@ def _make_adapter_context_for_pipeline(
 
 class TestMatrixPlatformRendererSelection:
     """Prove platform-aware renderer selection works for Matrix
-    without relying on adapter-name prefixes or known_adapters."""
+    via the pipeline's platform registry."""
 
     async def test_platform_aware_renderer_selection(
         self, temp_storage: SQLiteStorage
@@ -394,7 +394,6 @@ class TestMatrixPlatformRendererSelection:
         - The RenderingPipeline platform registry maps adapter_id -> platform
         - MatrixRenderer.can_render matches on target_platform == "matrix"
         - TextRenderer is NOT selected for Matrix routes
-        - No known_adapters or prefix-matching required
         """
         # 1. Create adapters with realistic IDs that do NOT start with "matrix"
         in_adapter = FakeMatrixAdapter("chat-source")
@@ -413,7 +412,7 @@ class TestMatrixPlatformRendererSelection:
         )
         router = Router(routes=[route])
 
-        # 3. RenderingPipeline with MatrixRenderer — NO known_adapters (critical!)
+        # 3. RenderingPipeline with MatrixRenderer via platform registry
         rp = RenderingPipeline()
         rp.register(MatrixRenderer(), priority=50)
         rp.register(TextRenderer(), priority=100)

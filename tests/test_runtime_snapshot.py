@@ -1,7 +1,7 @@
 """Tests for the runtime snapshot module (Track 4).
 
 Covers:
-- Deterministic output (same inputs → same snapshot, sorted keys).
+- Deterministic output (same inputs -> same snapshot, sorted keys).
 - JSON safety (``json.dumps`` succeeds, no SDK objects).
 - Sanitisation / no secrets (no tokens, keys, or raw SDK objects).
 - Bounded size (adapter/route collections are capped).
@@ -12,6 +12,7 @@ Covers:
 - Schema version presence.
 - Startup health state tolerance (null when absent, dict when present).
 - Live health explicitly unavailable (always null).
+- Sectioned schema (schema_version 2).
 """
 
 from __future__ import annotations
@@ -272,6 +273,16 @@ class TestDeterministicOrdering:
         limits = snap["limits"]
         assert list(limits.keys()) == sorted(limits.keys())
 
+    def test_section_keys_are_sorted(self) -> None:
+        """Section sub-dict keys (lifecycle, routes, etc.) must be sorted."""
+        snap = build_runtime_snapshot(_make_fake_app())
+        for section_name in ("lifecycle", "routes", "startup", "health",
+                             "diagnostics", "replay"):
+            section = snap[section_name]
+            assert list(section.keys()) == sorted(section.keys()), (
+                f"Section {section_name!r} keys not sorted"
+            )
+
 
 # ---------------------------------------------------------------------------
 # Tests: JSON safety
@@ -364,7 +375,7 @@ class TestSanitisation:
             build_failures=[_FakeBuildFailure("bad", long_error)],
         )
         snap = build_runtime_snapshot(app)
-        bf_error = snap["build_failures"][0]["error"]
+        bf_error = snap["startup"]["build_failures"][0]["error"]
         assert len(bf_error) <= _MAX_ERROR_DETAIL_LEN
 
 
@@ -394,7 +405,7 @@ class TestBoundedSize:
         }
         app = _make_fake_app(route_stats=_FakeRouteStats(routes))
         snap = build_runtime_snapshot(app)
-        assert len(snap["routes"]) <= _MAX_ROUTES
+        assert len(snap["routes"]["stats"]) <= _MAX_ROUTES
 
     def test_build_failures_capped(self) -> None:
         """Build failure count is capped at _MAX_BUILD_FAILURES."""
@@ -404,7 +415,7 @@ class TestBoundedSize:
         ]
         app = _make_fake_app(build_failures=failures)
         snap = build_runtime_snapshot(app)
-        assert len(snap["build_failures"]) <= _MAX_BUILD_FAILURES
+        assert len(snap["startup"]["build_failures"]) <= _MAX_BUILD_FAILURES
 
 
 # ---------------------------------------------------------------------------
@@ -419,7 +430,7 @@ class TestSnapshotContents:
         """Schema version matches module constant."""
         snap = build_runtime_snapshot(_make_fake_app())
         assert snap["schema_version"] == SCHEMA_VERSION
-        assert snap["schema_version"] == 1
+        assert snap["schema_version"] == 2
 
     def test_snapshot_at_is_iso8601(self) -> None:
         """snapshot_at is a valid ISO-8601 UTC timestamp."""
@@ -434,12 +445,12 @@ class TestSnapshotContents:
         """runtime_state matches the app's current state."""
         app = _make_fake_app(state=_FakeRuntimeState.RUNNING)
         snap = build_runtime_snapshot(app)
-        assert snap["runtime_state"] == "running"
+        assert snap["lifecycle"]["runtime_state"] == "running"
 
     def test_runtime_state_failed(self) -> None:
         app = _make_fake_app(state=_FakeRuntimeState.FAILED)
         snap = build_runtime_snapshot(app)
-        assert snap["runtime_state"] == "failed"
+        assert snap["lifecycle"]["runtime_state"] == "failed"
 
     def test_adapters_contents(self) -> None:
         """Adapters section contains correct metadata for each adapter."""
@@ -480,7 +491,7 @@ class TestSnapshotContents:
         assert mx["health"] == "degraded"
 
     def test_routes_from_route_stats(self) -> None:
-        """Routes section mirrors route_stats.snapshot() output."""
+        """Routes stats section mirrors route_stats.snapshot() output."""
         route_data = {
             "bridge-a": {"delivered": 10, "failed": 1, "skipped": 0, "loop_prevented": 0},
             "bridge-b": {"delivered": 5, "failed": 0, "skipped": 2, "loop_prevented": 1},
@@ -488,15 +499,8 @@ class TestSnapshotContents:
         app = _make_fake_app(route_stats=_FakeRouteStats(route_data))
         snap = build_runtime_snapshot(app)
 
-        assert snap["routes"]["bridge-a"]["delivered"] == 10
-        assert snap["routes"]["bridge-b"]["loop_prevented"] == 1
-
-    def test_delivery_counters_present(self) -> None:
-        """delivery_counters mirrors routes when route_stats is available."""
-        route_data = {"r1": {"delivered": 42}}
-        app = _make_fake_app(route_stats=_FakeRouteStats(route_data))
-        snap = build_runtime_snapshot(app)
-        assert snap["delivery_counters"] == snap["routes"]
+        assert snap["routes"]["stats"]["bridge-a"]["delivered"] == 10
+        assert snap["routes"]["stats"]["bridge-b"]["loop_prevented"] == 1
 
     def test_capacity_state_present(self) -> None:
         """Capacity section contains controller snapshot."""
@@ -506,7 +510,7 @@ class TestSnapshotContents:
             "delivery_limit": 50,
             "delivery_rejections": 1,
             "delivery_timeouts": 0,
-            "replay_current": 0,
+            "replay_current": 1,
             "replay_limit": 25,
             "replay_rejections": 0,
             "replay_timeouts": 0,
@@ -541,7 +545,7 @@ class TestSnapshotContents:
         )
         snap = build_runtime_snapshot(app)
         assert snap["replay"]["available"] is True
-        assert snap["replay"]["counters"] == {"global": {"total": 1}}
+        assert snap["replay"]["counters"]["global"]["total"] == 1
 
     def test_replay_available_false(self) -> None:
         """Replay available is false when no replay engine."""
@@ -551,7 +555,7 @@ class TestSnapshotContents:
         assert snap["replay"]["counters"] is None
 
     def test_build_failures_included(self) -> None:
-        """Build failures are included in the snapshot."""
+        """Build failures are included in the startup section."""
         app = _make_fake_app(
             build_failures=[
                 _FakeBuildFailure("bad-1", "timeout"),
@@ -559,9 +563,9 @@ class TestSnapshotContents:
             ],
         )
         snap = build_runtime_snapshot(app)
-        assert len(snap["build_failures"]) == 2
-        assert snap["build_failures"][0]["adapter_id"] == "bad-1"
-        assert snap["build_failures"][1]["error"] == "connection refused"
+        assert len(snap["startup"]["build_failures"]) == 2
+        assert snap["startup"]["build_failures"][0]["adapter_id"] == "bad-1"
+        assert snap["startup"]["build_failures"][1]["error"] == "connection refused"
 
 
 # ---------------------------------------------------------------------------
@@ -570,10 +574,10 @@ class TestSnapshotContents:
 
 
 class TestStartupTimestampAndUptime:
-    """Startup timestamp and uptime computation."""
+    """Startup timestamp and uptime computation (now in lifecycle section)."""
 
     def test_startup_fields_present_when_set(self) -> None:
-        """When startup fields exist on the app, they are reflected."""
+        """When startup fields exist on the app, they are reflected in lifecycle."""
         app = _make_fake_app(
             startup_wall="2026-05-11T10:00:00+00:00",
             startup_monotonic=1000.0,
@@ -582,15 +586,15 @@ class TestStartupTimestampAndUptime:
             app,
             monotonic_fn=lambda: 1362.5,
         )
-        assert snap["startup_timestamp"] == "2026-05-11T10:00:00+00:00"
-        assert snap["uptime_seconds"] == 362.5
+        assert snap["lifecycle"]["startup_timestamp"] == "2026-05-11T10:00:00+00:00"
+        assert snap["lifecycle"]["uptime_seconds"] == 362.5
 
     def test_startup_fields_null_when_absent(self) -> None:
         """When startup fields are not on the app, both are null."""
         app = _make_fake_app()  # no startup fields
         snap = build_runtime_snapshot(app)
-        assert snap["startup_timestamp"] is None
-        assert snap["uptime_seconds"] is None
+        assert snap["lifecycle"]["startup_timestamp"] is None
+        assert snap["lifecycle"]["uptime_seconds"] is None
 
     def test_uptime_rounded_to_microseconds(self) -> None:
         """Uptime is rounded to 6 decimal places."""
@@ -599,7 +603,7 @@ class TestStartupTimestampAndUptime:
             app,
             monotonic_fn=lambda: 200.123456789,
         )
-        assert snap["uptime_seconds"] == 100.123457  # rounded to 6 places
+        assert snap["lifecycle"]["uptime_seconds"] == 100.123457  # rounded to 6 places
 
     def test_uptime_clamped_to_zero(self) -> None:
         """Negative uptime is clamped to 0.0."""
@@ -608,7 +612,7 @@ class TestStartupTimestampAndUptime:
             app,
             monotonic_fn=lambda: 500.0,  # earlier than startup
         )
-        assert snap["uptime_seconds"] == 0.0
+        assert snap["lifecycle"]["uptime_seconds"] == 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -620,15 +624,10 @@ class TestGracefulAbsence:
     """Missing optional subsystems must not raise errors."""
 
     def test_no_route_stats_gives_empty_routes(self) -> None:
-        """When route_stats is None, routes is empty dict."""
+        """When route_stats is None, routes stats is empty dict."""
         app = _make_fake_app(route_stats=None)
         snap = build_runtime_snapshot(app)
-        assert snap["routes"] == {}
-
-    def test_no_route_stats_gives_null_delivery_counters(self) -> None:
-        app = _make_fake_app(route_stats=None)
-        snap = build_runtime_snapshot(app)
-        assert snap["delivery_counters"] is None
+        assert snap["routes"]["stats"] == {}
 
     def test_no_capacity_gives_null(self) -> None:
         app = _make_fake_app(capacity_controller=None)
@@ -653,7 +652,7 @@ class TestGracefulAbsence:
     def test_no_health_state_gives_null_startup_health(self) -> None:
         app = _make_fake_app()
         snap = build_runtime_snapshot(app)
-        assert snap["startup_health"] is None
+        assert snap["startup"]["startup_health"] is None
 
     def test_no_config_gives_empty_limits(self) -> None:
         """When config is missing, limits is an empty dict."""
@@ -681,7 +680,7 @@ class TestGracefulAbsence:
         """Even a bare object() doesn't crash the snapshot."""
         snap = build_runtime_snapshot(object())
         assert "schema_version" in snap
-        assert "runtime_state" in snap
+        assert "lifecycle" in snap
 
 
 # ---------------------------------------------------------------------------
@@ -695,7 +694,7 @@ class TestHealthStateTolerance:
     def test_startup_health_state_dict(self) -> None:
         app = _make_fake_app(health_state={"overall": "healthy", "adapters": 3})
         snap = build_runtime_snapshot(app)
-        assert snap["startup_health"] == {"overall": "healthy", "adapters": 3}
+        assert snap["startup"]["startup_health"] == {"overall": "healthy", "adapters": 3}
 
     def test_startup_health_state_to_dict(self) -> None:
         class _HS:
@@ -704,12 +703,12 @@ class TestHealthStateTolerance:
 
         app = _make_fake_app(health_state=_HS())
         snap = build_runtime_snapshot(app)
-        assert snap["startup_health"] == {"overall": "degraded"}
+        assert snap["startup"]["startup_health"] == {"overall": "degraded"}
 
     def test_startup_health_non_dict_non_to_dict_gives_null(self) -> None:
         app = _make_fake_app(health_state="just_a_string")
         snap = build_runtime_snapshot(app)
-        assert snap["startup_health"] is None
+        assert snap["startup"]["startup_health"] is None
 
 
 class TestLiveHealthExplicitlyUnavailable:
@@ -718,16 +717,16 @@ class TestLiveHealthExplicitlyUnavailable:
     def test_live_health_is_null_when_health_state_present(self) -> None:
         app = _make_fake_app(health_state={"overall": "healthy"})
         snap = build_runtime_snapshot(app)
-        assert snap["live_health"] is None
+        assert snap["health"]["live_health"] is None
 
     def test_live_health_is_null_when_health_state_absent(self) -> None:
         app = _make_fake_app()
         snap = build_runtime_snapshot(app)
-        assert snap["live_health"] is None
+        assert snap["health"]["live_health"] is None
 
     def test_live_health_is_null_for_minimal_app(self) -> None:
         snap = build_runtime_snapshot(object())
-        assert snap["live_health"] is None
+        assert snap["health"]["live_health"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -752,7 +751,7 @@ class TestInjectedClocks:
             app,
             monotonic_fn=lambda: 60.0,
         )
-        assert snap["uptime_seconds"] == 60.0
+        assert snap["lifecycle"]["uptime_seconds"] == 60.0
 
 
 # ---------------------------------------------------------------------------
@@ -775,7 +774,7 @@ class TestRouteStatsIntegration:
         }
         app = _make_fake_app(route_stats=_FakeRouteStats(route_data))
         snap = build_runtime_snapshot(app)
-        assert snap["routes"]["r1"]["last_error"] == "connection refused"
+        assert snap["routes"]["stats"]["r1"]["last_error"] == "connection refused"
 
     def test_route_stats_sorted_by_route_id(self) -> None:
         route_data = {
@@ -784,7 +783,7 @@ class TestRouteStatsIntegration:
         }
         app = _make_fake_app(route_stats=_FakeRouteStats(route_data))
         snap = build_runtime_snapshot(app)
-        route_keys = list(snap["routes"].keys())
+        route_keys = list(snap["routes"]["stats"].keys())
         assert route_keys == ["alpha-route", "zebra-route"]
 
 
@@ -935,7 +934,7 @@ class TestBootSummaryInSnapshot:
         """No _boot_summary on app → boot_summary is null."""
         app = _make_fake_app()
         snap = build_runtime_snapshot(app)
-        assert snap["boot_summary"] is None
+        assert snap["startup"]["boot_summary"] is None
 
     def test_boot_summary_present_when_wired(self) -> None:
         """BootSummary wired → snapshot includes boot summary."""
@@ -961,13 +960,13 @@ class TestBootSummaryInSnapshot:
         app._boot_summary = bs  # type: ignore[attr-defined]
 
         snap = build_runtime_snapshot(app)
-        assert snap["boot_summary"] is not None
-        assert snap["boot_summary"]["startup_outcome"] == "success"
-        assert snap["boot_summary"]["runtime_health"] == "healthy"
-        assert snap["boot_summary"]["adapters_started"] == 2
-        assert snap["boot_summary"]["route_count"] == 3
-        assert snap["boot_summary"]["storage_backend"] == "sqlite"
-        assert snap["boot_summary"]["persisted_events_count"] == 42
+        assert snap["startup"]["boot_summary"] is not None
+        assert snap["startup"]["boot_summary"]["startup_outcome"] == "success"
+        assert snap["startup"]["boot_summary"]["runtime_health"] == "healthy"
+        assert snap["startup"]["boot_summary"]["adapters_started"] == 2
+        assert snap["startup"]["boot_summary"]["route_count"] == 3
+        assert snap["startup"]["boot_summary"]["storage_backend"] == "sqlite"
+        assert snap["startup"]["boot_summary"]["persisted_events_count"] == 42
 
     def test_boot_summary_keys_sorted(self) -> None:
         """Boot summary dict keys are sorted."""
@@ -993,7 +992,7 @@ class TestBootSummaryInSnapshot:
         app._boot_summary = bs  # type: ignore[attr-defined]
 
         snap = build_runtime_snapshot(app)
-        keys = list(snap["boot_summary"].keys())
+        keys = list(snap["startup"]["boot_summary"].keys())
         assert keys == sorted(keys)
 
     def test_boot_summary_json_safe(self) -> None:

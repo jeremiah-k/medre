@@ -123,7 +123,7 @@ class MeshtasticAdapter(BaseAdapter):
         self.adapter_id = config.adapter_id
         self._capabilities = _MESHTASTIC_CAPABILITIES
         self._session: MeshtasticSession | None = None
-        self._client: Any = None  # backward compat; mirrors session.client
+        self._client: Any = None  # mirrors session.client for diagnostics
         self._codec = MeshtasticCodec(config.adapter_id, config)
         self._classifier = MeshtasticPacketClassifier(config)
         self._queue = MeshtasticOutboundQueue(
@@ -172,7 +172,7 @@ class MeshtasticAdapter(BaseAdapter):
             self._client = None
             raise
 
-        # Mirror session client for backward compat
+        # Mirror session client for diagnostics
         self._client = self._session.client
 
         self._started = True
@@ -294,9 +294,8 @@ class MeshtasticAdapter(BaseAdapter):
         """Pubsub callback matching the Meshtastic ``onReceive(packet, interface)`` signature.
 
         Delegates to :meth:`_on_packet` for classification and processing.
-        This method exists on the adapter for backward compatibility with
-        tests that call it directly; the session's own ``_on_receive``
-        forwards to the adapter's ``_on_packet`` via the message_callback.
+        The session's ``_on_receive`` forwards to the adapter's ``_on_packet``
+        via the message_callback.
 
         Parameters
         ----------

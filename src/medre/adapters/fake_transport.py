@@ -111,8 +111,7 @@ class FakeTransportAdapter(BaseAdapter):
         Tests can inspect this to verify the adapter received a rendered
         result (not a raw canonical event).
     received_events:
-        Events delivered outbound to this adapter (legacy path,
-        backward-compatible).
+        Events delivered outbound to this adapter.
     event_snapshots:
         Frozen snapshots of events at creation time, keyed by
         ``event_id``, used to verify that canonical events are never

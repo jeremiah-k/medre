@@ -1,22 +1,15 @@
-"""Lifecycle management subsystem for the medre.
+"""Lifecycle management subsystem for medre.
 
 This package provides adapter lifecycle tracking with a formal state
-machine and a manager for coordinating startup, shutdown, and health
-checks across all registered adapters.
+machine defining legal transitions between adapter states.
 
 Re-exported symbols
 -------------------
 * From :mod:`~medre.core.lifecycle.states`:
   ``AdapterState``, ``VALID_TRANSITIONS``, ``InvalidStateTransition``,
   ``is_valid_transition``, ``require_valid_transition``.
-* From :mod:`~medre.core.lifecycle.manager`:
-  ``LifecycleManager``, ``ManagedAdapter``.
 """
 
-from medre.core.lifecycle.manager import (
-    LifecycleManager,
-    ManagedAdapter,
-)
 from medre.core.lifecycle.states import (
     AdapterState,
     InvalidStateTransition,
@@ -28,8 +21,6 @@ from medre.core.lifecycle.states import (
 __all__ = [
     "AdapterState",
     "InvalidStateTransition",
-    "LifecycleManager",
-    "ManagedAdapter",
     "VALID_TRANSITIONS",
     "is_valid_transition",
     "require_valid_transition",

@@ -3,7 +3,7 @@
 > Contract version: 1
 > Last updated: 2026-05-09
 > Track: 9 (Transport Capability Contracts)
-> Supersedes: Partially supersedes 12-constrained-transport-comparison.md (which covered structural comparison). This document focuses on delivery behavior.
+> Supersedes: Partially supersedes 65-constrained-transport-comparison.md (which covered structural comparison). This document focuses on delivery behavior.
 > Supplements: Contracts 16, 18, 19, 20.
 
 This document compares the delivery semantics of MEDRE's four adapter families across the dimensions that matter for reliable message transport. It is explicit about asymmetry. It avoids false equivalence. If two transports look similar on paper but behave differently in practice, this document says so.

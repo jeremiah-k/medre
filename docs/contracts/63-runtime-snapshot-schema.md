@@ -1,7 +1,7 @@
 # Contract 63 — Runtime Snapshot Schema
 
 **Status:** Active
-**Scope:** Normative specification for the runtime snapshot shape, field semantics, stability classification, versioning policy, and structural guarantees.
+**Scope:** Normative specification for the runtime snapshot shape, section structure, field semantics, stability classification, versioning policy, and structural guarantees.
 **Audience:** Runtime builders, adapter authors, operators, test authors, documentation agents.
 **References:** Contract 47 (Runtime Assembly), Contract 48 (Runtime Observability), Contract 56 (Runtime Supervision), Contract 29 (Diagnostics).
 
@@ -14,97 +14,151 @@ Every agent or document that references the MEDRE runtime snapshot shape, field 
 - Implementing live health polling, dynamic routing, event persistence, or supervisor restarts.
 - Changing adapter, route, or diagnostics behaviour.
 - Replacing the diagnostics snapshot (`build_diagnostics_snapshot`) — that is a separate surface documented in Contract 29.
+- Preserving flat-schema compatibility from schema_version 1.
 
 
 ## 2. Schema Version
 
-The snapshot carries a top-level `schema_version` integer. **Current version: `1`.**
+The snapshot carries a top-level `schema_version` integer. **Current version: `2`.**
 
 `schema_version` is bumped only when a **breaking change** is introduced to the top-level shape (§4). Additive or unstable/debug changes (§6) do not require a bump.
+
+Version 2 is a **breaking restructure** from version 1: the flat key layout has been replaced with intentional sections. There is no backward-compatibility mapping.
 
 
 ## 3. Top-level Shape
 
-All 18 keys are **always present**. Optional subsystems that are not wired report `null` — keys are never omitted.
+The snapshot is structured into **intentional sections** that separate stable operator-facing data from unstable/debug internals. 16 top-level keys are always present.
 
 Keys appear in **alphabetical order** (deterministic serialisation).
 
-| Key | Type | Stability | Audience | Source |
-|-----|------|-----------|----------|--------|
+| Key | Type | Stability | Audience | Contents |
+|-----|------|-----------|----------|----------|
+| `schema_version` | `int` | stable | programmatic | Constant `SCHEMA_VERSION` (currently `2`) |
+| `snapshot_at` | `str` | stable | operator | ISO-8601 UTC, injectable clock |
 | `accounting` | `dict \| null` | stable | operator | `RuntimeAccounting.snapshot()` |
 | `adapters` | `dict` | stable | operator | `_snapshot_adapter()` per adapter |
-| `boot_summary` | `dict \| null` | stable | operator | `BootSummary.to_dict()` |
-| `build_failures` | `list` | stable | operator | `_snapshot_build_failures()` |
 | `capacity` | `dict \| null` | stable | operator | `CapacityController.snapshot()` |
-| `delivery_counters` | `dict \| null` | stable | operator | Alias for `routes` content |
+| `diagnostics` | `dict` | mixed | debug/internal | §5.5 |
+| `health` | `dict` | stable/reserved | operator | §5.1 |
+| `identity` | `dict` | stable | operator | Reserved for future identity metadata |
+| `lifecycle` | `dict` | stable | operator | §5.3 |
 | `limits` | `dict` | stable | operator | `RuntimeLimits` dataclass fields |
-| `live_health` | `null` | reserved | — | Always `null` until health polling exists |
+| `persistence` | `dict` | stable | operator | Reserved for future durable-storage surface |
 | `replay` | `dict` | stable | operator | `{"available": bool, "counters": dict|null}` |
-| `route_eligibility` | `dict \| null` | stable | operator | §5.2 |
-| `routes` | `dict` | stable | operator | `RouteStats.snapshot()`, bounded |
-| `runtime_events` | `dict \| null` | unstable | debug/internal | `EventBuffer.snapshot()`, §5.3 |
-| `runtime_state` | `str` | stable | operator | Enum `.value` |
-| `schema_version` | `int` | stable | programmatic | Constant `SCHEMA_VERSION` |
-| `snapshot_at` | `str` | stable | operator | ISO-8601 UTC, injectable clock |
-| `startup_health` | `dict \| null` | stable | operator | §5.1 |
-| `startup_timestamp` | `str \| null` | stable | operator | ISO-8601 wall-clock or `null` |
-| `uptime_seconds` | `float \| null` | stable | operator | Computed from monotonic clock |
+| `routes` | `dict` | stable | operator | §5.4 |
+| `startup` | `dict` | stable | operator | §5.2 |
+| `unstable` | `dict` | unstable | debug/internal | Reserved for future unstable data |
 
 Stability labels:
-- **stable** — shape and semantics are locked for `schema_version` 1. Changes require a version bump.
+- **stable** — shape and semantics are locked for `schema_version` 2. Changes require a version bump.
 - **unstable** — shape may evolve across minor releases without a version bump. Consumers must tolerate added keys and changed detail structure.
-- **reserved** — key is allocated but always `null` until the corresponding subsystem is implemented.
+- **reserved** — key/section is allocated but always empty/null until the corresponding subsystem is implemented.
 
 
 ## 4. Breaking vs Additive Changes
 
 ### 4.1 Changes that require a `schema_version` bump
 
-- Removing a top-level key.
-- Changing a top-level key's type (e.g., `null` → `dict` for a key currently documented as `null`-only).
+- Removing a top-level key or section.
+- Removing or renaming a key from a stable nested structure (e.g., removing `failed_adapter_ids` from `routes.eligibility.skipped` entries).
+- Changing a top-level or stable nested key's type.
 - Changing the meaning of a stable field's value (e.g., redefining how `uptime_seconds` is computed).
-- Removing or renaming a key from a stable nested structure (e.g., removing `failed_adapter_ids` from `route_eligibility.skipped` entries).
-- Changing the type of a stable nested field.
+- Adding a new required (non-optional) key to a stable section.
 
 ### 4.2 Changes that do NOT require a bump
 
 - Adding a new top-level key (snapshot consumers must ignore unknown keys).
-- Adding a new key to an unstable section (e.g., a new `RuntimeEventType` value, a new key inside `runtime_events.events[].detail`).
-- Changing a `null`-only field to a non-null value when the type was already documented as `T | null` (e.g., populating `live_health` when health polling is implemented).
+- Adding a new key to an unstable section (e.g., a new key inside `diagnostics.runtime_events.events[].detail`).
+- Changing a `null`-only field to a non-null value when the type was already documented as `T | null`.
 - Adding a new key to a stable section's dict, provided the addition is optional and existing keys retain their semantics.
 - Changing internal implementation without affecting the observable shape.
 
 
-## 5. Field Semantics
+## 5. Section Semantics
 
-### 5.1 `startup_health` vs `live_health`
-
-`startup_health` carries the runtime health state computed during startup classification (Contract 56). It reflects the aggregate adapter health assessment made at boot and is **not automatically refreshed** by post-start health polling.
-
-`live_health` is reserved for a future `RuntimeHealth` aggregate that would be populated by active health polling. Until that integration exists, the field is always `null`.
-
-**Operators must not assume `startup_health` represents real-time adapter health.** Adapter-level health values within the `adapters` dict come from the adapter's `_last_health` attribute (set during build/startup), not from live `health_check()` calls.
-
-
-### 5.2 `route_eligibility`
-
-`route_eligibility` exposes the outcome of route eligibility analysis performed during startup. It is a static snapshot of which routes were configured, registered, disabled, skipped, or unavailable at assembly time.
-
-**Structure:**
+### 5.1 `health`
 
 ```
 {
-  "configured":   [str],       // Route IDs declared in config
-  "registered":   [str],       // Route IDs with successfully built adapters
-  "disabled":     [str],       // Route IDs explicitly disabled
-  "skipped": [                   // Routes skipped due to adapter failure
+  "live_health": null
+}
+```
+
+`live_health` is reserved for a future `RuntimeHealth` aggregate that would be populated by active health polling. Until that integration exists, the field is always `null`.
+
+**Operators must not assume `startup.startup_health` represents real-time adapter health.**
+
+
+### 5.2 `startup`
+
+One-time boot classification and build failures.
+
+```
+{
+  "boot_summary": {...} | null,
+  "build_failures": [...],
+  "startup_health": {...} | null,
+}
+```
+
+- `boot_summary`: From `BootSummary.to_dict()`. Null when no boot summary is wired.
+- `build_failures`: Bounded list of adapter build failures (capped at `_MAX_BUILD_FAILURES`). Each entry has `adapter_id` and sanitized `error`.
+- `startup_health`: Carries the runtime health state computed during startup classification (Contract 56). Null when no health state is wired.
+
+
+### 5.3 `lifecycle`
+
+Runtime state transitions and timing.
+
+```
+{
+  "runtime_state": str,
+  "startup_timestamp": str | null,
+  "uptime_seconds": float | null,
+}
+```
+
+- `runtime_state`: Current `RuntimeState` enum value as lowercase string.
+- `startup_timestamp`: ISO-8601 wall-clock time set during `app.start()`, or null.
+- `uptime_seconds`: Computed from monotonic clock, rounded to 6 decimal places, clamped to >= 0. Null before startup.
+
+
+### 5.4 `routes`
+
+Route delivery statistics, eligibility, and per-route readiness state.
+
+```
+{
+  "eligibility": {...} | null,
+  "readiness": {route_id: str} | null,
+  "stats": {route_id: {...}},
+}
+```
+
+#### 5.4.1 `routes.eligibility`
+
+Exposes the outcome of route eligibility analysis performed during startup.
+
+```
+{
+  "configured":   [str],
+  "registered":   [str],
+  "disabled":     [str],
+  "degraded": [
+    {
+      "route_id":           str,
+      "failed_adapter_ids": [str],
+    }
+  ],
+  "skipped": [
     {
       "failed_adapter_ids": [str],
       "reason":             str,
       "route_id":           str,
     }
   ],
-  "unavailable": [               // Routes whose adapter was never built
+  "unavailable": [
     {
       "missing_adapter_ids": [str],
       "reason":              str,
@@ -114,63 +168,86 @@ Stability labels:
 }
 ```
 
-**Semantics:**
+Semantics:
+- `configured`: Config route IDs declared and enabled (not disabled).
+- `registered`: Expanded route IDs with all source and target adapters built.
+- `disabled`: Config route IDs explicitly disabled.
+- `degraded`: Routes registered with partial target loss (some target adapters failed).
+- `skipped`: Routes that could not be registered (source failed, or all targets failed).
+- `unavailable`: Routes referencing adapters never in the configured set. Empty in normal operation (unknown refs raise `RouteValidationError`).
+- This is a **diagnostic surface**, not a trigger for dynamic routing.
 
-- `route_eligibility` distinguishes **config validity** (the route was correctly declared) from **operational readiness** (the route's adapters were successfully built and started).
-- `skipped` routes had their source adapter fail during build/start — the route is configured but cannot operate.
-- `unavailable` routes reference adapters that were never built (e.g., due to missing transport dependency).
-- `route_eligibility` **does not imply dynamic routing**. It is a diagnostic surface that explains the static route map established at startup. It does not trigger route reconfiguration, dynamic failover, or runtime routing decisions.
-- The field is `null` when no eligibility analysis was performed (e.g., minimal app without route wiring).
+#### 5.4.2 `routes.readiness`
 
-
-### 5.3 `runtime_events`
-
-`runtime_events` exposes the bounded, in-memory event buffer that records runtime lifecycle state transitions.
-
-**Structure:**
+Per-route operational state mapping.
 
 ```
 {
-  "count":   int,        // Current number of events in buffer
-  "maxlen":  int,        // Maximum buffer capacity (default 256)
+  "route_id": "registered" | "disabled" | "degraded" | "skipped" | "unavailable",
+  ...
+}
+```
+
+Values come from `RouteOperationalState` enum:
+
+| State | When assigned |
+|-------|-------------|
+| `configured` | Route is enabled in config (initial state before build) |
+| `registered` | Route successfully registered with all adapters built |
+| `active` | Reserved for future use — not assigned by current logic |
+| `degraded` | Route registered but some target adapters failed to build |
+| `skipped` | Route could not register (source failed or all targets failed) |
+| `unavailable` | Route references adapter IDs not in configured set |
+| `disabled` | Route is explicitly disabled in configuration |
+
+Keys are deterministically sorted. The mapping covers all config route IDs.
+
+#### 5.4.3 `routes.stats`
+
+Per-route delivery counters from `RouteStats.snapshot()`, bounded at `_MAX_ROUTES`.
+
+
+### 5.5 `diagnostics`
+
+Internal debug/diagnostic surfaces. Shape may change without a schema version bump.
+
+```
+{
+  "runtime_events": {...} | null,
+}
+```
+
+`runtime_events` exposes the bounded, in-memory event buffer:
+
+```
+{
+  "count":   int,
+  "maxlen":  int,
   "events": [
     {
-      "detail":     {str: any},     // Sorted keys, truncated values
-      "event_type": str,            // Lowercase string from RuntimeEventType
-      "sequence":   int,            // Monotonically increasing, 0-based
-      "timestamp":  float,          // Monotonic seconds (not wall-clock)
+      "detail":     {str: any},
+      "event_type": str,
+      "sequence":   int,
+      "timestamp":  float,
     }
   ]
 }
 ```
 
-**Event types** (`RuntimeEventType` enum):
+Event types (`RuntimeEventType` enum): `state_transition`, `adapter_started`, `adapter_start_failed`, `adapter_stopped`, `startup_classified`, `route_skipped`, `route_unavailable`.
 
-| Value | When emitted |
-|-------|-------------|
-| `state_transition` | Runtime state changes |
-| `adapter_started` | Adapter start succeeds |
-| `adapter_start_failed` | Adapter start fails |
-| `adapter_stopped` | Adapter stops |
-| `startup_classified` | Startup health outcome determined |
-| `route_skipped` | Route skipped due to adapter failure |
-| `route_unavailable` | Route unavailable due to missing adapter |
-
-**Semantics:**
-
-- `runtime_events` is an **unstable/debug** surface. Its shape, event types, and detail keys may be extended without a `schema_version` bump.
-- It is a **bounded in-memory diagnostics buffer** backed by a `collections.deque` with fixed `maxlen` (default 256). When the buffer is full, the oldest events are discarded.
-- It is **not** a durable audit log, event bus, or pub/sub system. Events are not persisted across restarts.
-- Timestamps are **monotonic** (not wall-clock). Use `snapshot_at` and `startup_timestamp` for wall-clock times.
-- Detail values are truncated at 256 characters. Event detail dicts have sorted keys.
-- The field is `null` when no event buffer is wired to the app.
+- Bounded in-memory buffer (`collections.deque`, default maxlen 256).
+- Not a durable audit log. Events not persisted across restarts.
+- Timestamps are monotonic (not wall-clock).
+- Detail values truncated at 256 characters.
+- Null when no event buffer is wired.
 
 
 ## 6. Structural Requirements
 
 ### 6.1 Deterministic ordering
 
-Every dict in the snapshot — top-level, adapter entries, route entries, event details, nested sub-dicts — has keys in **alphabetical sorted order**. This is enforced by `_sorted_dict()` and is guaranteed for all stable and unstable fields.
+Every dict in the snapshot — top-level, section internals, adapter entries, route entries, event details, nested sub-dicts — has keys in **alphabetical sorted order**. This is enforced by `_sorted_dict()` and is guaranteed for all stable and unstable fields.
 
 `json.dumps(snapshot, sort_keys=True)` must produce identical output for identical runtime state with identical clock inputs.
 
@@ -197,18 +274,54 @@ When a collection exceeds its cap, entries beyond the cap (in sorted order for a
 
 ### 6.4 Graceful degradation
 
-If an optional subsystem (capacity, accounting, replay, health state, boot summary, event buffer, route eligibility) is absent or raises during snapshot, the corresponding field reports `null` rather than propagating the exception. The snapshot always succeeds.
+If an optional subsystem (capacity, accounting, replay, health state, boot summary, event buffer, route eligibility) is absent or raises during snapshot, the corresponding field reports `null` or empty rather than propagating the exception. The snapshot always succeeds.
 
 
-## 7. Test Alignment
+## 7. Route Registration Types
+
+### 7.1 `RouteRegistrationResult`
+
+Frozen dataclass (not a list):
+
+```python
+@dataclass(frozen=True)
+class RouteRegistrationResult:
+    registered_routes: tuple[Route, ...]
+    eligibility: RouteEligibility
+```
+
+### 7.2 `RouteEligibility`
+
+```python
+@dataclass(frozen=True)
+class RouteEligibility:
+    configured: tuple[str, ...]
+    registered: tuple[str, ...]
+    disabled: tuple[str, ...]
+    degraded: tuple[DegradedRoute, ...]
+    skipped: tuple[SkippedRoute, ...]
+    unavailable: tuple[UnavailableRoute, ...]
+    route_states: dict[str, RouteOperationalState]
+```
+
+All tuple fields contain deterministically sorted route IDs. `route_states` keys are sorted.
+
+### 7.3 `RouteOperationalState`
+
+Enum with values: `configured`, `registered`, `active`, `degraded`, `skipped`, `unavailable`, `disabled`.
+
+
+## 8. Test Alignment
 
 The following test suites validate conformance to this contract:
 
 | Test file | Coverage |
 |-----------|----------|
-| `tests/test_runtime_snapshot.py` | Determinism, JSON-safety, sanitisation, boundedness, schema version, health state tolerance, startup/uptime |
+| `tests/test_runtime_snapshot.py` | Determinism, JSON-safety, sanitisation, boundedness, schema version, health state tolerance, startup/uptime, section structure |
 | `tests/test_snapshot_schema_stability.py` | Top-level key set validation, deterministic ordering, bounded exports, malformed adapter resilience, replay/capacity consistency, accounting schema |
 | `tests/test_snapshot_stress.py` | Large route/adapter tables, repeated snapshot determinism, failing/partially-initialised adapters, replay pressure, capacity exhaustion, secret safety at scale |
-| `tests/test_runtime_events.py` | EventBuffer emit/bound/snapshot, RuntimeEvent frozen/to_dict, RuntimeEventType str-enum, route_eligibility integration, runtime_events integration, deterministic key ordering with new keys |
+| `tests/test_runtime_events.py` | EventBuffer emit/bound/snapshot, RuntimeEvent frozen/to_dict, RuntimeEventType str-enum, route_eligibility integration, runtime_events integration, deterministic key ordering |
+| `tests/test_route_eligibility.py` | RouteOperationalState enum, DegradedRoute, per-route readiness states, sorted ordering, mixed scenarios, frozen dataclass validation |
+| `tests/test_runtime_builder.py` | Degraded route validation, builder integration with route eligibility |
 
 The authoritative top-level key set is defined in `_EXPECTED_RUNTIME_SNAPSHOT_TOP_KEYS` within `test_snapshot_schema_stability.py`. Any new top-level key must be added there.

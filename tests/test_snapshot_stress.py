@@ -222,8 +222,7 @@ class TestLargeRouteTables:
         routes = {f"route-{i:06d}": {"delivered": i} for i in range(_MAX_ROUTES)}
         app = _make_fake_app(route_stats=_FakeRouteStats(routes))
         snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
-        assert len(snap["routes"]) == _MAX_ROUTES
-        assert len(snap["delivery_counters"]) == _MAX_ROUTES
+        assert len(snap["routes"]["stats"]) == _MAX_ROUTES
 
     def test_routes_beyond_max_are_truncated(self) -> None:
         """Beyond _MAX_ROUTES — only first _MAX_ROUTES (sorted) kept."""
@@ -232,11 +231,11 @@ class TestLargeRouteTables:
         routes = {f"route-{i:06d}": {"delivered": i} for i in range(total)}
         app = _make_fake_app(route_stats=_FakeRouteStats(routes))
         snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
-        assert len(snap["routes"]) == _MAX_ROUTES
+        assert len(snap["routes"]["stats"]) == _MAX_ROUTES
         # The kept routes must be the first _MAX_ROUTES in sorted order.
         sorted_ids = sorted(routes.keys())
         expected_ids = sorted_ids[:_MAX_ROUTES]
-        assert list(snap["routes"].keys()) == expected_ids
+        assert list(snap["routes"]["stats"].keys()) == expected_ids
 
     def test_routes_sorted_deterministically_large(self) -> None:
         """Routes are sorted alphabetically even with 2000+ routes."""
@@ -245,7 +244,7 @@ class TestLargeRouteTables:
         routes["m-middle"] = {"delivered": 2}
         app = _make_fake_app(route_stats=_FakeRouteStats(routes))
         snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
-        route_keys = list(snap["routes"].keys())
+        route_keys = list(snap["routes"]["stats"].keys())
         assert route_keys == sorted(route_keys)
 
     def test_real_routestats_unbounded_growth(self) -> None:
@@ -258,7 +257,7 @@ class TestLargeRouteTables:
 
         app = _make_fake_app(route_stats=rs)
         snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
-        assert len(snap["routes"]) <= _MAX_ROUTES
+        assert len(snap["routes"]["stats"]) <= _MAX_ROUTES
 
 
 # =====================================================================
@@ -756,7 +755,7 @@ class TestBoundednessAndTruncation:
         failures = [_FakeBuildFailure(f"bf-{i}", f"error-{i}") for i in range(_MAX_BUILD_FAILURES)]
         app = _make_fake_app(build_failures=failures)
         snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
-        assert len(snap["build_failures"]) == _MAX_BUILD_FAILURES
+        assert len(snap["startup"]["build_failures"]) == _MAX_BUILD_FAILURES
 
     def test_build_failures_beyond_max_truncated(self) -> None:
         """Beyond _MAX_BUILD_FAILURES — truncated."""
@@ -764,7 +763,7 @@ class TestBoundednessAndTruncation:
         failures = [_FakeBuildFailure(f"bf-{i}", f"error-{i}") for i in range(total)]
         app = _make_fake_app(build_failures=failures)
         snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
-        assert len(snap["build_failures"]) == _MAX_BUILD_FAILURES
+        assert len(snap["startup"]["build_failures"]) == _MAX_BUILD_FAILURES
 
     def test_build_failure_error_truncated(self) -> None:
         """Error strings beyond _MAX_ERROR_DETAIL_LEN are truncated."""
@@ -772,7 +771,7 @@ class TestBoundednessAndTruncation:
         long_error = "Build error: " + "retry failed. " * 60
         app = _make_fake_app(build_failures=[_FakeBuildFailure("bf", long_error)])
         snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
-        bf_err = snap["build_failures"][0]["error"]
+        bf_err = snap["startup"]["build_failures"][0]["error"]
         assert len(bf_err) <= _MAX_ERROR_DETAIL_LEN
         assert bf_err.endswith("...")
 
@@ -783,14 +782,14 @@ class TestBoundednessAndTruncation:
         assert len(exact_error) == _MAX_ERROR_DETAIL_LEN
         app = _make_fake_app(build_failures=[_FakeBuildFailure("bf", exact_error)])
         snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
-        assert len(snap["build_failures"][0]["error"]) == _MAX_ERROR_DETAIL_LEN
+        assert len(snap["startup"]["build_failures"][0]["error"]) == _MAX_ERROR_DETAIL_LEN
 
     def test_build_failure_error_one_over_limit(self) -> None:
         """Error string one char over limit is truncated."""
         error = "Build error: " + " " * (_MAX_ERROR_DETAIL_LEN - 12)
         app = _make_fake_app(build_failures=[_FakeBuildFailure("bf", error)])
         snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
-        bf_err = snap["build_failures"][0]["error"]
+        bf_err = snap["startup"]["build_failures"][0]["error"]
         assert len(bf_err) <= _MAX_ERROR_DETAIL_LEN
 
     def test_all_bounds_exceeded_simultaneously(self) -> None:
@@ -811,9 +810,9 @@ class TestBoundednessAndTruncation:
         )
         snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
         assert len(snap["adapters"]) <= _MAX_ADAPTERS
-        assert len(snap["routes"]) <= _MAX_ROUTES
-        assert len(snap["build_failures"]) <= _MAX_BUILD_FAILURES
-        for bf in snap["build_failures"]:
+        assert len(snap["routes"]["stats"]) <= _MAX_ROUTES
+        assert len(snap["startup"]["build_failures"]) <= _MAX_BUILD_FAILURES
+        for bf in snap["startup"]["build_failures"]:
             assert len(bf["error"]) <= _MAX_ERROR_DETAIL_LEN
 
 
@@ -867,7 +866,7 @@ class TestSecretSafety:
         secret_error = "x" * 400 + "api_key=sk-LEAK" + "y" * 200
         app = _make_fake_app(build_failures=[_FakeBuildFailure("bf", secret_error)])
         snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
-        bf_error = snap["build_failures"][0]["error"]
+        bf_error = snap["startup"]["build_failures"][0]["error"]
         # Build failures are truncated but not sanitized — this is expected.
         # The truncation may or may not include the secret portion depending
         # on position. Just verify boundedness and JSON-safety.
@@ -945,7 +944,7 @@ class TestBuildFailureEdgeCases:
 
         app = _make_fake_app(build_failures=[_NoError()])
         snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
-        assert snap["build_failures"][0]["error"] == "unknown error"
+        assert snap["startup"]["build_failures"][0]["error"] == "unknown error"
 
     def test_build_failure_missing_adapter_id(self) -> None:
         """Build failure with no adapter_id uses 'unknown'."""
@@ -954,26 +953,26 @@ class TestBuildFailureEdgeCases:
 
         app = _make_fake_app(build_failures=[_NoId()])
         snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
-        assert snap["build_failures"][0]["adapter_id"] == "unknown"
+        assert snap["startup"]["build_failures"][0]["adapter_id"] == "unknown"
 
     def test_build_failure_error_is_exception(self) -> None:
         """Error being an Exception object is str()'d."""
         exc = ValueError("test error message")
         app = _make_fake_app(build_failures=[_FakeBuildFailure("bf", exc)])  # type: ignore[arg-type]
         snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
-        assert "test error message" in snap["build_failures"][0]["error"]
+        assert "test error message" in snap["startup"]["build_failures"][0]["error"]
 
     def test_empty_build_failures_list(self) -> None:
         """Empty build failures list produces empty list in snapshot."""
         app = _make_fake_app(build_failures=[])
         snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
-        assert snap["build_failures"] == []
+        assert snap["startup"]["build_failures"] == []
 
     def test_build_failure_error_is_empty_string(self) -> None:
         """Empty string error is preserved."""
         app = _make_fake_app(build_failures=[_FakeBuildFailure("bf", "")])
         snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
-        assert snap["build_failures"][0]["error"] == ""
+        assert snap["startup"]["build_failures"][0]["error"] == ""
 
 
 # =====================================================================
@@ -1036,14 +1035,14 @@ class TestFullyLoadedSnapshotAtScale:
         # Verify structure.
         assert snap["schema_version"] == SCHEMA_VERSION
         assert len(snap["adapters"]) == 200
-        assert len(snap["routes"]) == 500
-        assert len(snap["build_failures"]) == 30
+        assert len(snap["routes"]["stats"]) == 500
+        assert len(snap["startup"]["build_failures"]) == 30
         assert snap["replay"]["available"] is True
         assert snap["capacity"]["delivery_current"] == 10
-        assert snap["startup_health"]["overall"] == "degraded"
+        assert snap["startup"]["startup_health"]["overall"] == "degraded"
         assert snap["accounting"]["events_processed"] == 50000
-        assert snap["uptime_seconds"] == 800.0
-        assert snap["startup_timestamp"] == "2026-05-11T08:00:00+00:00"
+        assert snap["lifecycle"]["uptime_seconds"] == 800.0
+        assert snap["lifecycle"]["startup_timestamp"] == "2026-05-11T08:00:00+00:00"
 
         # JSON-safe.
         serialized = json.dumps(snap, sort_keys=True)
@@ -1057,9 +1056,9 @@ class TestFullyLoadedSnapshotAtScale:
         snap = build_runtime_snapshot(object(), now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
         assert snap["schema_version"] == SCHEMA_VERSION
         assert snap["adapters"] == {}
-        assert snap["routes"] == {}
-        assert snap["build_failures"] == []
-        assert snap["runtime_state"] == "unknown"
+        assert snap["routes"]["stats"] == {}
+        assert snap["startup"]["build_failures"] == []
+        assert snap["lifecycle"]["runtime_state"] == "unknown"
         json.dumps(snap)
 
 
@@ -1087,7 +1086,7 @@ class TestPerformanceSanity:
         elapsed = time.monotonic() - start
 
         assert len(snap["adapters"]) == _MAX_ADAPTERS
-        assert len(snap["routes"]) == _MAX_ROUTES
+        assert len(snap["routes"]["stats"]) == _MAX_ROUTES
         # No strict timing assertion — just ensure it completes.
         # If it takes > 10s something is very wrong.
         assert elapsed < 10.0, f"Snapshot took {elapsed:.2f}s — possible performance regression"
