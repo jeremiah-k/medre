@@ -45,6 +45,7 @@ Public symbols
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from collections import Counter
@@ -1045,6 +1046,8 @@ class ReplayEngine:
             # All stages completed for this event → processed.
             if self._accounting is not None:
                 self._accounting.record_replay_processed()
+        except asyncio.CancelledError:
+            raise
         except Exception as exc:
             if mode is ReplayMode.BEST_EFFORT:
                 if self._diagnostician is not None:
@@ -1678,6 +1681,8 @@ class ReplayEngine:
         if self._capacity_controller is not None and mode is ReplayMode.BEST_EFFORT:
             acquired = await self._capacity_controller.acquire_replay()
             if not acquired:
+                if self._accounting is not None:
+                    self._accounting.record_capacity_rejection()
                 return ReplayResult(
                     event_id=event.event_id,
                     stage="deliver",
@@ -1716,6 +1721,8 @@ class ReplayEngine:
                 output=replay_output,
                 duration_ms=_elapsed_ms(t0),
             )
+        except asyncio.CancelledError:
+            raise
         except Exception as exc:
             if self._diagnostician is not None:
                 self._diagnostician.record_adapter_failure(

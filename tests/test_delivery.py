@@ -522,6 +522,7 @@ class TestDeliveryFailureKind:
             "TARGET_NOT_FOUND",
             "DEADLINE_EXCEEDED",
             "SHUTDOWN_REJECTION",
+            "CAPACITY_REJECTION",
         }
         actual = {m.name for m in DeliveryFailureKind}
         assert actual == expected
@@ -538,6 +539,7 @@ class TestDeliveryFailureKind:
             DeliveryFailureKind.TARGET_NOT_FOUND,
             DeliveryFailureKind.DEADLINE_EXCEEDED,
             DeliveryFailureKind.SHUTDOWN_REJECTION,
+            DeliveryFailureKind.CAPACITY_REJECTION,
         ]
         for kind in non_retryable:
             assert kind.is_retryable is False, f"{kind.name} should not be retryable"

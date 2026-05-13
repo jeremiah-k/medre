@@ -37,6 +37,7 @@ from medre.core.storage.replay import (
     collect_replay_summary,
 )
 from medre.runtime.capacity import CapacityController
+from medre.core.runtime.accounting import RuntimeAccounting
 
 
 # ---------------------------------------------------------------------------
@@ -122,11 +123,14 @@ def _make_engine(
     storage: SQLiteStorage,
     pipeline: Any | None = None,
     capacity_controller: CapacityController | None = None,
+    accounting: RuntimeAccounting | None = None,
 ) -> ReplayEngine:
-    """Create a ReplayEngine wired with optional capacity controller."""
+    """Create a ReplayEngine wired with optional capacity controller and accounting."""
     engine = ReplayEngine(
         storage=cast(StorageBackend, storage),
         pipeline=pipeline,
+        capacity_controller=capacity_controller,
+        accounting=accounting,
     )
     if capacity_controller is not None:
         engine.set_capacity_controller(capacity_controller)
@@ -171,7 +175,7 @@ class TestReplayCancellation:
         self,
         temp_storage: SQLiteStorage,
     ) -> None:
-        """When CC is stopped before replay, BEST_EFFORT deliver gets capacity error."""
+        """When CC is stopped before replay, BEST_EFFORT deliver gets capacity error + accounting."""
         event = _make_event(source_adapter="src")
         await temp_storage.append(event)
 
@@ -186,8 +190,12 @@ class TestReplayCancellation:
 
         cc = _make_capacity()
         cc.stop_accepting()
+        accounting = RuntimeAccounting()
 
-        engine = _make_engine(temp_storage, pipeline=pipeline, capacity_controller=cc)
+        engine = _make_engine(
+            temp_storage, pipeline=pipeline,
+            capacity_controller=cc, accounting=accounting,
+        )
         request = ReplayRequest(mode=ReplayMode.BEST_EFFORT)
 
         results = [r async for r in engine.replay(request)]
@@ -195,6 +203,9 @@ class TestReplayCancellation:
         assert deliver_result.stage == "deliver"
         assert deliver_result.status == "error"
         assert "replay_capacity_exceeded" in (deliver_result.error or "")
+
+        # Accounting: capacity_rejections incremented.
+        assert accounting.counters().capacity_rejections == 1
 
     async def test_strict_mode_ignores_capacity(
         self,
@@ -986,3 +997,54 @@ class TestReplayCapacityPressure:
         assert deliver_result.status == "passed"
         assert isinstance(deliver_result.output, dict)
         assert deliver_result.output["replay"] is True
+
+
+# ===================================================================
+# CancelledError propagation through replay
+# ===================================================================
+
+
+class TestCancelledErrorPropagation:
+    """Verify that asyncio.CancelledError propagates through replay
+    and is not swallowed by the BEST_EFFORT error handler.
+    """
+
+    async def test_cancelled_error_propagates_from_stage(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """CancelledError raised inside a stage propagates (not swallowed)."""
+        event = _make_event()
+        await temp_storage.append(event)
+
+        pipeline = AsyncMock()
+        pipeline.route_event = AsyncMock(side_effect=asyncio.CancelledError())
+
+        engine = _make_engine(temp_storage, pipeline=pipeline)
+        request = ReplayRequest(mode=ReplayMode.BEST_EFFORT)
+
+        with pytest.raises(asyncio.CancelledError):
+            _ = [r async for r in engine.replay(request)]
+
+    async def test_cancelled_error_propagates_from_deliver(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """CancelledError raised during delivery propagates (not swallowed)."""
+        event = _make_event(source_adapter="src")
+        await temp_storage.append(event)
+
+        pipeline = AsyncMock()
+        pipeline.transform_event = AsyncMock(return_value=event)
+        pipeline.render_event = AsyncMock(return_value="rendered")
+        pipeline.route_event = AsyncMock(
+            return_value=[("route", [RouteTarget(adapter="dst")])],
+        )
+        pipeline.plan_delivery = AsyncMock(return_value=["plan"])
+        pipeline.deliver = AsyncMock(side_effect=asyncio.CancelledError())
+
+        engine = _make_engine(temp_storage, pipeline=pipeline)
+        request = ReplayRequest(mode=ReplayMode.BEST_EFFORT)
+
+        with pytest.raises(asyncio.CancelledError):
+            _ = [r async for r in engine.replay(request)]

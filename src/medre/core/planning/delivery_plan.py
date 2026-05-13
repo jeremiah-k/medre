@@ -162,9 +162,13 @@ class DeliveryFailureKind(Enum):
         transport).  Always permanent.
     DEADLINE_EXCEEDED:
         The delivery plan's ``deadline`` has passed.  Not retryable.
+    CAPACITY_REJECTION:
+        Delivery was rejected because the capacity controller's
+        semaphore is exhausted (all in-flight slots occupied).  Not
+        retryable at this call site — the caller should back-pressure.
     SHUTDOWN_REJECTION:
-        Delivery was attempted while the pipeline is shutting down.
-        Not retryable — the attempt should not have been issued.
+        Delivery was attempted while the pipeline is shutting down
+        (capacity controller no longer accepting work).  Not retryable.
     """
 
     PLANNER_FAILURE = "planner_failure"
@@ -174,6 +178,7 @@ class DeliveryFailureKind(Enum):
     ADAPTER_MISSING = "adapter_missing"
     TARGET_NOT_FOUND = "target_not_found"
     DEADLINE_EXCEEDED = "deadline_exceeded"
+    CAPACITY_REJECTION = "capacity_rejection"
     SHUTDOWN_REJECTION = "shutdown_rejection"
 
     @property

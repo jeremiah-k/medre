@@ -20,10 +20,10 @@ complement the existing per-route `RouteStats` and per-route
 | `outbound_attempts`    | `record_outbound_attempt()`    | Outbound delivery attempts (any outcome)       |
 | `outbound_delivered`   | `record_outbound_delivered()`  | Outbound deliveries that succeeded             |
 | `outbound_failed`      | `record_outbound_failed()`     | Outbound deliveries that failed                |
-| `replay_processed`     | `record_replay_processed()`    | Replay events processed through the pipeline   |
-| `replay_rejected`      | `record_replay_rejected()`     | Replay events rejected by filter/mode/policy   |
+| `replay_processed`     | `record_replay_processed()`    | Replay events that completed all stages without unhandled exception |
+| `replay_rejected`      | `record_replay_rejected()`     | Replay events rejected (missing, filter mismatch, or unhandled BEST_EFFORT error) |
 | `loop_prevented`       | `record_loop_prevented()`      | Events blocked by the self-loop guard          |
-| `capacity_rejections`  | `record_capacity_rejection()`  | Operations rejected by the capacity controller |
+| `capacity_rejections`  | `record_capacity_rejection()`  | Operations rejected by the capacity controller (both pipeline delivery and replay) |
 
 ## Guarantees
 
@@ -107,6 +107,45 @@ persistent metrics, use an external monitoring system (future).
 | `replay_rejected` rising with `replay_processed` flat | Replay filter rejecting all events. Check replay request parameters. |
 | All counters zero after uptime | Accounting not wired into the pipeline yet (future integration). |
 
+## replay_processed vs replay_rejected Semantics
+
+- **`replay_processed`** is incremented when a replay event completes all
+  requested stages *without* an unhandled exception.  Individual stage
+  failures (e.g. store check failed, no routes matched) still count as
+  processed because the replay engine handled them gracefully.
+
+- **`replay_rejected`** is incremented when a replay event is rejected
+  *before* stage execution begins (event missing from storage, filter
+  mismatch) or when an unhandled exception escapes in BEST_EFFORT mode.
+  In non-BEST_EFFORT modes, unhandled exceptions propagate rather than
+  incrementing this counter.
+
+- **`capacity_rejections`** is incremented by both the pipeline (delivery
+  capacity exhausted) and the replay engine (replay capacity exhausted).
+  The counter is a global aggregate; use `CapacityController.snapshot()`
+  to distinguish delivery vs replay rejections.
+
+## Failure Taxonomy (DeliveryFailureKind)
+
+The pipeline classifies delivery failures using `DeliveryFailureKind`:
+
+| Kind | Trigger | Retryable |
+|------|---------|-----------|
+| `PLANNER_FAILURE` | Routing/planning error | No |
+| `RENDERER_FAILURE` | Rendering error | No |
+| `ADAPTER_TRANSIENT` | Timeout, connection reset | Yes |
+| `ADAPTER_PERMANENT` | Business-logic rejection | No |
+| `ADAPTER_MISSING` | Adapter ID not registered | No |
+| `TARGET_NOT_FOUND` | Channel not found | No |
+| `DEADLINE_EXCEEDED` | Plan deadline passed | No |
+| `CAPACITY_REJECTION` | All delivery slots occupied | No |
+| `SHUTDOWN_REJECTION` | Capacity controller stopped | No |
+
+`CAPACITY_REJECTION` is used when the capacity controller's semaphore is
+exhausted but the controller is still accepting work.  `SHUTDOWN_REJECTION`
+is used when the controller has called `stop_accepting()` (pipeline
+shutdown in progress).
+
 ## Relationship to Existing Metrics
 
 | Module | Scope | Overlap |
@@ -135,8 +174,10 @@ The accounting module is designed for future consumption:
    via `PipelineConfig` (one new optional field) with minimal increment
    calls at ingress, delivery, and error points.
 
-4. **Capacity controller**: Wire `record_capacity_rejection()` into
-   `CapacityController.acquire_*()` rejection paths.
+  4. **Capacity controller**: `record_capacity_rejection()` is wired into
+     both `PipelineRunner._deliver_to_targets_inner` (delivery capacity
+     exhausted) and `ReplayEngine._stage_deliver` (replay capacity
+     exhausted).  The counter is incremented at the point of rejection.
 
 ## Testing Requirements
 

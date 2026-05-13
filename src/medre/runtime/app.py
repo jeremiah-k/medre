@@ -669,7 +669,10 @@ class MedreApp:
 
         # 1. Stop adapters in reverse start order for clean teardown.
         errors: list[tuple[str, Exception]] = []
+        _terminal = {AdapterState.FAILED, AdapterState.STOPPED}
         for adapter_id in reversed(self.started_adapter_ids):
+            if self._adapter_states.get(adapter_id) in _terminal:
+                continue
             adapter = self.adapters.get(adapter_id)
             if adapter is None:
                 continue

@@ -215,7 +215,7 @@ This is acceptable for Phase 1 because MEDRE is not an encryption boundary. It t
 | Aspect | Normalizable? | How |
 |--------|--------------|-----|
 | Message existence (was it sent?) | Yes | `AdapterDeliveryResult` records native_message_id on success |
-| Delivery failure (did it fail?) | Yes | Exception taxonomy → `DeliveryFailureKind` |
+| Delivery failure (did it fail?) | Yes | Exception taxonomy → `DeliveryFailureKind` (CAPACITY_REJECTION for full semaphore, SHUTDOWN_REJECTION for stopped controller) |
 | Reply relationships | Partially | `EventRelation` with `target_native_ref`; degraded on transports without native reply |
 | Sender identity (as string) | Yes | `source_transport_id` carries whatever the transport provides |
 | Timestamp | Yes (with caveats) | `CanonicalEvent.timestamp` is UTC; constrained devices may have poor clocks |

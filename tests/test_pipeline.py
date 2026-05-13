@@ -2676,3 +2676,128 @@ class TestRouteAttribution:
             assert snap["loop-stats-route"]["delivered"] == 0
         finally:
             await runner.stop()
+
+
+# ===================================================================
+# Capacity / Shutdown rejection taxonomy
+# ===================================================================
+
+
+class TestCapacityRejectionTaxonomy:
+    """Verify that delivery capacity rejection uses CAPACITY_REJECTION,
+    not DEADLINE_EXCEEDED, and that shutdown uses SHUTDOWN_REJECTION.
+    """
+
+    async def test_capacity_exhausted_returns_capacity_rejection(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Capacity controller semaphore exhausted → CAPACITY_REJECTION."""
+        from medre.config.model import RuntimeLimits
+        from medre.core.runtime.accounting import RuntimeAccounting
+        from medre.runtime.capacity import CapacityController
+
+        adapter = FakePresentationAdapter(adapter_id="target")
+
+        route = Route(
+            id="cap-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel=None
+            ),
+            targets=[RouteTarget(adapter="target")],
+        )
+        router = Router(routes=[route])
+
+        accounting = RuntimeAccounting()
+        config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={"target": adapter},
+        )
+        config.runtime_accounting = accounting
+
+        runner = PipelineRunner(config)
+
+        # Use a capacity controller with 0 delivery slots → always rejects.
+        limits = RuntimeLimits(
+            max_inflight_deliveries=1,
+            delivery_acquire_timeout_seconds=0.001,
+        )
+        cc = CapacityController(limits)
+        runner.set_capacity_controller(cc)
+
+        await runner.start()
+
+        # Pre-acquire the single slot so the next acquire fails.
+        await cc.acquire_delivery()
+
+        event = _make_event(event_id="cap-001", source_adapter="src")
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+            assert len(outcomes) == 1
+            assert outcomes[0].status == "permanent_failure"
+            assert (
+                outcomes[0].failure_kind is DeliveryFailureKind.CAPACITY_REJECTION
+            )
+            assert outcomes[0].error == "delivery_capacity_exceeded"
+
+            # Accounting: capacity_rejections incremented.
+            assert accounting.counters().capacity_rejections == 1
+        finally:
+            await runner.stop()
+
+    async def test_shutdown_rejection_returns_shutdown_rejection(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Capacity controller stopped → SHUTDOWN_REJECTION."""
+        from medre.config.model import RuntimeLimits
+        from medre.core.runtime.accounting import RuntimeAccounting
+        from medre.runtime.capacity import CapacityController
+
+        adapter = FakePresentationAdapter(adapter_id="target")
+
+        route = Route(
+            id="shutdown-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel=None
+            ),
+            targets=[RouteTarget(adapter="target")],
+        )
+        router = Router(routes=[route])
+
+        accounting = RuntimeAccounting()
+        config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={"target": adapter},
+        )
+        config.runtime_accounting = accounting
+
+        runner = PipelineRunner(config)
+
+        limits = RuntimeLimits(max_inflight_deliveries=10)
+        cc = CapacityController(limits)
+        runner.set_capacity_controller(cc)
+
+        await runner.start()
+
+        # Stop accepting work so acquire returns False immediately.
+        cc.stop_accepting()
+
+        event = _make_event(event_id="shutdown-001", source_adapter="src")
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+            assert len(outcomes) == 1
+            assert outcomes[0].status == "permanent_failure"
+            assert (
+                outcomes[0].failure_kind is DeliveryFailureKind.SHUTDOWN_REJECTION
+            )
+            assert outcomes[0].error == "delivery_capacity_exceeded"
+
+            # Accounting: capacity_rejections incremented.
+            assert accounting.counters().capacity_rejections == 1
+        finally:
+            await runner.stop()

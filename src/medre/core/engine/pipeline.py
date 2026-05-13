@@ -603,6 +603,11 @@ class PipelineRunner:
                         self._route_stats.record_failed(
                             route.id, "delivery_capacity_exceeded"
                         )
+                    # Classify: shutdown vs capacity exhaustion.
+                    if not self._capacity_controller.accepting_work:
+                        capacity_failure_kind = DeliveryFailureKind.SHUTDOWN_REJECTION
+                    else:
+                        capacity_failure_kind = DeliveryFailureKind.CAPACITY_REJECTION
                     elapsed = (time.monotonic() - t0) * 1000.0
                     return DeliveryOutcome(
                         event_id=event.event_id,
@@ -613,7 +618,7 @@ class PipelineRunner:
                             route_plan.plan_id if hasattr(route_plan, "plan_id") else ""
                         ),
                         status="permanent_failure",
-                        failure_kind=DeliveryFailureKind.DEADLINE_EXCEEDED,
+                        failure_kind=capacity_failure_kind,
                         receipt=None,
                         error="delivery_capacity_exceeded",
                         duration_ms=elapsed,
