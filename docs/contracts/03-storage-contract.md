@@ -2,7 +2,7 @@
 
 > Extracted from: Modular Event Communications Runtime Specification, Sections 12, 18, 19
 > Version: 0.1.0 (Draft)
-> Last updated: 2026-05-07
+> Last updated: 2026-05-13
 
 ## 1. Overview
 
@@ -38,7 +38,12 @@ class StorageBackend(Protocol):
         ...
 
     async def query(self, filter: EventFilter) -> AsyncIterator[CanonicalEvent]:
-        """Yield events matching filter, ordered by timestamp."""
+        """Yield events matching filter, ordered by timestamp ascending.
+        
+        Ordering is ``ORDER BY timestamp ASC`` only. There is no secondary
+        sort on event_id. Events with identical timestamps may be yielded
+        in any order.
+        """
         ...
 
     # -- Native ref correlation ---------------------------------------------
@@ -109,28 +114,25 @@ CREATE TABLE canonical_events (
     event_id TEXT PRIMARY KEY,
     event_kind TEXT NOT NULL,
     schema_version INTEGER NOT NULL,
-    timestamp TEXT NOT NULL,         -- ISO 8601 with nanoseconds
+    timestamp TEXT NOT NULL,            -- ISO 8601, set by application code
     source_adapter TEXT NOT NULL,
     source_transport_id TEXT NOT NULL,  -- Native actor/source identity (not native message ID)
-    source_channel_id TEXT,          -- Native channel/room/topic on source adapter
-    source_native_adapter TEXT,      -- Source NativeRef.adapter for inbound native reference
-    source_native_channel_id TEXT,   -- Source NativeRef.native_channel_id
-    source_native_message_id TEXT,   -- Source NativeRef.native_message_id
-    source_native_thread_id TEXT,    -- Source NativeRef.native_thread_id
+    source_channel_id TEXT,             -- Native channel/room/topic on source adapter
     parent_event_id TEXT,
-    lineage TEXT,                    -- JSON array of event IDs
-    payload TEXT NOT NULL,           -- JSON
-    metadata TEXT NOT NULL,          -- JSON
+    lineage TEXT NOT NULL DEFAULT '[]', -- JSON array of event IDs
+    payload TEXT NOT NULL DEFAULT '{}', -- JSON
+    metadata TEXT NOT NULL DEFAULT '{}',-- JSON (serialised EventMetadata)
     depth INTEGER NOT NULL DEFAULT 0,
     trace_id TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    source_native_adapter TEXT,         -- Source NativeRef.adapter for inbound native reference
+    source_native_channel_id TEXT,      -- Source NativeRef.native_channel_id
+    source_native_message_id TEXT,      -- Source NativeRef.native_message_id
+    source_native_thread_id TEXT,       -- Source NativeRef.native_thread_id
+    created_at TEXT NOT NULL            -- Set by application code, no SQL DEFAULT
 );
-
-CREATE INDEX idx_events_kind ON canonical_events(event_kind);
-CREATE INDEX idx_events_timestamp ON canonical_events(timestamp);
-CREATE INDEX idx_events_source ON canonical_events(source_adapter, source_transport_id);
-CREATE INDEX idx_events_parent ON canonical_events(parent_event_id);
 ```
+
+> **Index note:** The implementation DDL does not currently create indexes. The following indexes are documented as intended query patterns for future creation: `idx_events_kind(event_kind)`, `idx_events_timestamp(timestamp)`, `idx_events_source(source_adapter, source_transport_id)`, `idx_events_parent(parent_event_id)`.
 
 `source_transport_id` identifies the native actor (who produced the event), not the native message. Native message IDs belong in `native_message_refs`.
 
@@ -146,20 +148,22 @@ The `source_native_*` columns persist the optional `CanonicalEvent.source_native
 CREATE TABLE event_relations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
-    relation_type TEXT NOT NULL CHECK(relation_type IN ('reply', 'reaction', 'edit', 'delete', 'thread')),
+    relation_type TEXT NOT NULL,
     target_event_id TEXT,                -- Canonical event ID of the target, once resolved
-    target_native_ref TEXT,              -- JSON: NativeRef dict when canonical ID not yet known
+    target_native_adapter TEXT,          -- Split from NativeRef when canonical ID not yet known
+    target_native_channel_id TEXT,
+    target_native_message_id TEXT,
+    target_native_thread_id TEXT,
     key TEXT,                            -- Relation-specific key (e.g., emoji for reactions)
     fallback_text TEXT,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    metadata TEXT NOT NULL DEFAULT '{}', -- JSON
+    created_at TEXT NOT NULL             -- Set by application code, no SQL DEFAULT
 );
-
-CREATE INDEX idx_relations_event ON event_relations(event_id);
-CREATE INDEX idx_relations_target ON event_relations(target_event_id);
-CREATE INDEX idx_relations_type ON event_relations(relation_type);
 ```
 
-`target_native_ref` holds a JSON-serialized `NativeRef` dict when the canonical event ID hasn't been resolved yet. The relation resolution stage resolves it to `target_event_id` by querying `native_message_refs`.
+> **Index note:** The implementation DDL does not currently create indexes. The following indexes are documented as intended query patterns for future creation: `idx_relations_event(event_id)`, `idx_relations_target(target_event_id)`, `idx_relations_type(relation_type)`.
+
+The `target_native_*` split columns store the `NativeRef` fields when the canonical event ID for the relation target is not yet known. When a relation is unresolved, `target_event_id` is `NULL` and the four `target_native_*` columns carry the native reference. The relation resolution stage resolves these to `target_event_id` by calling `resolve_native_ref(adapter, native_channel_id, native_message_id)` against `native_message_refs`. At load time, `_row_to_relation` reconstructs the in-memory `EventRelation.target_native_ref` from the four split columns.
 
 `key` carries type-specific data: emoji for reactions, reason/label for other types.
 
@@ -169,25 +173,23 @@ CREATE INDEX idx_relations_type ON event_relations(relation_type);
 
 ```sql
 CREATE TABLE native_message_refs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id TEXT PRIMARY KEY,
     event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
     adapter TEXT NOT NULL,
-    native_channel_id TEXT NOT NULL,
+    native_channel_id TEXT,
     native_message_id TEXT NOT NULL,
     native_thread_id TEXT,
     native_relation_id TEXT,
-    direction TEXT NOT NULL CHECK(direction IN ('inbound', 'outbound')),
-    metadata TEXT NOT NULL DEFAULT '{}',  -- JSON
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    direction TEXT NOT NULL,
+    metadata TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
     UNIQUE(adapter, native_channel_id, native_message_id)
 );
-
-CREATE INDEX idx_native_refs_event ON native_message_refs(event_id);
-CREATE INDEX idx_native_refs_adapter_native ON native_message_refs(adapter, native_message_id);
-CREATE INDEX idx_native_refs_relation ON native_message_refs(adapter, native_relation_id);
 ```
 
 The `UNIQUE(adapter, native_channel_id, native_message_id)` constraint is the foundation of idempotent correlation. Two calls to `store_native_ref` with the same adapter, channel, and message ID must not create duplicate rows.
+
+**NULL-channel idempotency:** SQLite treats each `NULL` as distinct for `UNIQUE` constraints (`NULL != NULL`). When `native_channel_id` is `NULL`, the UNIQUE constraint alone cannot prevent duplicate rows. `SQLiteStorage.store_native_ref` performs an explicit resolve-before-insert check: it queries for an existing row with the same `(adapter, NULL, native_message_id)` before inserting. If a match is found, the insert is skipped. This ensures NULL-channel native refs are idempotent despite the SQL standard's NULL handling.
 
 Transport-specific examples:
 
@@ -207,6 +209,7 @@ CREATE TABLE delivery_receipts (
     event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
     delivery_plan_id TEXT NOT NULL,
     target_adapter TEXT NOT NULL,
+    route_id TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL,             -- "accepted", "queued", "sent", "confirmed", "failed", "dead_lettered"
     error TEXT,
     adapter_message_id TEXT,
@@ -234,8 +237,12 @@ Receipts are **append-only records**. The "current status" of a delivery is a **
 The current delivery status for any plan is a projection: the latest receipt row for a given `(delivery_plan_id, target_adapter)` tuple.
 
 ```sql
-CREATE VIEW delivery_status AS
-SELECT dr.* FROM delivery_receipts dr
+CREATE VIEW IF NOT EXISTS delivery_status AS
+SELECT dr.sequence, dr.receipt_id, dr.event_id, dr.delivery_plan_id,
+       dr.target_adapter, dr.route_id, dr.status, dr.error,
+       dr.adapter_message_id, dr.next_retry_at, dr.attempt_number,
+       dr.parent_receipt_id, dr.created_at
+FROM delivery_receipts dr
 JOIN (
     SELECT delivery_plan_id, target_adapter, MAX(sequence) AS max_seq
     FROM delivery_receipts GROUP BY delivery_plan_id, target_adapter
@@ -250,15 +257,26 @@ Uses `MAX(sequence)` for deterministic ordering rather than timestamps, which ma
 CREATE TABLE plugin_state (
     plugin_id TEXT NOT NULL,
     key TEXT NOT NULL,
-    value TEXT NOT NULL DEFAULT '{}',  -- JSON
-    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
     PRIMARY KEY (plugin_id, key)
 );
 ```
 
 Scoped key-value storage for plugins. Keys are scoped to `plugin_id`. Plugins cannot read or write state belonging to other plugins.
 
-### 3.7 Identity Tables
+### 3.7 _medre_schema_meta
+
+```sql
+CREATE TABLE _medre_schema_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+```
+
+Internal metadata table. Used to track the storage schema version. On initialization, `SQLiteStorage` checks that the stored `schema_version` matches `_EXPECTED_SCHEMA_VERSION`. On a fresh database, the version row is inserted. If the version mismatches, `StorageInitializationError` is raised (see Section 5.10).
+
+### 3.8 Identity Tables
 
 These tables support identity resolution and actor management.
 
@@ -316,7 +334,7 @@ CREATE TABLE actor_permissions (
 );
 ```
 
-### 3.8 native_archive
+### 3.9 native_archive
 
 ```sql
 CREATE TABLE native_archive (
@@ -353,9 +371,9 @@ storage:
 |---|---|---|
 | Atomic writes | **Required** | Event append, native ref storage, and receipt append must be atomic. A partial write must not leave the database in an inconsistent state. |
 | Idempotent correlation | **Required** | Storing the same `(adapter, native_channel_id, native_message_id)` tuple twice must not create duplicate rows. The `UNIQUE` constraint enforces this. |
-| Ordered append | **Required** | `canonical_events` rows are ordered by `timestamp`. `delivery_receipts` rows are ordered by `sequence` (monotonic auto-increment). |
+| Ordered append | **Required** | `canonical_events` rows are ordered by `timestamp` (ascending, no secondary sort). `delivery_receipts` rows are ordered by `sequence` (monotonic auto-increment). |
 | Replay | **Required** | The event log must support querying by time range, event kind, source adapter, and other filter criteria for replay and reprocessing. |
-| Relation lookup | **Required** | Given a `target_native_ref` (adapter, native_channel_id, native_message_id), the resolver must find the canonical `event_id` via `native_message_refs`. |
+| Relation lookup | **Required** | Given a `target_native_ref` (adapter, native_channel_id, native_message_id), the resolver must find the canonical `event_id` via `native_message_refs`. Unresolved relations store the native reference as split `target_native_*` columns in `event_relations`. |
 | Receipt immutability | **Required** | Receipt rows are append-only. No `UPDATE` or `DELETE` on `delivery_receipts`. Current status is always a projection. |
 | Concurrent reads | **Required** | WAL mode must be enabled to allow concurrent reads while writes are in progress. |
 | Raw archival | Optional | Per-adapter opt-in. Not required for core pipeline operation. |
@@ -365,8 +383,9 @@ storage:
 
 ### 5.1 append(event)
 
-- Writes a `CanonicalEvent` as a single row into `canonical_events`.
-- The `relations` list is not stored inline. Call `store_relation` separately for each relation.
+- Writes a `CanonicalEvent` as a single row into `canonical_events`, together with all inline relations as rows in `event_relations`, in a single atomic batch.
+- Raises `DuplicateEventError` (a subclass of `StorageError`) if `event_id` already exists in `canonical_events`. Events are append-only; callers that need idempotent semantics should check with `get` first or catch this exception.
+- The `relations` tuple on the in-memory `CanonicalEvent` is persisted as separate rows in `event_relations` within the same batch write. No separate `store_relation` call is needed for inline relations.
 - Must be atomic. If the write fails, the database state must be unchanged.
 
 ### 5.2 get(event_id)
@@ -378,6 +397,7 @@ storage:
 
 - Inserts a row into `native_message_refs`.
 - If `(adapter, native_channel_id, native_message_id)` already exists, the insert is a no-op (idempotent).
+- **NULL-channel handling:** When `native_channel_id` is `NULL`, SQLite's `UNIQUE` constraint cannot detect duplicates (SQL standard: `NULL != NULL`). The implementation performs an explicit resolve-before-insert: it queries for an existing row with the same `(adapter, NULL, native_message_id)` before inserting. If a match is found, the insert is skipped. This ensures NULL-channel native refs are idempotent.
 - The `direction` field records whether this ref was created on ingress (`inbound`) or delivery (`outbound`).
 - For inbound events, the pipeline calls `store_native_ref` with `direction="inbound"` after canonical event storage, using the native message ID carried on `CanonicalEvent.source_native_ref`.
 - For outbound events, the pipeline calls `store_native_ref` with `direction="outbound"` after successful delivery, using the native event ID returned by the adapter.
@@ -391,7 +411,7 @@ storage:
 ### 5.5 store_relation(event_id, relation)
 
 - Inserts a row into `event_relations` for the given event and relation.
-- Serializes `target_native_ref` as JSON if present.
+- Stores `target_native_ref` as four split nullable columns (`target_native_adapter`, `target_native_channel_id`, `target_native_message_id`, `target_native_thread_id`). At load time, `_row_to_relation` reconstructs the in-memory `NativeRef` from these columns.
 - Called separately from `append`. The caller is responsible for storing all relations after appending the event.
 
 ### 5.6 list_relations(event_id)
@@ -408,7 +428,15 @@ storage:
 
 ### 5.8 archive_raw(event_id, adapter, data) (Future)
 
-> **Note:** `archive_raw` is not part of the Phase 1 `StorageBackend` protocol. It appears in the master spec as a future capability. The `native_archive` table schema is defined in Section 3.8 for reference but is not created or used in Phase 1.
+> **Note:** `archive_raw` is not part of the Phase 1 `StorageBackend` protocol. It appears in the master spec as a future capability. The `native_archive` table schema is defined in Section 3.9 for reference but is not created or used in Phase 1.
+
+### 5.9 Pre-release Database Policy
+
+MEDRE has not yet made its first release. There is no automatic migration support. Existing databases from prior development builds are not guaranteed to be compatible after schema-affecting changes. The `initialize()` method performs two validation checks:
+
+1. **Schema version check** against `_medre_schema_meta`: On a fresh database, the version row is inserted automatically. If the stored version mismatches `_EXPECTED_SCHEMA_VERSION`, `StorageInitializationError` is raised with guidance to resolve the mismatch manually (export data, delete the database file, and restart; or downgrade medre to match the database version).
+
+2. **Column-shape validation** via `_validate_schema_shape()`: After DDL execution, `initialize()` inspects `PRAGMA table_info` for each required table and compares column names against `_REQUIRED_COLUMNS`. If any required column is missing, `StorageInitializationError` is raised with a message identifying the affected table and missing columns, advising the operator to recreate the database. This catches old pre-release databases whose `schema_version` still reads `1` but whose column shape predates the current DDL.
 
 ## 6. Replay Interface
 

@@ -20,7 +20,11 @@ from medre.core.events import (
     NativeRef,
 )
 from medre.core.storage import EventFilter, SQLiteStorage
-from medre.core.storage.backend import DuplicateEventError, StorageError
+from medre.core.storage.backend import (
+    DuplicateEventError,
+    StorageError,
+    StorageInitializationError,
+)
 
 
 # Helper to build a minimal event quickly.
@@ -1110,3 +1114,211 @@ class TestUtcAwareDefaultCreatedAt:
         )
         assert receipt.created_at.tzinfo is not None
         assert receipt.created_at.tzinfo == timezone.utc
+
+
+# ===================================================================
+# Schema shape validation
+# ===================================================================
+
+
+class TestSchemaShapeValidation:
+    """Detect old pre-release DBs whose schema_version=1 but column shape
+    predates the current DDL.
+
+    initialize() must raise StorageInitializationError with clear guidance
+    to recreate the database.
+    """
+
+    async def test_old_event_relations_missing_columns(self) -> None:
+        """An event_relations table lacking target_native_thread_id
+        triggers StorageInitializationError even though schema_version=1."""
+        import sqlite3
+
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = f.name
+
+        try:
+            # Build an old-shape database: event_relations without
+            # target_native_thread_id (and a few other newer columns).
+            raw = sqlite3.connect(db_path)
+            raw.executescript("""
+                CREATE TABLE IF NOT EXISTS canonical_events (
+                    event_id TEXT PRIMARY KEY,
+                    event_kind TEXT NOT NULL,
+                    schema_version INTEGER NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    source_adapter TEXT NOT NULL,
+                    source_transport_id TEXT NOT NULL,
+                    source_channel_id TEXT,
+                    parent_event_id TEXT,
+                    lineage TEXT NOT NULL DEFAULT '[]',
+                    payload TEXT NOT NULL DEFAULT '{}',
+                    metadata TEXT NOT NULL DEFAULT '{}',
+                    depth INTEGER NOT NULL DEFAULT 0,
+                    trace_id TEXT,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS event_relations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_id TEXT NOT NULL,
+                    relation_type TEXT NOT NULL,
+                    target_event_id TEXT,
+                    target_native_adapter TEXT,
+                    target_native_channel_id TEXT,
+                    target_native_message_id TEXT,
+                    key TEXT,
+                    fallback_text TEXT,
+                    metadata TEXT NOT NULL DEFAULT '{}',
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS native_message_refs (
+                    id TEXT PRIMARY KEY,
+                    event_id TEXT NOT NULL,
+                    adapter TEXT NOT NULL,
+                    native_channel_id TEXT,
+                    native_message_id TEXT NOT NULL,
+                    direction TEXT NOT NULL,
+                    metadata TEXT,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS delivery_receipts (
+                    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+                    receipt_id TEXT UNIQUE NOT NULL,
+                    event_id TEXT NOT NULL,
+                    delivery_plan_id TEXT NOT NULL,
+                    target_adapter TEXT NOT NULL,
+                    route_id TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL,
+                    error TEXT,
+                    adapter_message_id TEXT,
+                    next_retry_at TEXT,
+                    attempt_number INTEGER NOT NULL DEFAULT 1,
+                    parent_receipt_id TEXT,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS plugin_state (
+                    plugin_id TEXT NOT NULL,
+                    key TEXT NOT NULL,
+                    value TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY(plugin_id, key)
+                );
+                CREATE TABLE IF NOT EXISTS _medre_schema_meta (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                );
+                INSERT INTO _medre_schema_meta (key, value)
+                    VALUES ('schema_version', '1');
+            """)
+            raw.close()
+
+            storage = SQLiteStorage(db_path=db_path)
+            with pytest.raises(StorageInitializationError, match="schema shape mismatch"):
+                await storage.initialize()
+        finally:
+            os.unlink(db_path)
+
+    async def test_old_native_message_refs_missing_columns(self) -> None:
+        """A native_message_refs table lacking native_thread_id triggers
+        StorageInitializationError."""
+        import sqlite3
+
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = f.name
+
+        try:
+            raw = sqlite3.connect(db_path)
+            # Create all tables with current shape EXCEPT native_message_refs
+            # which is missing native_thread_id and native_relation_id.
+            raw.executescript("""
+                CREATE TABLE IF NOT EXISTS canonical_events (
+                    event_id TEXT PRIMARY KEY,
+                    event_kind TEXT NOT NULL,
+                    schema_version INTEGER NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    source_adapter TEXT NOT NULL,
+                    source_transport_id TEXT NOT NULL,
+                    source_channel_id TEXT,
+                    parent_event_id TEXT,
+                    lineage TEXT NOT NULL DEFAULT '[]',
+                    payload TEXT NOT NULL DEFAULT '{}',
+                    metadata TEXT NOT NULL DEFAULT '{}',
+                    depth INTEGER NOT NULL DEFAULT 0,
+                    trace_id TEXT,
+                    source_native_adapter TEXT,
+                    source_native_channel_id TEXT,
+                    source_native_message_id TEXT,
+                    source_native_thread_id TEXT,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS event_relations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_id TEXT NOT NULL,
+                    relation_type TEXT NOT NULL,
+                    target_event_id TEXT,
+                    target_native_adapter TEXT,
+                    target_native_channel_id TEXT,
+                    target_native_message_id TEXT,
+                    target_native_thread_id TEXT,
+                    key TEXT,
+                    fallback_text TEXT,
+                    metadata TEXT NOT NULL DEFAULT '{}',
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS native_message_refs (
+                    id TEXT PRIMARY KEY,
+                    event_id TEXT NOT NULL,
+                    adapter TEXT NOT NULL,
+                    native_channel_id TEXT,
+                    native_message_id TEXT NOT NULL,
+                    direction TEXT NOT NULL,
+                    metadata TEXT,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS delivery_receipts (
+                    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+                    receipt_id TEXT UNIQUE NOT NULL,
+                    event_id TEXT NOT NULL,
+                    delivery_plan_id TEXT NOT NULL,
+                    target_adapter TEXT NOT NULL,
+                    route_id TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL,
+                    error TEXT,
+                    adapter_message_id TEXT,
+                    next_retry_at TEXT,
+                    attempt_number INTEGER NOT NULL DEFAULT 1,
+                    parent_receipt_id TEXT,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS plugin_state (
+                    plugin_id TEXT NOT NULL,
+                    key TEXT NOT NULL,
+                    value TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY(plugin_id, key)
+                );
+                CREATE TABLE IF NOT EXISTS _medre_schema_meta (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                );
+                INSERT INTO _medre_schema_meta (key, value)
+                    VALUES ('schema_version', '1');
+            """)
+            raw.close()
+
+            storage = SQLiteStorage(db_path=db_path)
+            with pytest.raises(StorageInitializationError, match="schema shape mismatch"):
+                await storage.initialize()
+        finally:
+            os.unlink(db_path)
+
+    async def test_fresh_db_passes_shape_validation(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """A freshly initialized DB must pass shape validation without error."""
+        # temp_storage fixture calls initialize() which now includes shape
+        # validation.  If we reach this point, validation passed.
+        event = _make_event()
+        await temp_storage.append(event)
+        retrieved = await temp_storage.get(event.event_id)
+        assert retrieved is not None

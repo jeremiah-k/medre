@@ -140,12 +140,53 @@ CREATE TABLE IF NOT EXISTS _medre_schema_meta (
 # ---------------------------------------------------------------------------
 
 _EXPECTED_SCHEMA_VERSION: int = 1
-"""Current storage schema version.  Bumped when the DDL shape changes.
+"""Current storage schema version.
 
-If an existing database has a different version, :meth:`SQLiteStorage.initialize`
-raises :class:`StorageInitializationError` instead of silently modifying the
-schema or performing a migration.
+During pre-release development this value stays at **1** — it is only bumped
+when the project curator explicitly declares a public compatibility boundary.
+Even so, the version is checked on every :meth:`SQLiteStorage.initialize` call
+to catch databases that were manually made incompatible (e.g. by an older
+pre-release build).  DDL shape changes during pre-release are handled by
+updating docs and tests directly; no automatic migrations are provided.
 """
+
+# ---------------------------------------------------------------------------
+# Required column inventory  (derived from _SCHEMA DDL above)
+# ---------------------------------------------------------------------------
+
+_REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
+    "canonical_events": frozenset({
+        "event_id", "event_kind", "schema_version", "timestamp",
+        "source_adapter", "source_transport_id", "source_channel_id",
+        "parent_event_id", "lineage", "payload", "metadata", "depth",
+        "trace_id", "source_native_adapter", "source_native_channel_id",
+        "source_native_message_id", "source_native_thread_id",
+        "created_at",
+    }),
+    "event_relations": frozenset({
+        "id", "event_id", "relation_type", "target_event_id",
+        "target_native_adapter", "target_native_channel_id",
+        "target_native_message_id", "target_native_thread_id",
+        "key", "fallback_text", "metadata", "created_at",
+    }),
+    "native_message_refs": frozenset({
+        "id", "event_id", "adapter", "native_channel_id",
+        "native_message_id", "native_thread_id", "native_relation_id",
+        "direction", "metadata", "created_at",
+    }),
+    "delivery_receipts": frozenset({
+        "sequence", "receipt_id", "event_id", "delivery_plan_id",
+        "target_adapter", "route_id", "status", "error",
+        "adapter_message_id", "next_retry_at", "attempt_number",
+        "parent_receipt_id", "created_at",
+    }),
+    "plugin_state": frozenset({
+        "plugin_id", "key", "value", "updated_at",
+    }),
+    "_medre_schema_meta": frozenset({
+        "key", "value",
+    }),
+}
 
 # ---------------------------------------------------------------------------
 # Prepared statements
@@ -418,6 +459,10 @@ class SQLiteStorage:
         # Verify schema version after DDL.
         await self._verify_schema_version()
 
+        # Verify column shape — catches old pre-release DBs that claim
+        # schema_version=1 but predate current columns.
+        await self._validate_schema_shape()
+
     async def _verify_schema_version(self) -> None:
         """Check that the stored schema version matches the expected version.
 
@@ -455,6 +500,34 @@ class SQLiteStorage:
                 f"the database file, and restart; or downgrade medre to "
                 f"match the database version."
             )
+
+    async def _validate_schema_shape(self) -> None:
+        """Verify that every required table has all expected columns.
+
+        This catches old pre-release databases whose ``schema_version`` still
+        reads ``1`` but whose column shape predates the current DDL.  The
+        check is intentionally lightweight — it inspects ``PRAGMA
+        table_info`` for each required table and compares column names
+        against :data:`_REQUIRED_COLUMNS`.
+
+        Raises
+        ------
+        StorageInitializationError
+            If any required table or column is missing.  No automatic
+            migration is performed; the operator must recreate the DB.
+        """
+        for table, required in _REQUIRED_COLUMNS.items():
+            rows = await self._read_all(f"PRAGMA table_info({table})")
+            existing = {row["name"] for row in rows}
+            missing = required - existing
+            if missing:
+                raise StorageInitializationError(
+                    f"Pre-release schema shape mismatch: table '{table}' is "
+                    f"missing required columns {sorted(missing)}. "
+                    f"The database was likely created by an older pre-release "
+                    f"build.  Please recreate the database — no automatic "
+                    f"migration is provided."
+                )
 
     def _sync_open(self) -> sqlite3.Connection:
         """Synchronous counterpart of :meth:`initialize` for the fallback path."""

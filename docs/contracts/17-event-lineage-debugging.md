@@ -1,7 +1,7 @@
 # Event Lineage and Debugging Contract
 
 > Contract version: 1
-> Last updated: 2026-05-09
+> Last updated: 2026-05-13
 > Track: 5 (Operational Runtime Hardening)
 
 This document is an operational gap audit, not a design proposal. It records what the MEDRE runtime actually provides for tracing event ancestry, walking derivation chains, and diagnosing pipeline failures. Every section distinguishes implemented behavior from known gaps. No new runtime features are introduced here.
@@ -76,7 +76,7 @@ The `trace_id: str | None` field is an optional distributed tracing correlation 
 
 `NativeRef` (Contract 01, Section 3) is the structured native reference type: `(adapter, native_channel_id, native_message_id, native_thread_id)`. When an adapter codec decodes an inbound event, it may carry an `EventRelation` with `target_native_ref` set and `target_event_id = None`, indicating that the relation target is known in native space but not yet mapped to a canonical event.
 
-The `native_message_refs` table provides the mapping from native IDs to canonical `event_id`. A `UNIQUE(adapter, native_channel_id, native_message_id)` constraint ensures idempotent correlation.
+The `native_message_refs` table provides the mapping from native IDs to canonical `event_id`. A `UNIQUE(adapter, native_channel_id, native_message_id)` constraint ensures idempotent correlation. When `native_channel_id` is `NULL`, SQLite's UNIQUE cannot dedupe (`NULL != NULL`), so `store_native_ref` performs an explicit resolve-before-insert check to ensure NULL-channel refs are also idempotent.
 
 **Implemented behavior:**
 - `StorageBackend.resolve_native_ref(adapter, native_channel_id, native_message_id)` queries this table and returns the canonical `event_id` or `None`.
@@ -115,20 +115,22 @@ The resolver lives at `core/planning/relation_resolution.py`. It accepts a stora
 - Adapters do not resolve relations. The resolver is a core pipeline concern. Adapters provide `target_native_ref` on relations; the pipeline resolves them (Contract 04, Section 8).
 - No re-resolution of failed relations after the initial pass. Replay can re-trigger resolution for specific events via `BEST_EFFORT` mode, but this is manual.
 
-### 4.2 `event_relations` Schema Inconsistency
+### 4.2 `event_relations` Storage Format (Resolved)
 
-The three contracts that define the `event_relations` schema disagree on how `target_native_ref` is stored:
+The `event_relations` table uses split nullable columns to store unresolved native references:
 
-| Source | Storage Format |
-|--------|---------------|
-| Contract 01 (canonical-event-contract.md) | Single `target_native_ref TEXT` column (JSON blob) |
-| Contract 03 (storage-contract.md) | Single `target_native_ref TEXT` column (JSON blob), missing `metadata` column |
-| Contract 07 (replay-event-log-contract.md) | Split columns: `target_native_adapter`, `target_native_channel_id`, `target_native_message_id` |
-| **Actual implementation** (`sqlite.py`) | **Split columns**, matching Contract 07 |
+| Column | Purpose |
+|--------|---------|
+| `target_event_id TEXT` | Canonical event ID of the target, once resolved |
+| `target_native_adapter TEXT` | NativeRef.adapter when canonical ID not yet known |
+| `target_native_channel_id TEXT` | NativeRef.native_channel_id |
+| `target_native_message_id TEXT` | NativeRef.native_message_id |
+| `target_native_thread_id TEXT` | NativeRef.native_thread_id |
+| `metadata TEXT NOT NULL DEFAULT '{}'` | Relation metadata |
 
-The implementation uses split columns. Contracts 01 and 03 are stale relative to the code. This is a documentation gap, not a runtime bug. The code is the authoritative schema.
+When a relation is unresolved, `target_event_id` is `NULL` and the four `target_native_*` columns carry the native reference. The relation resolution stage resolves these to `target_event_id` by calling `resolve_native_ref` against `native_message_refs`. At load time, `_row_to_relation` reconstructs the in-memory `EventRelation.target_native_ref` from the split columns. `CanonicalEvent.relations` are reconstructed from `event_relations` on every `get` and `query` call.
 
-Additionally, Contract 03 omits the `metadata` column that both the implementation and Contract 01 include. The implementation includes `metadata TEXT NOT NULL DEFAULT '{}'`.
+> **Historical note (resolved):** Earlier contract drafts documented a single `target_native_ref TEXT` column (JSON blob). Contracts 01 and 03 have been updated to match the split-column implementation. No runtime code ever used the JSON-blob format.
 
 
 ## 5. Replay as a Lineage/Debugging Tool
@@ -218,9 +220,9 @@ The Diagnostician does not detect orphans. No background check or startup verifi
 
 As noted in Section 6.2, diagnostic records lack lineage context. This means diagnostic output (e.g., "adapter failure for event evt-42 on matrix-home") cannot be traced back to the source event or the full derivation chain without manually querying storage.
 
-### 7.5 `event_relations` Documentation Drift
+### 7.5 `event_relations` Documentation Drift (Resolved)
 
-Section 4.2 documents the schema inconsistency. Contracts 01 and 03 describe a single `target_native_ref TEXT` column. The implementation uses split columns. The contracts need updating to match the code. This is a documentation-only fix.
+Section 4.2 previously documented a schema inconsistency between contracts. Contracts 01 and 03 have been updated to document the split `target_native_*` columns. This gap is resolved. No further doc-only updates are needed for this issue.
 
 ### 7.6 No Orphaned Native Ref Cleanup
 
@@ -243,7 +245,7 @@ Despite the gaps, the current system provides solid lineage foundations:
 | Relation resolution at ingress | `RelationResolver` | Working, graceful fallback on miss |
 | Full re-processing via replay | `ReplayEngine` with 5 modes | Working, deterministic |
 | Failure recording | `Diagnostician` with 7 categories | Working, structured logging |
-| Native ref preservation on miss | `target_native_ref` kept on unresolved relations | Working |
+| Native ref preservation on miss | Split `target_native_*` columns on unresolved relations | Working |
 | Fallback text delivery | `fallback_text` on `EventRelation` | Working |
 | Receipt lineage for delivery | `attempt_number` + `parent_receipt_id` | Working, ordered, queryable |
 
@@ -256,7 +258,6 @@ This document describes the current state. It does not introduce, propose, or im
 - No orphan detection background job
 - No `trace_id` auto-population
 - No Diagnostician lineage enrichment
-- No `event_relations` schema migration
 - No admin API, CLI command, webhook endpoint, or management interface
 - No new storage schema, event kind, or query API
 - No native ref cleanup or pruning mechanism
