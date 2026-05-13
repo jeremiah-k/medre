@@ -15,13 +15,14 @@ Top-level keys are alphabetically sorted for stable serialisation::
       "build_failures": [...],
       "capacity": {...} | null,
       "delivery_counters": {route_id: {...}} | null,
-      "health": {...} | null,
       "limits": {...},
+      "live_health": null,
       "replay": {"available": bool, "counters": {...} | null},
       "routes": {route_id: {...}},
       "runtime_state": str,
       "schema_version": 1,
       "snapshot_at": str,
+      "startup_health": {...} | null,
       "startup_timestamp": str | null,
       "uptime_seconds": float | null,
     }
@@ -42,15 +43,18 @@ Health freshness:
   ``_last_health`` attribute (static, set during build/startup), not
   from live ``health_check()`` calls.  Values are startup-derived
   unless explicitly refreshed by an external caller.
-* The top-level ``"health"`` field reflects the runtime health state
+* The ``"startup_health"`` field reflects the runtime health state
   initialized at startup; it is not automatically refreshed by
   post-start health polling.
+* The ``"live_health"`` field is always ``null`` because active
+  post-start health polling is not implemented.  Operators must not
+  mistake ``startup_health`` for current/live health.
 
 Future extensions
 -----------------
-* ``"health"`` is reserved for a :class:`RuntimeHealth` aggregate that
-  may be added by a future integration.  When the attribute appears on
-  the app the snapshot will include it automatically.
+* ``"live_health"`` is reserved for a :class:`RuntimeHealth` aggregate
+  that may be populated by a future active health-polling integration.
+  Until that integration exists, the field is always ``null``.
 * ``"startup_timestamp"`` and ``"uptime_seconds"`` read
   ``app._startup_monotonic`` (float, monotonic epoch) and
   ``app._startup_wall`` (ISO-8601 string).  If those attributes do not
@@ -324,13 +328,15 @@ def build_runtime_snapshot(
     ``_last_health`` attribute; live health checks are the
      responsibility of the caller or a future integration.
 
-    **Health freshness:** The ``"health"`` field in the snapshot reflects
-    the latest runtime-owned health snapshot, which is currently
+    **Health freshness:** The ``"startup_health"`` field reflects the
+    latest runtime-owned health snapshot, which is currently
     initialized at startup and not automatically refreshed.  Adapter-level
     health values come from the adapter's ``_last_health`` attribute
     (static, set during build) rather than from live ``health_check()``
-    calls.  Callers should not assume the health field represents
-    real-time adapter health unless they have explicitly refreshed it.
+    calls.  The ``"live_health"`` field is always ``null`` because
+    active post-start health polling is not implemented.  Callers and
+    operators must not assume ``startup_health`` represents real-time
+    adapter health.
     """
     _now = now_fn or _now_utc
     _mono = monotonic_fn or _monotonic_now
@@ -433,13 +439,13 @@ def build_runtime_snapshot(
     health_state: Any = getattr(app, "_health_state", None)
     if health_state is not None:
         if hasattr(health_state, "to_dict"):
-            health_snapshot = health_state.to_dict()
+            startup_health_snapshot = health_state.to_dict()
         elif isinstance(health_state, dict):
-            health_snapshot = health_state
+            startup_health_snapshot = health_state
         else:
-            health_snapshot = None
+            startup_health_snapshot = None
     else:
-        health_snapshot = None
+        startup_health_snapshot = None
 
     # -- Runtime accounting counters -----------------------------------------
     accounting_obj: Any = getattr(app, "_runtime_accounting", None)
@@ -465,8 +471,8 @@ def build_runtime_snapshot(
         "build_failures": build_failures,
         "capacity": capacity_snapshot,
         "delivery_counters": delivery_counters,
-        "health": health_snapshot,
         "limits": limits_snapshot,
+        "live_health": None,
         "replay": {
             "available": replay_available,
             "counters": replay_counters,
@@ -475,6 +481,7 @@ def build_runtime_snapshot(
         "runtime_state": runtime_state,
         "schema_version": SCHEMA_VERSION,
         "snapshot_at": snapshot_at,
+        "startup_health": startup_health_snapshot,
         "startup_timestamp": startup_wall,
         "uptime_seconds": uptime_seconds,
     }

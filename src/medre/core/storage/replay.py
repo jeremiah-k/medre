@@ -64,6 +64,7 @@ from medre.core.storage.backend import EventFilter, StorageBackend
 
 if TYPE_CHECKING:
     from medre.core.observability.metrics import Diagnostician
+    from medre.core.runtime.accounting import RuntimeAccounting
     from medre.runtime.capacity import CapacityController
 
 
@@ -875,12 +876,14 @@ class ReplayEngine:
         event_bus: _EventBusProtocol | None = None,
         diagnostician: Diagnostician | None = None,
         capacity_controller: CapacityController | None = None,
+        accounting: RuntimeAccounting | None = None,
     ) -> None:
         self._storage = storage
         self._pipeline = pipeline
         self._event_bus = event_bus
         self._diagnostician = diagnostician
         self._capacity_controller: CapacityController | None = capacity_controller
+        self._accounting: RuntimeAccounting | None = accounting
 
     def set_capacity_controller(self, cc: CapacityController) -> None:
         """Wire a :class:`~medre.runtime.capacity.CapacityController`.
@@ -1032,6 +1035,9 @@ class ReplayEngine:
         try:
             async for result in self._replay_event(event, stages, request):
                 yield result
+            # All stages completed for this event → processed.
+            if self._accounting is not None:
+                self._accounting.record_replay_processed()
         except Exception as exc:
             if mode is ReplayMode.BEST_EFFORT:
                 if self._diagnostician is not None:
@@ -1040,6 +1046,8 @@ class ReplayEngine:
                         "replay",
                         f"Unexpected error in BEST_EFFORT mode: {exc}",
                     )
+                if self._accounting is not None:
+                    self._accounting.record_replay_rejected()
                 yield ReplayResult(
                     event_id=event.event_id,
                     stage="unknown",
@@ -1064,6 +1072,8 @@ class ReplayEngine:
             self._diagnostician.record_replay_skip(
                 event_id, "Event not found in storage",
             )
+        if self._accounting is not None:
+            self._accounting.record_replay_rejected()
         for stage in stages:
             if stage == "store":
                 yield ReplayResult(

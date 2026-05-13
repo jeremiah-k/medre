@@ -100,6 +100,10 @@ _UNSET = object()
 # Types considered serialization-safe (leaf values in the output dict).
 _SAFE_SCALAR_TYPES = (bool, int, float, str, type(None))
 
+# Maximum length for string values before truncation.  Prevents unbounded
+# output when a diagnostic value unexpectedly contains a very long string.
+_MAX_STRING_LENGTH: int = 4096
+
 
 def _is_secret_key(key: str) -> bool:
     """Return ``True`` if *key* matches a known secret pattern."""
@@ -121,6 +125,8 @@ def _sanitize_value(value: Any) -> Any:
       value is replaced with ``"<object>"``.
     """
     if isinstance(value, _SAFE_SCALAR_TYPES):
+        if isinstance(value, str) and len(value) > _MAX_STRING_LENGTH:
+            return value[: _MAX_STRING_LENGTH] + f"…[{len(value)} chars]"
         return value
     if isinstance(value, dict):
         return _sanitize_dict(value)

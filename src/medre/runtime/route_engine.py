@@ -359,6 +359,7 @@ def register_routes(
     router: Router,
     route_config_set: RouteConfigSet,
     adapter_ids: frozenset[str],
+    built_adapter_ids: frozenset[str] | None = None,
 ) -> list[Route]:
     """Build, validate, and register runtime routes on a :class:`Router`.
 
@@ -369,8 +370,14 @@ def register_routes(
        known adapter IDs.
     2. Converts :class:`RouteConfigSet` entries into core :class:`Route`
        objects.
-    3. Checks for direct routing loops and logs warnings.
-    4. Registers all routes on the *router* in deterministic order.
+    3. Degrades routes that reference adapters which failed to build:
+       routes with a failed source adapter are skipped; routes with
+       failed target adapters have those targets removed.  This only
+       applies when *built_adapter_ids* is provided and differs from
+       *adapter_ids*.
+    4. Checks for direct routing loops and logs warnings.
+    5. Registers all surviving routes on the *router* in deterministic
+       order.
 
     Parameters
     ----------
@@ -379,7 +386,15 @@ def register_routes(
     route_config_set:
         The route configuration set from the runtime config.
     adapter_ids:
-        Frozenset of adapter IDs that were successfully built.
+        Frozenset of adapter IDs that are configured and enabled.
+        Used for config-correctness validation: references to IDs
+        not in this set always raise.
+    built_adapter_ids:
+        Frozenset of adapter IDs that were **successfully** built.
+        When ``None`` (the default), it falls back to *adapter_ids*
+        for full backward compatibility.  When provided, routes whose
+        source or target adapters are in *adapter_ids* but not in
+        *built_adapter_ids* are degraded rather than raising.
 
     Returns
     -------
@@ -389,9 +404,13 @@ def register_routes(
     Raises
     ------
     RouteValidationError
-        If any enabled route references an unknown adapter ID.
+        If any enabled route references an adapter ID that is not in
+        *adapter_ids* (i.e. a truly unknown / typo'd adapter ID).
     """
-    # Step 1: Validate adapter references.
+    if built_adapter_ids is None:
+        built_adapter_ids = adapter_ids
+
+    # Step 1: Validate adapter references against configured IDs.
     validate_route_adapter_refs(route_config_set, adapter_ids)
 
     # Step 2: Build core routes.
@@ -401,13 +420,60 @@ def register_routes(
         _logger.info("No enabled routes to register")
         return routes
 
-    # Step 3: Loop detection — log warnings but do not block startup.
-    loops = check_route_loops(routes)
+    # Step 3: Degrade routes referencing adapters that failed to build.
+    degraded_routes: list[Route] = []
+    registered_routes: list[Route] = []
+    for route in routes:
+        src = route.source.adapter
+        if src is not None and src not in built_adapter_ids:
+            _logger.warning(
+                "Degrading route %r: source adapter %r failed to build — "
+                "skipping entire route",
+                route.id,
+                src,
+            )
+            degraded_routes.append(route)
+            continue
+
+        surviving_targets = [
+            t for t in route.targets
+            if t.adapter is None or t.adapter in built_adapter_ids
+        ]
+        dropped = [t.adapter for t in route.targets if t not in surviving_targets]
+        if dropped:
+            _logger.warning(
+                "Degrading route %r: dest adapters %r failed to build — "
+                "removed from targets",
+                route.id,
+                dropped,
+            )
+            from dataclasses import replace as _dc_replace
+            route = _dc_replace(route, targets=surviving_targets)
+
+        if not surviving_targets:
+            _logger.warning(
+                "Degrading route %r: no surviving target adapters — "
+                "skipping route",
+                route.id,
+            )
+            degraded_routes.append(route)
+            continue
+
+        registered_routes.append(route)
+
+    if degraded_routes:
+        _logger.warning(
+            "Degraded %d route(s) due to adapter build failures",
+            len(degraded_routes),
+        )
+
+    # Step 4: Loop detection — log warnings but do not block startup.
+    loops = check_route_loops(registered_routes)
     for loop_msg in loops:
         _logger.warning("Route loop warning: %s", loop_msg)
 
-    # Step 4: Register routes in deterministic order.
-    for route in routes:
+    # Step 5: Register routes in deterministic order.
+    for route in registered_routes:
         router.add_route(route)
         _logger.info(
             "Registered route %r: %s → %s",
@@ -416,5 +482,5 @@ def register_routes(
             [t.adapter for t in route.targets],
         )
 
-    _logger.info("Registered %d route(s)", len(routes))
-    return routes
+    _logger.info("Registered %d route(s)", len(registered_routes))
+    return registered_routes

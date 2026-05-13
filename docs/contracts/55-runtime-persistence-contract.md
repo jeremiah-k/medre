@@ -274,7 +274,7 @@ There is no persistent metrics store. Observability is split into two categories
 
 Runtime snapshot (point-in-time capture of runtime state for supervision or diagnostics) is addressed by the runtime supervision and accounting track. This contract establishes the persistence baseline that snapshot mechanisms build upon:
 
-- A snapshot captures process-local state (RouteStats, CapacityController gauges, adapter health) that is otherwise lost on crash.
+- A snapshot captures process-local state (RouteStats, CapacityController gauges, startup-derived health classification) that is otherwise lost on crash. The snapshot's `startup_health` field is set once during `app.start()` and is not automatically refreshed; `live_health` is always `null` (see Contract 56 §4.1).
 - Snapshot durability depends on where the snapshot is stored. If stored in SQLite, it inherits SQLite's crash consistency. If logged, it inherits log persistence.
 - Snapshot mechanisms do not change the fundamental persistence model described in this contract.
 

@@ -973,18 +973,40 @@ class PipelineRunner:
             await self._config.storage.append_receipt(receipt)
             raise _RendererDeliveryError(adapter_id or "", rendering_error) from None
 
+        # Guard: adapter must expose a callable deliver() method.
+        deliver_fn: Callable[..., Any] | None = getattr(adapter, "deliver", None)
+        if deliver_fn is None or not callable(deliver_fn):
+            no_deliver_error = "Adapter has no deliver() method"
+            self._log.warning(
+                "Adapter %r has no deliver() method; event_id=%s",
+                adapter_id,
+                event.event_id,
+            )
+            receipt = DeliveryReceipt(
+                sequence=0,
+                receipt_id=receipt_id,
+                event_id=event.event_id,
+                delivery_plan_id=plan.plan_id,
+                target_adapter=adapter_id or "",
+                route_id=route.id,
+                status="failed",
+                error=no_deliver_error,
+                created_at=now,
+                attempt_number=attempt_number,
+                parent_receipt_id=parent_receipt_id,
+            )
+            await self._config.storage.append_receipt(receipt)
+            raise _AdapterDeliveryError(
+                adapter_id or "",
+                no_deliver_error,
+                failure_kind=DeliveryFailureKind.ADAPTER_PERMANENT,
+            ) from None
+
         # Deliver the rendered result via adapter.
         delivery_exc: Exception | None = None
         adapter_result: AdapterDeliveryResult | None = None
         try:
-            deliver_fn: Callable[..., Any] | None = getattr(adapter, "deliver", None)
-            if deliver_fn is not None and callable(deliver_fn):
-                adapter_result = await deliver_fn(rendering_result)
-            else:
-                self._log.warning(
-                    "Adapter %r has no deliver() method; skipping delivery",
-                    adapter_id,
-                )
+            adapter_result = await deliver_fn(rendering_result)
 
             status: Literal["sent", "failed"] = "sent"
             error: str | None = None

@@ -786,3 +786,186 @@ class TestNestedSessionDiagnosticsLimitation:
         result = normalize_diagnostics(raw)
         assert result["transient_delivery_failures"] == 3
         assert result["permanent_delivery_failures"] == 0
+
+
+# ===========================================================================
+# 13. Bounded JSON-safe sanitization regression
+# ===========================================================================
+
+
+class TestBoundedJsonSafeSanitization:
+    """Regression: sanitization is bounded, JSON-safe, and free of raw objects.
+
+    Exercises deeply nested structures, generator-like values, bytes,
+    exceptions, and very long strings to prove that:
+      * ``normalize_diagnostics`` and ``_sanitize_dict`` never raise.
+      * Output is always ``json.dumps``-safe.
+      * No raw SDK object / repr / secret survives.
+      * Long strings are truncated to a bounded length.
+    """
+
+    def test_nested_object_tree_json_safe(self) -> None:
+        """Deeply nested dict with non-serializable objects at every level."""
+
+        class FakeSDK:
+            def __repr__(self) -> str:
+                return "FakeSDK(secret='abc123')"
+
+        raw = {
+            "connected": True,
+            "session": {
+                "client": FakeSDK(),
+                "nested": {
+                    "inner_client": FakeSDK(),
+                    "count": 42,
+                    "deep": {
+                        "raw_bytes": b"\x00\x01\x02",
+                    },
+                },
+                "peers": [FakeSDK(), FakeSDK()],
+            },
+        }
+        result = normalize_diagnostics(raw)
+
+        # Must be JSON-serializable without error.
+        serialized = json.dumps(result, sort_keys=True)
+        assert isinstance(serialized, str)
+
+        parsed = json.loads(serialized)
+        session = parsed["transport_specific"]["session"]
+
+        # No raw object — should be type-name placeholders.
+        assert session["client"] == "<FakeSDK>"
+        assert "secret" not in session["client"]
+        assert session["nested"]["inner_client"] == "<FakeSDK>"
+        assert session["nested"]["deep"]["raw_bytes"] == "<bytes>"
+        assert session["nested"]["count"] == 42
+
+        # List items also sanitized.
+        for peer in session["peers"]:
+            assert peer == "<FakeSDK>"
+
+    def test_generator_and_non_serializable_values(self) -> None:
+        """Generators, complex numbers, and memoryview become safe placeholders."""
+
+        def gen():
+            yield 1
+
+        raw = {
+            "connected": True,
+            "items": (x for x in range(10)),
+            "callback": lambda: "secret",
+            "complex_val": 3 + 4j,
+            "memview": memoryview(b"abc"),
+        }
+        result = normalize_diagnostics(raw)
+
+        serialized = json.dumps(result, sort_keys=True)
+        assert isinstance(serialized, str)
+
+        parsed = json.loads(serialized)
+        ts = parsed["transport_specific"]
+        assert ts["items"] == "<generator>"
+        assert ts["callback"] == "<function>"
+        assert ts["complex_val"] == "<complex>"
+        assert ts["memview"] == "<memoryview>"
+
+    def test_long_string_truncated(self) -> None:
+        """Strings exceeding the bound are truncated with a length suffix."""
+        from medre.core.runtime.diagnostic_contract import _MAX_STRING_LENGTH
+
+        long_val = "x" * (_MAX_STRING_LENGTH + 500)
+        raw = {
+            "connected": True,
+            "payload": long_val,
+        }
+        result = normalize_diagnostics(raw)
+
+        serialized = json.dumps(result, sort_keys=True)
+        assert isinstance(serialized, str)
+
+        val = result["transport_specific"]["payload"]
+        assert isinstance(val, str)
+        assert len(val) < len(long_val)
+        assert val.endswith(f"[{len(long_val)} chars]")
+        # The truncated portion must be present at the start.
+        assert val.startswith("x" * _MAX_STRING_LENGTH)
+
+    def test_normal_length_string_unchanged(self) -> None:
+        """Strings within the bound pass through untouched."""
+        raw = {"connected": True, "note": "short string"}
+        result = normalize_diagnostics(raw)
+        assert result["transport_specific"]["note"] == "short string"
+
+    def test_exception_tree_no_message_leak(self) -> None:
+        """Nested exceptions don't leak messages via repr."""
+
+        class DeepSDKError(RuntimeError):
+            pass
+
+        raw = {
+            "connected": True,
+            "errors": [
+                DeepSDKError("password=admin"),
+                {"nested_err": OSError("token=secret")},
+            ],
+        }
+        result = normalize_diagnostics(raw)
+
+        serialized = json.dumps(result, sort_keys=True)
+        assert isinstance(serialized, str)
+
+        parsed = json.loads(serialized)
+        ts = parsed["transport_specific"]
+        assert ts["errors"][0] == "<DeepSDKError>"
+        assert "password" not in ts["errors"][0]
+        assert ts["errors"][1]["nested_err"] == "<OSError>"
+        assert "token" not in ts["errors"][1]["nested_err"]
+
+    def test_sanitize_dict_on_adapter_like_output(self) -> None:
+        """_sanitize_dict on a MeshCore-style session diagnostics dict."""
+
+        class MeshCoreClient:
+            def __repr__(self):
+                return "MeshCoreClient(api_key=hunter2)"
+
+        raw = {
+            "connected": True,
+            "reconnecting": False,
+            "reconnect_attempts": 0,
+            "last_error": None,
+            "peer_count": 5,
+            "mode": "tcp",
+            "password": "should_be_removed",
+            "client_ref": MeshCoreClient(),
+            "last_message_time": "2025-01-01T00:00:00",
+        }
+
+        from medre.core.runtime.diagnostic_contract import _sanitize_dict
+
+        result = _sanitize_dict(raw)
+
+        serialized = json.dumps(result, sort_keys=True)
+        assert isinstance(serialized, str)
+
+        assert "password" not in result
+        assert result["connected"] is True
+        assert result["peer_count"] == 5
+        assert result["client_ref"] == "<MeshCoreClient>"
+        assert "hunter2" not in result["client_ref"]
+
+    def test_deeply_nested_bounded_depth(self) -> None:
+        """Output remains JSON-safe even with many nesting levels."""
+        # Build a 10-level nested dict.
+        inner: dict[str, Any] = {"leaf": b"bytes_val"}
+        for i in range(10):
+            inner = {f"level_{i}": inner, "obj": ValueError(f"err_{i}")}
+
+        raw = {"connected": True, "nested": inner}
+        result = normalize_diagnostics(raw)
+
+        serialized = json.dumps(result, sort_keys=True)
+        assert isinstance(serialized, str)
+
+        parsed = json.loads(serialized)
+        assert parsed["transport_specific"]["nested"]["obj"] == "<ValueError>"

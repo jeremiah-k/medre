@@ -29,6 +29,7 @@ from medre.core.storage.replay import (
     ReplayState,
     collect_replay_state,
 )
+from medre.core.runtime.accounting import RuntimeAccounting
 
 
 # ---------------------------------------------------------------------------
@@ -115,6 +116,7 @@ class _StubPipeline:
 def _make_engine(
     storage: SQLiteStorage,
     pipeline: Any | None = None,
+    accounting: RuntimeAccounting | None = None,
 ) -> ReplayEngine:
     """Create a ReplayEngine with the storage cast to StorageBackend protocol.
 
@@ -125,6 +127,7 @@ def _make_engine(
     return ReplayEngine(
         storage=cast(StorageBackend, storage),
         pipeline=pipeline,
+        accounting=accounting,
     )
 
 
@@ -1651,3 +1654,197 @@ class TestStressReplay:
         deliver_results = results[4::5]
         assert all(r.stage == "deliver" for r in deliver_results)
         assert all(r.status == "skipped" for r in deliver_results)
+
+
+# ===================================================================
+# Replay accounting tests
+# ===================================================================
+
+
+class TestReplayAccounting:
+    """Focused tests for RuntimeAccounting replay counter wiring."""
+
+    async def test_strict_replay_increments_processed(
+        self,
+        temp_storage: SQLiteStorage,
+        sample_event: CanonicalEvent,
+    ) -> None:
+        """Successful STRICT replay increments replay_processed."""
+        await temp_storage.append(sample_event)
+
+        acc = RuntimeAccounting()
+        engine = _make_engine(temp_storage, accounting=acc)
+        request = ReplayRequest(mode=ReplayMode.STRICT)
+
+        _ = [r async for r in engine.replay(request)]
+
+        c = acc.counters()
+        assert c.replay_processed == 1
+        assert c.replay_rejected == 0
+
+    async def test_re_render_replay_increments_processed(
+        self,
+        temp_storage: SQLiteStorage,
+        sample_event: CanonicalEvent,
+        rendering_pipeline: RenderingPipeline,
+    ) -> None:
+        """Successful RE_RENDER replay increments replay_processed."""
+        await temp_storage.append(sample_event)
+
+        pipeline = _StubPipeline(rendering_pipeline=rendering_pipeline)
+        acc = RuntimeAccounting()
+        engine = _make_engine(temp_storage, pipeline=pipeline, accounting=acc)
+        request = ReplayRequest(mode=ReplayMode.RE_RENDER)
+
+        _ = [r async for r in engine.replay(request)]
+
+        c = acc.counters()
+        assert c.replay_processed == 1
+        assert c.replay_rejected == 0
+
+    async def test_missing_event_increments_rejected(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Missing event via correlation_ids increments replay_rejected."""
+        acc = RuntimeAccounting()
+        engine = _make_engine(temp_storage, accounting=acc)
+        request = ReplayRequest(
+            correlation_ids=["nonexistent-id"],
+            mode=ReplayMode.STRICT,
+        )
+
+        results = [r async for r in engine.replay(request)]
+        assert len(results) == 1
+        assert results[0].status == "failed"
+
+        c = acc.counters()
+        assert c.replay_rejected == 1
+        assert c.replay_processed == 0
+
+    async def test_best_effort_crash_increments_rejected(
+        self,
+        temp_storage: SQLiteStorage,
+        sample_event: CanonicalEvent,
+    ) -> None:
+        """BEST_EFFORT replay where _replay_event raises increments rejected.
+
+        All individual stages catch their own exceptions, so triggering this
+        path requires an error in the orchestration layer itself.  We patch
+        _replay_event to raise, simulating an unrecoverable crash.
+        """
+        await temp_storage.append(sample_event)
+
+        acc = RuntimeAccounting()
+        engine = _make_engine(temp_storage, accounting=acc)
+        request = ReplayRequest(mode=ReplayMode.BEST_EFFORT)
+
+        import unittest.mock
+
+        async def _fake_replay_event(*args: Any, **kwargs: Any) -> Any:
+            raise RuntimeError("unrecoverable crash")
+            yield  # noqa: unreachable — makes this an async generator
+
+        with unittest.mock.patch.object(
+            engine, "_replay_event", _fake_replay_event,
+        ):
+            results = [r async for r in engine.replay(request)]
+
+        assert len(results) == 1
+        assert results[0].status == "error"
+        assert "unrecoverable crash" in (results[0].error or "")
+
+        c = acc.counters()
+        assert c.replay_rejected == 1
+        assert c.replay_processed == 0
+
+    async def test_multiple_events_accumulate_counters(
+        self,
+        temp_storage: SQLiteStorage,
+        sample_event: CanonicalEvent,
+    ) -> None:
+        """Two successful events + one missing → processed=2, rejected=1."""
+        second = _second_event(sample_event)
+        await temp_storage.append(sample_event)
+        await temp_storage.append(second)
+
+        acc = RuntimeAccounting()
+        engine = _make_engine(temp_storage, accounting=acc)
+
+        # Two real events via query → processed.
+        request = ReplayRequest(mode=ReplayMode.STRICT)
+        results = [r async for r in engine.replay(request)]
+        assert len(results) == 2
+        assert acc.counters().replay_processed == 2
+
+        # One missing event via correlation_ids → rejected.
+        request_missing = ReplayRequest(
+            correlation_ids=["ghost-id"],
+            mode=ReplayMode.STRICT,
+        )
+        _ = [r async for r in engine.replay(request_missing)]
+        assert acc.counters().replay_rejected == 1
+
+    async def test_no_accounting_is_graceful(
+        self,
+        temp_storage: SQLiteStorage,
+        sample_event: CanonicalEvent,
+    ) -> None:
+        """ReplayEngine works correctly when accounting is None (default)."""
+        await temp_storage.append(sample_event)
+
+        engine = _make_engine(temp_storage)  # No accounting
+        request = ReplayRequest(mode=ReplayMode.STRICT)
+
+        results = [r async for r in engine.replay(request)]
+
+        assert len(results) == 1
+        assert results[0].status == "passed"
+
+    async def test_dry_run_increments_processed(
+        self,
+        temp_storage: SQLiteStorage,
+        sample_event: CanonicalEvent,
+        router_with_routes: Router,
+        rendering_pipeline: RenderingPipeline,
+    ) -> None:
+        """DRY_RUN replay increments replay_processed (event was replayed)."""
+        await temp_storage.append(sample_event)
+
+        pipeline = _StubPipeline(
+            router=router_with_routes,
+            rendering_pipeline=rendering_pipeline,
+        )
+        acc = RuntimeAccounting()
+        engine = _make_engine(temp_storage, pipeline=pipeline, accounting=acc)
+        request = ReplayRequest(mode=ReplayMode.DRY_RUN)
+
+        _ = [r async for r in engine.replay(request)]
+
+        c = acc.counters()
+        assert c.replay_processed == 1
+        assert c.replay_rejected == 0
+
+    async def test_other_counters_unchanged_by_replay(
+        self,
+        temp_storage: SQLiteStorage,
+        sample_event: CanonicalEvent,
+    ) -> None:
+        """Replay accounting does not touch unrelated counters."""
+        await temp_storage.append(sample_event)
+
+        acc = RuntimeAccounting()
+        acc.record_inbound_accepted()
+        acc.record_outbound_attempt()
+        engine = _make_engine(temp_storage, accounting=acc)
+        request = ReplayRequest(mode=ReplayMode.STRICT)
+
+        _ = [r async for r in engine.replay(request)]
+
+        c = acc.counters()
+        assert c.inbound_accepted == 1
+        assert c.outbound_attempts == 1
+        assert c.outbound_delivered == 0
+        assert c.outbound_failed == 0
+        assert c.loop_prevented == 0
+        assert c.capacity_rejections == 0

@@ -10,7 +10,8 @@ Covers:
 - Build-failure inclusion.
 - Startup timestamp and uptime computation.
 - Schema version presence.
-- Health state tolerance (null when absent, dict when present).
+- Startup health state tolerance (null when absent, dict when present).
+- Live health explicitly unavailable (always null).
 """
 
 from __future__ import annotations
@@ -649,10 +650,10 @@ class TestGracefulAbsence:
         assert snap["replay"]["available"] is True
         assert snap["replay"]["counters"] is None
 
-    def test_no_health_state_gives_null(self) -> None:
+    def test_no_health_state_gives_null_startup_health(self) -> None:
         app = _make_fake_app()
         snap = build_runtime_snapshot(app)
-        assert snap["health"] is None
+        assert snap["startup_health"] is None
 
     def test_no_config_gives_empty_limits(self) -> None:
         """When config is missing, limits is an empty dict."""
@@ -684,31 +685,49 @@ class TestGracefulAbsence:
 
 
 # ---------------------------------------------------------------------------
-# Tests: Health state tolerance
+# Tests: Startup health state tolerance
 # ---------------------------------------------------------------------------
 
 
 class TestHealthStateTolerance:
-    """Health state is null when absent, dict when present."""
+    """Startup health state is null when absent, dict when present."""
 
-    def test_health_state_dict(self) -> None:
+    def test_startup_health_state_dict(self) -> None:
         app = _make_fake_app(health_state={"overall": "healthy", "adapters": 3})
         snap = build_runtime_snapshot(app)
-        assert snap["health"] == {"overall": "healthy", "adapters": 3}
+        assert snap["startup_health"] == {"overall": "healthy", "adapters": 3}
 
-    def test_health_state_to_dict(self) -> None:
+    def test_startup_health_state_to_dict(self) -> None:
         class _HS:
             def to_dict(self) -> dict[str, Any]:
                 return {"overall": "degraded"}
 
         app = _make_fake_app(health_state=_HS())
         snap = build_runtime_snapshot(app)
-        assert snap["health"] == {"overall": "degraded"}
+        assert snap["startup_health"] == {"overall": "degraded"}
 
-    def test_health_state_non_dict_non_to_dict_gives_null(self) -> None:
+    def test_startup_health_non_dict_non_to_dict_gives_null(self) -> None:
         app = _make_fake_app(health_state="just_a_string")
         snap = build_runtime_snapshot(app)
-        assert snap["health"] is None
+        assert snap["startup_health"] is None
+
+
+class TestLiveHealthExplicitlyUnavailable:
+    """live_health is always null — active health polling is not implemented."""
+
+    def test_live_health_is_null_when_health_state_present(self) -> None:
+        app = _make_fake_app(health_state={"overall": "healthy"})
+        snap = build_runtime_snapshot(app)
+        assert snap["live_health"] is None
+
+    def test_live_health_is_null_when_health_state_absent(self) -> None:
+        app = _make_fake_app()
+        snap = build_runtime_snapshot(app)
+        assert snap["live_health"] is None
+
+    def test_live_health_is_null_for_minimal_app(self) -> None:
+        snap = build_runtime_snapshot(object())
+        assert snap["live_health"] is None
 
 
 # ---------------------------------------------------------------------------

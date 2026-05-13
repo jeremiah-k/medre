@@ -124,8 +124,10 @@ class MedreApp:
         Async event set when graceful shutdown is requested.
     build_failures:
         Adapters that failed during construction.
-    adapter_start_times:
-        Per-adapter monotonic start timestamps (populated during start).
+    adapter_start_monotonic:
+        Per-adapter monotonic start timestamps in milliseconds
+        (``time.monotonic() * 1000``).  Populated during :meth:`start`;
+        process-local only — not wall-clock, not persisted, not refreshed.
     started_adapter_ids:
         Ordered list of adapter IDs that successfully started.
     route_stats:
@@ -148,7 +150,7 @@ class MedreApp:
     shutdown_event: asyncio.Event
     route_stats: RouteStats | None = None
     build_failures: list[AdapterBuildFailure] = field(default_factory=list)
-    adapter_start_times: dict[str, float] = field(default_factory=dict)
+    adapter_start_monotonic: dict[str, float] = field(default_factory=dict)
     started_adapter_ids: list[str] = field(default_factory=list)
     _state: RuntimeState = field(default=RuntimeState.INITIALIZED, init=False)
     _capacity_controller: CapacityController | None = field(default=None, init=False)
@@ -317,7 +319,7 @@ class MedreApp:
                     )
                     await adapter.start(ctx)
                     elapsed = _monotonic_ms() - t0
-                    self.adapter_start_times[adapter_id] = t0
+                    self.adapter_start_monotonic[adapter_id] = t0
                     self.started_adapter_ids.append(adapter_id)
                     _logger.info(
                         "Adapter %s.%s started in %.0fms",
@@ -637,7 +639,7 @@ class MedreApp:
                     exc,
                 )
         self.started_adapter_ids.clear()
-        self.adapter_start_times.clear()
+        self.adapter_start_monotonic.clear()
 
     async def _cleanup_core_resources(self) -> None:
         """Stop pipeline runner and close storage during failed startup.

@@ -392,13 +392,14 @@ class TestSnapshotReadability:
             "build_failures",
             "capacity",
             "delivery_counters",
-            "health",
             "limits",
+            "live_health",
             "replay",
             "routes",
             "runtime_state",
             "schema_version",
             "snapshot_at",
+            "startup_health",
             "startup_timestamp",
             "uptime_seconds",
         ]
@@ -515,9 +516,9 @@ class TestDegradedStateClarity:
         snap = build_runtime_snapshot(
             app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
         )
-        assert snap["health"] is not None
-        assert snap["health"]["overall"] == "degraded"
-        assert "matrix-2" in snap["health"]["unhealthy_adapters"]
+        assert snap["startup_health"] is not None
+        assert snap["startup_health"]["overall"] == "degraded"
+        assert "matrix-2" in snap["startup_health"]["unhealthy_adapters"]
 
     def test_boot_summary_shows_partial_failure(self) -> None:
         """Boot summary captures partial startup outcome."""

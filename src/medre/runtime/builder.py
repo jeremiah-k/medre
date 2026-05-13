@@ -297,6 +297,7 @@ class RuntimeBuilder:
             pipeline=pipeline_runner,
             capacity_controller=capacity_controller,
             diagnostician=diagnostician,
+            accounting=runtime_accounting,
         )
 
         # 10. Construct adapters from RuntimeConfig
@@ -311,10 +312,20 @@ class RuntimeBuilder:
             )
 
         # 10.5. Register configured routes on the Router.
-        #       Validates adapter references against built adapters first.
+        #       Validates adapter references against configured enabled IDs
+        #       for config correctness; degrades routes referencing adapters
+        #       that failed to build rather than aborting the entire runtime.
         from medre.runtime.route_engine import register_routes
-        adapter_ids = frozenset(adapters.keys())
-        register_routes(router, self._config.routes, adapter_ids)
+        configured_enabled_ids = frozenset(
+            aid for aid, _ in self._config.adapters.all_enabled()
+        )
+        built_adapter_ids = frozenset(adapters.keys())
+        register_routes(
+            router,
+            self._config.routes,
+            configured_enabled_ids,
+            built_adapter_ids,
+        )
 
         # 11. Shutdown event
         shutdown_event = asyncio.Event()

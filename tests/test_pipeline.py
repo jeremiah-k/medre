@@ -21,7 +21,7 @@ from medre.core.events import CanonicalEvent, EventMetadata, NativeRef
 from medre.core.events.bus import EventBus
 from medre.core.observability.metrics import Diagnostician, EventMetrics
 from medre.core.planning import FallbackResolver, RelationResolver
-from medre.core.planning.delivery_plan import DeliveryOutcome
+from medre.core.planning.delivery_plan import DeliveryFailureKind, DeliveryOutcome
 from medre.core.rendering.renderer import RenderingPipeline, RenderingResult
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, RouteSource, RouteTarget, Router
@@ -608,6 +608,134 @@ class TestTargetScopedFailures:
             assert snap["adapter_failures"]["fail-adapter"] == 1
             assert snap["planner_failures"] == {}
             assert snap["renderer_failures"] == {}
+        finally:
+            await runner.stop()
+
+    async def test_no_deliver_method_produces_permanent_failure(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Adapter without a deliver() method causes permanent_failure, not false success."""
+
+        class _NoDeliverAdapter:
+            """Adapter object that has no deliver attribute at all."""
+
+            adapter_id = "no-deliver"
+
+        good = FakePresentationAdapter(adapter_id="good")
+        nodeadapt = _NoDeliverAdapter()
+
+        route = Route(
+            id="no-deliver-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel=None
+            ),
+            targets=[
+                RouteTarget(adapter="good"),
+                RouteTarget(adapter="no-deliver"),
+            ],
+        )
+        router = Router(routes=[route])
+
+        config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={"good": good, "no-deliver": nodeadapt},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = _make_event(event_id="no-deliver-001", source_adapter="src")
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+
+            by_adapter = {o.target_adapter: o for o in outcomes}
+
+            # Good adapter succeeded unaffected.
+            assert by_adapter["good"].status == "success"
+            assert len(good.delivered_payloads) == 1
+
+            # No-deliver adapter is a permanent failure.
+            outcome = by_adapter["no-deliver"]
+            assert outcome.status == "permanent_failure"
+            assert outcome.failure_kind is not None
+            assert outcome.failure_kind.value == "adapter_permanent"
+            assert outcome.error == "Adapter has no deliver() method"
+
+            # A failed receipt was persisted (not "sent").
+            rows = await temp_storage._read_all(
+                "SELECT * FROM delivery_receipts WHERE event_id = ? "
+                "AND target_adapter = ?",
+                ("no-deliver-001", "no-deliver"),
+            )
+            assert len(rows) == 1
+            assert rows[0]["status"] == "failed"
+            assert rows[0]["error"] == "Adapter has no deliver() method"
+        finally:
+            await runner.stop()
+
+    async def test_non_callable_deliver_produces_permanent_failure(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Adapter whose deliver attribute is not callable causes permanent_failure."""
+
+        class _NonCallableDeliverAdapter:
+            """Adapter that shadows deliver with a non-callable value."""
+
+            adapter_id = "shadowed"
+            deliver = 42  # type: ignore[assignment]
+
+        good = FakePresentationAdapter(adapter_id="good")
+        shadowed = _NonCallableDeliverAdapter()
+
+        route = Route(
+            id="shadowed-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel=None
+            ),
+            targets=[
+                RouteTarget(adapter="good"),
+                RouteTarget(adapter="shadowed"),
+            ],
+        )
+        router = Router(routes=[route])
+
+        config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={"good": good, "shadowed": shadowed},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = _make_event(event_id="shadowed-001", source_adapter="src")
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+
+            by_adapter = {o.target_adapter: o for o in outcomes}
+
+            # Good adapter succeeded unaffected.
+            assert by_adapter["good"].status == "success"
+
+            # Shadowed deliver is a permanent failure.
+            outcome = by_adapter["shadowed"]
+            assert outcome.status == "permanent_failure"
+            assert outcome.failure_kind is not None
+            assert outcome.failure_kind.value == "adapter_permanent"
+            assert outcome.error == "Adapter has no deliver() method"
+
+            # Failed receipt persisted.
+            rows = await temp_storage._read_all(
+                "SELECT * FROM delivery_receipts WHERE event_id = ? "
+                "AND target_adapter = ?",
+                ("shadowed-001", "shadowed"),
+            )
+            assert len(rows) == 1
+            assert rows[0]["status"] == "failed"
+            assert rows[0]["error"] == "Adapter has no deliver() method"
         finally:
             await runner.stop()
 

@@ -90,6 +90,17 @@ Returns a JSON-safe dictionary containing:
 
 This is observational only. It does not trigger restarts, alerts, or state changes.
 
+### 4.1 Snapshot Health Field Semantics
+
+The runtime snapshot exposes health through two explicit top-level fields:
+
+| Field | Value | Meaning |
+|-------|-------|---------|
+| `startup_health` | `dict \| null` | Startup-derived supervision snapshot from `runtime_supervision_snapshot()`. Set once during `app.start()`. Not automatically refreshed. |
+| `live_health` | `null` | Always `null`. Active post-start health polling is not implemented. Operators must not mistake `startup_health` for current/live health. |
+
+The split ensures operators cannot confuse the one-time startup health assessment with live runtime health. When active health polling is implemented in a future tranche, `live_health` will carry refreshed data while `startup_health` retains its original value for comparison.
+
 ## 5. Architectural Boundaries
 
 The following boundaries are enforced by tests:

@@ -66,6 +66,7 @@ from medre.adapters.meshcore.errors import (
 from medre.adapters.meshcore.packet_classifier import MeshCorePacketClassifier
 from medre.adapters.meshcore.session import MeshCoreSession
 from medre.core.rendering.renderer import RenderingResult
+from medre.core.runtime.diagnostic_contract import _sanitize_dict
 
 # Capabilities for the MeshCore transport adapter.
 _MESHCORE_CAPABILITIES = AdapterCapabilities(
@@ -86,30 +87,6 @@ _MESHCORE_CAPABILITIES = AdapterCapabilities(
     max_text_bytes=512,
     max_text_chars=512,
 )
-
-
-def _sanitize_diagnostics(data: dict[str, Any]) -> dict[str, Any]:
-    """Ensure all diagnostic values are JSON-safe primitives.
-
-    Prevents SDK object references, generators, or other non-serializable
-    types from leaking into diagnostics output.  Only ``str``, ``int``,
-    ``float``, ``bool``, ``None``, ``list``, and ``dict`` are preserved.
-    """
-    safe: dict[str, Any] = {}
-    for key, value in data.items():
-        if isinstance(value, (str, int, float, bool)) or value is None:
-            safe[key] = value
-        elif isinstance(value, dict):
-            safe[key] = _sanitize_diagnostics(value)
-        elif isinstance(value, (list, tuple)):
-            safe[key] = [
-                _sanitize_diagnostics(v) if isinstance(v, dict)
-                else v
-                for v in value
-            ]
-        else:
-            safe[key] = repr(value)
-    return safe
 
 
 class MeshCoreAdapter(BaseAdapter):
@@ -450,7 +427,7 @@ class MeshCoreAdapter(BaseAdapter):
             "mode": self._config.connection_type,
         }
         if self._session is not None:
-            base["session"] = _sanitize_diagnostics(
+            base["session"] = _sanitize_dict(
                 self._session.diagnostics()
             )
         return base

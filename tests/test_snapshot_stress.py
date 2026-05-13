@@ -1040,7 +1040,7 @@ class TestFullyLoadedSnapshotAtScale:
         assert len(snap["build_failures"]) == 30
         assert snap["replay"]["available"] is True
         assert snap["capacity"]["delivery_current"] == 10
-        assert snap["health"]["overall"] == "degraded"
+        assert snap["startup_health"]["overall"] == "degraded"
         assert snap["accounting"]["events_processed"] == 50000
         assert snap["uptime_seconds"] == 800.0
         assert snap["startup_timestamp"] == "2026-05-11T08:00:00+00:00"

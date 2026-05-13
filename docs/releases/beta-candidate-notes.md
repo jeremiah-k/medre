@@ -161,7 +161,9 @@ medre ships as one Python package with two usage modes:
    application. No runtime dependency.
 
 2. **Config-driven runtime.** `medre run` reads a TOML config file, assembles
-   adapters, and manages a supervised lifecycle. This is convenience code, not a
+   adapters, and manages a deterministic lifecycle with startup-derived health
+   classification (not active supervision; see Contract 56 §4.1).
+   This is convenience code, not a
    stable commitment.
 
 Architecture layers:
@@ -173,8 +175,8 @@ Architecture layers:
   each with its own codec, renderer, session, config, error types, and compat
   guard. Each adapter owns its transport lifecycle entirely.
 - **Runtime orchestration**: `RuntimeBuilder` assembles adapters from parsed
-  TOML config, starts them in deterministic order, and provides supervised
-  lifecycle.
+TOML config, starts them in deterministic order, and provides classified
+   lifecycle with deterministic startup health assessment.
 
 See `README.md` for the full architecture description.
 

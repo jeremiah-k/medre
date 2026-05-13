@@ -290,13 +290,14 @@ _EXPECTED_RUNTIME_SNAPSHOT_TOP_KEYS: frozenset[str] = frozenset(
         "build_failures",
         "capacity",
         "delivery_counters",
-        "health",
         "limits",
+        "live_health",
         "replay",
         "routes",
         "runtime_state",
         "schema_version",
         "snapshot_at",
+        "startup_health",
         "startup_timestamp",
         "uptime_seconds",
     }
@@ -489,6 +490,28 @@ class TestRuntimeSnapshotSchemaConsistency:
         snap = build_runtime_snapshot(app)
         assert snap["schema_version"] == SCHEMA_VERSION
         assert isinstance(snap["schema_version"], int)
+
+    def test_live_health_is_always_null(self) -> None:
+        """live_health is null because active health polling is not implemented."""
+        app = _make_fake_app(
+            health_state={"overall": "healthy"},
+        )
+        snap = build_runtime_snapshot(app)
+        assert snap["live_health"] is None
+
+    def test_startup_health_reflects_health_state(self) -> None:
+        """startup_health carries the startup-derived supervision snapshot."""
+        app = _make_fake_app(
+            health_state={"overall": "degraded", "adapters": 2},
+        )
+        snap = build_runtime_snapshot(app)
+        assert snap["startup_health"] == {"overall": "degraded", "adapters": 2}
+
+    def test_startup_health_null_when_absent(self) -> None:
+        """startup_health is null when no health state is wired."""
+        app = _make_fake_app()
+        snap = build_runtime_snapshot(app)
+        assert snap["startup_health"] is None
 
 
 # ===================================================================
