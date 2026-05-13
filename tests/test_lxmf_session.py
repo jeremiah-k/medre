@@ -351,6 +351,7 @@ class TestLxmfSessionDiagnostics:
         assert diag.transient_delivery_failures == 0
         assert diag.permanent_delivery_failures == 0
         assert diag.last_error is None
+        assert diag.pending_delivery_count == 0
 
     async def test_diagnostics_after_stop(self) -> None:
         session = _make_session(connection_type="fake")
@@ -360,6 +361,24 @@ class TestLxmfSessionDiagnostics:
 
         assert diag.connected is False
         assert diag.router_running is False
+
+    async def test_pending_delivery_count_zero_after_start(self) -> None:
+        """pending_delivery_count must be 0 (not None) with no sends."""
+        session = _make_session(connection_type="fake")
+        await session.start()
+        diag = session.diagnostics()
+        assert diag.pending_delivery_count == 0
+        await session.stop()
+
+    async def test_pending_delivery_count_reflects_sends(self) -> None:
+        """pending_delivery_count must track fake-mode outbound sends."""
+        session = _make_session(connection_type="fake")
+        await session.start()
+        await session.send_text("ab" * 16, "msg1")
+        await session.send_text("ab" * 16, "msg2")
+        diag = session.diagnostics()
+        assert diag.pending_delivery_count == 2
+        await session.stop()
 
     async def test_diagnostics_no_secret_fields(self) -> None:
         """Diagnostics must not contain identity material or secrets."""

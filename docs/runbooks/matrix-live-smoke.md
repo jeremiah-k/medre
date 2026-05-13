@@ -1,6 +1,6 @@
 # Matrix Live Smoke Test Runbook
 
-> Last updated: 2026-05-10
+> Last updated: 2026-05-12
 > Scope: `tests/test_matrix_live.py`
 
 This runbook describes how to run the Matrix live smoke tests against a
@@ -24,10 +24,18 @@ What live smoke proves:
 - Stop/start cycles preserve adapter state; a second `start()` after `stop()` re-establishes sync.
 - Health reports `degraded` during reconnect cycles and `healthy` after recovery.
 
-What live smoke does **not** prove:
+What live smoke **can** prove (with second-party cooperation):
 
-- Inbound message reception (requires a second actor to send a message).
-- Self-message suppression with real sync echoes (timing-sensitive).
+- Inbound message reception from a third-party sender (see §M14 Inbound Test below).
+- Sender attribution on received canonical events.
+- Room attribution (source_channel_id matches).
+- Canonical event shape (event_kind, source_adapter, payload).
+- source_native_ref carries Matrix event_id and adapter name.
+- Diagnostics counters (inbound_published >= 1).
+
+What live smoke does **not** prove (without second-party cooperation):
+
+- Self-message suppression with real sync echoes (timing-sensitive; unit-tested).
 - MEDRE-origin envelope suppression (secondary check; unit-tested).
 - E2EE reactions, edits, deletes, attachments, media (text E2EE is covered by the E2EE harness, see section below).
 - Admin API, webhooks, or any non-text Matrix features.
@@ -45,6 +53,7 @@ What live smoke does **not** prove:
 | `MATRIX_ROOM_ID`         | `!abc123:localhost`           | Room ID to send test messages to     |
 | `MATRIX_DEVICE_ID`       | `DEVICEABC`                   | Device ID (live E2EE harness only; normal operation derives via `whoami()`) |
 | `MATRIX_STORE_PATH`      | `/tmp/nio-store`              | Crypto store directory (live E2EE harness only; normal operation derives internally) |
+| `MATRIX_INBOUND_SENDER`  | `@alice:example.com`          | (Optional) Expected third-party sender MXID for inbound test |
 
 If any of the first four variables is unset, all live tests skip with a descriptive message. E2EE-specific tests additionally require `MATRIX_DEVICE_ID` and `MATRIX_STORE_PATH` and an encrypted room. Note: the live test harness uses explicit `device_id`/`store_path` for isolation; normal MEDRE operation discovers and derives these automatically.
 
@@ -193,6 +202,12 @@ tests/test_matrix_live.py::TestMatrixLiveSmoke::test_send_text_message_captures_
 tests/test_matrix_live.py::TestMatrixLiveSmoke::test_full_lifecycle_start_send_stop PASSED
 tests/test_matrix_live.py::TestMatrixLiveSmoke::test_self_message_suppression_note PASSED
 tests/test_matrix_live.py::TestMatrixLiveSmoke::test_medre_origin_envelope_suppression_note PASSED
+tests/test_matrix_live.py::TestMatrixLiveSmoke::test_live_send_and_receive PASSED
+tests/test_matrix_live.py::TestMatrixLiveSmoke::test_live_allowlist_enforcement PASSED
+tests/test_matrix_live.py::TestMatrixLiveSmoke::test_live_health_check_operational PASSED
+tests/test_matrix_live.py::TestMatrixLiveSmoke::test_live_restart_idempotency PASSED
+tests/test_matrix_live.py::TestMatrixLiveSmoke::test_live_adapter_redelivery_smoke PASSED
+tests/test_matrix_live.py::TestMatrixLiveSmoke::test_inbound_message_received PASSED (or XFAIL)
 ```
 
 ### Expected Output (missing env vars — skip behavior)
@@ -201,7 +216,7 @@ tests/test_matrix_live.py::TestMatrixLiveSmoke::test_medre_origin_envelope_suppr
 tests/test_matrix_live.py::TestMatrixLiveSmoke::test_adapter_starts_and_reports_healthy SKIPPED
 tests/test_matrix_live.py::TestMatrixLiveSmoke::test_adapter_health_unknown_after_stop SKIPPED
 ...
-7 skipped in X.XXs
+13 skipped in X.XXs
 ```
 
 With reason: *"Set MATRIX_HOMESERVER, MATRIX_USER_ID, MATRIX_ACCESS_TOKEN,
@@ -239,6 +254,65 @@ After running tests:
    ```
 
 5. **Stop the homeserver** if started locally for testing.
+
+
+## M14 Inbound Third-Party Reception Test
+
+`test_inbound_message_received` (added to `test_matrix_live.py`) validates
+that the Matrix adapter correctly receives and processes a message sent by a
+**different** Matrix user in the monitored room.
+
+### Prerequisites
+
+1. All four core `MATRIX_*` env vars set (see table above).
+2. A **second Matrix account** (any user on any homeserver) that can send a
+   message to `MATRIX_ROOM_ID` during the test window.
+3. Optionally set `MATRIX_INBOUND_SENDER` to the second account's MXID for
+   exact sender verification.
+
+### How It Works
+
+1. The adapter starts and begins syncing.
+2. The test waits up to **30 seconds** for a third-party message.
+3. If a message arrives, it validates:
+   - **Sender attribution:** `source_transport_id` ≠ `MATRIX_USER_ID` (not self).
+   - **Exact sender match** (if `MATRIX_INBOUND_SENDER` is set).
+   - **Canonical event shape:** `source_adapter`, `event_kind == "message.created"`, `source_channel_id == MATRIX_ROOM_ID`.
+   - **Payload:** dict with `"body"` key.
+   - **source_native_ref:** carries Matrix `event_id` (starts with `$`) and adapter name.
+   - **Diagnostics:** `inbound_published >= 1` and `diagnostics()["inbound_published"] >= 1`.
+4. If no message arrives in 30 s, the test **xfail** (expected failure, not a hard error).
+
+### Running Without a Second Account
+
+If you only have one Matrix account, you can still run this test:
+
+1. Start the test.
+2. While it waits (30 s window), open Element (or any client) logged in as a **different user**.
+3. Send any text message to the test room.
+4. The test will detect the message and validate it.
+
+If no second user is available, the test will xfail. This is an honest
+documented gap — the inbound code path is comprehensively unit-tested
+against fake adapters, but live third-party reception requires a second
+human actor or account.
+
+### M14 Validation Status (2026-05-12)
+
+- **Homeserver:** `matrix.sk.community` — reachable, healthy, versions endpoint confirmed.
+- **Test infrastructure:** `test_inbound_message_received` exists and validates all M14 requirements.
+- **Credentials:** No `MATRIX_*` env vars set in the current session. Previous attempt (2026-05-12)
+  encountered `M_UNKNOWN_TOKEN` on sk.community with a stale access token.
+- **Token exchange:** The adapter uses `restore_login()` with an access token (not password auth).
+  To obtain a token from password credentials:
+  ```bash
+  # This exchanges a password for an access token — DO NOT commit the password.
+  curl -s -X POST https://matrix.sk.community/_matrix/client/v3/login \
+    -d '{"type":"m.login.password","user":"forxrelay","password":"<PASSWORD>"}'
+  # Response contains "access_token" — set as MATRIX_ACCESS_TOKEN.
+  ```
+- **Result:** 13 tests skipped (all gated by env vars). M14 remains blocked on valid credentials.
+  Test infrastructure is complete; the blocker is purely operational.
 
 
 ## E2EE Statement

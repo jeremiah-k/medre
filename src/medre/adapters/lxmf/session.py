@@ -308,7 +308,6 @@ class _SessionDiagnostics:
     permanent_delivery_failures: int = 0
     known_path_count: int | None = None
     propagation_enabled: bool | None = None
-    pending_delivery_count: int | None = None
 
 
 @dataclass(frozen=True)
@@ -329,7 +328,7 @@ class LxmfSessionDiagnostics:
     last_error: str | None
     known_path_count: int | None
     propagation_enabled: bool | None
-    pending_delivery_count: int | None
+    pending_delivery_count: int
     mode: str
 
 
@@ -735,11 +734,7 @@ class LxmfSession:
             last_error=self._diag.last_error,
             known_path_count=self._diag.known_path_count,
             propagation_enabled=self._diag.propagation_enabled,
-            pending_delivery_count=(
-                len(self._outbound_deliveries)
-                if self._outbound_deliveries
-                else None
-            ),
+            pending_delivery_count=len(self._outbound_deliveries),
             mode=self._config.connection_type,
         )
 
@@ -842,15 +837,11 @@ class LxmfSession:
         # Router → Identity → Reticulum
         self._router = None
         self._identity = None
-        # Reticulum teardown: best-effort.
+        # Reticulum teardown: the RNS.Reticulum singleton has no stop()
+        # method (as of RNS 0.9.x).  It persists across session
+        # lifetimes by design — calling exit_handler() would tear down
+        # shared transport for all sessions.  We only drop our reference.
         if self._reticulum is not None:
-            try:
-                # RNS.Reticulum may have a stop method in newer versions.
-                stop_fn = getattr(self._reticulum, "stop", None)
-                if stop_fn is not None:
-                    stop_fn()
-            except Exception:
-                pass
             self._reticulum = None
 
     # ------------------------------------------------------------------
@@ -1219,16 +1210,19 @@ class LxmfSession:
     # ------------------------------------------------------------------
 
     def _unsubscribe_callbacks(self) -> None:
-        """Unsubscribe all registered SDK callbacks."""
-        if self._router is not None:
-            # Best-effort: try to deregister delivery callback.
-            try:
-                # LXMRouter doesn't have a standard unregister method.
-                # Setting to None/empty effectively stops callbacks
-                # because the router reference is about to be dropped.
-                pass
-            except Exception:
-                pass
+        """Unsubscribe all registered SDK callbacks.
+
+        LXMRouter does not expose an unregister/deregister API.
+        Callbacks are effectively silenced because:
+
+        1. ``_stop_requested`` is set before this method is called,
+           preventing reconnect loops from re-registering.
+        2. ``_teardown_sdk()`` nulls ``_router`` immediately after,
+           so the router's callback references become unreachable.
+
+        This method exists as a seam for future SDK versions that
+        may provide deregistration.
+        """
 
     # ------------------------------------------------------------------
     # Safe diagnostics refresh

@@ -51,13 +51,13 @@ The session supports four connection types via
     No real SDK client.  Used for unit tests without hardware.
 
 ``"tcp"``
-    Connects via TCP using ``TCPConnection(host, port)``.
+    Connects via TCP using ``MeshCore.create_tcp(host, port)`` factory.
 
 ``"serial"``
-    Connects via serial using ``SerialConnection(port)``.
+    Connects via serial using ``MeshCore.create_serial(port, baudrate)`` factory.
 
 ``"ble"``
-    Connects via BLE using ``BLEConnection(address)`` (future).
+    Connects via BLE using ``MeshCore.create_ble(address)`` factory.
 
 Reconnect Policy
 ----------------
@@ -136,12 +136,14 @@ class _MeshCoreModule(Protocol):
     optional dependency whose package may be absent at type-check time,
     this Protocol gives Pyright a concrete shape without requiring the
     SDK's type stubs to be installed.
+
+    The SDK exposes async factory methods on ``MeshCore`` —
+    ``create_tcp``, ``create_serial``, ``create_ble`` — which handle
+    connection construction and initial handshake internally.
     """
 
     MeshCore: type
-    TCPConnection: type
-    SerialConnection: type
-    BLEConnection: type
+    EventType: Any
 
 
 class MeshCoreSession:
@@ -397,28 +399,31 @@ class MeshCoreSession:
 
         try:
             if self._config.connection_type == "tcp":
-                self._meshcore = mc.MeshCore(
-                    mc.TCPConnection(
-                        self._config.host or "localhost",
-                        self._config.port or 4403,
-                    )
+                self._meshcore = await mc.MeshCore.create_tcp(
+                    self._config.host or "localhost",
+                    self._config.port or 4403,
                 )
-                await self._meshcore.connect()
+                if self._meshcore is None:
+                    raise MeshCoreConnectionError(
+                        "No response from MeshCore node (TCP)"
+                    )
             elif self._config.connection_type == "serial":
-                self._meshcore = mc.MeshCore(
-                    mc.SerialConnection(
-                        self._config.serial_port or "/dev/ttyUSB0",
-                        self._config.serial_baudrate,
-                    )
+                self._meshcore = await mc.MeshCore.create_serial(
+                    self._config.serial_port or "/dev/ttyUSB0",
+                    self._config.serial_baudrate,
                 )
-                await self._meshcore.connect()
+                if self._meshcore is None:
+                    raise MeshCoreConnectionError(
+                        "No response from MeshCore node (serial)"
+                    )
             elif self._config.connection_type == "ble":
-                self._meshcore = mc.MeshCore(
-                    mc.BLEConnection(
-                        address=self._config.ble_address or "",
-                    )
+                self._meshcore = await mc.MeshCore.create_ble(
+                    address=self._config.ble_address or "",
                 )
-                await self._meshcore.connect()
+                if self._meshcore is None:
+                    raise MeshCoreConnectionError(
+                        "No response from MeshCore node (BLE)"
+                    )
             else:
                 raise MeshCoreConnectionError(
                     f"Unsupported connection_type: "

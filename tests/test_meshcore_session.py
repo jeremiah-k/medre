@@ -380,21 +380,15 @@ class _MockEvent:
 def _build_mock_meshcore_module() -> tuple[MagicMock, AsyncMock]:
     """Build a mock ``meshcore`` module and return (module, meshcore_instance).
 
-    The instance is what ``MeshCore(...)`` returns — it carries
-    ``connect``, ``disconnect``, ``subscribe``, ``unsubscribe``,
+    The instance is what ``await MeshCore.create_tcp(...)`` (etc.) returns —
+    it carries ``disconnect``, ``subscribe``, ``unsubscribe``,
     and ``commands.send_msg`` / ``commands.send_chan_msg``.
     """
     mock_mc = MagicMock()
     mock_mc.EventType = _MockEventType
 
-    # Connection constructors — just return opaque mocks.
-    mock_mc.SerialConnection = MagicMock(return_value=MagicMock())
-    mock_mc.TCPConnection = MagicMock(return_value=MagicMock())
-    mock_mc.BLEConnection = MagicMock(return_value=MagicMock())
-
-    # The MeshCore(...) instance.
+    # The MeshCore instance returned by factory methods.
     instance = AsyncMock()
-    instance.connect = AsyncMock()
     instance.disconnect = AsyncMock()
     instance.subscribe = MagicMock(return_value=MagicMock())
     instance.unsubscribe = MagicMock()
@@ -402,7 +396,12 @@ def _build_mock_meshcore_module() -> tuple[MagicMock, AsyncMock]:
     instance.commands.send_msg = AsyncMock()
     instance.commands.send_chan_msg = AsyncMock()
 
-    mock_mc.MeshCore = MagicMock(return_value=instance)
+    # Factory methods: MeshCore.create_tcp/create_serial/create_ble
+    # These are async class methods that return the instance.
+    mock_mc.MeshCore = MagicMock()
+    mock_mc.MeshCore.create_tcp = AsyncMock(return_value=instance)
+    mock_mc.MeshCore.create_serial = AsyncMock(return_value=instance)
+    mock_mc.MeshCore.create_ble = AsyncMock(return_value=instance)
 
     return mock_mc, instance
 
@@ -420,7 +419,7 @@ class TestMockedSDKSerialStartup:
     """Verify serial-mode startup wiring against mocked SDK 2.3.7 API."""
 
     async def test_serial_constructor_args(self) -> None:
-        """SerialConnection is constructed with (port, baudrate) positional args."""
+        """MeshCore.create_serial is called with (port, baudrate) positional args."""
         mock_mc, mock_inst = _build_mock_meshcore_module()
 
         config = _make_config(
@@ -436,12 +435,10 @@ class TestMockedSDKSerialStartup:
         ):
             await session.start(lambda pkt: None)
 
-        # SerialConnection should have been called with (port, baudrate).
-        mock_mc.SerialConnection.assert_called_once_with("/dev/ttyACM0", 57600)
-        # MeshCore(...) should have been called with that connection mock.
-        mock_mc.MeshCore.assert_called_once()
-        # connect() should have been called on the instance.
-        mock_inst.connect.assert_awaited_once()
+        # create_serial should have been called with (port, baudrate).
+        mock_mc.MeshCore.create_serial.assert_awaited_once_with(
+            "/dev/ttyACM0", 57600
+        )
         assert session.connected is True
 
         # Cleanup.
@@ -463,7 +460,9 @@ class TestMockedSDKSerialStartup:
         ):
             await session.start(lambda pkt: None)
 
-        mock_mc.SerialConnection.assert_called_once_with("/dev/ttyUSB0", 115200)
+        mock_mc.MeshCore.create_serial.assert_awaited_once_with(
+            "/dev/ttyUSB0", 115200
+        )
 
         await session.stop()
 
@@ -472,7 +471,7 @@ class TestMockedSDKTCPStartup:
     """Verify TCP-mode startup wiring against mocked SDK 2.3.7 API."""
 
     async def test_tcp_constructor_args(self) -> None:
-        """TCPConnection is constructed with (host, port) positional args."""
+        """MeshCore.create_tcp is called with (host, port) positional args."""
         mock_mc, mock_inst = _build_mock_meshcore_module()
 
         config = _make_config(
@@ -488,9 +487,7 @@ class TestMockedSDKTCPStartup:
         ):
             await session.start(lambda pkt: None)
 
-        mock_mc.TCPConnection.assert_called_once_with("meshcore.local", 4403)
-        mock_mc.MeshCore.assert_called_once()
-        mock_inst.connect.assert_awaited_once()
+        mock_mc.MeshCore.create_tcp.assert_awaited_once_with("meshcore.local", 4403)
         assert session.connected is True
 
         await session.stop()
@@ -718,9 +715,9 @@ class TestMockedSDKStartupFailureCleanup:
     """Verify failed startup cleans up SDK client state."""
 
     async def test_connect_failure_sets_meshcore_none(self) -> None:
-        """When connect() raises, _meshcore is reset to None."""
+        """When create_serial raises, _meshcore is reset to None."""
         mock_mc, mock_inst = _build_mock_meshcore_module()
-        mock_inst.connect.side_effect = OSError("port not found")
+        mock_mc.MeshCore.create_serial.side_effect = OSError("port not found")
 
         config = _make_config(
             connection_type="serial",
@@ -738,8 +735,6 @@ class TestMockedSDKStartupFailureCleanup:
         # _meshcore should have been cleaned up.
         assert session._meshcore is None
         assert session.connected is False
-        # disconnect should have been attempted on the failed client.
-        mock_inst.disconnect.assert_awaited()
 
 
 class TestMockedSDKDisconnectIdempotent:

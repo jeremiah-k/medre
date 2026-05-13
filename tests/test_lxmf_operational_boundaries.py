@@ -40,6 +40,17 @@ import pytest
 from medre.adapters.lxmf.compat import HAS_LXMF
 
 
+# Capture SDK presence in sys.modules at module-load time, BEFORE any
+# fake adapter imports in test methods.  This establishes a baseline so
+# the sys.modules guard test can detect whether the fake adapter itself
+# introduced the SDK (vs. it being loaded by a prior test or compat).
+import sys as _sys
+
+_SESSION_BASELINE_SDK_MODULES: frozenset[str] = frozenset(
+    sdk for sdk in ("lxmf", "LXMF", "RNS") if sdk in _sys.modules
+)
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -145,6 +156,11 @@ class TestLxmfSdkImportBoundary:
     and ``RNS``.  All other modules must access the SDK through
     :data:`HAS_LXMF`, :data:`rns_module`, :data:`lxmf_module`, or
     via the session (which defers imports to runtime methods).
+
+    **WHY this matters**: Import-time SDK coupling means the entire adapter
+    package fails to load when ``lxmf``/``RNS`` are absent.  This blocks CI
+    (where Reticulum hardware is unavailable) and prevents developer iteration
+    on core logic without installing platform-specific radio dependencies.
     """
 
     @pytest.mark.parametrize(
@@ -184,7 +200,13 @@ class TestLxmfSdkImportBoundary:
 
 
 class TestLxmfCrossTransportBoundary:
-    """LXMF modules must not import from other transport adapters."""
+    """LXMF modules must not import from other transport adapters.
+
+    **WHY this matters**: Cross-adapter imports create hidden coupling between
+    transports.  If LXMF imports MeshCore, then removing or breaking the
+    MeshCore adapter would cascade into LXMF failures — violating the
+    independent-deployment principle.
+    """
 
     @pytest.mark.parametrize(
         "filepath",
@@ -211,20 +233,59 @@ class TestLxmfFakeAdapterOperability:
 
     These tests run unconditionally — even when ``HAS_LXMF`` is
     ``False`` — to prove that the fake path is fully self-contained.
+
+    **WHY this matters**: CI environments and developer machines may not have
+    Reticulum hardware or the ``lxmf``/``RNS`` packages installed.  The fake
+    adapter enables the entire test suite to run deterministically without
+    hardware — if it accidentally pulled in the real SDK, CI would break.
     """
 
     def test_compat_reports_status_without_crashing(self) -> None:
-        """``HAS_LXMF`` is accessible regardless of SDK availability."""
+        """``HAS_LXMF`` is accessible regardless of SDK availability.
+
+        WHY: The compat flag gates all SDK-dependent code paths.  If accessing
+        it crashed, the entire adapter package would be unloadable.
+        """
         assert isinstance(HAS_LXMF, bool)
 
     def test_fake_adapter_imports_without_sdk(self) -> None:
-        """FakeLxmfAdapter can be imported without the SDK."""
+        """FakeLxmfAdapter can be imported without the SDK.
+
+        WHY: Import-time SDK coupling would make the fake adapter unusable in
+        clean environments — exactly where it is needed most.
+        """
         from medre.adapters.fake_lxmf import FakeLxmfAdapter
 
         assert FakeLxmfAdapter is not None
 
+    def test_fake_adapter_import_does_not_load_sdk_into_sys_modules(self) -> None:
+        """Importing the fake adapter must not leak SDK into ``sys.modules``.
+
+        WHY: If ``lxmf`` or ``RNS`` appeared in ``sys.modules`` after importing
+        the fake adapter, it would mean a dependency chain is pulling in the
+        real SDK transitively — breaking the no-SDK guarantee at the module
+        level, not just the source level.
+        """
+        import sys
+
+        sdk_names = ("lxmf", "LXMF", "RNS")
+        import importlib
+
+        importlib.import_module("medre.adapters.fake_lxmf")
+        for sdk in sdk_names:
+            if sdk in _SESSION_BASELINE_SDK_MODULES:
+                continue  # SDK was loaded before this test session.
+            assert sdk not in sys.modules, (
+                f"Importing FakeLxmfAdapter leaked '{sdk}' into sys.modules"
+            )
+
     def test_fake_adapter_instantiation(self) -> None:
-        """FakeLxmfAdapter can be instantiated with fake config."""
+        """FakeLxmfAdapter can be instantiated with fake config.
+
+        WHY: Instantiation is the first runtime touch-point.  If the
+        constructor required SDK types, the fake adapter would be useless
+        for isolated testing.
+        """
         from medre.adapters.fake_lxmf import FakeLxmfAdapter
         from medre.adapters.lxmf.config import LxmfConfig
 
@@ -234,7 +295,12 @@ class TestLxmfFakeAdapterOperability:
 
     @pytest.mark.asyncio
     async def test_fake_adapter_start_stop(self) -> None:
-        """FakeLxmfAdapter start/stop lifecycle works without SDK."""
+        """FakeLxmfAdapter start/stop lifecycle works without SDK.
+
+        WHY: The start→stop lifecycle is the minimum contract every adapter
+        must fulfill.  If the fake adapter's lifecycle required SDK calls,
+        it could not stand in for the real adapter in integration tests.
+        """
         from medre.adapters.fake_lxmf import FakeLxmfAdapter
         from medre.adapters.lxmf.config import LxmfConfig
 
@@ -246,7 +312,12 @@ class TestLxmfFakeAdapterOperability:
 
     @pytest.mark.asyncio
     async def test_fake_adapter_deliver_and_track(self) -> None:
-        """FakeLxmfAdapter tracks deliveries without SDK."""
+        """FakeLxmfAdapter tracks deliveries without SDK.
+
+        WHY: Outbound delivery tracking is critical for delivery-receipt and
+        replay tests.  If the fake delivery path required SDK types, those
+        tests would fail in clean environments.
+        """
         from medre.adapters.fake_lxmf import FakeLxmfAdapter
         from medre.adapters.lxmf.config import LxmfConfig
         from medre.core.rendering.renderer import RenderingResult
@@ -266,6 +337,37 @@ class TestLxmfFakeAdapterOperability:
         assert len(adapter.delivered_payloads) == 1
         await adapter.stop()
 
+    @pytest.mark.asyncio
+    async def test_fake_adapter_start_diagnostics_stop_lifecycle(self) -> None:
+        """start() → diagnostics() → stop() must all succeed without SDK.
+
+        WHY: The full operational lifecycle (start, introspect, stop) is the
+        sequence operators use in production.  Verifying it works with the
+        fake adapter proves the diagnostics contract is reachable at runtime
+        and does not depend on SDK state that only exists after a real
+        Reticulum connection.
+        """
+        from medre.adapters.fake_lxmf import FakeLxmfAdapter
+        from medre.adapters.lxmf.config import LxmfConfig
+
+        config = LxmfConfig(adapter_id="test_lifecycle_diag")
+        adapter = FakeLxmfAdapter(config)
+
+        # start
+        await adapter.start(_make_ctx("test_lifecycle_diag"))
+        assert adapter._started
+
+        # diagnostics (mid-lifecycle)
+        diag = adapter.diagnostics()
+        assert isinstance(diag, dict)
+        assert diag["started"] is True
+        assert diag["mode"] == "fake"
+        assert "adapter_id" in diag
+
+        # stop
+        await adapter.stop()
+        assert not adapter._started
+
 
 # ===================================================================
 # 4. Diagnostic safety
@@ -273,7 +375,14 @@ class TestLxmfFakeAdapterOperability:
 
 
 class TestLxmfDiagnosticSafety:
-    """Diagnostics must not expose SDK objects or identity material."""
+    """Diagnostics must not expose SDK objects or identity material.
+
+    **WHY this matters**: Diagnostics are surfaced in operator tooling, logs,
+    and potentially over network APIs.  Leaking SDK objects (which may hold
+    open RNS transport instances) or identity material (RNS private keys,
+    identity hashes) would be a security incident.  These tests enforce the
+    contract that diagnostics output is safe to transmit and log.
+    """
 
     @pytest.mark.parametrize(
         "filepath",
@@ -281,7 +390,12 @@ class TestLxmfDiagnosticSafety:
         ids=lambda p: p.name,
     )
     def test_diagnostics_source_no_secret_patterns(self, filepath: Path) -> None:
-        """Diagnostic-returning source must not reference secret/identity fields."""
+        """Diagnostic-returning source must not reference secret/identity fields.
+
+        WHY: Source-level scanning catches accidental secret exposure at the
+        code level — before runtime.  If the source references private_key
+        or similar in a return/assignment context, it is a latent leak risk.
+        """
         source = _read_source(filepath)
         if "diagnostics" not in source:
             pytest.skip("no diagnostics method in this file")
@@ -303,7 +417,12 @@ class TestLxmfDiagnosticSafety:
 
     @pytest.mark.asyncio
     async def test_fake_adapter_diagnostics_are_json_safe(self) -> None:
-        """Diagnostics output contains only JSON-safe scalar types."""
+        """Diagnostics output contains only JSON-safe scalar types.
+
+        WHY: JSON-safe output guarantees diagnostics can be serialized to
+        any transport (HTTP API, file, log aggregator) without pickling or
+        custom encoders that might accidentally serialize RNS/LXMF internals.
+        """
         from medre.adapters.fake_lxmf import FakeLxmfAdapter
         from medre.adapters.lxmf.config import LxmfConfig
 
@@ -319,7 +438,12 @@ class TestLxmfDiagnosticSafety:
 
     @pytest.mark.asyncio
     async def test_diagnostics_no_sdk_type_leaks(self) -> None:
-        """Diagnostics values must not be SDK module/class instances."""
+        """Diagnostics values must not be SDK module/class instances.
+
+        WHY: SDK objects (RNS Transport, LXMF Router) may hold open sockets,
+        encryption contexts, or identity data in their repr().  If diagnostics
+        exposes them, any logging or API serialization could leak sensitive state.
+        """
         from medre.adapters.fake_lxmf import FakeLxmfAdapter
         from medre.adapters.lxmf.config import LxmfConfig
 
@@ -331,6 +455,36 @@ class TestLxmfDiagnosticSafety:
         await adapter.stop()
 
         self._assert_no_sdk_types(diag)
+
+    @pytest.mark.asyncio
+    async def test_diagnostics_output_no_secret_string_values(self) -> None:
+        """Diagnostics output values must not contain secret/identity substrings.
+
+        WHY: Even if diagnostics values are strings rather than SDK objects,
+        they could contain private keys, access tokens, or identity material
+        as substrings.  This runtime check complements the source-level scan
+        by inspecting actual output — catching cases where a field name is
+        benign but its value contains sensitive material.
+        """
+        import json
+
+        from medre.adapters.fake_lxmf import FakeLxmfAdapter
+        from medre.adapters.lxmf.config import LxmfConfig
+
+        config = LxmfConfig(adapter_id="test_diag_str_safe")
+        adapter = FakeLxmfAdapter(config)
+        await adapter.start(_make_ctx("test_diag_str_safe"))
+
+        diag = adapter.diagnostics()
+        await adapter.stop()
+
+        # Serialize to string and scan for secret patterns.
+        diag_str = json.dumps(diag).lower()
+        for pattern in _IDENTITY_SECRET_PATTERNS:
+            assert pattern.lower() not in diag_str, (
+                f"Diagnostics output contains secret pattern '{pattern}': "
+                f"{diag_str[:200]}"
+            )
 
     @staticmethod
     def _assert_json_safe(obj: Any, path: str = "root") -> None:
@@ -382,6 +536,11 @@ class TestLxmfLiveTestExclusion:
 
     Default pytest configuration uses ``addopts = "-m 'not live'"`` so
     live-marked tests are skipped unless explicitly requested.
+
+    **WHY this matters**: Without the live marker guard, a developer running
+    ``pytest`` without Reticulum hardware would see cryptic import/connection
+    errors instead of a clean skip.  This also prevents CI from attempting
+    hardware interactions on headless runners.
     """
 
     def test_this_file_is_not_live_marked(self) -> None:

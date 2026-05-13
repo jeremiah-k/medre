@@ -1,8 +1,8 @@
 # Hardware Inventory
 
-> Last updated: 2026-05-12
+> Last updated: 2026-05-12 (Wave 2C/2D probe update)
 > Scope: Physical LoRa radio devices available for MEDRE testing
-> Status: Live. Both devices flashed and verified operational.
+> Status: Devices present. Serial protocols probed. **CRITICAL: Device mapping corrected — ttyACM0 is T-Beam companion (CH9102F), ttyACM1 is Meshtastic T-Beam (CH9102F), ttyUSB0 is T-LoRa V2.1-1.6 (CP2104). Previous mapping had devices swapped.** RNode on ttyUSB0 non-responsive to KISS probe. MeshCore companion on ttyACM0 uses heartbeat protocol, not MeshCore serial.
 
 This document records the two SX1276 LoRa devices available for MEDRE development and testing. It exists because future test runs depend on knowing which physical device is which, what firmware it runs, and how to recover it.
 
@@ -30,18 +30,25 @@ This document records the two SX1276 LoRa devices available for MEDRE developmen
 
 Always use `/dev/serial/by-id/` paths. Ephemeral `/dev/ttyUSB*` and `/dev/ttyACM*` may swap on reboot.
 
-| Device | Stable Path | Ephemeral |
-|---|---|---|
-| T-Beam (MeshCore) | `/dev/serial/by-id/usb-Silicon_Labs_CP2104_USB_to_UART_Bridge_Controller_02036439-if00-port0` | `/dev/ttyUSB0` |
-| T-LoRa (RNode) | `/dev/serial/by-id/usb-1a86_USB_Single_Serial_5435017200-if00` | `/dev/ttyACM0` |
+| Device | Stable Path | Ephemeral | Notes |
+|---|---|---|---|
+| T-Beam companion (MeshCore) | `/dev/serial/by-id/usb-1a86_USB_Single_Serial_5435017200-if00` | `/dev/ttyACM0` | CH9102F, 0x27 heartbeat protocol, NOT MeshCore SDK serial |
+| T-Beam Meshtastic | `/dev/serial/by-id/usb-1a86_USB_Single_Serial_5435017226-if00` | `/dev/ttyACM1` | CH9102F, Meshtastic protobuf at 115200 |
+| T-LoRa V2.1-1.6 (RNode target) | `/dev/serial/by-id/usb-Silicon_Labs_CP2104_USB_to_UART_Bridge_Controller_02036439-if00-port0` | `/dev/ttyUSB0` | CP2104, KISS probe returned NO RESPONSE |
+
+**⚠️ Mapping correction (Wave 2C/2D):** Previous version had T-Beam on ttyUSB0 and T-LoRa on ttyACM0. Corrected after physical USB inspection showed:
+- CH9102F (QinHeng) devices appear as `/dev/ttyACM*` (cdc_acm driver)
+- CP2104 (Silicon Labs) devices appear as `/dev/ttyUSB*` (cp210x driver)
+- Serial numbers confirmed by `ls /dev/serial/by-id/`
 
 
 ## 3. USB Identification
 
 | Device | VID:PID | UART Chip | Serial # | Kernel Driver |
 |---|---|---|---|---|
-| T-Beam | `10c4:ea60` | Silicon Labs CP2104 | `02036439` | `cp210x` |
-| T-LoRa | `1a86:55d4` | QinHeng CH9102F | `5435017200` | `cdc_acm` |
+| T-Beam companion (MeshCore) | `1a86:55d4` | QinHeng CH9102F | `5435017200` | `cdc_acm` |
+| T-Beam Meshtastic | `1a86:55d4` | QinHeng CH9102F | `5435017226` | `cdc_acm` |
+| T-LoRa V2.1-1.6 | `10c4:ea60` | Silicon Labs CP2104 | `02036439` | `cp210x` |
 
 
 ## 4. Firmware Details
@@ -66,6 +73,22 @@ Always use `/dev/serial/by-id/` paths. Ephemeral `/dev/ttyUSB*` and `/dev/ttyACM
 - **Modem chip**: SX1276
 - **Device mode**: Normal (host-controlled)
 - **Verified**: `rnodeconf /dev/ttyACM0 --info` returns valid device info with correct signature
+- **⚠️ Wave 2D finding**: KISS DETECT probe at 115200 and 57600 baud to ttyUSB0 (CP2104) returned NO RESPONSE. RNode firmware status on this device is UNCONFIRMED. May need reflash or DTR/RTS toggling.
+
+
+## 4a. Full Serial Device Table (Wave 2C/2D Probe Results)
+
+| Path | by-id | USB Chip | Confirmed Protocol | Baud Rate | Permissions | MEDRE Adapter | Next Action |
+|------|-------|----------|--------------------|-----------|-------------|---------------|-------------|
+| `/dev/ttyACM0` | `usb-1a86_USB_Single_Serial_5435017200-if00` | CH9102F (QinHeng) | `0x27 XX YY` heartbeat (~1s interval) | Unknown (probed at 115200) | `crw-rw----` (dialout) | MeshCore companion | **NOT MeshCore SDK serial**. BLE is the intended path for companion_radio_ble firmware. |
+| `/dev/ttyACM1` | `usb-1a86_USB_Single_Serial_5435017226-if00` | CH9102F (QinHeng) | Meshtastic protobuf | 115200 (confirmed) | `crw-rw----` (dialout) | Meshtastic adapter | **Operational.** Meshtastic live tests passed against this device. |
+| `/dev/ttyUSB0` | `usb-Silicon_Labs_CP2104_USB_to_UART_Bridge_Controller_02036439-if00-port0` | CP2104 (Silicon Labs) | **NO RESPONSE** to KISS probe | Probed at 115200, 57600 | `crw-rw----` (dialout) | LXMF/RNode (target) | **KISS probe failed.** Try `rnodeconf --info`, DTR/RTS toggle, or reflash RNode firmware. |
+
+### BLE Device Table
+
+| Adapter | State | Target Device | MAC | SDK Method | Status |
+|---------|-------|---------------|-----|------------|--------|
+| `hci0` | UP RUNNING (BlueZ) | MeshCore-B4C6ED2C | `C4:4F:33:6A:B0:23` | `MeshCore.create_ble()` | **Advertising confirmed, connection NOT ATTEMPTED** |
 
 
 ## 5. Flashing Commands (Recovery Reference)
@@ -80,29 +103,33 @@ gh release download companion-v1.15.0 \
   --dir /tmp/meshcore-firmware
 
 # Erase flash (clears stale partitions from previous firmware)
-esptool --port /dev/ttyUSB0 erase-flash
+esptool --port /dev/ttyACM0 erase-flash
 
 # Flash merged binary (bootloader + partition table + app) at offset 0x0
-esptool --port /dev/ttyUSB0 write-flash 0x0 \
+esptool --port /dev/ttyACM0 write-flash 0x0 \
   /tmp/meshcore-firmware/Tbeam_SX1276_companion_radio_ble-v1.15.0-dee3e26-merged.bin
 
 # Verify BLE advertising
 bluetoothctl --timeout 8 scan on | grep MeshCore
 ```
 
-### RNode on T-LoRa (Device B)
+**⚠️ Note:** MeshCore companion_radio_ble firmware uses BLE as primary transport. Serial port shows heartbeat only (0x27 XX YY). Use `MeshCore.create_ble()` for communication, NOT `create_serial()`.
+
+### RNode on T-LoRa V2.1-1.6 (Device B)
 
 ```bash
 # Interactive autoinstall (recommended)
 rnodeconf --autoinstall
-# Select: [1] ttyACM0, [3] LilyGO LoRa32 v2.1, Enter disclaimer, [2] 868/915/923 MHz
+# Select: appropriate ttyUSB0 port, [3] LilyGO LoRa32 v2.1, Enter disclaimer, [2] 868/915/923 MHz
 
 # Non-interactive alternative (automated stdin)
 printf '\n1\n3\n\n2\ny\nyes\n\n' | rnodeconf --autoinstall
 
-# Verify installation
-rnodeconf /dev/ttyACM0 --info
+# Verify installation — use correct device path (CP2104 on ttyUSB0)
+rnodeconf /dev/ttyUSB0 --info
 ```
+
+**⚠️ Wave 2D status:** RNode firmware on this device is UNCONFIRMED. The `rnodeconf --info` command needs to be re-run against the correct ttyUSB0 path. Previous verification may have been against a different device mapping.
 
 ### Recover to Meshtastic (if needed)
 
@@ -121,7 +148,8 @@ Add to `~/.reticulum/config` to use the RNode with Reticulum:
 ```ini
 [[RNode Interface]]
   type = RNodeInterface
-  port = /dev/serial/by-id/usb-1a86_USB_Single_Serial_5435017200-if00
+  # NOTE: Verify this path after RNode firmware confirmed active on ttyUSB0
+  port = /dev/serial/by-id/usb-Silicon_Labs_CP2104_USB_to_UART_Bridge_Controller_02036439-if00-port0
   frequency = 915000000
   bandwidth = 125000
   txpower = 17
@@ -129,12 +157,16 @@ Add to `~/.reticulum/config` to use the RNode with Reticulum:
   codingrate = 5
 ```
 
+**⚠️ Wave 2D status**: This config has NOT been validated. The KISS probe to this serial port returned no response. RNode firmware status on the T-LoRa V2.1-1.6 is UNCONFIRMED. Do not rely on this config until RNode serial path is confirmed working.
+
 
 ## 7. Known Issues
 
-### MeshCore on T-Beam
+### MeshCore on T-Beam (ttyACM0) — Wave 2C Findings
 
-- No serial console output at 115200 baud after bootloader. MeshCore companion_radio_ble uses BLE as primary transport; serial output may be at non-standard baud or disabled in release builds. Monitor via BLE instead.
+- **Serial protocol mismatch**: ttyACM0 speaks 3-byte heartbeat (0x27 XX YY), NOT MeshCore SDK serial protocol (expects 0x3e start marker). `MeshCore.create_serial("/dev/ttyACM0")` will fail or hang.
+- **Companion_radio_ble firmware**: BLE is the primary transport for this firmware. Serial output is a heartbeat only.
+- **BLE preconditions met**: hci0 UP, bleak importable, MeshCore-B4C6ED2C advertising at C4:4F:33:6A:B0:23. **BLE connection NOT YET ATTEMPTED.**
 - Core dump partition checksum mismatch on first boot after fresh flash (non-fatal, clears after first successful boot).
 
 ### MeshCore on T-LoRa V2.1-1.6 (NOT USED - blocked)
@@ -143,9 +175,16 @@ Add to `~/.reticulum/config` to use the RNode with Reticulum:
 - This is why the T-LoRa was assigned RNode duty instead of MeshCore.
 - Older MeshCore versions (v1.9.0) reportedly work on this board. TX power must be <= 17 dBm.
 
-### RNode on T-LoRa V2.1-1.6
+### RNode on T-LoRa V2.1-1.6 (ttyUSB0) — Wave 2D Findings
 
-- Works correctly. RNode firmware v1.86 stable on this board.
+- **KISS probe FAILED**: No response to DETECT command at 115200 or 57600 baud. Device is completely silent.
+- **Possible causes**: (1) RNode firmware not active on device, (2) device in sleep state needing DTR/RTS, (3) wrong baud rate, (4) needs reflash.
+- **Previously documented as working**: `rnodeconf /dev/ttyACM0 --info` was reported as returning valid info — but this may have been a different device mapping (see mapping correction above).
+- **Action needed**: Run `rnodeconf /dev/ttyUSB0 --info` to verify. If no response, reflash with `rnodeconf --autoinstall`.
+
+### Meshtastic on T-Beam (ttyACM1)
+
+- Working correctly. Meshtastic protobuf at 115200 baud confirmed.
 - Max TX power limited to 17 dBm by firmware (appropriate for SX1276 on this board).
 
 

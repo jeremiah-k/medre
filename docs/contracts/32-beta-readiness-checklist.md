@@ -2,10 +2,12 @@
 
 > Contract version: 4
 > Last updated: 2026-05-12
-> Track: 8 (README Operator Positioning), Track 9 (Beta Checklist Update), Track 12 (Beta Candidate Closure)
+> Track: 8 (README Operator Positioning), Track 9 (Beta Checklist Update), Track 12 (Beta Candidate Closure), M14 Inbound Validation Attempt
 > Supersedes: Version 3 (2026-05-12). Consolidates hardware probe findings, fixes stale license claims, aligns with Contract 62 maturity matrix.
 > Status: Checklist. Defines what must be true before beta release.
 > Head: (current)
+>
+> **M14 Update (2026-05-12):** Inbound test infrastructure (`test_inbound_message_received`) is complete and validates all M14 requirements: sender attribution, room attribution, canonical event shape (`event_kind`, `source_adapter`, `payload`), `source_native_ref` (Matrix event_id, adapter name), and diagnostics counters (`inbound_published >= 1`). The test waits 30 s for a third-party message with `xfail` on timeout. **Homeserver `matrix.sk.community` confirmed reachable and healthy.** No `MATRIX_*` env vars are set in the current session — all 13 live tests skip cleanly. Previous credential attempt produced `M_UNKNOWN_TOKEN`. Blocker: need fresh `MATRIX_ACCESS_TOKEN` obtained via password-to-token exchange (`curl -X POST https://matrix.sk.community/_matrix/client/v3/login`). A second Matrix account or manual message during the test window is needed to complete third-party inbound validation.
 
 This document is the beta readiness checklist for the MEDRE framework. It defines three tiers: must-have before beta, should-have before beta, and explicitly deferred. It records per-transport beta blockers, live-test requirements, docs/runbook requirements, and packaging/dependency requirements.
 
@@ -38,7 +40,7 @@ These items are blocking. Beta cannot ship without them.
 | M11 | Matrix | Live smoke test run against real homeserver | ✅ Satisfied | `test_matrix_live.py -m live`: 13 passed / 0 failed / 0 skipped against matrix.org homeserver, room `!sRlwdLCwIGBpSzoRsV:matrix.org`. Lifecycle, health, send/receive, diagnostics, session all passed. See `docs/runbooks/operational-evidence.md` §1.1. | None. |
 | M12 | Matrix | E2EE live smoke test run | ✅ Satisfied | `test_matrix_e2ee_live.py -m live`: 7 passed / 0 failed / 0 skipped in 3.73s against encrypted room `!rnmyZMhUoraPwZUDPP:matrix.org`. Initial run hit `OlmUnverifiedDeviceError` (2 tests); adapter fix (`ignore_unverified_devices=True`) applied; re-test passed full suite. See `docs/runbooks/operational-evidence.md` §1.3. | None. |
 | M13 | Meshtastic | Live smoke test run against real radio | ✅ Satisfied | `test_meshtastic_live.py -m live`: 10 passed / 0 failed / 0 skipped in 34.47s against real device. Serial connection to `/dev/ttyACM0`, LilyGO T-LORA V2.1.1.6 (`!25d6e474`), firmware 2.7.19, channel Test (PRIMARY, LONG_FAST). **Track 2 follow-up (2026-05-12):** Additional CLI-level diagnostics cycle confirmed device stable at 27616s uptime, 2 nodes in mesh, battery "Powered", 4/4 serial connections succeeded. ACK classified UNRELIABLE, delivery classified BEST EFFORT. See `docs/runbooks/operational-evidence.md` §2.0. | None. |
-| M14 | Matrix | Inbound reception confirmed from live test | ⛔ Blocked | `test_matrix_live.py` includes inbound reception test but has not been run against a real homeserver. No third-party inbound confirmation recorded. | Add inbound reception test. Send from a second account, verify `publish_inbound()` fires. |
+| M14 | Matrix | Inbound reception confirmed from live test | ⛔ Blocked | `test_inbound_message_received` in `test_matrix_live.py` validates all M14 requirements: sender attribution (`source_transport_id` ≠ self), room attribution (`source_channel_id == MATRIX_ROOM_ID`), canonical event shape (`event_kind == "message.created"`, `source_adapter`, `payload["body"]`), `source_native_ref` (Matrix `event_id`, adapter name), and diagnostics (`inbound_published >= 1`). **Homeserver `matrix.sk.community` confirmed reachable (2026-05-12).** All 13 live tests skip cleanly — no `MATRIX_*` env vars set. Previous attempt: `M_UNKNOWN_TOKEN`. Blocker: need fresh `MATRIX_ACCESS_TOKEN` via password-to-token exchange (`curl -X POST https://matrix.sk.community/_matrix/client/v3/login -d '{"type":"m.login.password","user":"forxrelay","password":"<PW>"}'`). Second account or manual message needed during 30 s test window. | Obtain fresh access token. Set env vars. Have second user send message during test window. |
 
 
 ### 1.3 Live Validation Summary (Evidence as of 2026-05-11, head `36d3706`)

@@ -39,6 +39,17 @@ import pytest
 from medre.adapters.meshcore.compat import HAS_MESHCORE
 
 
+# Capture SDK presence in sys.modules at module-load time, BEFORE any
+# fake adapter imports in test methods.  This establishes a baseline so
+# the sys.modules guard test can detect whether the fake adapter itself
+# introduced the SDK (vs. it being loaded by a prior test or compat).
+import sys as _sys
+
+_SESSION_BASELINE_SDK_MODULES: frozenset[str] = frozenset(
+    sdk for sdk in ("meshcore",) if sdk in _sys.modules
+)
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -137,6 +148,10 @@ class TestMeshCoreSdkImportBoundary:
     ``meshcore`` package.  All other modules must access the SDK
     through :data:`HAS_MESHCORE` or via the session (which defers
     imports to runtime methods).
+
+    **WHY this matters**: Import-time SDK coupling means the entire adapter
+    package fails to load when the SDK is absent.  This blocks CI, prevents
+    developer iteration, and violates the optional-dependency contract.
     """
 
     @pytest.mark.parametrize(
@@ -177,7 +192,13 @@ class TestMeshCoreSdkImportBoundary:
 
 
 class TestMeshCoreCrossTransportBoundary:
-    """MeshCore modules must not import from other transport adapters."""
+    """MeshCore modules must not import from other transport adapters.
+
+    **WHY this matters**: Cross-adapter imports create hidden coupling between
+    transports.  If MeshCore imports LXMF, then a breaking change in the LXMF
+    adapter could silently break MeshCore, and uninstalling the LXMF adapter
+    package would cascade into import errors in MeshCore.
+    """
 
     @pytest.mark.parametrize(
         "filepath",
@@ -202,23 +223,61 @@ class TestMeshCoreCrossTransportBoundary:
 class TestMeshCoreFakeAdapterOperability:
     """FakeMeshCoreAdapter must work without the ``meshcore`` SDK installed.
 
-    These tests run unconditionally — even when ``HAS_MESHCORE`` is
-    ``False`` — to prove that the fake path is fully self-contained.
+    **WHY this matters**: CI environments and developer machines may not have
+    radio hardware or the ``meshcore`` SDK package installed.  The fake adapter
+    is the gateway to running the entire test suite deterministically, so it
+    must never accidentally pull in the real SDK.  If it did, CI would fail
+    and developers could not iterate on core logic without hardware setup.
     """
 
     def test_compat_reports_status_without_crashing(self) -> None:
-        """``HAS_MESHCORE`` is accessible regardless of SDK availability."""
+        """``HAS_MESHCORE`` is accessible regardless of SDK availability.
+
+        WHY: The compat flag gates all SDK-dependent code paths.  If accessing
+        it crashed, the entire adapter package would be unloadable.
+        """
         # Already imported at module level; just assert it's a bool.
         assert isinstance(HAS_MESHCORE, bool)
 
     def test_fake_adapter_imports_without_sdk(self) -> None:
-        """FakeMeshCoreAdapter can be imported without the SDK."""
+        """FakeMeshCoreAdapter can be imported without the SDK.
+
+        WHY: Import-time SDK coupling would make the fake adapter unusable in
+        clean environments — exactly where it is needed most.
+        """
         from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
 
         assert FakeMeshCoreAdapter is not None
 
+    def test_fake_adapter_import_does_not_load_sdk_into_sys_modules(self) -> None:
+        """Importing the fake adapter must not leak the SDK into ``sys.modules``.
+
+        WHY: If ``import meshcore`` appeared in ``sys.modules`` after importing
+        the fake adapter, it would mean a dependency chain is pulling in the
+        real SDK transitively — breaking the no-SDK guarantee at the module
+        level, not just the source level.
+        """
+        import sys
+
+        sdk_names = ("meshcore",)
+        # Import fresh to detect side-effects.
+        import importlib
+
+        importlib.import_module("medre.adapters.fake_meshcore")
+        for sdk in sdk_names:
+            if sdk in _SESSION_BASELINE_SDK_MODULES:
+                continue  # SDK was loaded before this test session.
+            assert sdk not in sys.modules, (
+                f"Importing FakeMeshCoreAdapter leaked '{sdk}' into sys.modules"
+            )
+
     def test_fake_adapter_instantiation(self) -> None:
-        """FakeMeshCoreAdapter can be instantiated with fake config."""
+        """FakeMeshCoreAdapter can be instantiated with fake config.
+
+        WHY: Instantiation is the first runtime touch-point.  If the
+        constructor required SDK types, the fake adapter would be useless
+        for isolated testing.
+        """
         from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
         from medre.adapters.meshcore.config import MeshCoreConfig
 
@@ -228,7 +287,12 @@ class TestMeshCoreFakeAdapterOperability:
 
     @pytest.mark.asyncio
     async def test_fake_adapter_start_stop(self) -> None:
-        """FakeMeshCoreAdapter start/stop lifecycle works without SDK."""
+        """FakeMeshCoreAdapter start/stop lifecycle works without SDK.
+
+        WHY: The start→stop lifecycle is the minimum contract every adapter
+        must fulfill.  If the fake adapter's lifecycle required SDK calls,
+        it could not stand in for the real adapter in integration tests.
+        """
         from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
         from medre.adapters.meshcore.config import MeshCoreConfig
 
@@ -240,7 +304,12 @@ class TestMeshCoreFakeAdapterOperability:
 
     @pytest.mark.asyncio
     async def test_fake_adapter_deliver_and_track(self) -> None:
-        """FakeMeshCoreAdapter tracks deliveries without SDK."""
+        """FakeMeshCoreAdapter tracks deliveries without SDK.
+
+        WHY: Outbound delivery tracking is critical for delivery-receipt and
+        replay tests.  If the fake delivery path required SDK types, those
+        tests would fail in clean environments.
+        """
         from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
         from medre.adapters.meshcore.config import MeshCoreConfig
         from medre.core.rendering.renderer import RenderingResult
@@ -260,6 +329,37 @@ class TestMeshCoreFakeAdapterOperability:
         assert len(adapter.delivered_payloads) == 1
         await adapter.stop()
 
+    @pytest.mark.asyncio
+    async def test_fake_adapter_start_diagnostics_stop_lifecycle(self) -> None:
+        """start() → diagnostics() → stop() must all succeed without SDK.
+
+        WHY: The full operational lifecycle (start, introspect, stop) is the
+        sequence operators use in production.  Verifying it works with the
+        fake adapter proves the diagnostics contract is reachable at runtime
+        and does not depend on SDK state that only exists after a real radio
+        connection.
+        """
+        from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
+        from medre.adapters.meshcore.config import MeshCoreConfig
+
+        config = MeshCoreConfig(adapter_id="test_lifecycle_diag")
+        adapter = FakeMeshCoreAdapter(config)
+
+        # start
+        await adapter.start(_make_ctx("test_lifecycle_diag"))
+        assert adapter._started
+
+        # diagnostics (mid-lifecycle)
+        diag = adapter.diagnostics()
+        assert isinstance(diag, dict)
+        assert diag["started"] is True
+        assert diag["mode"] == "fake"
+        assert "adapter_id" in diag
+
+        # stop
+        await adapter.stop()
+        assert not adapter._started
+
 
 # ===================================================================
 # 4. Diagnostic safety
@@ -267,7 +367,14 @@ class TestMeshCoreFakeAdapterOperability:
 
 
 class TestMeshCoreDiagnosticSafety:
-    """Diagnostics must not expose SDK objects or identity material."""
+    """Diagnostics must not expose SDK objects or identity material.
+
+    **WHY this matters**: Diagnostics are surfaced in operator tooling, logs,
+    and potentially over network APIs.  Leaking SDK objects (which may hold
+    file descriptors or connection state) or identity material (private keys,
+    secrets) would be a security incident.  These tests enforce the contract
+    that diagnostics output is safe to transmit and log.
+    """
 
     @pytest.mark.parametrize(
         "filepath",
@@ -275,7 +382,12 @@ class TestMeshCoreDiagnosticSafety:
         ids=lambda p: p.name,
     )
     def test_diagnostics_source_no_secret_patterns(self, filepath: Path) -> None:
-        """Diagnostic-returning source must not reference secret/identity fields."""
+        """Diagnostic-returning source must not reference secret/identity fields.
+
+        WHY: Source-level scanning catches accidental secret exposure at the
+        code level — before runtime.  If the source references private_key
+        or similar in a return/assignment context, it is a latent leak risk.
+        """
         source = _read_source(filepath)
         # Only check files that have diagnostic methods.
         if "diagnostics" not in source:
@@ -306,7 +418,12 @@ class TestMeshCoreDiagnosticSafety:
 
     @pytest.mark.asyncio
     async def test_fake_adapter_diagnostics_are_json_safe(self) -> None:
-        """Diagnostics output contains only JSON-safe scalar types."""
+        """Diagnostics output contains only JSON-safe scalar types.
+
+        WHY: JSON-safe output guarantees diagnostics can be serialized to
+        any transport (HTTP API, file, log aggregator) without pickling or
+        custom encoders that might accidentally serialize SDK internals.
+        """
         from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
         from medre.adapters.meshcore.config import MeshCoreConfig
 
@@ -322,7 +439,12 @@ class TestMeshCoreDiagnosticSafety:
 
     @pytest.mark.asyncio
     async def test_diagnostics_no_sdk_type_leaks(self) -> None:
-        """Diagnostics values must not be SDK module/class instances."""
+        """Diagnostics values must not be SDK module/class instances.
+
+        WHY: SDK objects may hold open sockets, file handles, or unencrypted
+        identity data in their repr().  If diagnostics exposes them, any
+        logging or API serialization could leak sensitive state.
+        """
         from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
         from medre.adapters.meshcore.config import MeshCoreConfig
 
@@ -334,6 +456,35 @@ class TestMeshCoreDiagnosticSafety:
         await adapter.stop()
 
         self._assert_no_sdk_types(diag)
+
+    @pytest.mark.asyncio
+    async def test_diagnostics_output_no_secret_string_values(self) -> None:
+        """Diagnostics output values must not contain secret/identity substrings.
+
+        WHY: Even if diagnostics values are strings rather than SDK objects,
+        they could contain private keys, access tokens, or identity material
+        as substrings.  This runtime check complements the source-level scan
+        by inspecting actual output.
+        """
+        import json
+
+        from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
+        from medre.adapters.meshcore.config import MeshCoreConfig
+
+        config = MeshCoreConfig(adapter_id="test_diag_str_safe")
+        adapter = FakeMeshCoreAdapter(config)
+        await adapter.start(_make_ctx("test_diag_str_safe"))
+
+        diag = adapter.diagnostics()
+        await adapter.stop()
+
+        # Serialize to string and scan for secret patterns.
+        diag_str = json.dumps(diag).lower()
+        for pattern in _IDENTITY_SECRET_PATTERNS:
+            assert pattern.lower() not in diag_str, (
+                f"Diagnostics output contains secret pattern '{pattern}': "
+                f"{diag_str[:200]}"
+            )
 
     @staticmethod
     def _assert_json_safe(obj: Any, path: str = "root") -> None:
@@ -387,6 +538,11 @@ class TestMeshCoreLiveTestExclusion:
 
     Default pytest configuration uses ``addopts = "-m 'not live'"`` so
     live-marked tests are skipped unless explicitly requested.
+
+    **WHY this matters**: Without the live marker guard, a developer running
+    ``pytest`` without hardware would see cryptic import/connection errors
+    instead of a clean skip.  This also prevents CI from attempting hardware
+    interactions on headless runners.
     """
 
     def test_this_file_is_not_live_marked(self) -> None:

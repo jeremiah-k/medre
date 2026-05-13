@@ -2,7 +2,7 @@
 
 > Last updated: 2026-05-12
 > Tracks: 1, 2, 7, 8 (v2 consolidation + hardware probe)
-> Status: Procedures documented. Meshtastic serial live validation: **EXECUTED 2026-05-12** (CLI-level: device discovery, hardware/firmware capture, one outbound send on channel 0, 2 reconnect cycles). MEDRE adapter lifecycle and Matrix live tests: **NOT EXECUTED** (2026-05-12: sk.community access token rejected `M_UNKNOWN_TOKEN`; matrix.org password login rejected `M_FORBIDDEN Invalid username/password` — see §1.7). mtjk not in project venv. **Hardware probe (2026-05-12):** CP2104 `/dev/ttyUSB0` (stable by-id, likely T-Beam) — no serial chatter observed; CH9102F `/dev/ttyACM0` (stable by-id, confirmed T-LoRa V2.1-1.6). MeshCore firmware flash and LXMF Reticulum live path pending follow-up validation.
+> Status: Procedures documented. Meshtastic serial live validation: **EXECUTED 2026-05-12** (CLI-level: device discovery, hardware/firmware capture, one outbound send on channel 0, 2 reconnect cycles). MEDRE adapter lifecycle and Matrix live tests: **NOT EXECUTED** (2026-05-12: sk.community access token rejected `M_UNKNOWN_TOKEN`; matrix.org password login rejected `M_FORBIDDEN Invalid username/password` — see §1.7). M14 third-party inbound validation attempted 2026-05-12: `matrix.sk.community` homeserver confirmed reachable and healthy, but no `MATRIX_*` env vars are set in the current session. 13 live tests skip cleanly. Test infrastructure (`test_inbound_message_received`) is complete and validates all M14 requirements (sender attribution, room attribution, canonical event shape, source_native_ref, diagnostics). Blocker is purely operational: need valid `MATRIX_ACCESS_TOKEN` for `@forxrelay:sk.community` (password-to-token exchange required). mtjk not in project venv. **Hardware probe (2026-05-12):** CP2104 `/dev/ttyUSB0` (stable by-id, likely T-Beam) — no serial chatter observed; CH9102F `/dev/ttyACM0` (stable by-id, confirmed T-LoRa V2.1-1.6). MeshCore firmware flash and LXMF Reticulum live path pending follow-up validation.
 > Evidence schema: `docs/contracts/61-operational-evidence-contract.md`
 > Maturity matrix: `docs/contracts/62-adapter-operational-maturity-matrix.md`
 > Primary evidence recording: `docs/runbooks/operational-evidence.md`
@@ -57,9 +57,9 @@ This runbook provides detailed live operational procedures for Matrix and Meshta
 
 | Field | Value |
 |-------|-------|
-| **Execution date** | NOT EXECUTED |
-| **Reason** | No Matrix homeserver credentials configured on this machine. `MATRIX_HOMESERVER`, `MATRIX_USER_ID`, `MATRIX_ACCESS_TOKEN`, and `MATRIX_ROOM_ID` are not set in the environment. |
-| **Resolution** | Set the four required environment variables and re-run `pytest tests/test_matrix_live.py -m live -v`. Record results in `operational-evidence.md` §1.1 with tier `R`. |
+| **Execution date** | NOT EXECUTED (2026-05-12 attempt: 13 tests skipped — no `MATRIX_*` env vars set) |
+| **Reason** | No Matrix homeserver credentials configured in the current session. `MATRIX_HOMESERVER`, `MATRIX_USER_ID`, `MATRIX_ACCESS_TOKEN`, and `MATRIX_ROOM_ID` are not set. `matrix.sk.community` homeserver IS reachable and healthy (well-known discovery confirmed, versions endpoint returns v1.12). Previous attempt (2026-05-12) used a stale token that produced `M_UNKNOWN_TOKEN`. The adapter uses `restore_login()` with an access token — password auth is not supported by the adapter directly. A password-to-token exchange via `curl -X POST https://matrix.sk.community/_matrix/client/v3/login` is required to obtain a fresh `MATRIX_ACCESS_TOKEN`. |
+| **Resolution** | 1. Obtain access token: `curl -s -X POST https://matrix.sk.community/_matrix/client/v3/login -d '{"type":"m.login.password","user":"forxrelay","password":"<PASSWORD>"}'`. 2. Set `MATRIX_HOMESERVER="https://matrix.sk.community"`, `MATRIX_USER_ID="@forxrelay:sk.community"`, `MATRIX_ACCESS_TOKEN="<token>"`, `MATRIX_ROOM_ID="<room>"`. 3. Run `pytest tests/test_matrix_live.py -m live -v`. 4. For M14: have a second user send a message to the room during the 30s test window. |
 
 
 ### 1.3 Matrix Sync Timing and Diagnostics

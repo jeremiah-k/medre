@@ -42,6 +42,18 @@ from typing import Any
 import pytest
 
 
+# Capture SDK presence in sys.modules at module-load time, BEFORE any
+# runtime/core imports in test methods.  This establishes a baseline so
+# the sys.modules guard test can detect new SDK entries introduced by
+# runtime/core imports specifically (vs. loaded by prior tests or compat).
+import sys as _sys
+
+_SESSION_BASELINE_SDK_MODULES: frozenset[str] = frozenset(
+    sdk for sdk in ("nio", "meshtastic", "meshcore", "RNS", "lxmf", "LXMF")
+    if sdk in _sys.modules
+)
+
+
 # ---------------------------------------------------------------------------
 # Shared helpers (same pattern as test_deployment_boundaries.py)
 # ---------------------------------------------------------------------------
@@ -147,6 +159,12 @@ class TestRuntimeCoreNoSdk:
     (``medre.adapters.*.config``) and the abstract ``BaseAdapter``.
     These are pure dataclasses / abstract base with no SDK dependency
     and are excluded from the SDK ban.
+
+    **WHY this matters**: The runtime is the heart of the application —
+    imported by the CLI on every invocation.  If it pulled in ``meshcore``,
+    ``RNS``, or ``meshtastic`` at module level, the entire application
+    would fail to start in environments without those packages installed,
+    even if the user only needed a different transport.
     """
 
     _RUNTIME_MODULES = [
@@ -221,6 +239,87 @@ class TestRuntimeCoreNoSdk:
 # ===================================================================
 
 
+class TestRuntimeCoreModuleGuard:
+    """Runtime/core modules must not load SDK packages into ``sys.modules``.
+
+    **WHY this matters**: Source-level scanning (``TestRuntimeCoreNoSdk``)
+    catches explicit ``import`` statements but cannot detect transitive
+    dependency chains where a seemingly safe import pulls in an SDK through
+    an intermediate module.  This test provides a runtime-level guard by
+    inspecting ``sys.modules`` after importing each runtime/core module,
+    ensuring no SDK package was loaded as a side-effect.
+
+    Note: This test checks only the SDKs that must be strictly isolated
+    from the runtime per the adapter-architecture contract: ``meshcore``,
+    ``lxmf``/``LXMF``, and ``RNS``.  The ``nio`` (Matrix) SDK may be
+    loaded transitively through legacy adapter config imports — that is
+    tracked separately and is out of scope for the operational boundary
+    enforcement on MeshCore/LXMF axes.
+    """
+
+    _SDK_PACKAGES = ("meshcore", "RNS", "lxmf", "LXMF")
+
+    _GUARDED_MODULES = [
+        "medre.runtime",
+        "medre.runtime.app",
+        "medre.runtime.builder",
+        "medre.runtime.capacity",
+        "medre.runtime.snapshot",
+        "medre.runtime.observability",
+        "medre.runtime.boot_summary",
+        "medre.runtime.errors",
+        "medre.runtime.routes",
+        "medre.runtime.route_engine",
+        "medre.core.engine.pipeline",
+        "medre.core.storage.sqlite",
+        "medre.core.events.canonical",
+        "medre.core.events.bus",
+        "medre.core.routing.router",
+        "medre.core.routing.models",
+        "medre.core.rendering.renderer",
+        "medre.core.runtime.diagnostics",
+        "medre.core.runtime.health",
+        "medre.core.runtime.accounting",
+    ]
+
+    @pytest.mark.parametrize(
+        "module_name",
+        _GUARDED_MODULES,
+    )
+    def test_import_does_not_leak_sdk_into_sys_modules(
+        self, module_name: str,
+    ) -> None:
+        """Importing runtime/core module must not load SDK into sys.modules.
+
+        WHY: If ``meshcore`` or ``RNS`` appears in ``sys.modules`` after
+        importing ``medre.runtime.app``, it means the runtime has a
+        transitive dependency on the SDK — the source scan would miss this
+        but CI would fail in clean environments.
+        """
+        import sys
+
+        try:
+            importlib.import_module(module_name)
+        except ImportError:
+            pytest.skip(f"{module_name} not importable")
+
+        # Check for new SDK entries in sys.modules (relative to session baseline).
+        new_sdk_modules = []
+        for sdk in self._SDK_PACKAGES:
+            if sdk in sys.modules and sdk not in _SESSION_BASELINE_SDK_MODULES:
+                new_sdk_modules.append(sdk)
+
+        assert new_sdk_modules == [], (
+            f"Importing {module_name} leaked SDK packages into sys.modules: "
+            f"{new_sdk_modules}"
+        )
+
+
+# ===================================================================
+# 3. Runtime core modules do not import adapter runtime modules
+# ===================================================================
+
+
 class TestRuntimeCoreNoAdapterRuntime:
     """Runtime core modules must not import concrete adapter runtime modules.
 
@@ -233,6 +332,11 @@ class TestRuntimeCoreNoAdapterRuntime:
     - ``from medre.adapters.base import BaseAdapter`` (abstract base)
     - ``from medre.adapters.matrix.config import MatrixConfig`` (pure dataclass)
     - ``from medre.adapters.fake_adapter import FakeAdapter`` (test utility)
+
+    **WHY this matters**: Direct imports of concrete adapter modules would
+    couple the runtime to specific transport implementations, making it
+    impossible to add or remove adapters without modifying the runtime core.
+    This violates the open/closed principle and defeats adapter isolation.
     """
 
     _RUNTIME_MODULES = [
@@ -294,6 +398,11 @@ class TestSnapshotModulesSdkFree:
     produce plain-dict, JSON-safe, deterministic snapshots.  They must
     remain transport-agnostic so that snapshot generation works in any
     deployment environment.
+
+    **WHY this matters**: Snapshots are used for operational monitoring and
+    debugging in production.  If they depended on transport SDKs, they would
+    fail in environments where only a subset of transports are installed —
+    exactly when operators need diagnostic data most.
     """
 
     _SNAPSHOT_MODULES = [
@@ -379,6 +488,11 @@ class TestObservabilityModulesSdkFree:
     ``medre.runtime.observability`` (DiagnosticsCollector) and
     ``medre.core.observability.*`` provide metrics and logging.  They
     must remain transport-agnostic.
+
+    **WHY this matters**: Observability is the first line of defense in
+    production incidents.  If metrics or logging modules required transport
+    SDKs, they would fail silently in environments without those SDKs —
+    exactly when operators need visibility most.
     """
 
     _OBSERVABILITY_MODULES = [
@@ -417,6 +531,12 @@ class TestBuilderAbstraction:
 
     The builder may import ``BaseAdapter`` and adapter config dataclasses,
     but must never directly instantiate concrete adapter classes.
+
+    **WHY this matters**: The builder is the composition root — it wires
+    adapters into the runtime.  If it directly constructed ``MeshCoreAdapter``
+    or ``LxmfAdapter``, adding a new transport would require modifying the
+    builder, violating the open/closed principle and coupling the runtime
+    to every adapter's constructor signature.
     """
 
     def test_builder_imports_base_adapter(self) -> None:
@@ -497,6 +617,12 @@ class TestCoreModulesTransportAgnostic:
     These modules (pipeline, storage, events, routing, rendering,
     lifecycle, health, accounting, supervision, diagnostics) form the
     MEDRE infrastructure layer and must remain transport-agnostic.
+
+    **WHY this matters**: Core modules define the domain model and
+    processing pipeline.  If they imported transport SDKs, the entire
+    domain logic would be untestable without hardware, and swapping
+    transports would require rewriting core code — defeating the adapter
+    architecture's purpose.
     """
 
     _CORE_MODULES = [
@@ -556,6 +682,11 @@ class TestExportReportingTestsSdkFree:
 
     These tests exercise the deterministic snapshot and reporting
     infrastructure and should work in clean environments.
+
+    **WHY this matters**: Export/reporting tests validate the operational
+    safety of diagnostics and snapshots.  If they imported SDKs, they
+    would fail in clean CI environments — the very environments where
+    these safety guarantees are most important to verify.
     """
 
     _TESTS_DIR = Path(__file__).parent

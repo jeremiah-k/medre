@@ -1,16 +1,53 @@
 # MeshCore Live Smoke Test Runbook
 
-> Last updated: 2026-05-12
-> Status: **NOT EXECUTED — requires MeshCore radio hardware. No MeshCore node connected to this machine. `meshcore` SDK is installable from PyPI (v2.3.7 confirmed) but live testing impossible without hardware.**
+> Last updated: 2026-05-12 (Wave 2A/2C update)
+> Status: **ALPHA-OPERATIONAL (SDK layer) / HARDWARE-VALIDATION-NEEDED (BLE/serial path). Wave 2A complete: SDK factory methods fixed (`MeshCore.create_tcp/serial/ble`). Wave 2C BLE probe: adapter hci0 UP RUNNING, bleak importable, target MeshCore-B4C6ED2C at C4:4F:33:6A:B0:23 confirmed advertising. Serial probe: ttyACM0 is T-Beam companion firmware with 0x27 heartbeat protocol — NOT MeshCore SDK serial (which expects 0x3e start marker). BLE connection attempt still needed.**
 > See: `docs/contracts/19-meshcore-connectivity-readiness.md`
 > Scope: `tests/test_meshcore_live.py`
 > Audit source: PyPI `meshcore` v2.3.7 wheel, source-extracted inspection
+> Maturity: Alpha-operational (Tier 2) for SDK integration; hardware-validation-needed for live radio path
 
 This runbook describes how to test MeshCore connectivity against a real MeshCore radio node. It documents the SDK's connection methods, required environment variables, and expected behaviors so that when someone sits down with a MeshCore radio node, they have a verified procedure to follow.
 
 The MEDRE adapter has session-backed real MeshCore support via `MeshCoreSession`. When `connection_type` is not `"fake"` and the `meshcore` package is installed, the adapter initializes a real MeshCore SDK client, subscribes to events, and can send and receive messages. Without a live node present, real-mode tests skip with `pytest.skip()`. Fake-mode tests run unconditionally.
 
 **All SDK API claims below are labeled CONFIRMED (source-read), INFERRED (pattern-derived), or UNKNOWN (needs hardware).**
+
+## Wave 2A/2C Hardware Probe Findings (2026-05-12)
+
+### Wave 2A: SDK Factory Method Fix — COMPLETE
+
+The MeshCore session now correctly uses `await MeshCore.create_tcp()`, `await MeshCore.create_serial()`, and `await MeshCore.create_ble()` factory methods instead of manual constructor calls. This was a code-level fix in the MEDRE adapter session layer. All deterministic tests pass.
+
+### Wave 2C: BLE Probe Findings
+
+| Item | Finding | Status |
+|------|---------|--------|
+| **BLE adapter** | `hci0` UP RUNNING (BlueZ) | ✅ CONFIRMED |
+| **bleak library** | Importable in project venv | ✅ CONFIRMED |
+| **Target device** | `MeshCore-B4C6ED2C` advertising at `C4:4F:33:6A:B0:23` | ✅ CONFIRMED via `bluetoothctl scan on` |
+| **BLE connection attempt** | Not yet attempted via `MeshCore.create_ble()` | ❌ NOT EXECUTED |
+| **BLE PIN pairing** | Unknown if device requires PIN | UNKNOWN |
+| **Blocker** | Need to run `await MeshCore.create_ble("C4:4F:33:6A:B0:23")` and observe appstart result | — |
+
+### Wave 2C: Serial Probe Findings
+
+| Item | Finding | Status |
+|------|---------|--------|
+| **ttyACM0 device** | T-Beam companion (CH9102F, serial 5435017200) via `cdc_acm` driver | ✅ CONFIRMED |
+| **Serial protocol observed** | 3-byte heartbeat: `0x27 0xXX 0xYY` (repeating ~1s interval) | ✅ CONFIRMED |
+| **MeshCore SDK serial protocol** | Expects `0x3e` start marker ( framing protocol) | ✅ CONFIRMED from SDK source |
+| **Protocol mismatch** | `0x27` heartbeat ≠ `0x3e` MeshCore serial frame start | ⚠️ MISMATCH |
+| **Root cause** | T-Beam runs custom companion_radio_ble firmware, NOT MeshCore serial mode. Serial port exposes companion heartbeat, not MeshCore app protocol. | CONFIRMED |
+| **ttyACM0 for MeshCore SDK** | **NOT VIABLE** via `create_serial()` — protocol mismatch | ❌ BLOCKED |
+| **Alternative path** | BLE (`create_ble()`) is the intended transport for companion_radio_ble firmware | — |
+
+### Summary: MeshCore Hardware Path Status
+
+- **TCP**: Not tested (no WiFi/Ethernet node available)
+- **Serial (ttyACM0)**: NOT VIABLE — companion heartbeat protocol, not MeshCore serial
+- **BLE**: Preconditions met (adapter, library, target advertising). Connection attempt NOT YET DONE.
+- **Next action**: Run `await MeshCore.create_ble("C4:4F:33:6A:B0:23")` to attempt BLE connection and appstart.
 
 
 ## Purpose
@@ -481,25 +518,32 @@ After running tests:
 - **File:** `tests/test_meshcore_live.py`
 - **Last run:** 2026-05-10
 - **Executor:** jeremiah@meshnet-framework
-- **Command:** N/A — hardware not available
+- **Command:** N/A — hardware not available at time of initial run
 - **MEDRE commit:** `0e8179e`
 - **Python version:** 3.12.3
 - **meshcore version:** not installed locally; v2.3.7 audited from PyPI wheel source extraction
 - **Connection type:** N/A
-- **Node hardware:** **NOT PRESENT**
+- **Node hardware:** **T-Beam v1.1 present on ttyACM0 but running companion firmware, not MeshCore serial**
 - **Environment:** Linux, USB devices checked via `lsusb` and `dmesg`
-- **Result:** **NOT EXECUTED — requires MeshCore hardware**
+- **Result:** **NOT EXECUTED — serial protocol mismatch, BLE not yet attempted**
 - **Passed / Failed / Skipped:** N/A
-- **Adapter start:** NOT EXECUTED
-- **Health check → healthy:** NOT EXECUTED
-- **Send text → success:** NOT EXECUTED
-- **Inbound callback received:** NOT EXECUTED
-- **Diagnostics snapshot:** NOT EXECUTED
-- **Stop → clean teardown:** NOT EXECUTED
-- **Reconnect observations:** NOT EXECUTED
-- **Caveats observed:** N/A
-- **Blocker:** No MeshCore radio hardware connected to this machine. USB devices present: FIDO2 key, Logitech Unifying Receiver, Lenovo mouse, Dell keyboard, Areson wireless receiver, Lite-On camera, QinHeng CH340 USB-to-serial adapter (`/dev/ttyACM0`), C-Media USB audio, eMeet webcam. None of these are MeshCore nodes. The `meshcore` package is installable from PyPI (v2.3.7, pure Python with `bleak`, `pyserial-asyncio-fast`, `pycayennelpp` deps), but without actual MeshCore hardware to connect to, live testing is impossible.
-- **Failures/Notes:** Live smoke tests require a MeshCore radio node connected via TCP, serial, or BLE. No MeshCore hardware is available in this environment. The `meshcore` SDK can be installed (`pip install meshcore`) and would import successfully, but all live tests would skip or fail without a connected node. Do not install the SDK without hardware — it serves no validation purpose.
+- **Adapter start:** NOT EXECUTED (against live hardware)
+- **Health check → healthy:** NOT EXECUTED (against live hardware)
+- **Send text → success:** NOT EXECUTED (against live hardware)
+- **Inbound callback received:** NOT EXECUTED (against live hardware)
+- **Diagnostics snapshot:** NOT EXECUTED (against live hardware)
+- **Stop → clean teardown:** NOT EXECUTED (against live hardware)
+- **Reconnect observations:** NOT EXECUTED (against live hardware)
+- **Wave 2A SDK fix:** ✅ COMPLETE — factory methods now used in session layer, all deterministic tests pass
+- **Wave 2C hardware probe:**
+  - ttyACM0 serial: 0x27 heartbeat protocol observed — NOT MeshCore SDK serial
+  - BLE: hci0 UP, bleak importable, MeshCore-B4C6ED2C advertising — NOT YET CONNECTED
+  - No live adapter operation has been achieved against real MeshCore radio hardware
+- **Caveats observed:**
+  - The T-Beam companion_radio_ble firmware uses BLE as its primary transport. Serial output is a 3-byte heartbeat (0x27 XX YY), not the MeshCore SDK serial protocol which expects 0x3e framing.
+  - `MeshCore.create_serial("/dev/ttyACM0")` would fail or hang because the companion firmware doesn't speak MeshCore serial protocol.
+  - `MeshCore.create_ble("C4:4F:33:6A:B0:23")` is the correct path but has not been attempted yet.
+- **Failures/Notes:** The hardware is physically present but the serial path is not viable. BLE is the only remaining viable path for this T-Beam companion firmware. Live smoke tests remain blocked until BLE connection is attempted and succeeds.
 
 
 ## Explicit Scope Exclusions
