@@ -9,6 +9,32 @@
 
 **Post-start supervision scope (explicit):** MEDRE can classify supplied adapter health states after startup — the pure classification functions (`classify_runtime_health`, `classify_adapter_failure_severity`, `runtime_supervision_snapshot`) accept arbitrary `AdapterState` sequences and return deterministic results at any time. However, active post-start failure detection, health refresh polling, and automatic runtime state transitions in response to adapter state changes are **not implemented** in this tranche. Calling these functions with different state values demonstrates classification correctness; it does not imply that the runtime actively detects or reacts to adapter failures at runtime.
 
+## 0. State Layer Model
+
+MEDRE uses four distinct state layers. Each has a different source of truth, granularity, and update mechanism. Confusing them is the most common source of misunderstanding.
+
+| Layer | Enum | Scope | Source of Truth | Updated By |
+|-------|------|-------|-----------------|------------|
+| **RuntimeState** | `medre.runtime.app.RuntimeState` | Process lifecycle: `INITIALIZED → STARTING → RUNNING → STOPPING → STOPPED`, or `→ FAILED` | `MedreApp.state` | `MedreApp.start()`, `.stop()`, unrecoverable errors |
+| **RuntimeHealth** | `medre.core.runtime.supervision.RuntimeHealth` | Aggregate adapter health: `HEALTHY`, `DEGRADED`, `FAILED` | Derived (pure function) | `classify_runtime_health()` — called by operator or snapshot, **not** auto-updated |
+| **StartupOutcome** | `medre.core.runtime.supervision.StartupOutcome` | One-time boot result: `SUCCESS`, `PARTIAL`, `TOTAL_FAILURE` | Derived (pure function) | `classify_startup_outcome()` — computed once during `start()` |
+| **AdapterState** | `medre.core.lifecycle.states.AdapterState` | Per-adapter lifecycle: `INITIALIZING → READY → DEGRADED / BACKPRESSURED / DISCONNECTED → STOPPING → STOPPED / FAILED` | `MedreApp._adapter_states[adapter_id]` | Build, start, stop, cleanup code paths |
+
+Key distinctions:
+
+1. **RuntimeState has no `DEGRADED` value.** The runtime process is either running or it is not. Degradation is a *health* concept, not a *lifecycle* concept. A runtime in `RUNNING` state can have `DEGRADED` or `FAILED` health.
+
+2. **RuntimeHealth is derived, not stored.** It is a pure projection of adapter states at the time of classification. It is not continuously monitored or auto-refreshed.
+
+3. **StartupOutcome is computed once.** It classifies the boot result and does not change after startup completes. It feeds into `startup_health` in the snapshot.
+
+4. **AdapterState is per-adapter.** Each adapter has its own lifecycle tracked independently. The runtime aggregates them to derive RuntimeHealth.
+
+Concrete examples:
+- **Partial startup:** `RuntimeState=RUNNING`, `RuntimeHealth=DEGRADED`, `StartupOutcome=PARTIAL`, some adapters `READY` and some `FAILED`.
+- **Total startup failure:** `RuntimeState=FAILED`, `RuntimeHealth=FAILED`, `StartupOutcome=TOTAL_FAILURE`, all adapters `FAILED`.
+- **Clean stop:** `RuntimeState=STOPPED`, all adapters `STOPPED`. RuntimeHealth is not meaningful after stop.
+
 ## 1. Runtime Health Model
 
 The runtime health is a single enumerated value derived deterministically from the aggregate states of all registered adapters.

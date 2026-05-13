@@ -2,7 +2,7 @@
 
 This module provides:
 
-* :data:`CURRENT_SCHEMA_VERSION` – the current compatibility contract version.
+* :data:`CURRENT_SCHEMA_VERSION` – the current schema contract version.
 * :data:`VALID_RELATION_TYPES` – the set of valid ``relation_type`` values.
 * :class:`SchemaVersion` – a ``(event_kind, version)`` pair.
 * :class:`SchemaRegistry` – a registry that maps event kinds to schema
@@ -17,8 +17,8 @@ packages can register JSON-Schema validators, pydantic models, or any
 
 Schema Migration Contract (Phase 1)
 ------------------------------------
-* ``v1`` is the current compatibility contract.
-* New fields append with defaults; existing fields may be deprecated but are not removed.
+* ``v1`` is the current schema contract.
+* New fields append with defaults; existing fields are never removed.
 * ``schema_version`` must be ``>= 1``.
 * The migration executor is not implemented – :data:`MIGRATION_REGISTRY`
   provides a minimal registry-only hook for future migration functions.
@@ -34,7 +34,7 @@ from typing import Callable
 # Constants
 # ---------------------------------------------------------------------------
 
-#: Current compatibility contract version.  ``v1`` is the baseline; all
+#: Current schema contract version.  ``v1`` is the baseline; all
 #: events with ``schema_version == 1`` conform to this contract.
 CURRENT_SCHEMA_VERSION: int = 1
 

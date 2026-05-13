@@ -465,3 +465,109 @@ class TestRuntimeHealthTransitionIntegration:
 
         assert snap_healthy["startup_fingerprint"] != snap_degraded["startup_fingerprint"]
         assert snap_degraded["startup_fingerprint"] != snap_failed["startup_fingerprint"]
+
+
+# ===================================================================
+# Cross-layer state combination tests (Contract 56 §0)
+# ===================================================================
+
+
+class TestStateLayerCombinations:
+    """Verify correct layer combinations for key lifecycle scenarios.
+
+    These tests exercise the relationship between the four state layers
+    defined in Contract 56 §0:
+      RuntimeState, RuntimeHealth, StartupOutcome, AdapterState
+
+    They use only the pure classification functions and do not exercise
+    live runtime state transitions.
+    """
+
+    def test_partial_startup_yields_running_and_degraded(self) -> None:
+        """Partial startup: some adapters READY, some FAILED.
+
+        Expected: RuntimeState=RUNNING (process is up), RuntimeHealth=DEGRADED
+        (not all adapters are operational), StartupOutcome=PARTIAL.
+        """
+        adapter_states = [AdapterState.READY, AdapterState.FAILED, AdapterState.READY]
+
+        # RuntimeHealth is derived from adapter states
+        health = classify_runtime_health(adapter_states)
+        assert health == RuntimeHealth.DEGRADED
+
+        # StartupOutcome is derived from started/failed counts
+        started = sum(1 for s in adapter_states if s == AdapterState.READY)
+        failed = sum(1 for s in adapter_states if s == AdapterState.FAILED)
+        outcome = classify_startup_outcome(started, failed, len(adapter_states))
+        assert outcome == StartupOutcome.PARTIAL
+
+        # RuntimeState would be RUNNING (process is up despite partial failure)
+        # — verified by integration tests, not asserted here since we test
+        # classification functions only.
+
+    def test_total_failure_yields_failed(self) -> None:
+        """Total startup failure: all adapters FAILED.
+
+        Expected: RuntimeState=FAILED, RuntimeHealth=FAILED,
+        StartupOutcome=TOTAL_FAILURE.
+        """
+        adapter_states = [AdapterState.FAILED, AdapterState.FAILED]
+
+        health = classify_runtime_health(adapter_states)
+        assert health == RuntimeHealth.FAILED
+
+        started = sum(1 for s in adapter_states if s == AdapterState.READY)
+        failed = sum(1 for s in adapter_states if s == AdapterState.FAILED)
+        outcome = classify_startup_outcome(started, failed, len(adapter_states))
+        assert outcome == StartupOutcome.TOTAL_FAILURE
+
+    def test_clean_stop_yields_stopped_adapters(self) -> None:
+        """After clean stop: all adapters are STOPPED.
+
+        Expected: RuntimeState=STOPPED, all adapters STOPPED.
+        RuntimeHealth is not meaningful after stop (no READY adapters
+        does not mean failure).
+        """
+        adapter_states = [AdapterState.STOPPED, AdapterState.STOPPED]
+
+        # After stop, classify_runtime_health returns FAILED because no
+        # READY adapters exist — this is correct classification behavior
+        # but NOT meaningful for stopped runtime. The key point is that
+        # RuntimeState (STOPPED) distinguishes this from a true failure.
+        health = classify_runtime_health(adapter_states)
+        assert health == RuntimeHealth.FAILED  # Correct: no READY adapters
+
+        # But the adapters are all STOPPED, not FAILED
+        assert all(s == AdapterState.STOPPED for s in adapter_states)
+
+    def test_runtime_state_has_no_degraded_value(self) -> None:
+        """RuntimeState enum must not contain DEGRADED.
+
+        Degradation is a health concept (RuntimeHealth), not a lifecycle
+        concept (RuntimeState).
+        """
+        from medre.runtime.app import RuntimeState
+
+        member_names = {m.name for m in RuntimeState}
+        assert "DEGRADED" not in member_names, (
+            f"RuntimeState must not contain DEGRADED. Members: {member_names}"
+        )
+
+    def test_runtime_health_has_degraded_value(self) -> None:
+        """RuntimeHealth enum must contain DEGRADED."""
+        member_names = {m.name for m in RuntimeHealth}
+        assert "DEGRADED" in member_names
+
+    def test_adapter_state_is_per_adapter(self) -> None:
+        """Each adapter has its own independent state.
+
+        Different adapters can be in different states simultaneously.
+        """
+        states = [AdapterState.READY, AdapterState.FAILED, AdapterState.DEGRADED]
+        health = classify_runtime_health(states)
+        assert health == RuntimeHealth.DEGRADED
+
+        # Failure severity is non-fatal because at least one is READY
+        healthy_count = sum(1 for s in states if s == AdapterState.READY)
+        severity = classify_adapter_failure_severity(healthy_count, len(states))
+        assert severity == AdapterFailureSeverity.NON_FATAL

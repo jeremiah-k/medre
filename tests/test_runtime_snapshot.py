@@ -12,7 +12,7 @@ Covers:
 - Schema version presence.
 - Startup health state tolerance (null when absent, dict when present).
 - Live health explicitly unavailable (always null).
-- Sectioned schema (schema_version 2).
+- Sectioned schema (schema_version 1).
 """
 
 from __future__ import annotations
@@ -430,7 +430,7 @@ class TestSnapshotContents:
         """Schema version matches module constant."""
         snap = build_runtime_snapshot(_make_fake_app())
         assert snap["schema_version"] == SCHEMA_VERSION
-        assert snap["schema_version"] == 3
+        assert snap["schema_version"] == 1
 
     def test_snapshot_at_is_iso8601(self) -> None:
         """snapshot_at is a valid ISO-8601 UTC timestamp."""

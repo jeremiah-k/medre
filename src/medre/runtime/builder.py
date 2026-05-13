@@ -101,23 +101,23 @@ class _AdapterFactory:
         self,
         module: str,
         cls_name: str,
-        compat_module: str | None = None,
-        compat_flag: str | None = None,
+        dependency_module: str | None = None,
+        dependency_availability_flag: str | None = None,
     ) -> None:
         self._module = module
         self._cls_name = cls_name
-        self._compat_module = compat_module
-        self._compat_flag = compat_flag
+        self._dependency_module = dependency_module
+        self._dependency_availability_flag = dependency_availability_flag
 
     def build(self, config: Any) -> BaseAdapter | None:
         """Construct the adapter, returning ``None`` on missing deps."""
         # Check optional dependency flag if applicable.
-        if self._compat_module and self._compat_flag:
+        if self._dependency_module and self._dependency_availability_flag:
             try:
                 mod = __import__(
-                    self._compat_module, fromlist=[self._compat_flag]
+                    self._dependency_module, fromlist=[self._dependency_availability_flag]
                 )
-                if not getattr(mod, self._compat_flag, True):
+                if not getattr(mod, self._dependency_availability_flag, True):
                     _logger.warning(
                         "Optional dependency not available for %s — skipping",
                         self._cls_name,
@@ -125,8 +125,8 @@ class _AdapterFactory:
                     return None
             except ImportError:
                 _logger.warning(
-                    "Compat module %s not found — skipping %s",
-                    self._compat_module,
+                    "Dependency module %s not found — skipping %s",
+                    self._dependency_module,
                     self._cls_name,
                 )
                 return None
@@ -150,26 +150,26 @@ _ADAPTER_BUILDERS: dict[str, _AdapterFactory] = {
     "matrix": _AdapterFactory(
         module="medre.adapters.matrix.adapter",
         cls_name="MatrixAdapter",
-        compat_module="medre.adapters.matrix.compat",
-        compat_flag="HAS_NIO",
+        dependency_module="medre.adapters.matrix.compat",
+        dependency_availability_flag="HAS_NIO",
     ),
     "meshtastic": _AdapterFactory(
         module="medre.adapters.meshtastic.adapter",
         cls_name="MeshtasticAdapter",
-        compat_module="medre.adapters.meshtastic.compat",
-        compat_flag="HAS_MESHTASTIC",
+        dependency_module="medre.adapters.meshtastic.compat",
+        dependency_availability_flag="HAS_MESHTASTIC",
     ),
     "meshcore": _AdapterFactory(
         module="medre.adapters.meshcore.adapter",
         cls_name="MeshCoreAdapter",
-        compat_module="medre.adapters.meshcore.compat",
-        compat_flag="HAS_MESHCORE",
+        dependency_module="medre.adapters.meshcore.compat",
+        dependency_availability_flag="HAS_MESHCORE",
     ),
     "lxmf": _AdapterFactory(
         module="medre.adapters.lxmf.adapter",
         cls_name="LxmfAdapter",
-        compat_module="medre.adapters.lxmf.compat",
-        compat_flag="HAS_LXMF",
+        dependency_module="medre.adapters.lxmf.compat",
+        dependency_availability_flag="HAS_LXMF",
     ),
 }
 

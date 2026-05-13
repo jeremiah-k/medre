@@ -11,7 +11,22 @@ This runbook describes how operators supervise the MEDRE runtime, interpret pers
 
 MEDRE is a single-process, multi-adapter runtime. Supervision is the operator's responsibility — there is no external health monitor, watchdog, or orchestrator built into MEDRE.
 
-**What MEDRE provides (current scope):**
+### 1.1 State Layers
+
+MEDRE uses four distinct state layers. Understanding which layer you are looking at is essential for correct diagnosis.
+
+| Layer | What It Tracks | Values | Where to Find It |
+|-------|---------------|--------|-----------------|
+| **RuntimeState** | Process lifecycle | `INITIALIZED`, `STARTING`, `RUNNING`, `STOPPING`, `STOPPED`, `FAILED` | `snapshot.lifecycle.runtime_state` |
+| **RuntimeHealth** | Aggregate adapter health | `HEALTHY`, `DEGRADED`, `FAILED` | `snapshot.startup.startup_health.runtime_health` (startup-derived only) |
+| **StartupOutcome** | One-time boot result | `SUCCESS`, `PARTIAL`, `TOTAL_FAILURE` | `snapshot.startup.boot_summary` |
+| **AdapterState** | Per-adapter lifecycle | `INITIALIZING`, `READY`, `DEGRADED`, `BACKPRESSURED`, `DISCONNECTED`, `STOPPING`, `FAILED`, `STOPPED` | `snapshot.lifecycle.adapters.{adapter_id}` |
+
+**Key point:** `RuntimeState` has no `DEGRADED` value. A runtime in `RUNNING` state can have `DEGRADED` health (some adapters up, some down). Degradation is a health concept, not a lifecycle concept.
+
+**Health is not live-refreshed.** The `startup_health` value is computed once during startup and frozen. It does not reflect post-startup adapter failures. `live_health` is always `null` until active health polling is implemented.
+
+### 1.2 What MEDRE Provides
 - **Health classification** — pure functions (`classify_runtime_health`, `classify_adapter_failure_severity`, `runtime_supervision_snapshot`) that accept adapter states and return deterministic health/severity classifications. These can be called at any time with any adapter state values.
 - **Startup health assessment** — adapter states are classified during startup and recorded in the boot summary.
 
@@ -103,16 +118,28 @@ Interpretation:
 
 ### 3.3 "Is the Runtime Healthy Right Now?"
 
+Check the runtime state layer first:
+
+1. **RuntimeState** (`snapshot.lifecycle.runtime_state`):
+   - `running` — the process is up. This does **not** mean all adapters are healthy.
+   - `stopped` / `failed` — the process is not running.
+
+2. **AdapterState** (`snapshot.lifecycle.adapters.{adapter_id}`):
+   - `ready` — adapter is fully operational.
+   - `degraded` — adapter is partially functional.
+   - `backpressured` / `disconnected` — adapter is in a transitional degraded state.
+   - `failed` — adapter has an unrecoverable failure.
+   - `stopped` — adapter was shut down.
+
+3. **RuntimeHealth** (`snapshot.startup.startup_health.runtime_health`):
+   - `healthy` — all adapters were `ready` at startup.
+   - `degraded` — some adapters were not `ready` at startup.
+   - `failed` — no adapters were operational at startup.
+   - **Important:** This reflects startup-time classification only. It is **not** live.
+
 ```bash
 medre diagnostics
 ```
-
-Check each adapter's health state:
-
-- `healthy` — adapter is connected and processing normally.
-- `degraded` — adapter is connected but experiencing issues (e.g., partial transport failure, intermittent errors).
-- `failed` — adapter has experienced an unrecoverable failure. It will not recover without intervention.
-- `stopped` — adapter has been stopped (shutdown or manual stop).
 
 > **Health freshness note:** Adapter health values in the diagnostic snapshot are initialized at startup and are not automatically refreshed by post-start health polling. If an adapter fails after startup, the diagnostic snapshot may not reflect the failure until the runtime is restarted or the health state is explicitly refreshed. Monitor logs (`grep ERROR`) for real-time failure detection.
 

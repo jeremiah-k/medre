@@ -4,14 +4,14 @@ Provides :func:`build_runtime_snapshot` which reads the current state of a
 :class:`~medre.runtime.app.MedreApp` and returns a plain-dict, JSON-safe,
 deterministic snapshot.  No SDK objects, no secrets, no async I/O.
 
-Snapshot schema (``schema_version`` 3)
+Snapshot schema (``schema_version`` 1)
 --------------------------------------
 Top-level keys are alphabetically sorted for stable serialisation.
 The snapshot is structured into intentional sections that separate
 stable operator-facing data from unstable/debug internals::
 
     {
-      "schema_version": 3,
+      "schema_version": 1,
       "snapshot_at": str,
       "accounting": {...} | null,
       "adapters": {adapter_id: {...}},
@@ -125,8 +125,9 @@ _logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-SCHEMA_VERSION: int = 3
-"""Current snapshot schema version.  Bumped when the top-level shape changes."""
+SCHEMA_VERSION: int = 1
+"""Current snapshot schema version.  Frozen at 1 during pre-release; internal
+breaking changes update tests and docs but do not bump the version."""
 
 _MAX_ADAPTERS: int = 256
 """Upper bound on the number of adapter entries included in a snapshot."""

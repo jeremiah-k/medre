@@ -14,18 +14,23 @@ Every agent or document that references the MEDRE runtime snapshot shape, field 
 - Implementing live health polling, dynamic routing, event persistence, or supervisor restarts.
 - Changing adapter, route, or diagnostics behaviour.
 - Replacing the diagnostics snapshot (`build_diagnostics_snapshot`) — that is a separate surface documented in Contract 29.
-- Preserving flat-schema compatibility from schema_version 1.
+- Preserving flat-schema migration from schema_version 1.
+- Changing the `schema_version` constant during pre-release.
 
 
 ## 2. Schema Version
 
-The snapshot carries a top-level `schema_version` integer. **Current version: `3`.**
+The snapshot carries a top-level `schema_version` integer. **Current version: `1`.**
 
-`schema_version` is bumped only when a **breaking change** is introduced to the top-level shape (§4). Additive or unstable/debug changes (§6) do not require a bump.
+### Pre-release version lock policy
 
-Version 3 is a **breaking rename** from version 2: `routes.readiness` is renamed to `routes.build_readiness` and wrapped in a metadata envelope; `scope` and `live_refresh` metadata fields are added to `routes.eligibility`, `routes.build_readiness`, and `routes.startup_readiness`.
+During the pre-release phase, `schema_version` is **frozen at `1`**. There are no external consumers of the snapshot schema, so version bumps would be noise. Internal breaking changes to the snapshot shape are reflected by updating tests and documentation (including this contract) but **do not** increment `schema_version`.
 
-Version 2 was a **breaking restructure** from version 1: the flat key layout was replaced with intentional sections. There was no backward-compatibility mapping.
+When MEDRE reaches its first stable release:
+- `schema_version` will be set to the shape that ships in that release.
+- From that point forward, breaking changes to the top-level shape will require a version bump, following the rules in §4.
+
+Additive or unstable/debug changes (§6) never require a bump, neither during pre-release nor after.
 
 
 ## 3. Top-level Shape
@@ -36,7 +41,7 @@ Keys appear in **alphabetical order** (deterministic serialisation).
 
 | Key | Type | Stability | Audience | Contents |
 |-----|------|-----------|----------|----------|
-| `schema_version` | `int` | stable | programmatic | Constant `SCHEMA_VERSION` (currently `3`) |
+| `schema_version` | `int` | stable | programmatic | Constant `SCHEMA_VERSION` (currently `1`) |
 | `snapshot_at` | `str` | stable | operator | ISO-8601 UTC, injectable clock |
 | `accounting` | `dict \| null` | stable | operator | `RuntimeAccounting.snapshot()` |
 | `adapters` | `dict` | stable | operator | `_snapshot_adapter()` per adapter |
@@ -53,7 +58,7 @@ Keys appear in **alphabetical order** (deterministic serialisation).
 | `unstable` | `dict` | unstable | debug/internal | Reserved for future unstable data |
 
 Stability labels:
-- **stable** — shape and semantics are locked for `schema_version` 3. Changes require a version bump.
+- **stable** — shape and semantics are locked for the current version. Changes require a version bump (post-release) or test/doc updates (pre-release).
 - **unstable** — shape may evolve across minor releases without a version bump. Consumers must tolerate added keys and changed detail structure.
 - **reserved** — key/section is allocated but always empty/null until the corresponding subsystem is implemented.
 

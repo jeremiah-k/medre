@@ -76,9 +76,6 @@ class RouteOperationalState(enum.Enum):
     REGISTERED:
         Route was successfully registered on the :class:`Router` with
         all source and target adapters built.
-    ACTIVE:
-        Reserved for future use — route is actively processing events.
-        Not assigned by current registration logic.
     DEGRADED:
         Route is registered but one or more target adapters failed to
         build.  The route delivers only to surviving targets.
@@ -94,7 +91,6 @@ class RouteOperationalState(enum.Enum):
 
     CONFIGURED = "configured"
     REGISTERED = "registered"
-    ACTIVE = "active"
     DEGRADED = "degraded"
     SKIPPED = "skipped"
     UNAVAILABLE = "unavailable"

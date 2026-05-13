@@ -213,7 +213,7 @@ The adapter never touches the SDK client directly. The session never touches the
 
 ### 7.2 Why this matters for distribution
 
-If medre ever splits into separate packages, the adapter/session boundary is the natural extraction seam. A hypothetical `medre-matrix` package would contain `medre.adapters.matrix.session`, `medre.adapters.matrix.compat`, and `medre.adapters.matrix.config`. The adapter itself would stay in core medre (or move to a thin shim) because it depends on `BaseAdapter`, `CanonicalEvent`, and `RenderingResult`, which are core types.
+If medre ever splits into separate packages, the adapter/session boundary is the natural extraction seam. A hypothetical `medre-matrix` package would contain `medre.adapters.matrix.session`, `medre.adapters.matrix.compat`, and `medre.adapters.matrix.config`. The adapter itself would stay in core medre (or move to a thin adapter wrapper) because it depends on `BaseAdapter`, `CanonicalEvent`, and `RenderingResult`, which are core types.
 
 The session has no dependency on core medre types. It takes a `MatrixConfig` (its own), a `message_callback` (a plain callable), and returns raw transport data to that callback. This is by design, not by accident.
 
@@ -315,7 +315,7 @@ Run each transport adapter in its own process, communicating over IPC (stdio, so
 - Process lifecycle management (spawn, health check, restart, kill).
 - Error propagation across process boundaries.
 - Debugging becomes harder (multi-process, async IPC).
-- Backward compatibility for users who want the current in-process model.
+- Maintaining the current in-process model for users who prefer it.
 
 **Current assessment:** Not justified for beta. The subprocess boundary solves problems (crash isolation, SDK conflict, memory isolation) that do not exist yet. medre has not run in production. There is no evidence that SDK crashes, version conflicts, or memory leaks are real problems. Solving them preemptively adds complexity without evidence of need.
 

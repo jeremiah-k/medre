@@ -384,7 +384,7 @@ class TestRouteOperationalState:
     """RouteOperationalState enum has expected values."""
 
     def test_all_states_defined(self) -> None:
-        expected = {"configured", "registered", "active", "degraded",
+        expected = {"configured", "registered", "degraded",
                     "skipped", "unavailable", "disabled"}
         actual = {s.value for s in RouteOperationalState}
         assert actual == expected
