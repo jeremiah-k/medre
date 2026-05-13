@@ -320,7 +320,7 @@ class RuntimeBuilder:
             aid for aid, _ in self._config.adapters.all_enabled()
         )
         built_adapter_ids = frozenset(adapters.keys())
-        register_routes(
+        route_result = register_routes(
             router,
             self._config.routes,
             configured_enabled_ids,
@@ -350,6 +350,7 @@ class RuntimeBuilder:
         app._capacity_controller = capacity_controller
         app._replay_engine = replay_engine
         app._runtime_accounting = runtime_accounting
+        app._route_eligibility = route_result.eligibility
         return app
 
     # -- Storage construction ----------------------------------------------------

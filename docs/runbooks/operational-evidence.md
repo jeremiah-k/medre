@@ -272,6 +272,16 @@ pytest tests/test_matrix_live.py::TestMatrixLiveSmoke::test_inbound_message_rece
 > **Scope:** Device discovery, hardware/firmware capture, one outbound text on channel 0, disconnect/reconnect resilience (3 cycles total: 2 initial + 1 Track 2). Track 2 adds: full diagnostics snapshot, node DB verification, device metrics, Python import confirmation.
 > **NOT in scope:** MEDRE adapter lifecycle (start/stop/health), send_one path, soak testing, second-node inbound, encrypted channels, admin operations. These remain NOT EXECUTED in this session.
 
+**Evidence lifecycle** (per Contract 61 §8):
+
+| Field | Value |
+|-------|-------|
+| evidence_type | observed |
+| confidence | medium |
+| verified_at | 2026-05-12 |
+| verification_scope | Manual CLI serial validation: device discovery, hardware/firmware capture, 1 outbound send on ch0, 3 reconnect cycles. NOT MEDRE adapter lifecycle — CLI-level only. No soak, no second-node, no encrypted channels. |
+| environment | Dev laptop, serial `/dev/ttyACM0` (CH9102F, T-LoRa V2.1-1.6), firmware 2.7.19, meshtastic CLI 2.7.8, Python (platformio penv). `mtjk` not in project venv. |
+
 | Field | Value |
 |-------|-------|
 | **Evidence tier** | R (real-live-runtime) |

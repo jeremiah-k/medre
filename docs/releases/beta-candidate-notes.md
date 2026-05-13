@@ -64,6 +64,19 @@ mean sustained, reliable, or production-tested.
 | MeshCore | — | Not run | CP2104 `/dev/ttyUSB0` (likely T-Beam) identified. No serial chatter. Firmware flash pending follow-up validation. |
 | LXMF | — | Not run | Local source repos at `/home/jeremiah/dev`. Reticulum live path setup pending follow-up validation. |
 
+**Evidence lifecycle** (per Contract 61 §8):
+
+| Transport | evidence_type | confidence | verified_at | verification_scope | environment |
+|-----------|---------------|------------|-------------|--------------------|-------------|
+| Matrix | tested | medium | 2026-05-12 | Live smoke test, single homeserver (sk.community), 12/12 pass + 1 xfail. No soak, no sustained operation. | Dev laptop, sk.community → matrix.org federation, Python 3.12 |
+| Matrix (matrix.org) | tested | low | 2026-05-10 | Historical live smoke test, 13/13 passed. Stale (3 days, not re-confirmed at current commit). | Dev laptop, matrix.org homeserver |
+| Matrix E2EE | tested | low | 2026-05-10 | Historical live E2EE smoke, 7/7 passed. Stale. No cross-session crypto store validation. | Dev laptop, encrypted room on matrix.org |
+| Meshtastic | observed | medium | 2026-05-12 | Manual CLI serial validation: device discovery, 1 outbound, 4 reconnects. NOT MEDRE adapter (CLI-level only). | Dev laptop, serial `/dev/ttyACM0`, T-LoRa V2.1-1.6, fw 2.7.19 |
+| MeshCore | planned | low | never | Hardware probe only (CP2104 identified, no serial chatter). No firmware, no live test. | N/A |
+| LXMF | planned | low | never | Local source repos available. No Reticulum network, no live test. | N/A |
+
+> **Note:** `verified_at` dates are historical as of 2026-05-13. Confidence reflects both scope limits and age. Matrix 2026-05-10 entries are H-tier (historical) — not re-confirmed against the current codebase. MeshCore and LXMF have no evidence of any tier beyond S (unit tests).
+
 Per-transport maturity definitions:
 [docs/contracts/37-transport-maturity-classification.md](docs/contracts/37-transport-maturity-classification.md)
 

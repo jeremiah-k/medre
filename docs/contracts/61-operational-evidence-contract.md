@@ -1,9 +1,9 @@
 # Contract 61 — Operational Evidence Contract
 
-> Contract version: 2
-> Last updated: 2026-05-12
+> Contract version: 3
+> Last updated: 2026-05-13
 > Track: 1 (Transport Maturity Evidence), Track 2 (Live Operational Evidence), Track 7 (Live Evidence Documentation), Track 8 (Deployment Boundary Enforcement), Track 9 (Evidence Consolidation)
-> Supersedes: Contract 61 v1 (2026-05-12). Adds v2 runtime observation fields, diagnostics snapshot fields, restart/recovery/boundedness observation fields, deployment/boundary enforcement evidence fields.
+> Supersedes: Contract 61 v2 (2026-05-12). Adds evidence lifecycle metadata pattern (§8) — evidence_type, confidence, verified_at, verification_scope, environment. Pilot only; does not alter H/C/S/R tiers or existing fields.
 > Status: Active contract. Defines the schema, classification, and recording protocol for all operational evidence.
 > References: Contract 32 (Beta Readiness), Contract 37 (Transport Maturity), Contract 39 (Risk Register), Contract 48 (Observability), Contract 59 (Durability), Contract 60 (Cancellation).
 
@@ -288,9 +288,60 @@ The following claims are prohibited without explicit R-tier evidence:
 | `tests/test_runtime_deployment_boundaries.py` | Runtime-level boundary enforcement tests. Results recorded per §3.7. |
 
 
-## 8. Changelog
+## 8. Evidence Lifecycle Metadata (Pilot)
+
+> **Status:** Pilot. Optional pattern. Does not replace or modify the H/C/S/R tier system (§2). Augments it with verification-freshness tracking so evidence cannot silently overclaim validation currency.
+
+### 8.1 Purpose
+
+Evidence tier (§2) classifies *provenance* — where evidence came from. Lifecycle metadata classifies *verification status and freshness* — when it was last checked and how broadly. Together they prevent stale evidence from being presented as current validation.
+
+### 8.2 Fields
+
+| Field | Values | Description |
+|-------|--------|-------------|
+| `evidence_type` | `tested` \| `observed` \| `inferred` \| `planned` | Nature of the evidence. `tested`: produced by an automated test suite. `observed`: recorded by manual operator action or live observation. `inferred`: derived from other evidence or reasoning, not directly verified against the system. `planned`: aspirational — no backing evidence exists yet. |
+| `confidence` | `high` \| `medium` \| `low` | Qualitative confidence. `high`: directly verified, recent, broad scope. `medium`: verified but scope-limited, aging, or single-point. `low`: indirect, extrapolated, or substantial uncertainty. |
+| `verified_at` | ISO date or `never` | Date the evidence was last directly verified. Use `never` for `planned` evidence. |
+| `verification_scope` | Free text | What was actually checked. E.g., "unit tests only, no live endpoint"; "live smoke test, single outbound send, no reconnect"; "full soak, 4h, 3 reconnect cycles". |
+| `environment` | Free text | Where verified. E.g., "dev laptop, Python 3.12, serial /dev/ttyACM0"; "CI (GitHub Actions)"; "NOT EXECUTED". |
+
+### 8.3 Relationship to H/C/S/R Tiers
+
+Lifecycle metadata is **orthogonal** to tier classification:
+
+| Tier + lifecycle combination | Example |
+|------------------------------|---------|
+| C-tier, `tested`, `high` | Current-tranche unit tests passing at HEAD |
+| H-tier, `tested`, `medium` | Historical live tests that passed but may be stale |
+| R-tier, `observed`, `medium` | Live smoke test observed by operator, single scenario |
+| S-tier, `tested`, `high` | Mock-based tests confirming internal logic |
+| Any tier, `inferred`, `low` | Claim derived from proxy evidence, not directly checked |
+| Any tier, `planned`, N/A | No evidence yet; `verified_at: never` |
+
+### 8.4 Usage Pattern
+
+Attach a lifecycle metadata block to any evidence section or table:
+
+```markdown
+**Evidence lifecycle** (Contract 61 §8):
+
+| Field | Value |
+|-------|-------|
+| evidence_type | tested |
+| confidence | medium |
+| verified_at | 2026-05-10 |
+| verification_scope | Live smoke test, single homeserver, no soak |
+| environment | Dev laptop, sk.community homeserver, Python 3.12 |
+```
+
+When multiple evidence entries have different lifecycle status, use one block per entry or a summary covering the weakest link.
+
+
+## 9. Changelog
 
 | Date | Version | Change |
 |------|---------|--------|
 | 2026-05-12 | v1 | Contract 61 created. Formalizes evidence schema from operational-evidence.md. Defines 4 evidence tiers, required fields per transport, evidence maturity scores, prohibited claims. |
 | 2026-05-12 | v2 | Tracks 1/2/7/8/9 consolidation. Added: Matrix v2 fields (§3.2: `repeated_start_stop_cycles`, `replay_restart_recovery`, `long_running_sync_observation`, `room_state_boundedness`, `diagnostics_snapshot_at_start/end`, `runtime_duration_seconds`). Meshtastic v2 fields (§3.3: `repeated_start_stop_cycles`, `serial_reconnect_degraded`, `outbound_degraded_behavior`, `long_running_runtime_observation`, `hardware_firmware_snapshot`, `diagnostics_snapshot_at_start/end`, `runtime_duration_seconds`, `connection_establishment_time_ms`). Common runtime observation fields (§3.6). Deployment and boundary enforcement evidence fields (§3.7: Track 8/9). Updated prohibited claims (§6). Updated transport scores with v2 field status (§5.1). Added Contract 60 reference. |
+| 2026-05-13 | v3 | Added evidence lifecycle metadata pattern (§8). Pilot-only: defines evidence_type (tested/observed/inferred/planned), confidence, verified_at, verification_scope, environment. Orthogonal to H/C/S/R tier system. No existing fields or tiers modified. |

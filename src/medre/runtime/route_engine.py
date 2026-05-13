@@ -15,11 +15,16 @@ Public symbols
 * :func:`validate_route_adapter_refs` — validate adapter references
 * :func:`register_routes` — build, validate, and register routes on a Router
 * :class:`RouteValidationError` — raised on invalid route adapter references
+* :class:`SkippedRoute` — a route skipped due to adapter build failure
+* :class:`UnavailableRoute` — a route unavailable due to unknown adapter refs
+* :class:`RouteEligibility` — structured route readiness metadata
+* :class:`RouteRegistrationResult` — list subclass with eligibility metadata
 """
 
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from medre.core.routing.models import Route, RouteSource, RouteTarget
@@ -31,12 +36,117 @@ if TYPE_CHECKING:
 
 __all__ = [
     "RouteValidationError",
+    "SkippedRoute",
+    "UnavailableRoute",
+    "RouteEligibility",
+    "RouteRegistrationResult",
     "build_runtime_routes",
     "validate_route_adapter_refs",
     "register_routes",
 ]
 
 _logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Route eligibility metadata models
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SkippedRoute:
+    """An expanded route that was skipped due to adapter build failure.
+
+    Attributes
+    ----------
+    route_id:
+        The expanded route ID that was skipped.
+    reason:
+        Human-readable reason, e.g. ``"source_adapter_failed"`` or
+        ``"no_surviving_targets"``.
+    failed_adapter_ids:
+        Adapter IDs that caused the skip (source or all dest adapters
+        that failed to build).
+    """
+
+    route_id: str
+    reason: str
+    failed_adapter_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class UnavailableRoute:
+    """A route that could not be registered due to missing adapter references.
+
+    In normal operation this is always empty because unknown adapter IDs
+    raise :class:`RouteValidationError` during validation.  This model
+    exists for future orchestration layers that may choose to collect
+    rather than raise.
+
+    Attributes
+    ----------
+    route_id:
+        The route ID that is unavailable.
+    reason:
+        Human-readable reason.
+    missing_adapter_ids:
+        Adapter IDs that are not present.
+    """
+
+    route_id: str
+    reason: str
+    missing_adapter_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class RouteEligibility:
+    """Structured route readiness metadata after registration.
+
+    All ``tuple`` fields contain deterministically sorted route IDs.
+
+    Attributes
+    ----------
+    configured:
+        Sorted config route IDs that were enabled (not disabled).
+    registered:
+        Sorted expanded route IDs that were successfully registered
+        on the :class:`Router`.
+    disabled:
+        Sorted config route IDs where ``enabled=False``.
+    skipped:
+        Expanded routes skipped due to adapter build failures.
+    unavailable:
+        Routes that could not be registered (empty in normal operation;
+        unknown refs raise before reaching this stage).
+    """
+
+    configured: tuple[str, ...]
+    registered: tuple[str, ...]
+    disabled: tuple[str, ...]
+    skipped: tuple[SkippedRoute, ...]
+    unavailable: tuple[UnavailableRoute, ...]
+
+
+class RouteRegistrationResult(list[Route]):  # type: ignore[type-arg]
+    """A list of registered routes that also carries :class:`RouteEligibility`.
+
+    Subclasses :class:`list` so existing callers using ``len()``, iteration,
+    indexing, or equality checks continue to work without changes.
+    """
+
+    def __init__(
+        self,
+        routes: list[Route],
+        eligibility: RouteEligibility,
+    ) -> None:
+        super().__init__(routes)
+        self.eligibility = eligibility
+
+    def __repr__(self) -> str:
+        return (
+            f"RouteRegistrationResult(routes={list.__repr__(self)}, "
+            f"eligibility={self.eligibility!r})"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -360,7 +470,7 @@ def register_routes(
     route_config_set: RouteConfigSet,
     adapter_ids: frozenset[str],
     built_adapter_ids: frozenset[str] | None = None,
-) -> list[Route]:
+) -> RouteRegistrationResult:
     """Build, validate, and register runtime routes on a :class:`Router`.
 
     This is the primary entry point called by the runtime builder after
@@ -398,8 +508,11 @@ def register_routes(
 
     Returns
     -------
-    list[Route]
-        The list of registered routes.
+    RouteRegistrationResult
+        A list-subclass of registered routes.  Access
+        ``result.eligibility`` for structured readiness metadata.
+        Existing callers treating the return value as ``list[Route]``
+        are unaffected.
 
     Raises
     ------
@@ -410,6 +523,15 @@ def register_routes(
     if built_adapter_ids is None:
         built_adapter_ids = adapter_ids
 
+    # Collect config-level route IDs for eligibility metadata.
+    disabled_config_ids: list[str] = []
+    enabled_config_ids: list[str] = []
+    for rc in route_config_set.routes:
+        if rc.enabled:
+            enabled_config_ids.append(rc.route_id)
+        else:
+            disabled_config_ids.append(rc.route_id)
+
     # Step 1: Validate adapter references against configured IDs.
     validate_route_adapter_refs(route_config_set, adapter_ids)
 
@@ -418,10 +540,17 @@ def register_routes(
 
     if not routes:
         _logger.info("No enabled routes to register")
-        return routes
+        eligibility = RouteEligibility(
+            configured=tuple(sorted(enabled_config_ids)),
+            registered=(),
+            disabled=tuple(sorted(disabled_config_ids)),
+            skipped=(),
+            unavailable=(),
+        )
+        return RouteRegistrationResult([], eligibility)
 
     # Step 3: Degrade routes referencing adapters that failed to build.
-    degraded_routes: list[Route] = []
+    skipped_routes: list[SkippedRoute] = []
     registered_routes: list[Route] = []
     for route in routes:
         src = route.source.adapter
@@ -432,7 +561,11 @@ def register_routes(
                 route.id,
                 src,
             )
-            degraded_routes.append(route)
+            skipped_routes.append(SkippedRoute(
+                route_id=route.id,
+                reason="source_adapter_failed",
+                failed_adapter_ids=(src,),
+            ))
             continue
 
         surviving_targets = [
@@ -440,6 +573,11 @@ def register_routes(
             if t.adapter is None or t.adapter in built_adapter_ids
         ]
         dropped = [t.adapter for t in route.targets if t not in surviving_targets]
+        # Capture failed adapter IDs before potential route replacement.
+        all_failed_target_ids = tuple(sorted(
+            t.adapter for t in route.targets
+            if t.adapter is not None and t.adapter not in built_adapter_ids
+        ))
         if dropped:
             _logger.warning(
                 "Degrading route %r: dest adapters %r failed to build — "
@@ -456,15 +594,19 @@ def register_routes(
                 "skipping route",
                 route.id,
             )
-            degraded_routes.append(route)
+            skipped_routes.append(SkippedRoute(
+                route_id=route.id,
+                reason="no_surviving_targets",
+                failed_adapter_ids=all_failed_target_ids,
+            ))
             continue
 
         registered_routes.append(route)
 
-    if degraded_routes:
+    if skipped_routes:
         _logger.warning(
             "Degraded %d route(s) due to adapter build failures",
-            len(degraded_routes),
+            len(skipped_routes),
         )
 
     # Step 4: Loop detection — log warnings but do not block startup.
@@ -483,4 +625,12 @@ def register_routes(
         )
 
     _logger.info("Registered %d route(s)", len(registered_routes))
-    return registered_routes
+
+    eligibility = RouteEligibility(
+        configured=tuple(sorted(enabled_config_ids)),
+        registered=tuple(sorted(r.id for r in registered_routes)),
+        disabled=tuple(sorted(disabled_config_ids)),
+        skipped=tuple(skipped_routes),
+        unavailable=(),
+    )
+    return RouteRegistrationResult(registered_routes, eligibility)

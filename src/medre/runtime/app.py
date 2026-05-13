@@ -27,6 +27,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from medre.runtime.errors import AdapterStartupError, RuntimeShutdownError, RuntimeStartupError
+from medre.runtime.events import EventBuffer, RuntimeEventType
 from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.runtime.supervision import (
     RuntimeHealth,
@@ -54,6 +55,7 @@ if TYPE_CHECKING:
     from medre.core.storage.sqlite import SQLiteStorage
     from medre.runtime.builder import AdapterBuildFailure
     from medre.runtime.capacity import CapacityController
+    from medre.runtime.route_engine import RouteEligibility
 
 __all__ = ["MedreApp", "RuntimeState"]
 
@@ -134,6 +136,9 @@ class MedreApp:
         Per-route delivery statistics owned by the runtime (live counters
         populated by the pipeline runner).  ``None`` when routing is
         disabled or the runtime was built without a stats collector.
+    route_eligibility:
+        Structured route readiness metadata populated by the builder.
+        ``None`` when not yet built.
     """
 
     config: RuntimeConfig
@@ -161,6 +166,14 @@ class MedreApp:
     _health_state: dict[str, Any] | None = field(default=None, init=False)
     _boot_summary: BootSummary | None = field(default=None, init=False)
     _failed_adapter_ids: list[str] = field(default_factory=list, init=False)
+    _route_eligibility: RouteEligibility | None = field(default=None, init=False)
+    _event_buffer: EventBuffer | None = field(default=None, init=False)  # set in __post_init__
+
+    # -- Post-init --------------------------------------------------------------
+
+    def __post_init__(self) -> None:  # type: ignore[override]
+        """Initialise mutable containers that cannot use field defaults."""
+        self._event_buffer = EventBuffer()
 
     # -- State management -------------------------------------------------------
 
@@ -179,8 +192,28 @@ class MedreApp:
         """Return the boot summary, or ``None`` if not yet started."""
         return self._boot_summary
 
+    @property
+    def route_eligibility(self) -> RouteEligibility | None:
+        """Return route eligibility metadata, or ``None`` if not yet built."""
+        return self._route_eligibility
+
+    @property
+    def event_buffer(self) -> EventBuffer:
+        """Return the bounded runtime event buffer."""
+        assert self._event_buffer is not None  # always set in __post_init__
+        return self._event_buffer
+
+    def _emit_event(
+        self,
+        event_type: RuntimeEventType,
+        detail: dict[str, Any] | None = None,
+    ) -> None:
+        """Emit a runtime event into the bounded buffer."""
+        assert self._event_buffer is not None  # always set in __post_init__
+        self._event_buffer.emit(event_type, detail)
+
     def _set_state(self, new_state: RuntimeState) -> None:
-        """Transition to *new_state*, logging the change."""
+        """Transition to *new_state*, logging the change and emitting an event."""
         old_state = self._state
         if old_state is new_state:
             return
@@ -190,6 +223,10 @@ class MedreApp:
             new_state.value,
         )
         self._state = new_state
+        self._emit_event(
+            RuntimeEventType.STATE_TRANSITION,
+            {"from": old_state.value, "to": new_state.value},
+        )
 
     # -- Diagnostics ------------------------------------------------------------
 
@@ -327,6 +364,10 @@ class MedreApp:
                         adapter_id,
                         elapsed,
                     )
+                    self._emit_event(
+                        RuntimeEventType.ADAPTER_STARTED,
+                        {"adapter_id": adapter_id, "platform": transport},
+                    )
                 except Exception as exc:
                     elapsed = _monotonic_ms() - t0
                     failed_adapter_ids.append(adapter_id)
@@ -336,6 +377,14 @@ class MedreApp:
                         adapter_id,
                         elapsed,
                         exc,
+                    )
+                    self._emit_event(
+                        RuntimeEventType.ADAPTER_START_FAILED,
+                        {
+                            "adapter_id": adapter_id,
+                            "platform": transport,
+                            "error": str(exc),
+                        },
                     )
         except Exception:
             # Catastrophic failure during the loop itself (not an adapter
@@ -415,6 +464,17 @@ class MedreApp:
             persisted_events_count=persisted_count,
         )
 
+        # -- Emit startup classified event ------------------------------------
+        self._emit_event(
+            RuntimeEventType.STARTUP_CLASSIFIED,
+            {
+                "health": health.value,
+                "outcome": outcome.value,
+                "started_count": started_count,
+                "failed_count": effective_failed,
+            },
+        )
+
         # -- Summary logging --------------------------------------------------
         if failed_count > 0 or build_failed > 0:
             _logger.info(
@@ -459,6 +519,25 @@ class MedreApp:
             )
 
         self._set_state(RuntimeState.RUNNING)
+
+        # -- Emit route eligibility events (passive observation) ---------------
+        if self._route_eligibility is not None:
+            for sr in self._route_eligibility.skipped:
+                self._emit_event(
+                    RuntimeEventType.ROUTE_SKIPPED,
+                    {
+                        "route_id": sr.route_id,
+                        "reason": sr.reason,
+                    },
+                )
+            for ur in self._route_eligibility.unavailable:
+                self._emit_event(
+                    RuntimeEventType.ROUTE_UNAVAILABLE,
+                    {
+                        "route_id": ur.route_id,
+                        "reason": ur.reason,
+                    },
+                )
 
     async def stop(self) -> None:
         """Stop all subsystems in reverse dependency order.
@@ -537,6 +616,10 @@ class MedreApp:
                 await adapter.stop(timeout=float(timeout))
                 _logger.info(
                     "Adapter %s.%s stopped", transport, adapter_id
+                )
+                self._emit_event(
+                    RuntimeEventType.ADAPTER_STOPPED,
+                    {"adapter_id": adapter_id},
                 )
             except Exception as exc:
                 _logger.error(

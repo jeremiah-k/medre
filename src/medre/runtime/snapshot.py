@@ -18,7 +18,9 @@ Top-level keys are alphabetically sorted for stable serialisation::
       "limits": {...},
       "live_health": null,
       "replay": {"available": bool, "counters": {...} | null},
+      "route_eligibility": {...} | null,
       "routes": {route_id: {...}},
+      "runtime_events": {...} | null,
       "runtime_state": str,
       "schema_version": 1,
       "snapshot_at": str,
@@ -463,6 +465,42 @@ def build_runtime_snapshot(
     else:
         boot_summary_snapshot = None
 
+    # -- Route eligibility ---------------------------------------------------
+    route_elig_obj: Any = getattr(app, "route_eligibility", None)
+    route_eligibility_snapshot: dict[str, Any] | None
+    if route_elig_obj is not None:
+        route_eligibility_snapshot = {
+            "configured": list(route_elig_obj.configured),
+            "disabled": list(route_elig_obj.disabled),
+            "registered": list(route_elig_obj.registered),
+            "skipped": [
+                {
+                    "failed_adapter_ids": list(s.failed_adapter_ids),
+                    "reason": s.reason,
+                    "route_id": s.route_id,
+                }
+                for s in route_elig_obj.skipped
+            ],
+            "unavailable": [
+                {
+                    "missing_adapter_ids": list(u.missing_adapter_ids),
+                    "reason": u.reason,
+                    "route_id": u.route_id,
+                }
+                for u in route_elig_obj.unavailable
+            ],
+        }
+    else:
+        route_eligibility_snapshot = None
+
+    # -- Runtime events (bounded, debug/unstable) ----------------------------
+    event_buffer_obj: Any = getattr(app, "_event_buffer", None)
+    runtime_events_snapshot: dict[str, Any] | None
+    if event_buffer_obj is not None and hasattr(event_buffer_obj, "snapshot"):
+        runtime_events_snapshot = event_buffer_obj.snapshot()
+    else:
+        runtime_events_snapshot = None
+
     # -- Assemble final snapshot (sorted keys) -------------------------------
     snap: dict[str, Any] = {
         "accounting": accounting_snapshot,
@@ -477,7 +515,9 @@ def build_runtime_snapshot(
             "available": replay_available,
             "counters": replay_counters,
         },
+        "route_eligibility": route_eligibility_snapshot,
         "routes": routes_snapshot,
+        "runtime_events": runtime_events_snapshot,
         "runtime_state": runtime_state,
         "schema_version": SCHEMA_VERSION,
         "snapshot_at": snapshot_at,
