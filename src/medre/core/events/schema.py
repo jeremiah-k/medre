@@ -15,13 +15,20 @@ rather than performing structural schema validation itself.  Downstream
 packages can register JSON-Schema validators, pydantic models, or any
 ``Callable[[dict], list[str]]`` that returns a list of error strings.
 
-Schema Migration Contract (Phase 1)
-------------------------------------
-* ``v1`` is the current schema contract.
-* New fields append with defaults; existing fields are never removed.
-* ``schema_version`` must be ``>= 1``.
-* The migration executor is not implemented – :data:`MIGRATION_REGISTRY`
-  provides a minimal registry-only hook for future migration functions.
+Schema Migration Policy
+-----------------------
+Pre-release (current):
+  Schemas may change directly — fields renamed, types changed,
+  structures reorganised — without migration paths.  There are no
+  external consumers, so breaking changes are applied by updating
+  tests and documentation in the same commit.
+
+Post-release (future stability guarantee):
+  Once a stable release ships, the schema becomes additive-only:
+  new fields append with defaults; existing fields are never removed.
+  ``MIGRATION_REGISTRY`` provides a registry-only hook for migration
+  functions (``Callable[[dict], dict]``).  A migration window may be
+  offered for non-trivial schema transitions.
 """
 
 from __future__ import annotations

@@ -137,7 +137,7 @@ class Route:
         Whether this route is ``"exclusive"`` (no other exclusive route
         may overlap) or ``"shared"`` (overlaps allowed).
     enabled:
-        Whether this route is currently active.
+        Whether this route is currently enabled.
     """
 
     id: str

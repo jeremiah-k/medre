@@ -166,7 +166,7 @@ class RouteConfig:
     directionality:
         Direction of event flow.
     enabled:
-        Whether this route is active at startup.
+        Whether this route is enabled at startup.
     filter_hooks:
         Optional tuple of static filter hook names for later ownership.
         These are identifiers only — no callable code.

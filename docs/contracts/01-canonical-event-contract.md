@@ -187,23 +187,25 @@ The canonical event kind registry. Every constant is a plain `str` following `<d
 - No sub-versioning. Every change increments the integer by one.
 - Stored in the event's `schema_version` field.
 - The schema registry maps `(event_kind, schema_version)` to a validation function.
-- `CURRENT_SCHEMA_VERSION = 1` is the baseline schema contract.
+- `CURRENT_SCHEMA_VERSION = 1` is the baseline schema contract. During pre-release, breaking changes update tests and docs without bumping the version.
 
 ### Migration Contract
 
-1. **v1 is current.** All events with `schema_version == 1` conform to the contract documented here.
+**Pre-release (current).** Schemas may change directly — fields renamed, types changed, structures reorganised — without migration paths. There are no external consumers, so breaking changes are applied by updating tests and documentation in the same commit. `schema_version` remains `1` throughout pre-release.
 
-2. **New fields append with defaults.** When a new schema version adds fields, those fields carry sensible defaults so that `v1` consumers can read `v2` payloads without error.
+**Post-release stability guarantee.** Once a stable release ships:
 
-3. **Existing fields are never removed.** A field may be superseded by a new field with a different name, but the original field continues to be populated. When a public stability guarantee is in effect, superseded fields carry a `superseded_by` annotation in the schema registry.
+1. **New fields append with defaults.** When a new schema version adds fields, those fields carry sensible defaults so that `v1` consumers can read `v2` payloads without error.
 
-4. **`schema_version >= 1`** is enforced at construction. Values `< 1` raise `ValueError`.
+2. **Existing fields are never removed.** A field may be superseded by a new field with a different name, but the original field continues to be populated. When a public stability guarantee is in effect, superseded fields carry a `superseded_by` annotation in the schema registry.
 
-5. **Unknown fields are preserved, not stripped.** If a payload contains a field the current schema version doesn't define, that field is kept in the payload and ignored by core logic. msgspec's default behavior skips unknown struct fields during decode (forward-looking tolerance of future fields).
+3. **`schema_version >= 1`** is enforced at construction. Values `< 1` raise `ValueError`.
 
-6. **Known fields keep their meaning.** A field named `voltage_mv` always means voltage in millivolts. Renaming requires a new field alongside the original.
+4. **Unknown fields are preserved, not stripped.** If a payload contains a field the current schema version doesn't define, that field is kept in the payload and ignored by core logic. msgspec's default behavior skips unknown struct fields during decode (forward-looking tolerance of future fields).
 
-7. **Migration registry.** `MIGRATION_REGISTRY` provides a minimal registry-only hook for future migration functions. No migrations are executed in Phase 1. The registry maps `(event_kind, from_version, to_version)` to a `Callable[[dict], dict]` that transforms a payload.
+5. **Known fields keep their meaning.** A field named `voltage_mv` always means voltage in millivolts. Renaming requires a new field alongside the original.
+
+6. **Migration registry.** `MIGRATION_REGISTRY` provides a minimal registry-only hook for future migration functions. No migrations are executed until post-release stability is in effect. The registry maps `(event_kind, from_version, to_version)` to a `Callable[[dict], dict]` that transforms a payload. A migration window may be offered for non-trivial transitions.
 
 ### Handling Unknown Versions
 

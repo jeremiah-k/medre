@@ -59,7 +59,8 @@ Key guarantees:
 Section purpose
 ---------------
 identity:
-    Reserved for future runtime identity metadata.
+    Reserved for future runtime identity metadata (node identity,
+    signing keys, provenance).  Currently always ``{}``.
 lifecycle:
     Runtime state transitions, startup timing, and uptime.
 startup:
@@ -75,7 +76,8 @@ routes:
     ``scope`` and ``live_refresh`` metadata so operators can distinguish
     build-time facts from startup-time facts from (future) live state.
 persistence:
-    Reserved for future durable-storage surface.
+    Reserved for future durable-storage status (last-persisted event
+    ID, storage health, queue depths).  Currently always ``{}``.
 accounting:
     Bounded runtime event counters.
 replay:
@@ -86,7 +88,8 @@ diagnostics:
     Internal debug/diagnostic surfaces (runtime events buffer).
     Shape may change without a schema version bump.
 unstable:
-    Reserved for future unstable/debug data that may evolve freely.
+    Reserved for debug/internal data that may evolve freely.
+    Content is JSON-safe and bounded.  Currently always ``{}``.
 
 Health freshness:
 

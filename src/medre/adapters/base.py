@@ -430,6 +430,13 @@ class BaseAdapter(ABC):
         The default implementation returns ``None``.  Subclasses that
         implement the codec pattern should override this method.
 
+        **Boundary note:** This method is not abstract — it has a default
+        implementation returning ``None``.  Adapters that support codec
+        operations override it.  Similarly, ``diagnostics()`` is not
+        defined on ``BaseAdapter`` at all; individual adapters implement
+        it voluntarily.  Making either method abstract is deferred to
+        future adapter boundary hardening.
+
         Returns
         -------
         AdapterCodec | None

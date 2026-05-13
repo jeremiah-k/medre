@@ -35,27 +35,27 @@ Additive or unstable/debug changes (§6) never require a bump, neither during pr
 
 ## 3. Top-level Shape
 
-The snapshot is structured into **intentional sections** that separate stable operator-facing data from unstable/debug internals. 16 top-level keys are always present.
+The snapshot is structured into **intentional sections** that separate stable operator-facing data from unstable/debug internals. 15 top-level keys are always present.
 
 Keys appear in **alphabetical order** (deterministic serialisation).
 
 | Key | Type | Stability | Audience | Contents |
 |-----|------|-----------|----------|----------|
-| `schema_version` | `int` | stable | programmatic | Constant `SCHEMA_VERSION` (currently `1`) |
-| `snapshot_at` | `str` | stable | operator | ISO-8601 UTC, injectable clock |
 | `accounting` | `dict \| null` | stable | operator | `RuntimeAccounting.snapshot()` |
 | `adapters` | `dict` | stable | operator | `_snapshot_adapter()` per adapter |
 | `capacity` | `dict \| null` | stable | operator | `CapacityController.snapshot()` |
-| `diagnostics` | `dict` | mixed | debug/internal | §5.5 |
+| `diagnostics` | `dict` | unstable | debug/internal | §5.5 |
 | `health` | `dict` | stable/reserved | operator | §5.1 |
-| `identity` | `dict` | stable | operator | Reserved for future identity metadata |
+| `identity` | `dict` | reserved | operator | Reserved for future runtime identity metadata (see §5.6) |
 | `lifecycle` | `dict` | stable | operator | §5.3 |
 | `limits` | `dict` | stable | operator | `RuntimeLimits` dataclass fields |
-| `persistence` | `dict` | stable | operator | Reserved for future durable-storage surface |
+| `persistence` | `dict` | reserved | operator | Reserved for future durable-storage status (see §5.7) |
 | `replay` | `dict` | stable | operator | `{"available": bool, "counters": dict|null}` |
 | `routes` | `dict` | stable | operator | §5.4 |
+| `schema_version` | `int` | stable | programmatic | Constant `SCHEMA_VERSION` (currently `1`) |
+| `snapshot_at` | `str` | stable | operator | ISO-8601 UTC, injectable clock |
 | `startup` | `dict` | stable | operator | §5.2 |
-| `unstable` | `dict` | unstable | debug/internal | Reserved for future unstable data |
+| `unstable` | `dict` | unstable/reserved | debug/internal | Reserved for debug/internal data (see §5.8) |
 
 Stability labels:
 - **stable** — shape and semantics are locked for the current version. Changes require a version bump (post-release) or test/doc updates (pre-release).
@@ -223,7 +223,7 @@ Per-route operational state mapping from build time. Scope: `build`.
 |-------|-------------|
 | `configured` | Route is enabled in config (initial state before build) |
 | `registered` | Route successfully registered with all adapters built |
-| `active` | Reserved for future use — not assigned by current logic |
+| `active` | Reserved for future enum value — not currently defined in `RouteOperationalState` |
 | `degraded` | Route registered but some target adapters failed to build, or some expanded routes skipped while others registered |
 | `skipped` | Route could not register (source failed or all targets failed) |
 | `unavailable` | Route references adapter IDs not in configured set |
@@ -320,6 +320,38 @@ Event types (`RuntimeEventType` enum): `state_transition`, `adapter_started`, `a
 - Null when no event buffer is wired.
 
 
+### 5.6 `identity`
+
+Reserved section. Currently always an empty dict `{}`.
+
+Purpose: future runtime identity metadata — node identity, signing keys, provenance chain, or platform identity material. The section is intentionally kept as a placeholder so that identity can be added without introducing a new top-level key.
+
+The shape will be documented when the identity subsystem is implemented. Until then, consumers must treat this section as opaque and ignore its contents.
+
+
+### 5.7 `persistence`
+
+Reserved section. Currently always an empty dict `{}`.
+
+Purpose: future durable-storage status — last-persisted event ID, storage health, queue depths, replay cursor positions. The section is intentionally kept as a placeholder so that persistence status can be added without introducing a new top-level key.
+
+The shape will be documented when the persistence subsystem is implemented. Until then, consumers must treat this section as opaque and ignore its contents.
+
+
+### 5.8 `unstable`
+
+Reserved section for debug/internal data. Currently always an empty dict `{}`.
+
+Purpose: carries unstable diagnostic or internal data that may evolve freely across releases without a schema version bump. Content is JSON-safe, bounded, and not intended for operator reliance.
+
+Guidelines for unstable data:
+- Keys must be added via `_sorted_dict()` for deterministic ordering.
+- Values must be JSON-safe (no SDK objects, no secrets).
+- Collections must be bounded.
+- Consumers must tolerate arbitrary key additions and removals.
+- No stability guarantee: shape may change at any time.
+
+
 ## 6. Structural Requirements
 
 ### 6.1 Deterministic ordering
@@ -388,7 +420,7 @@ All tuple fields contain deterministically sorted route IDs. `route_states` keys
 
 ### 7.3 `RouteOperationalState`
 
-Enum with values: `configured`, `registered`, `active`, `degraded`, `skipped`, `unavailable`, `disabled`.
+Enum with values: `configured`, `registered`, `degraded`, `skipped`, `unavailable`, `disabled`. (`active` is reserved for future use but not currently defined.)
 
 
 ### 7.4 `ExpandedRouteProvenance`

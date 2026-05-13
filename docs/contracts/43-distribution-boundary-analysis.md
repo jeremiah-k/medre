@@ -342,7 +342,7 @@ All four paths share the same reason to defer: no evidence of need.
 - **No user complaints about install size.** Optional extras already protect against unnecessary SDK installs.
 - **No SDK conflicts in practice.** Each transport uses a different SDK. No known version collision.
 - **No crash isolation need.** No production deployment has shown SDK crashes propagating to the pipeline.
-- **No licensing incompatibility.** All SDKs are permissively licensed. medre is MIT.
+- **No licensing incompatibility.** All SDKs are permissively licensed. medre is GPL-3.0-or-later.
 - **No performance bottleneck from the unified package.** Import time, memory, and startup cost are all negligible for a single package.
 
 The seams exist. The boundaries are clean. The optionality is preserved. Acting on that optionality before there is a concrete reason to do so would be overengineering.
@@ -352,11 +352,11 @@ The seams exist. The boundaries are clean. The optionality is preserved. Acting 
 
 ### 10.1 Current license
 
-medre is MIT licensed (`pyproject.toml`, contract 42). All code in the repository is under MIT.
+medre is GPL-3.0-or-later licensed (`pyproject.toml`, contract 42). All code in the repository is under GPL-3.0-or-later.
 
 ### 10.2 Transport SDK licenses
 
-| SDK | License | Compatibility with MIT |
+| SDK | License | Compatibility with GPL-3.0-or-later |
 |-----|---------|----------------------|
 | mindroom-nio (nio fork) | ISC | Compatible. ISC is permissive. |
 | mtjk (Meshtastic fork) | MIT or Apache 2.0 | Compatible. Both are permissive. |
@@ -364,7 +364,7 @@ medre is MIT licensed (`pyproject.toml`, contract 42). All code in the repositor
 | lxmf | MIT | Compatible. |
 | RNS (Reticulum) | MIT | Compatible. |
 
-All transport SDKs are permissively licensed. None creates a licensing incompatibility with medre's MIT license. None requires special handling in distribution.
+All transport SDKs are permissively licensed. None creates a licensing incompatibility with medre's GPL-3.0-or-later license. None requires special handling in distribution.
 
 ### 10.3 Licensing does not justify restructuring
 
