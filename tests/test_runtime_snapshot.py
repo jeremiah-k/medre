@@ -430,7 +430,7 @@ class TestSnapshotContents:
         """Schema version matches module constant."""
         snap = build_runtime_snapshot(_make_fake_app())
         assert snap["schema_version"] == SCHEMA_VERSION
-        assert snap["schema_version"] == 2
+        assert snap["schema_version"] == 3
 
     def test_snapshot_at_is_iso8601(self) -> None:
         """snapshot_at is a valid ISO-8601 UTC timestamp."""

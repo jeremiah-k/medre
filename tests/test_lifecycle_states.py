@@ -135,6 +135,48 @@ class TestStoppingTransitions:
 
 
 # ===================================================================
+# INITIALIZING transitions
+# ===================================================================
+
+
+class TestInitializingTransitions:
+    """INITIALIZING can transition to READY, STOPPING, STOPPED, or FAILED."""
+
+    def test_initializing_to_ready(self) -> None:
+        assert is_valid_transition(AdapterState.INITIALIZING, AdapterState.READY)
+
+    def test_initializing_to_failed(self) -> None:
+        assert is_valid_transition(AdapterState.INITIALIZING, AdapterState.FAILED)
+
+    def test_initializing_to_stopping(self) -> None:
+        assert is_valid_transition(AdapterState.INITIALIZING, AdapterState.STOPPING)
+
+    def test_initializing_to_stopped(self) -> None:
+        assert is_valid_transition(AdapterState.INITIALIZING, AdapterState.STOPPED)
+
+    def test_initializing_to_ready_does_not_raise(self) -> None:
+        require_valid_transition(AdapterState.INITIALIZING, AdapterState.READY)
+
+    def test_initializing_to_failed_does_not_raise(self) -> None:
+        require_valid_transition(AdapterState.INITIALIZING, AdapterState.FAILED)
+
+    def test_initializing_to_stopping_does_not_raise(self) -> None:
+        require_valid_transition(AdapterState.INITIALIZING, AdapterState.STOPPING)
+
+    def test_initializing_to_stopped_does_not_raise(self) -> None:
+        require_valid_transition(AdapterState.INITIALIZING, AdapterState.STOPPED)
+
+    def test_initializing_to_running_is_invalid(self) -> None:
+        assert not is_valid_transition(AdapterState.INITIALIZING, AdapterState.BACKPRESSURED)
+
+    def test_initializing_to_degraded_is_invalid(self) -> None:
+        assert not is_valid_transition(AdapterState.INITIALIZING, AdapterState.DEGRADED)
+
+    def test_initializing_to_disconnected_is_invalid(self) -> None:
+        assert not is_valid_transition(AdapterState.INITIALIZING, AdapterState.DISCONNECTED)
+
+
+# ===================================================================
 # Health mapping for STOPPED
 # ===================================================================
 

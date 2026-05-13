@@ -62,6 +62,8 @@ VALID_TRANSITIONS: dict[AdapterState, frozenset[AdapterState]] = {
     AdapterState.INITIALIZING: frozenset(
         {
             AdapterState.READY,
+            AdapterState.STOPPING,
+            AdapterState.STOPPED,
             AdapterState.FAILED,
         }
     ),

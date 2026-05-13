@@ -19,11 +19,13 @@ Every agent or document that references the MEDRE runtime snapshot shape, field 
 
 ## 2. Schema Version
 
-The snapshot carries a top-level `schema_version` integer. **Current version: `2`.**
+The snapshot carries a top-level `schema_version` integer. **Current version: `3`.**
 
 `schema_version` is bumped only when a **breaking change** is introduced to the top-level shape (§4). Additive or unstable/debug changes (§6) do not require a bump.
 
-Version 2 is a **breaking restructure** from version 1: the flat key layout has been replaced with intentional sections. There is no backward-compatibility mapping.
+Version 3 is a **breaking rename** from version 2: `routes.readiness` is renamed to `routes.build_readiness` and wrapped in a metadata envelope; `scope` and `live_refresh` metadata fields are added to `routes.eligibility`, `routes.build_readiness`, and `routes.startup_readiness`.
+
+Version 2 was a **breaking restructure** from version 1: the flat key layout was replaced with intentional sections. There was no backward-compatibility mapping.
 
 
 ## 3. Top-level Shape
@@ -34,7 +36,7 @@ Keys appear in **alphabetical order** (deterministic serialisation).
 
 | Key | Type | Stability | Audience | Contents |
 |-----|------|-----------|----------|----------|
-| `schema_version` | `int` | stable | programmatic | Constant `SCHEMA_VERSION` (currently `2`) |
+| `schema_version` | `int` | stable | programmatic | Constant `SCHEMA_VERSION` (currently `3`) |
 | `snapshot_at` | `str` | stable | operator | ISO-8601 UTC, injectable clock |
 | `accounting` | `dict \| null` | stable | operator | `RuntimeAccounting.snapshot()` |
 | `adapters` | `dict` | stable | operator | `_snapshot_adapter()` per adapter |
@@ -51,7 +53,7 @@ Keys appear in **alphabetical order** (deterministic serialisation).
 | `unstable` | `dict` | unstable | debug/internal | Reserved for future unstable data |
 
 Stability labels:
-- **stable** — shape and semantics are locked for `schema_version` 2. Changes require a version bump.
+- **stable** — shape and semantics are locked for `schema_version` 3. Changes require a version bump.
 - **unstable** — shape may evolve across minor releases without a version bump. Consumers must tolerate added keys and changed detail structure.
 - **reserved** — key/section is allocated but always empty/null until the corresponding subsystem is implemented.
 
@@ -61,7 +63,7 @@ Stability labels:
 ### 4.1 Changes that require a `schema_version` bump
 
 - Removing a top-level key or section.
-- Removing or renaming a key from a stable nested structure (e.g., removing `failed_adapter_ids` from `routes.eligibility.skipped` entries).
+- Removing or renaming a key from a stable nested structure (e.g., removing `failed_adapter_ids` from `routes.eligibility.skipped` entries, or renaming `routes.readiness` to `routes.build_readiness`).
 - Changing a top-level or stable nested key's type.
 - Changing the meaning of a stable field's value (e.g., redefining how `uptime_seconds` is computed).
 - Adding a new required (non-optional) key to a stable section.
@@ -128,30 +130,43 @@ Runtime state transitions, per-adapter lifecycle states, and timing.
 
 ### 5.4 `routes`
 
-Route delivery statistics, eligibility, per-route readiness state, and startup-derived readiness.
+Route delivery statistics, eligibility, per-route build readiness, and startup-derived readiness. Each sub-section carries explicit `scope` and `live_refresh` metadata so operators can distinguish build-time facts from startup-time facts from (future) live state.
 
 ```
 {
+  "build_readiness": {...} | null,
   "eligibility": {...} | null,
-  "readiness": {route_id: str} | null,
   "startup_readiness": {...} | null,
   "stats": {route_id: {...}},
 }
 ```
 
-#### 5.4.1 `routes.eligibility`
+#### 5.4.1 Scope and freshness metadata
 
-Exposes the outcome of route eligibility analysis performed during startup.
+Every route sub-section that represents a point-in-time observation carries two metadata fields:
+
+- `scope`: `"build"` or `"startup"`. Indicates *when* the data was captured.
+  - `"build"`: Computed during `MedreApp.build()`. Does not change after build. Represents build-time route registration outcomes.
+  - `"startup"`: Computed after `MedreApp.start()` completes. Does not change after startup. Reflects adapter lifecycle states at startup time.
+- `live_refresh`: Always `false` in the current schema. Reserved for future use when live health polling or dynamic routing is implemented. When `true`, the data would be refreshed from live runtime state rather than a point-in-time snapshot.
+
+Operators **must not** assume that data with `live_refresh=false` reflects current runtime state after shutdown or post-startup adapter failures.
+
+#### 5.4.2 `routes.eligibility`
+
+Exposes the outcome of route eligibility analysis performed during startup. Scope: `build`.
 
 ```
 {
   "configured":   [str],
-  "registered":   [str],
   "disabled":     [str],
+  "live_refresh": false,
+  "registered":   [str],
+  "scope":        "build",
   "degraded": [
     {
-      "route_id":           str,
       "failed_adapter_ids": [str],
+      "route_id":           str,
     }
   ],
   "skipped": [
@@ -178,20 +193,26 @@ Semantics:
 - `degraded`: Routes registered with partial target loss (some target adapters failed).
 - `skipped`: Routes that could not be registered (source failed, or all targets failed).
 - `unavailable`: Routes referencing adapters never in the configured set. Empty in normal operation (unknown refs raise `RouteValidationError`).
+- `live_refresh`: Always `false`. Data is from build time and is not refreshed.
+- `scope`: Always `"build"`. Data reflects build-time route registration outcomes.
 - This is a **diagnostic surface**, not a trigger for dynamic routing.
 
-#### 5.4.2 `routes.readiness`
+#### 5.4.3 `routes.build_readiness`
 
-Per-route operational state mapping.
+Per-route operational state mapping from build time. Scope: `build`.
 
 ```
 {
-  "route_id": "registered" | "disabled" | "degraded" | "skipped" | "unavailable",
-  ...
+  "live_refresh": false,
+  "scope":        "build",
+  "states": {
+    "route_id": "registered" | "disabled" | "degraded" | "skipped" | "unavailable",
+    ...
+  },
 }
 ```
 
-Values come from `RouteOperationalState` enum:
+`states` values come from `RouteOperationalState` enum:
 
 | State | When assigned |
 |-------|-------------|
@@ -207,9 +228,11 @@ Keys are deterministically sorted. The mapping covers all config route IDs.
 
 Expanded route IDs are mapped back to config route IDs using explicit provenance (no string-prefix inference). A config route that expands to multiple routes (e.g. `fan_out__0`, `fan_out__1`) maps to the worst state among its expansions.
 
-#### 5.4.3 `routes.startup_readiness`
+`live_refresh` is always `false`; `scope` is always `"build"`. The data is frozen at build time and does not reflect post-startup adapter failures.
 
-Startup-derived route readiness based on adapter lifecycle states. This is computed **after** `MedreApp.start()` completes and reflects adapters that built successfully but failed to start.
+#### 5.4.4 `routes.startup_readiness`
+
+Startup-derived route readiness based on adapter lifecycle states. This is computed **after** `MedreApp.start()` completes and reflects adapters that built successfully but failed to start. Scope: `startup`.
 
 ```
 {
@@ -219,7 +242,9 @@ Startup-derived route readiness based on adapter lifecycle states. This is compu
       "failed_adapter_ids": [str],
     }
   ],
+  "live_refresh": false,
   "readiness": {route_id: str},
+  "scope":        "startup",
   "skipped": [
     {
       "failed_adapter_ids": [str],
@@ -234,6 +259,8 @@ Semantics:
 - `readiness`: Per-config-route operational state derived from adapter lifecycle states. Keys are sorted config route IDs; values are `RouteOperationalState` enum strings.
 - `degraded`: Expanded routes where some target adapters failed to start (but source and at least one target survived).
 - `skipped`: Expanded routes where the source adapter failed to start (`source_adapter_start_failed`) or all target adapters failed to start (`no_surviving_targets_start_failed`).
+- `live_refresh`: Always `false`. Data is frozen at startup time.
+- `scope`: Always `"startup"`. Data reflects adapter lifecycle states after startup completes.
 
 Rules:
 - **Disabled** routes remain `disabled`.
@@ -247,7 +274,7 @@ Rules:
 - This is a **diagnostic surface**, not a trigger for dynamic routing or live health-aware routing.
 - `null` before `MedreApp.start()` has been called.
 
-#### 5.4.4 `routes.stats`
+#### 5.4.5 `routes.stats`
 
 Per-route delivery counters from `RouteStats.snapshot()`, bounded at `_MAX_ROUTES`.
 

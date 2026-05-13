@@ -736,7 +736,7 @@ class TestShutdownRestartWorkflow:
         )
         assert isinstance(snapshot, dict)
         assert "schema_version" in snapshot
-        assert snapshot["schema_version"] == 2
+        assert snapshot["schema_version"] == 3
         assert "adapters" in snapshot
 
 

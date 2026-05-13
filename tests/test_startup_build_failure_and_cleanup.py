@@ -707,3 +707,249 @@ class TestCatastrophicLoopFailureCleanup:
 
         # Verify state is FAILED.
         assert app.state == RuntimeState.FAILED
+
+
+# ===================================================================
+# INITIALIZING->STOPPED: adapter.start() failure cleanup
+# ===================================================================
+
+
+class _StartFailsButTracksStop(BaseAdapter):
+    """Adapter that raises on start() and records whether stop() was called."""
+
+    adapter_id: str = "track_stop"
+    platform: str = "test"
+    role: AdapterRole = AdapterRole.TRANSPORT
+
+    def __init__(self, adapter_id: str = "track_stop") -> None:
+        self.adapter_id = adapter_id
+        self.stop_called = False
+
+    async def start(self, ctx: AdapterContext) -> None:
+        raise RuntimeError(f"Simulated start failure: {self.adapter_id}")
+
+    async def stop(self, timeout: float = 5.0) -> None:
+        self.stop_called = True
+
+    async def health_check(self) -> AdapterInfo:
+        return AdapterInfo(
+            adapter_id=self.adapter_id,
+            platform=self.platform,
+            role=self.role,
+            version="0.0.0",
+            capabilities=AdapterCapabilities(),
+            health="failed",
+        )
+
+    async def deliver(self, result: Any) -> AdapterDeliveryResult | None:
+        return None
+
+
+class _StopAlsoFailsAdapter(BaseAdapter):
+    """Adapter whose start() and stop() both raise."""
+
+    adapter_id: str = "double_fail"
+    platform: str = "test"
+    role: AdapterRole = AdapterRole.TRANSPORT
+
+    def __init__(self, adapter_id: str = "double_fail") -> None:
+        self.adapter_id = adapter_id
+
+    async def start(self, ctx: AdapterContext) -> None:
+        raise RuntimeError("start exploded")
+
+    async def stop(self, timeout: float = 5.0) -> None:
+        raise RuntimeError("stop also exploded")
+
+    async def health_check(self) -> AdapterInfo:
+        return AdapterInfo(
+            adapter_id=self.adapter_id,
+            platform=self.platform,
+            role=self.role,
+            version="0.0.0",
+            capabilities=AdapterCapabilities(),
+            health="failed",
+        )
+
+    async def deliver(self, result: Any) -> AdapterDeliveryResult | None:
+        return None
+
+
+class TestAdapterStartFailureCleanup:
+    """Failed adapter.start() triggers best-effort adapter.stop() for cleanup."""
+
+    @pytest.mark.asyncio
+    async def test_failed_start_calls_adapter_stop(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """When adapter.start() fails, adapter.stop() is called for cleanup."""
+        config = _config_with_two_fake_adapters()
+        app = _build_app(config, tmp_paths)
+
+        # Replace alpha with an adapter that fails start but tracks stop calls.
+        tracker = _StartFailsButTracksStop(adapter_id="alpha")
+        app.adapters["alpha"] = tracker
+
+        # Beta starts normally (recording adapter).
+        beta = _RecordingAdapter(adapter_id="beta")
+        app.adapters["beta"] = beta
+
+        await app.start()
+        try:
+            # Alpha failed start but stop() should have been called.
+            assert tracker.stop_called, "adapter.stop() was not called after start failure"
+
+            # Beta should be started fine.
+            assert beta.adapter_id in app.started_adapter_ids
+            assert "alpha" not in app.started_adapter_ids
+        finally:
+            await app.stop()
+
+    @pytest.mark.asyncio
+    async def test_failed_start_state_is_failed(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """After adapter.start() fails, adapter state is FAILED."""
+        config = _config_with_one_fake_adapter()
+        app = _build_app(config, tmp_paths)
+
+        tracker = _StartFailsButTracksStop(adapter_id="fake_matrix")
+        app.adapters["fake_matrix"] = tracker
+
+        with pytest.raises(RuntimeStartupError, match="Total startup failure"):
+            await app.start()
+
+        states = app.adapter_states
+        assert states.get("fake_matrix") == AdapterState.FAILED
+
+    @pytest.mark.asyncio
+    async def test_stop_failure_after_start_failure_suppressed(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """If both start() and stop() fail, original error is preserved."""
+        config = _config_with_one_fake_adapter()
+        app = _build_app(config, tmp_paths)
+
+        double_fail = _StopAlsoFailsAdapter(adapter_id="fake_matrix")
+        app.adapters["fake_matrix"] = double_fail
+
+        # Should raise RuntimeStartupError (not the stop cleanup error).
+        with pytest.raises(RuntimeStartupError, match="Total startup failure"):
+            await app.start()
+
+        states = app.adapter_states
+        assert states.get("fake_matrix") == AdapterState.FAILED
+
+
+class TestStopNeverStartedAdapters:
+    """stop() on adapters that were never started transitions STOPPING->STOPPED."""
+
+    @pytest.mark.asyncio
+    async def test_never_started_adapter_gets_stopped_not_failed(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """Adapters in INITIALIZING state transition STOPPING->STOPPED during stop()."""
+        config = _config_with_two_fake_adapters()
+        app = _build_app(config, tmp_paths)
+
+        # Start only alpha; beta will remain in INITIALIZING.
+        alpha = _RecordingAdapter(adapter_id="alpha")
+        app.adapters["alpha"] = alpha
+
+        # Beta will fail to start.
+        beta_fail = _StartFailsButTracksStop(adapter_id="beta")
+        app.adapters["beta"] = beta_fail
+
+        # With one started and one failed, runtime enters RUNNING (partial).
+        await app.start()
+
+        # Now stop the runtime.
+        await app.stop()
+
+        # Alpha: started and then stopped.
+        assert alpha.stopped
+        assert app.adapter_states.get("alpha") == AdapterState.STOPPED
+
+        # Beta: failed start (already FAILED), stop() not called again by stop()
+        # because beta is not in started_adapter_ids and its state is already FAILED
+        # (set during start() failure path).
+        assert app.adapter_states.get("beta") == AdapterState.FAILED
+
+    @pytest.mark.asyncio
+    async def test_stop_on_never_started_adapter_uses_stopping_to_stopped(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """An adapter that was built but start() was never called
+        transitions STOPPING->STOPPED in stop()."""
+        config = _config_with_two_fake_adapters()
+        app = _build_app(config, tmp_paths)
+
+        # Start the app normally — both adapters start.
+        await app.start()
+
+        # Manually inject a third adapter that was never started.
+        gamma = _RecordingAdapter(adapter_id="gamma")
+        app.adapters["gamma"] = gamma
+        app._adapter_states["gamma"] = AdapterState.INITIALIZING
+
+        await app.stop()
+
+        # gamma should be STOPPED (went through STOPPING->STOPPED).
+        assert app.adapter_states.get("gamma") == AdapterState.STOPPED
+        assert gamma.stopped
+
+
+class TestTotalFailureCleansNeverStartedAdapters:
+    """TOTAL_FAILURE path cleans up adapters that never started (INITIALIZING)."""
+
+    @pytest.mark.asyncio
+    async def test_total_failure_stops_initializing_adapters(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """When all adapters fail, never-started adapters are cleaned up too."""
+        config = _config_with_two_fake_adapters()
+        app = _build_app(config, tmp_paths)
+
+        # Both fail to start.
+        alpha = _StartFailsButTracksStop(adapter_id="alpha")
+        beta = _StartFailsButTracksStop(adapter_id="beta")
+        app.adapters["alpha"] = alpha
+        app.adapters["beta"] = beta
+
+        with pytest.raises(RuntimeStartupError, match="Total startup failure"):
+            await app.start()
+
+        # Both adapters should have had stop() called during cleanup.
+        assert alpha.stop_called, "alpha stop() not called during total failure cleanup"
+        assert beta.stop_called, "beta stop() not called during total failure cleanup"
+
+        # Both should be FAILED (from start failure path).
+        assert app.adapter_states.get("alpha") == AdapterState.FAILED
+        assert app.adapter_states.get("beta") == AdapterState.FAILED
+
+    @pytest.mark.asyncio
+    async def test_total_failure_cleans_mixed_started_and_initializing(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """When one adapter starts but total failure is triggered by build failures,
+        the started adapter is cleaned up and the never-started adapter is also cleaned up."""
+        config = _config_with_two_fake_adapters()
+        app = _build_app(config, tmp_paths)
+
+        # alpha will start successfully, beta will fail.
+        alpha = _RecordingAdapter(adapter_id="alpha")
+        beta_fail = _StartFailsButTracksStop(adapter_id="beta")
+        app.adapters["alpha"] = alpha
+        app.adapters["beta"] = beta_fail
+
+        # Add a build failure to make it total failure:
+        # started=1, failed=1 (start) + 1 (build) = 2, total=3 → but 1 started...
+        # Actually we need TOTAL_FAILURE: 0 started. Let's make both fail.
+        app.adapters["alpha"] = _StartFailsButTracksStop(adapter_id="alpha")
+
+        with pytest.raises(RuntimeStartupError, match="Total startup failure"):
+            await app.start()
+
+        # Both failed adapters should have stop() called.
+        assert app.adapters["alpha"].stop_called
+        assert app.adapters["beta"].stop_called

@@ -411,6 +411,23 @@ class MedreApp:
                 except Exception as exc:
                     elapsed = _monotonic_ms() - t0
                     failed_adapter_ids.append(adapter_id)
+                    # Best-effort cleanup: stop the adapter so it can
+                    # release any resources acquired during the partial
+                    # start.  Cleanup errors are logged but suppressed
+                    # so that the original start-failure error is preserved.
+                    try:
+                        await adapter.stop(
+                            timeout=float(
+                                self.config.runtime.shutdown_timeout_seconds
+                            )
+                        )
+                    except Exception as cleanup_exc:
+                        _logger.debug(
+                            "Error stopping adapter %s.%s after start failure: %s",
+                            transport,
+                            adapter_id,
+                            cleanup_exc,
+                        )
                     self._set_adapter_state(adapter_id, AdapterState.FAILED)
                     _logger.error(
                         "Adapter %s.%s failed to start (%.0fms): %s",
@@ -680,19 +697,26 @@ class MedreApp:
                 errors.append((adapter_id, exc))
 
         # Also stop any adapters that were in self.adapters but not in
-        # started_adapter_ids (e.g. if start() was never called).
-        # These are still in INITIALIZING state; mark FAILED since
-        # INITIALIZING->STOPPED is not a valid transition.
+        # started_adapter_ids (e.g. if start() was never called, or start()
+        # failed and the adapter is still in INITIALIZING).
+        # Skip adapters already in a terminal state (FAILED, STOPPED).
+        _terminal = {AdapterState.FAILED, AdapterState.STOPPED}
         for adapter_id, adapter in self.adapters.items():
             if adapter_id in self.started_adapter_ids:
+                continue
+            if self._adapter_states.get(adapter_id) in _terminal:
                 continue
             transport = getattr(adapter, "platform", "unknown")
             _logger.debug(
                 "Adapter %s.%s stopping (never started)", transport, adapter_id
             )
+            self._set_adapter_state(adapter_id, AdapterState.STOPPING)
             try:
                 await adapter.stop(timeout=float(timeout))
-                self._set_adapter_state(adapter_id, AdapterState.FAILED)
+                self._set_adapter_state(adapter_id, AdapterState.STOPPED)
+                _logger.info(
+                    "Adapter %s.%s stopped (never started)", transport, adapter_id
+                )
             except Exception as exc:
                 self._set_adapter_state(adapter_id, AdapterState.FAILED)
                 _logger.debug(
@@ -753,6 +777,9 @@ class MedreApp:
         Used for partial-startup cleanup: if an unrecoverable error occurs
         after some adapters have started, this ensures they are torn down
         cleanly rather than left in a half-started state.
+
+        Also stops adapters that were built but never started (still in
+        INITIALIZING state) so they are not leaked on total failure.
         """
         timeout = self.config.runtime.shutdown_timeout_seconds
         for adapter_id in reversed(self.started_adapter_ids):
@@ -777,6 +804,37 @@ class MedreApp:
                     adapter_id,
                     exc,
                 )
+
+        # Also clean up adapters that were built but never started (still
+        # in INITIALIZING state).  These are in self.adapters but not in
+        # started_adapter_ids.  Skip adapters already in a terminal state
+        # (FAILED, STOPPED) from earlier handling.
+        started_set = set(self.started_adapter_ids)
+        terminal = {AdapterState.FAILED, AdapterState.STOPPED}
+        for adapter_id, adapter in self.adapters.items():
+            if adapter_id in started_set:
+                continue
+            if self._adapter_states.get(adapter_id) in terminal:
+                continue
+            transport = getattr(adapter, "platform", "unknown")
+            self._set_adapter_state(adapter_id, AdapterState.STOPPING)
+            try:
+                await adapter.stop(timeout=float(timeout))
+                self._set_adapter_state(adapter_id, AdapterState.STOPPED)
+                _logger.info(
+                    "Cleaned up never-started adapter %s.%s during failed startup",
+                    transport,
+                    adapter_id,
+                )
+            except Exception as exc:
+                self._set_adapter_state(adapter_id, AdapterState.FAILED)
+                _logger.error(
+                    "Error cleaning up never-started adapter %s.%s during failed startup: %s",
+                    transport,
+                    adapter_id,
+                    exc,
+                )
+
         self.started_adapter_ids.clear()
         self.adapter_start_monotonic.clear()
 

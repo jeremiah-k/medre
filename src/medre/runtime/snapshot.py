@@ -4,14 +4,14 @@ Provides :func:`build_runtime_snapshot` which reads the current state of a
 :class:`~medre.runtime.app.MedreApp` and returns a plain-dict, JSON-safe,
 deterministic snapshot.  No SDK objects, no secrets, no async I/O.
 
-Snapshot schema (``schema_version`` 2)
+Snapshot schema (``schema_version`` 3)
 --------------------------------------
 Top-level keys are alphabetically sorted for stable serialisation.
 The snapshot is structured into intentional sections that separate
 stable operator-facing data from unstable/debug internals::
 
     {
-      "schema_version": 2,
+      "schema_version": 3,
       "snapshot_at": str,
       "accounting": {...} | null,
       "adapters": {adapter_id: {...}},
@@ -33,8 +33,8 @@ stable operator-facing data from unstable/debug internals::
       "persistence": {},
       "replay": {"available": bool, "counters": {...} | null},
       "routes": {
+        "build_readiness": {...} | null,
         "eligibility": {...} | null,
-        "readiness": {route_id: str} | null,
         "startup_readiness": {...} | null,
         "stats": {route_id: {...}},
       },
@@ -70,7 +70,10 @@ health:
 adapters:
     Per-adapter static metadata (capabilities, role, version, health).
 routes:
-    Route delivery stats, eligibility, per-route readiness state.
+    Route delivery stats, eligibility, per-route build readiness, and
+    startup-derived readiness.  Each sub-section carries explicit
+    ``scope`` and ``live_refresh`` metadata so operators can distinguish
+    build-time facts from startup-time facts from (future) live state.
 persistence:
     Reserved for future durable-storage surface.
 accounting:
@@ -122,7 +125,7 @@ _logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-SCHEMA_VERSION: int = 2
+SCHEMA_VERSION: int = 3
 """Current snapshot schema version.  Bumped when the top-level shape changes."""
 
 _MAX_ADAPTERS: int = 256
@@ -504,7 +507,7 @@ def build_runtime_snapshot(
     else:
         boot_summary_snapshot = None
 
-    # -- Route eligibility ---------------------------------------------------
+    # -- Route eligibility (build-time, scope="build") ----------------------
     route_elig_obj: Any = getattr(app, "route_eligibility", None)
     route_eligibility_snapshot: dict[str, Any] | None
     if route_elig_obj is not None:
@@ -518,7 +521,9 @@ def build_runtime_snapshot(
                 }
                 for d in route_elig_obj.degraded
             ],
+            "live_refresh": False,
             "registered": list(route_elig_obj.registered),
+            "scope": "build",
             "skipped": [
                 {
                     "failed_adapter_ids": list(s.failed_adapter_ids),
@@ -539,17 +544,22 @@ def build_runtime_snapshot(
     else:
         route_eligibility_snapshot = None
 
-    # -- Route readiness (per-route operational states) ----------------------
-    route_readiness_snapshot: dict[str, str] | None
+    # -- Route build readiness (per-route operational states, scope="build") -
+    route_build_readiness_snapshot: dict[str, Any] | None
     if route_elig_obj is not None and hasattr(route_elig_obj, "route_states"):
-        route_readiness_snapshot = {
+        states = {
             rid: state.value
             for rid, state in sorted(route_elig_obj.route_states.items())
         }
+        route_build_readiness_snapshot = {
+            "live_refresh": False,
+            "scope": "build",
+            "states": states,
+        }
     else:
-        route_readiness_snapshot = None
+        route_build_readiness_snapshot = None
 
-    # -- Startup-derived route readiness ------------------------------------
+    # -- Startup-derived route readiness (scope="startup") ------------------
     startup_readiness_obj: Any = getattr(app, "_startup_readiness", None)
     startup_readiness_snapshot: dict[str, Any] | None
     if startup_readiness_obj is not None:
@@ -561,10 +571,12 @@ def build_runtime_snapshot(
                 }
                 for d in startup_readiness_obj.degraded
             ],
+            "live_refresh": False,
             "readiness": {
                 rid: state.value
                 for rid, state in sorted(startup_readiness_obj.route_states.items())
             },
+            "scope": "startup",
             "skipped": [
                 {
                     "failed_adapter_ids": list(s.failed_adapter_ids),
@@ -607,8 +619,8 @@ def build_runtime_snapshot(
             "counters": replay_counters,
         },
         "routes": {
+            "build_readiness": route_build_readiness_snapshot,
             "eligibility": route_eligibility_snapshot,
-            "readiness": route_readiness_snapshot,
             "startup_readiness": startup_readiness_snapshot,
             "stats": routes_snapshot,
         },

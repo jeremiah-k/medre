@@ -25,7 +25,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 from medre.adapters.base import BaseAdapter
@@ -68,6 +68,7 @@ _logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
 class AdapterBuildFailure:
     """Records a single adapter that failed during construction.
 
@@ -81,20 +82,9 @@ class AdapterBuildFailure:
         The exception that caused the failure.
     """
 
-    __slots__ = ("transport", "adapter_id", "error")
-
-    def __init__(
-        self, transport: str, adapter_id: str, error: Exception
-    ) -> None:
-        self.transport = transport
-        self.adapter_id = adapter_id
-        self.error = error
-
-    def __repr__(self) -> str:
-        return (
-            f"AdapterBuildFailure(transport={self.transport!r}, "
-            f"adapter_id={self.adapter_id!r}, error={self.error!r})"
-        )
+    transport: str
+    adapter_id: str
+    error: Exception
 
 
 # ---------------------------------------------------------------------------

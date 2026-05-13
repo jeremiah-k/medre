@@ -1055,3 +1055,158 @@ class TestPublicSanitizerAPI:
         assert "sanitize_diagnostic_mapping" in mod.__all__
         assert "normalize_diagnostics" in mod.__all__
         assert "COMMON_DIAGNOSTIC_KEYS" in mod.__all__
+
+
+# ===========================================================================
+# 14. Recursion / size bounds
+# ===========================================================================
+
+
+class TestRecursionAndSizeBounds:
+    """Tests that sanitization enforces depth, mapping, and sequence bounds."""
+
+    def test_max_depth_exceeded_returns_marker(self) -> None:
+        """Dict nested deeper than _SANITIZE_MAX_DEPTH returns marker."""
+        from medre.core.runtime.diagnostic_contract import (
+            _SANITIZE_MAX_DEPTH,
+            sanitize_diagnostic_value,
+        )
+
+        # Build a dict nested 2 levels deeper than the limit.
+        inner: dict[str, Any] = {"leaf": "visible"}
+        for i in range(_SANITIZE_MAX_DEPTH + 2):
+            inner = {f"level_{i}": inner}
+
+        result = sanitize_diagnostic_value(inner)
+
+        # Walk down until we hit the marker.  We walk (_SANITIZE_MAX_DEPTH - 1)
+        # levels of dict, then the next level should be the marker.
+        node = result
+        for _ in range(_SANITIZE_MAX_DEPTH - 1):
+            assert isinstance(node, dict)
+            keys = [k for k in node if k.startswith("level_")]
+            assert len(keys) == 1
+            node = node[keys[0]]
+
+        # node is the last dict that was fully processed — its nested-dict
+        # value must be the marker.
+        assert isinstance(node, dict)
+        keys = [k for k in node if k.startswith("level_")]
+        assert len(keys) == 1
+        assert node[keys[0]] == "<max_depth_exceeded>"
+
+    def test_max_depth_scalars_still_pass(self) -> None:
+        """Scalar values inside the last processable dict are intact."""
+        from medre.core.runtime.diagnostic_contract import (
+            _SANITIZE_MAX_DEPTH,
+            sanitize_diagnostic_value,
+        )
+
+        # Wrap a dict with scalars (MAX_DEPTH - 1) times so the innermost
+        # dict is the last one that gets fully processed (at depth 9).
+        inner: dict[str, Any] = {"count": 42, "name": "ok"}
+        for i in range(_SANITIZE_MAX_DEPTH - 1):
+            inner = {f"level_{i}": inner}
+
+        result = sanitize_diagnostic_value(inner)
+        node = result
+        for _ in range(_SANITIZE_MAX_DEPTH - 1):
+            assert isinstance(node, dict)
+            keys = [k for k in node if k.startswith("level_")]
+            node = node[keys[0]]
+
+        # node is now the innermost dict — scalars should be intact.
+        assert isinstance(node, dict)
+        assert node["count"] == 42
+        assert node["name"] == "ok"
+
+    def test_sequence_truncation_with_marker(self) -> None:
+        """Sequences longer than _SANITIZE_MAX_SEQUENCE_ITEMS are truncated."""
+        from medre.core.runtime.diagnostic_contract import (
+            _SANITIZE_MAX_SEQUENCE_ITEMS,
+            sanitize_diagnostic_value,
+        )
+
+        items = list(range(_SANITIZE_MAX_SEQUENCE_ITEMS + 50))
+        result = sanitize_diagnostic_value(items)
+
+        assert isinstance(result, list)
+        assert len(result) == _SANITIZE_MAX_SEQUENCE_ITEMS + 1  # items + marker
+        # Last element is the truncation marker.
+        assert result[-1] == "<truncated: 50 items>"
+        # First elements are preserved.
+        assert result[0] == 0
+        assert result[_SANITIZE_MAX_SEQUENCE_ITEMS - 1] == _SANITIZE_MAX_SEQUENCE_ITEMS - 1
+
+    def test_sequence_within_bound_unchanged(self) -> None:
+        """Sequences within the limit are not modified."""
+        from medre.core.runtime.diagnostic_contract import (
+            _SANITIZE_MAX_SEQUENCE_ITEMS,
+            sanitize_diagnostic_value,
+        )
+
+        items = list(range(10))
+        result = sanitize_diagnostic_value(items)
+        assert result == items
+
+    def test_mapping_truncation_drops_excess(self) -> None:
+        """Dicts with more than _SANITIZE_MAX_MAPPING_ENTRIES are truncated."""
+        from medre.core.runtime.diagnostic_contract import (
+            _SANITIZE_MAX_MAPPING_ENTRIES,
+            sanitize_diagnostic_mapping,
+        )
+
+        raw = {f"key_{i:04d}": i for i in range(_SANITIZE_MAX_MAPPING_ENTRIES + 50)}
+        result = sanitize_diagnostic_mapping(raw)
+
+        assert isinstance(result, dict)
+        assert len(result) == _SANITIZE_MAX_MAPPING_ENTRIES
+        # First entries preserved (insertion order).
+        assert result["key_0000"] == 0
+        assert result[f"key_{_SANITIZE_MAX_MAPPING_ENTRIES - 1:04d}"] == _SANITIZE_MAX_MAPPING_ENTRIES - 1
+        # Excess keys dropped.
+        excess_key = f"key_{_SANITIZE_MAX_MAPPING_ENTRIES:04d}"
+        assert excess_key not in result
+
+    def test_mapping_within_bound_unchanged(self) -> None:
+        """Dicts within the limit are fully preserved."""
+        from medre.core.runtime.diagnostic_contract import (
+            _SANITIZE_MAX_MAPPING_ENTRIES,
+            sanitize_diagnostic_mapping,
+        )
+
+        raw = {f"k{i}": i for i in range(50)}
+        result = sanitize_diagnostic_mapping(raw)
+        assert len(result) == 50
+        assert result["k0"] == 0
+        assert result["k49"] == 49
+
+    def test_depth_bounds_dont_break_json(self) -> None:
+        """Output with depth/size truncation remains JSON-safe."""
+        from medre.core.runtime.diagnostic_contract import (
+            _SANITIZE_MAX_DEPTH,
+            sanitize_diagnostic_value,
+        )
+
+        inner: dict[str, Any] = {"leaf": b"bytes_val"}
+        for i in range(_SANITIZE_MAX_DEPTH + 5):
+            inner = {f"level_{i}": inner, "obj": ValueError(f"e{i}")}
+
+        result = sanitize_diagnostic_value(inner)
+        serialized = json.dumps(result, sort_keys=True)
+        assert isinstance(serialized, str)
+
+        parsed = json.loads(serialized)
+        assert "<max_depth_exceeded>" in json.dumps(parsed)
+
+    def test_large_sequence_json_safe(self) -> None:
+        """Truncated sequence output is JSON-safe."""
+        from medre.core.runtime.diagnostic_contract import (
+            _SANITIZE_MAX_SEQUENCE_ITEMS,
+            sanitize_diagnostic_value,
+        )
+
+        items = [ValueError(f"err_{i}") for i in range(_SANITIZE_MAX_SEQUENCE_ITEMS + 10)]
+        result = sanitize_diagnostic_value(items)
+        serialized = json.dumps(result, sort_keys=True)
+        assert isinstance(serialized, str)

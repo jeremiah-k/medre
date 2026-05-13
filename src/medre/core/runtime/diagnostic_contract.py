@@ -111,19 +111,34 @@ _SAFE_SCALAR_TYPES = (bool, int, float, str, type(None))
 # output when a diagnostic value unexpectedly contains a very long string.
 _MAX_STRING_LENGTH: int = 4096
 
+# Recursion / size bounds for sanitization.
+_SANITIZE_MAX_DEPTH: int = 10
+"""Maximum nesting depth for dict/list recursion.  Containers beyond this
+depth are replaced with ``"<max_depth_exceeded>"``."""
+
+_SANITIZE_MAX_MAPPING_ENTRIES: int = 128
+"""Maximum number of key-value pairs retained from a single dict.  Excess
+entries are silently dropped (insertion-order preserved)."""
+
+_SANITIZE_MAX_SEQUENCE_ITEMS: int = 256
+"""Maximum number of elements retained from a single sequence.  Excess
+items are dropped and a ``"<truncated: N items>"`` marker is appended."""
+
 
 def _is_secret_key(key: str) -> bool:
     """Return ``True`` if *key* matches a known secret pattern."""
     return any(p.search(key) for p in _SECRET_KEY_PATTERNS)
 
 
-def _sanitize_value(value: Any) -> Any:
+def _sanitize_value(value: Any, _depth: int = 0) -> Any:
     """Coerce a value into a serialization-safe form.
 
     * ``bool`` / ``int`` / ``float`` / ``str`` / ``None`` pass through.
-    * ``dict`` is recursively sanitized.
+    * ``dict`` is recursively sanitized (bounded by
+      :data:`_SANITIZE_MAX_DEPTH` and :data:`_SANITIZE_MAX_MAPPING_ENTRIES`).
     * ``list`` / ``tuple`` / ``set`` / ``frozenset`` have each element
-      sanitized and become ``list``.
+      sanitized and become ``list`` (bounded by
+      :data:`_SANITIZE_MAX_SEQUENCE_ITEMS`).
     * Everything else (including exceptions, raw SDK objects, functions,
       classes, ``bytes``) is replaced with a type-name placeholder
       like ``"<ValueError>"`` instead of a full ``repr()``.  This
@@ -135,10 +150,21 @@ def _sanitize_value(value: Any) -> Any:
         if isinstance(value, str) and len(value) > _MAX_STRING_LENGTH:
             return value[: _MAX_STRING_LENGTH] + f"…[{len(value)} chars]"
         return value
+    if _depth >= _SANITIZE_MAX_DEPTH:
+        return "<max_depth_exceeded>"
     if isinstance(value, dict):
-        return _sanitize_dict(value)
+        return _sanitize_dict(value, _depth + 1)
     if isinstance(value, (list, tuple, set, frozenset)):
-        return [_sanitize_value(item) for item in value]
+        items = list(value)
+        if len(items) > _SANITIZE_MAX_SEQUENCE_ITEMS:
+            excess = len(items) - _SANITIZE_MAX_SEQUENCE_ITEMS
+            sanitized = [
+                _sanitize_value(item, _depth + 1)
+                for item in items[:_SANITIZE_MAX_SEQUENCE_ITEMS]
+            ]
+            sanitized.append(f"<truncated: {excess} items>")
+            return sanitized
+        return [_sanitize_value(item, _depth + 1) for item in items]
     # Unsupported / complex object – safe type-name placeholder.
     try:
         return f"<{type(value).__name__}>"
@@ -146,13 +172,20 @@ def _sanitize_value(value: Any) -> Any:
         return "<object>"
 
 
-def _sanitize_dict(d: dict[str, Any]) -> dict[str, Any]:
-    """Return a copy of *d* with secret keys removed and values sanitized."""
+def _sanitize_dict(d: dict[str, Any], _depth: int = 0) -> dict[str, Any]:
+    """Return a copy of *d* with secret keys removed and values sanitized.
+
+    If *d* contains more than :data:`_SANITIZE_MAX_MAPPING_ENTRIES` keys,
+    excess entries are silently dropped (insertion-order preserved).
+    """
     out: dict[str, Any] = {}
-    for key, value in d.items():
+    entries = list(d.items())
+    if len(entries) > _SANITIZE_MAX_MAPPING_ENTRIES:
+        entries = entries[:_SANITIZE_MAX_MAPPING_ENTRIES]
+    for key, value in entries:
         if _is_secret_key(key):
             continue
-        out[key] = _sanitize_value(value)
+        out[key] = _sanitize_value(value, _depth)
     return out
 
 
