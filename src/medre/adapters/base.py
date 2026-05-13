@@ -59,7 +59,8 @@ class AdapterDeliveryResult:
         Platform-native thread or parent message ID, if applicable.
     native_relation_id:
         Platform-native ID of the related entity (e.g. the message
-        being replied to), if applicable.
+        being replied to), if applicable.  **Reserved** — no adapter
+        currently populates this field.
     metadata:
         Adapter-specific immutable metadata about the delivery.
     """

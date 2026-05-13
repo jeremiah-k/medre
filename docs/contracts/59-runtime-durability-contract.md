@@ -73,7 +73,6 @@ The following state survives process termination (crash, shutdown, or restart). 
 | Delivery receipts | Yes | After each delivery attempt completes |
 | Route attribution (`route_id` on receipts) | Yes | With the delivery receipt |
 | Native references (platform message IDs) | Yes | With the delivery receipt |
-| Replay run metadata and results | Yes (completed runs) | After each replay run completes |
 | Cross-adapter relationships | Yes | During pipeline store step |
 | Global runtime metadata (schema version) | Yes | On first creation and migration |
 | Matrix E2EE crypto keys | Yes | SDK-managed (see Contract 55 §2.2) |
@@ -104,6 +103,7 @@ The following state is **lost** on process termination (crash, shutdown, or rest
 |-------|--------|----------------|
 | In-flight deliveries | Semaphore-tracked coroutines | No receipt, no retry, no recovery |
 | Active replay runs | Async generator iterations | Must re-initiate manually |
+| ReplaySummary (completed replay results) | In-memory dataclass | Must re-run replay to regenerate |
 | `CapacityController` counters (`delivery_timeouts`, `delivery_rejections`, etc.) | In-memory counters | Reset to zero on every startup |
 | `RouteStats` per-route counters | In-memory counters | No historical route statistics |
 | `RuntimeAccounting` counters | In-memory counters | Reset to zero on every startup |
@@ -118,6 +118,17 @@ In-flight deliveries and replay events that are abandoned at shutdown or lost on
 ### 4.2 Counters Reset on Every Startup
 
 All `CapacityController`, `RouteStats`, `RuntimeAccounting`, and `Diagnostician` counters start at zero on every runtime startup. There is no mechanism to persist or restore these counters across restarts. Operators who need historical counter data must extract it before shutdown via `medre diagnostics` or the diagnostic snapshot.
+
+
+## 4.3 BEST_EFFORT Replay Storage Semantics
+
+`ReplayMode.BEST_EFFORT` is the only replay mode that produces storage side effects. Its behavior:
+
+- Every BEST_EFFORT delivery creates **new** `DeliveryReceipt` and `NativeMessageRef` records in storage.
+- These records are **not distinguishable** from live (non-replay) records at the storage layer — they share the same schema, auto-incremented sequence numbers, and ID formats.
+- `run_id` is available in the `ReplaySummary` and per-event result stream only. It does **not** propagate to stored `DeliveryReceipt` or `NativeMessageRef` records. Downstream consumers that need to correlate replay deliveries must use application-level deduplication or inspect replay envelope metadata in the result output.
+- `ReplaySummary` itself is **not durably persisted**. It is an in-memory dataclass returned to the caller. Process crash or restart loses it entirely; the replay must be re-run to regenerate the summary.
+- **Duplicate-send risk** applies to all adapter transports. Replaying an event that was previously delivered will produce a second delivery attempt with no storage-level deduplication.
 
 
 ## 5. Degraded-Runtime Semantics
@@ -218,8 +229,9 @@ The following are explicitly **not** provided:
 - **Exactly-once delivery.** MEDRE is best-effort. Delivery receipts may be duplicated on retry. Events may be delivered more than once.
 - **Transactionality.** There is no transactional boundary across multiple adapter deliveries. A fan-out to 3 adapters may have 2 succeed and 1 fail.
 - **Persistent in-flight recovery.** In-flight work is lost on crash or shutdown. No retry of abandoned deliveries.
-- **Replay deduplication.** If the runtime restarts, replayed events may be delivered again.
-- **Replay resume.** An interrupted replay run must be re-initiated manually.
+- **Replay deduplication.** Replayed events may produce duplicate deliveries. BEST_EFFORT replay creates new `DeliveryReceipt` and `NativeMessageRef` records indistinguishable from live records (see §4.3).
+- **Replay resume.** An interrupted replay run must be re-initiated manually. Completed `ReplaySummary` results are not durably persisted.
+- **Replay run audit.** There is no persistent replay run or audit table. `run_id` is available only in the result stream and summary, not in stored records.
 - **Distributed durability.** State is local to the machine. No replication or consensus.
 - **Persistence of in-memory counters.** All diagnostic, capacity, route, and accounting counters are zeroed on startup.
 - **Database size bounding.** SQLite grows with event volume. No automatic pruning or retention policy.

@@ -20,6 +20,7 @@ from medre.core.events import (
     NativeRef,
 )
 from medre.core.storage import EventFilter, SQLiteStorage
+from medre.core.storage.backend import DuplicateEventError, StorageError
 
 
 # Helper to build a minimal event quickly.
@@ -915,3 +916,197 @@ class TestSourceNativeRefRoundTrip:
             "matrix", "!room:server", "$target-msg"
         )
         assert result == "evt-resolve-target"
+
+
+# ===================================================================
+# target_native_thread_id round-trip in event_relations
+# ===================================================================
+
+
+class TestRelationTargetNativeThreadId:
+    """target_native_ref.native_thread_id is preserved through storage."""
+
+    async def test_target_native_thread_id_round_trip(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """A relation whose target_native_ref has native_thread_id survives
+        append/get round-trip without silent data loss."""
+        event = _make_event(event_id="evt-thread-rt")
+        await temp_storage.append(event)
+
+        nref = NativeRef(
+            adapter="discord",
+            native_channel_id="channel-1",
+            native_message_id="msg-thread-1",
+            native_thread_id="thread-42",
+        )
+        relation = EventRelation(
+            relation_type="reply",
+            target_event_id=None,
+            target_native_ref=nref,
+            key=None,
+            fallback_text=None,
+        )
+        await temp_storage.store_relation("evt-thread-rt", relation)
+
+        relations = await temp_storage.list_relations("evt-thread-rt")
+        assert len(relations) == 1
+        tnref = relations[0].target_native_ref
+        assert tnref is not None
+        assert tnref.native_thread_id == "thread-42"
+        assert tnref.adapter == "discord"
+        assert tnref.native_channel_id == "channel-1"
+        assert tnref.native_message_id == "msg-thread-1"
+
+    async def test_inline_relation_with_thread_id_round_trip(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Relations with native_thread_id embedded in an event round-trip."""
+        nref = NativeRef(
+            adapter="slack",
+            native_channel_id="C123",
+            native_message_id="123.456",
+            native_thread_id="thread-abc",
+        )
+        relation = EventRelation(
+            relation_type="thread",
+            target_event_id=None,
+            target_native_ref=nref,
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(
+            event_id="evt-inline-thread", relations=(relation,)
+        )
+        await temp_storage.append(event)
+
+        retrieved = await temp_storage.get("evt-inline-thread")
+        assert retrieved is not None
+        assert len(retrieved.relations) == 1
+        assert retrieved.relations[0].target_native_ref is not None
+        assert retrieved.relations[0].target_native_ref.native_thread_id == "thread-abc"
+
+
+# ===================================================================
+# NULL channel native ref idempotency
+# ===================================================================
+
+
+class TestNullChannelNativeRefIdempotency:
+    """Native refs with native_channel_id=None dedupe deterministically."""
+
+    async def test_null_channel_ref_stores_once(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Storing two native refs with NULL channel and same message_id
+        results in a single stored row (deterministic idempotency)."""
+        event = _make_event(event_id="evt-null-ch")
+        await temp_storage.append(event)
+
+        ref1 = NativeMessageRef(
+            id="nref-null-1",
+            event_id="evt-null-ch",
+            adapter="radio",
+            native_channel_id=None,
+            native_message_id="msg-001",
+            native_thread_id=None,
+            native_relation_id=None,
+            direction="inbound",
+            created_at=datetime.now(timezone.utc),
+        )
+        await temp_storage.store_native_ref(ref1)
+
+        # Second ref with same (adapter, NULL, native_message_id) but different id.
+        ref2 = NativeMessageRef(
+            id="nref-null-2",
+            event_id="evt-null-ch",
+            adapter="radio",
+            native_channel_id=None,
+            native_message_id="msg-001",
+            native_thread_id=None,
+            native_relation_id=None,
+            direction="inbound",
+            created_at=datetime.now(timezone.utc),
+        )
+        await temp_storage.store_native_ref(ref2)
+
+        # Should resolve to the first ref's event_id.
+        resolved = await temp_storage.resolve_native_ref("radio", None, "msg-001")
+        assert resolved == "evt-null-ch"
+
+        # Only one row should exist.
+        rows = await temp_storage._read_all(
+            "SELECT * FROM native_message_refs WHERE adapter = ? AND native_channel_id IS NULL AND native_message_id = ?",
+            ("radio", "msg-001"),
+        )
+        assert len(rows) == 1
+        assert rows[0]["id"] == "nref-null-1"
+
+
+# ===================================================================
+# DuplicateEventError on duplicate append
+# ===================================================================
+
+
+class TestDuplicateEventError:
+    """Appending the same event_id twice raises DuplicateEventError."""
+
+    async def test_duplicate_append_raises_duplicate_event_error(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Appending an event whose event_id already exists raises
+        DuplicateEventError (a StorageError subclass)."""
+        event = _make_event(event_id="evt-dup-test")
+        await temp_storage.append(event)
+
+        with pytest.raises(DuplicateEventError) as exc_info:
+            await temp_storage.append(event)
+        assert "evt-dup-test" in str(exc_info.value) or "Duplicate" in str(
+            exc_info.value
+        )
+
+    async def test_duplicate_event_error_is_storage_error_subclass(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """DuplicateEventError is a subclass of StorageError."""
+        event = _make_event(event_id="evt-subclass-test")
+        await temp_storage.append(event)
+
+        with pytest.raises(DuplicateEventError) as exc_info:
+            await temp_storage.append(event)
+        assert isinstance(exc_info.value, StorageError)
+
+
+# ===================================================================
+# UTC-aware default created_at
+# ===================================================================
+
+
+class TestUtcAwareDefaultCreatedAt:
+    """NativeMessageRef and DeliveryReceipt default created_at is UTC-aware."""
+
+    def test_native_message_ref_default_created_at_is_utc_aware(self) -> None:
+        """NativeMessageRef(created_at not passed) gets a UTC-aware datetime."""
+        ref = NativeMessageRef(
+            id="nref-utc",
+            event_id="evt-utc",
+            adapter="test",
+            native_channel_id="ch",
+            native_message_id="msg",
+            native_thread_id=None,
+            native_relation_id=None,
+            direction="inbound",
+        )
+        assert ref.created_at.tzinfo is not None
+        assert ref.created_at.tzinfo == timezone.utc
+
+    def test_delivery_receipt_default_created_at_is_utc_aware(self) -> None:
+        """DeliveryReceipt(created_at not passed) gets a UTC-aware datetime."""
+        receipt = DeliveryReceipt(
+            receipt_id="rcpt-utc",
+            event_id="evt-utc",
+            delivery_plan_id="plan-utc",
+            target_adapter="test",
+        )
+        assert receipt.created_at.tzinfo is not None
+        assert receipt.created_at.tzinfo == timezone.utc

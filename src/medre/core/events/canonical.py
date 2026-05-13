@@ -14,7 +14,7 @@ This module defines the central data structures that every other subsystem
 from __future__ import annotations
 
 import msgspec
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from msgspec.structs import force_setattr
 from typing import Literal
@@ -143,7 +143,8 @@ class NativeMessageRef(msgspec.Struct, frozen=True):
         Thread ID in the adapter's native format, if applicable.
     native_relation_id:
         ID of the related native entity (e.g. the message being replied
-        to) in the adapter's native format.
+        to) in the adapter's native format.  **Reserved** — no adapter
+        currently populates this field.
     direction:
         Whether the message was ``"inbound"`` or ``"outbound"``.
     metadata:
@@ -161,7 +162,7 @@ class NativeMessageRef(msgspec.Struct, frozen=True):
     native_relation_id: str | None
     direction: Literal["inbound", "outbound"]
     metadata: dict[str, object] = msgspec.field(default_factory=dict)
-    created_at: datetime = msgspec.field(default_factory=datetime.now)
+    created_at: datetime = msgspec.field(default_factory=lambda: datetime.now(timezone.utc))
 
     def __post_init__(self) -> None:
         if not isinstance(self.metadata, _FrozenDict):
@@ -186,6 +187,8 @@ class DeliveryReceipt(msgspec.Struct, frozen=True):
         Identifier of the delivery plan this receipt belongs to.
     target_adapter:
         Name of the adapter the event is being delivered to.
+    route_id:
+        Identifier of the route that triggered this delivery.
     status:
         Current delivery status.
     error:
@@ -225,7 +228,7 @@ class DeliveryReceipt(msgspec.Struct, frozen=True):
     next_retry_at: datetime | None = None
     attempt_number: int = 1
     parent_receipt_id: str | None = None
-    created_at: datetime = msgspec.field(default_factory=datetime.now)
+    created_at: datetime = msgspec.field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # ---------------------------------------------------------------------------

@@ -57,6 +57,16 @@ class SchemaValidationError(StorageError):
     """Raised when stored data does not conform to the expected schema."""
 
 
+class DuplicateEventError(StorageError):
+    """Raised when attempting to append a canonical event whose ``event_id``
+    already exists in the store.
+
+    Events are append-only; callers that need idempotent semantics should
+    check with :meth:`~StorageBackend.get` before calling
+    :meth:`~StorageBackend.append`, or catch this exception.
+    """
+
+
 # ---------------------------------------------------------------------------
 # Event filter
 # ---------------------------------------------------------------------------
@@ -146,7 +156,11 @@ class StorageBackend(Protocol):
     # -- Event CRUD ---------------------------------------------------------
 
     async def append(self, event: CanonicalEvent) -> None:
-        """Persist a canonical event together with its inline relations."""
+        """Persist a canonical event together with its inline relations.
+
+        Raises :class:`DuplicateEventError` when *event.event_id* already
+        exists in the store.
+        """
         ...
 
     async def get(self, event_id: str) -> CanonicalEvent | None:
@@ -157,7 +171,7 @@ class StorageBackend(Protocol):
         ...
 
     async def query(self, filter: EventFilter) -> AsyncIterator[CanonicalEvent]:
-        """Yield events matching *filter*, newest-first."""
+        """Yield events matching *filter*, ordered by timestamp ascending."""
         ...
 
     # -- Native ref correlation ---------------------------------------------

@@ -264,7 +264,7 @@ CREATE TABLE canonical_events (
     schema_version INTEGER NOT NULL CHECK(schema_version >= 1),
     timestamp TEXT NOT NULL,         -- ISO 8601 with nanoseconds
     source_adapter TEXT NOT NULL,
-    source_transport_id TEXT,        -- Native actor/source identity (not native message ID)
+    source_transport_id TEXT NOT NULL,  -- Native actor/source identity (not native message ID)
     source_channel_id TEXT,          -- Native channel/room/topic on source adapter
     source_native_adapter TEXT,      -- Source NativeRef.adapter for inbound native reference
     source_native_channel_id TEXT,   -- Source NativeRef.native_channel_id
@@ -293,7 +293,9 @@ CREATE TABLE event_relations (
     event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
     relation_type TEXT NOT NULL CHECK(relation_type IN ('reply', 'reaction', 'edit', 'delete', 'thread')),
     target_event_id TEXT,
-    target_native_ref TEXT,
+    target_native_adapter TEXT,
+    target_native_channel_id TEXT,
+    target_native_message_id TEXT,
     key TEXT,
     fallback_text TEXT,
     metadata TEXT NOT NULL DEFAULT '{}',
@@ -309,10 +311,10 @@ CREATE INDEX idx_relations_type ON event_relations(relation_type);
 
 ```sql
 CREATE TABLE native_message_refs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id TEXT PRIMARY KEY,
     event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
     adapter TEXT NOT NULL,
-    native_channel_id TEXT NOT NULL,
+    native_channel_id TEXT,
     native_message_id TEXT NOT NULL,
     native_thread_id TEXT,
     native_relation_id TEXT,

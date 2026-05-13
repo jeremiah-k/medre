@@ -353,6 +353,11 @@ class PipelineRunner:
             self._diagnostician.record_planner_failure(
                 event.event_id, f"{type(exc).__name__}: {exc}"
             )
+            # NOTE(semantics): Planner failure produces no
+            # DeliveryReceipt because delivery planning itself failed;
+            # the event never reached the delivery stage.  The outcome
+            # below serves as the in-memory record; durable evidence is
+            # via the Diagnostician event log, not delivery_receipts.
             return [
                 DeliveryOutcome(
                     event_id=event.event_id,
@@ -611,6 +616,13 @@ class PipelineRunner:
                         capacity_failure_kind = DeliveryFailureKind.CAPACITY_REJECTION
                         capacity_error = "delivery_capacity_exceeded"
                     elapsed = (time.monotonic() - t0) * 1000.0
+                    # NOTE(semantics): Capacity and shutdown rejections
+                    # intentionally produce no persisted DeliveryReceipt.
+                    # The event never entered the delivery stage; the
+                    # rejection occurs at the capacity gate *before* any
+                    # adapter interaction.  Durable evidence of the
+                    # rejection is recorded via RuntimeAccounting counters
+                    # and RouteStats, NOT via delivery_receipts.
                     return DeliveryOutcome(
                         event_id=event.event_id,
                         target_adapter=adapter_id,

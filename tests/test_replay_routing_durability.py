@@ -202,7 +202,7 @@ class TestReplayCancellation:
         deliver_result = results[4]  # store, route, plan, render, deliver
         assert deliver_result.stage == "deliver"
         assert deliver_result.status == "error"
-        assert "replay_capacity_exceeded" in (deliver_result.error or "")
+        assert "replay_rejected_shutdown" in (deliver_result.error or "")
 
         # Accounting: capacity_rejections incremented.
         assert accounting.counters().capacity_rejections == 1
@@ -481,11 +481,14 @@ class TestReplayShutdown:
         assert len(deliver_results) == 4
         # First 2 should have succeeded (or been in-flight before stop)
         # Remaining should have capacity errors
-        capacity_errors = [
+        rejected_errors = [
             r for r in deliver_results
-            if r.status == "error" and "replay_capacity_exceeded" in (r.error or "")
+            if r.status == "error" and (
+                "replay_rejected_shutdown" in (r.error or "")
+                or "replay_capacity_exceeded" in (r.error or "")
+            )
         ]
-        assert len(capacity_errors) >= 1
+        assert len(rejected_errors) >= 1
 
     async def test_shutdown_does_not_affect_read_only_modes(
         self,

@@ -510,3 +510,61 @@ async def test_replay_summary_includes_route_counts(replay_env):
         assert "succeeded" in counts
         assert "failed" in counts
         assert counts["events"] >= 1
+
+
+# ===================================================================
+# Test 10 – BEST_EFFORT creates new receipts indistinguishable from live
+# ===================================================================
+
+
+@pytest.mark.asyncio
+async def test_best_effort_creates_new_receipts_indistinguishable_from_live(
+    replay_env,
+):
+    """BEST_EFFORT replay creates new DeliveryReceipt rows in storage that
+    are not distinguishable from live (non-replay) records at the storage
+    layer.  No replay-specific column (e.g. run_id) is persisted on receipts.
+    Duplicate-send risk therefore applies to all adapter transports.
+    """
+    env = replay_env
+    event = await env.seed_event()
+    event_id = event.event_id
+
+    # Run BEST_EFFORT replay once — should produce delivery receipts.
+    request = ReplayRequest(mode=ReplayMode.BEST_EFFORT)
+    summary = await collect_replay_summary(env.replay.replay(request))
+    assert summary.events_replayed >= 1
+
+    # At least one delivery receipt row should now exist for this event.
+    rows = await env.storage._read_all(
+        "SELECT * FROM delivery_receipts WHERE event_id = ?",
+        (event_id,),
+    )
+    assert len(rows) >= 1, (
+        "BEST_EFFORT replay should persist at least one delivery receipt"
+    )
+
+    # Receipt rows share the same schema as live receipts: no replay-
+    # specific column like 'run_id' or 'replay_source' exists.
+    first = rows[0]
+    assert "event_id" in first.keys()
+    assert "target_adapter" in first.keys()
+    assert "status" in first.keys()
+    # Verify absence of replay-specific storage columns.
+    for col in ("run_id", "replay_source", "is_replay"):
+        assert col not in first.keys(), (
+            f"Receipt row should not have replay-specific column '{col}'; "
+            f"BEST_EFFORT receipts are not storage-distinguishable from live"
+        )
+
+    # Run BEST_EFFORT replay a second time — creates additional receipts,
+    # demonstrating duplicate-send risk.
+    summary2 = await collect_replay_summary(env.replay.replay(request))
+    rows2 = await env.storage._read_all(
+        "SELECT * FROM delivery_receipts WHERE event_id = ?",
+        (event_id,),
+    )
+    assert len(rows2) > len(rows), (
+        "Second BEST_EFFORT replay should create additional delivery receipts "
+        "(duplicate-send risk applies to all transports)"
+    )

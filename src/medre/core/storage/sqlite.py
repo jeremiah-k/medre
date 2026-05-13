@@ -24,6 +24,7 @@ from medre.core.events import (
     NativeRef,
 )
 from medre.core.storage.backend import (
+    DuplicateEventError,
     EventFilter,
     StorageError,
     StorageInitializationError,
@@ -72,6 +73,7 @@ CREATE TABLE IF NOT EXISTS event_relations (
     target_native_adapter TEXT,
     target_native_channel_id TEXT,
     target_native_message_id TEXT,
+    target_native_thread_id TEXT,
     key TEXT,
     fallback_text TEXT,
     metadata TEXT NOT NULL DEFAULT '{}',
@@ -164,9 +166,10 @@ _INSERT_RELATION = """
 INSERT INTO event_relations
     (event_id, relation_type, target_event_id,
      target_native_adapter, target_native_channel_id,
-     target_native_message_id, key, fallback_text,
+     target_native_message_id, target_native_thread_id,
+     key, fallback_text,
      metadata, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 _INSERT_NATIVE_REF = """
@@ -277,6 +280,7 @@ def _row_to_relation(row: dict[str, Any]) -> EventRelation:
             adapter=row["target_native_adapter"],
             native_channel_id=row["target_native_channel_id"],
             native_message_id=row["target_native_message_id"],
+            native_thread_id=row.get("target_native_thread_id"),
         )
     return EventRelation(
         relation_type=row["relation_type"],  # type: ignore[arg-type]
@@ -516,6 +520,10 @@ class SQLiteStorage:
                 await db.commit()
             else:
                 await asyncio.to_thread(self._sync_write_batch, db, ops)
+        except sqlite3.IntegrityError as exc:
+            raise DuplicateEventError(
+                f"Duplicate event: {exc}"
+            ) from exc
         except sqlite3.Error as exc:
             raise StorageError(f"Batch write failed: {exc}") from exc
 
@@ -652,9 +660,24 @@ class SQLiteStorage:
         """Persist a native-to-canonical message mapping.
 
         Duplicate ``(adapter, native_channel_id, native_message_id)`` triples
-        are silently ignored (idempotent).  Use :meth:`resolve_native_ref` to
-        retrieve the canonical ``event_id`` for an existing mapping.
+        are silently ignored (idempotent).  When *native_channel_id* is
+        ``None``, SQLite's UNIQUE constraint cannot detect duplicates
+        because ``NULL != NULL``.  This method therefore performs an
+        explicit resolve-before-insert check so that NULL-channel refs
+        also dedupe deterministically.
+
+        Use :meth:`resolve_native_ref` to retrieve the canonical
+        ``event_id`` for an existing mapping.
         """
+        # Resolve-before-insert: handles NULL native_channel_id which
+        # SQLite UNIQUE treats as distinct per SQL standard.
+        existing = await self._read_one(
+            _RESOLVE_NATIVE_REF,
+            (ref.adapter, ref.native_channel_id, ref.native_message_id),
+        )
+        if existing is not None:
+            return
+
         await self._write(
             _INSERT_NATIVE_REF,
             (
@@ -701,6 +724,7 @@ class SQLiteStorage:
                 nref.adapter if nref else None,
                 nref.native_channel_id if nref else None,
                 nref.native_message_id if nref else None,
+                nref.native_thread_id if nref else None,
                 relation.key,
                 relation.fallback_text,
                 _encode_json(relation.metadata),

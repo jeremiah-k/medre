@@ -140,13 +140,18 @@ The pipeline classifies delivery failures using `DeliveryFailureKind`:
 | `DEADLINE_EXCEEDED` | Plan deadline passed | No |
 | `CAPACITY_REJECTION` | Capacity controller exhausted or timed out while accepting work | No |
 | `SHUTDOWN_REJECTION` | Runtime shutdown cancelled delivery before capacity acquire | No |
-| `CAPACITY_REJECTION` | All delivery slots occupied | No |
-| `SHUTDOWN_REJECTION` | Capacity controller stopped | No |
 
 `CAPACITY_REJECTION` is used when the capacity controller's semaphore is
 exhausted but the controller is still accepting work.  `SHUTDOWN_REJECTION`
 is used when the controller has called `stop_accepting()` (pipeline
 shutdown in progress).
+
+**Receipt non-persistence:** `CAPACITY_REJECTION` and `SHUTDOWN_REJECTION`
+intentionally do **not** produce a persisted `DeliveryReceipt`. The event
+never entered the delivery stage — the rejection occurs at the capacity
+gate *before* any adapter interaction. Durable evidence of the rejection
+is recorded via `RuntimeAccounting` counters and `RouteStats`, not via
+`delivery_receipts`.
 
 ## Relationship to Existing Metrics
 

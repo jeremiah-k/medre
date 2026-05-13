@@ -2742,6 +2742,17 @@ class TestCapacityRejectionTaxonomy:
             )
             assert outcomes[0].error == "delivery_capacity_exceeded"
 
+            # Semantics: capacity rejection occurs before delivery stage,
+            # so no DeliveryReceipt is persisted for this event.
+            assert outcomes[0].receipt is None
+            receipt_rows = await temp_storage._read_all(
+                "SELECT * FROM delivery_receipts WHERE event_id = ?",
+                ("cap-001",),
+            )
+            assert len(receipt_rows) == 0, (
+                "capacity rejection must not persist any delivery receipt"
+            )
+
             # Accounting: capacity_rejections incremented.
             assert accounting.counters().capacity_rejections == 1
         finally:
@@ -2796,6 +2807,17 @@ class TestCapacityRejectionTaxonomy:
                 outcomes[0].failure_kind is DeliveryFailureKind.SHUTDOWN_REJECTION
             )
             assert outcomes[0].error == "delivery_rejected_shutdown"
+
+            # Semantics: shutdown rejection occurs before delivery stage,
+            # so no DeliveryReceipt is persisted for this event.
+            assert outcomes[0].receipt is None
+            receipt_rows = await temp_storage._read_all(
+                "SELECT * FROM delivery_receipts WHERE event_id = ?",
+                ("shutdown-001",),
+            )
+            assert len(receipt_rows) == 0, (
+                "shutdown rejection must not persist any delivery receipt"
+            )
 
             # Accounting: capacity_rejections incremented.
             assert accounting.counters().capacity_rejections == 1

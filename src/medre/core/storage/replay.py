@@ -13,6 +13,23 @@ Replay is a **best-effort operation**; event delivery is not re-guaranteed
 by replay.  Success depends on adapter availability, route configuration,
 and transport state at the time of replay.
 
+BEST_EFFORT delivery semantics
+-------------------------------
+.. important::
+
+   BEST_EFFORT replay incurs the **same duplicate-send risk as all adapter
+   transports**.  Every BEST_EFFORT delivery creates *new* ``DeliveryReceipt``
+   and ``NativeMessageRef`` records in storage.  These records are **not
+   distinguishable** from live (non-replay) records at the storage layer—
+   they share the same schema, auto-incremented sequence numbers, and IDs.
+
+   The ``run_id`` field on :class:`ReplayRequest` and :class:`ReplaySummary`
+   exists solely in the result stream / summary output.  It does **not**
+   propagate to stored ``DeliveryReceipt`` or ``NativeMessageRef`` records.
+   Downstream consumers that need to correlate replay deliveries must use
+   application-level deduplication or inspect the replay envelope metadata
+   embedded in the delivery result output.
+
 Mode guarantees
 ---------------
 +------------+----------+--------+---------+---------+-------------------+
@@ -25,6 +42,10 @@ Mode guarantees
 | RE_ROUTE   | verify   | route  | --      | --      | None (read-only)  |
 +------------+----------+--------+---------+---------+-------------------+
 | BEST_EFFORT| verify   | route  | render  | deliver | Adapter delivery  |
++------------+----------+--------+---------+---------+-------------------+
+|            | New receipts/native-refs are **not** storage-distinguishable  |
+|            | from live records; duplicate-send risk applies to all        |
+|            | transports.  ``run_id`` is ReplaySummary-only.              |
 +------------+----------+--------+---------+---------+-------------------+
 | DRY_RUN    | verify   | route  | capture | skip    | None (read-only)  |
 +------------+----------+--------+---------+---------+-------------------+

@@ -319,13 +319,13 @@ The `native_message_refs` storage table provides the mapping:
 ```python
 @dataclass(frozen=True)
 class NativeMessageRef:
-    id: int                         # Auto-increment primary key
+    id: str                         # Unique identifier for this mapping record
     event_id: str                   # Canonical event ID
     adapter: str                    # Adapter instance name
-    native_channel_id: str          # Native channel/room/topic on the adapter
+    native_channel_id: str | None   # Native channel/room/topic on the adapter
     native_message_id: str          # Native message ID on the adapter
     native_thread_id: str | None    # Native thread/conversation ID if applicable
-    native_relation_id: str | None  # Native relation reference (e.g., Matrix relates_to event ID)
+    native_relation_id: str | None  # Reserved: native relation reference (e.g., Matrix relates_to). No adapter currently populates this field.
     direction: Literal["inbound", "outbound"]  # Whether this ref was created on ingress or delivery
     metadata: dict                  # Adapter-specific correlation metadata
     created_at: datetime
@@ -617,7 +617,7 @@ CREATE INDEX idx_native_refs_relation ON native_message_refs(adapter, native_rel
 
 ### 16.1 DeliveryFailureKind
 
-Every delivery failure is classified into one of six categories:
+Every delivery failure is classified into one of nine categories:
 
 ```python
 class DeliveryFailureKind(Enum):
@@ -625,8 +625,11 @@ class DeliveryFailureKind(Enum):
     RENDERER_FAILURE = "renderer_failure"     # Rendering stage error (permanent)
     ADAPTER_TRANSIENT = "adapter_transient"   # Timeout, connection error (retryable)
     ADAPTER_PERMANENT = "adapter_permanent"   # Business logic rejection (permanent)
-    TARGET_NOT_FOUND = "target_not_found"     # Adapter not registered (permanent)
+    ADAPTER_MISSING = "adapter_missing"       # No runtime adapter instance for target ID (permanent)
+    TARGET_NOT_FOUND = "target_not_found"     # Adapter exists but transport destination unavailable (permanent)
     DEADLINE_EXCEEDED = "deadline_exceeded"   # Delivery plan deadline passed (permanent)
+    CAPACITY_REJECTION = "capacity_rejection" # Capacity controller exhausted or timed out (permanent)
+    SHUTDOWN_REJECTION = "shutdown_rejection" # Runtime shutdown cancelled delivery (permanent)
 ```
 
 Classification rules:
@@ -636,9 +639,12 @@ Classification rules:
 | `PLANNER_FAILURE` | Routing / planning | No | Exception during `route_event()` |
 | `RENDERER_FAILURE` | Rendering | No | Exception during `render()` |
 | `ADAPTER_TRANSIENT` | Adapter delivery | **Yes** | `TimeoutError`, `ConnectionError`, `OSError` hierarchy |
-| `ADAPTER_PERMANENT` | Adapter delivery | No | All other exceptions |
-| `TARGET_NOT_FOUND` | Adapter lookup | No | Adapter not in `config.adapters` |
+| `ADAPTER_PERMANENT` | Adapter delivery | No | All other adapter exceptions |
+| `ADAPTER_MISSING` | Adapter lookup | No | Target adapter ID has no runtime adapter instance |
+| `TARGET_NOT_FOUND` | Adapter delivery | No | Adapter exists but transport/native destination unavailable, rejected, or not found |
 | `DEADLINE_EXCEEDED` | Deadline check | No | `plan.deadline < now` |
+| `CAPACITY_REJECTION` | Capacity gate | No | Capacity controller semaphore exhausted or timed out |
+| `SHUTDOWN_REJECTION` | Capacity gate | No | Runtime shutdown cancelled delivery before capacity acquire |
 
 The classification drives retry decisions and `DeliveryOutcome.failure_kind`.
 
