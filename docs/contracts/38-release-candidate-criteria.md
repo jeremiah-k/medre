@@ -193,7 +193,7 @@ Any RC release notes must include a statement of the form:
 
 At least one transport must confirm inbound message reception from a source
 that is not the medre instance itself. Currently Matrix is the candidate for
-this confirmation (M16 in contract 32). This is a must-have for RC.
+this confirmation (M14 in contract 32). This is a must-have for RC.
 
 
 ## 4. Transport-Specific RC Blockers
@@ -366,20 +366,19 @@ Development Status classifier should be updated to `4 - Beta` at RC time.
 
 | # | Item | Status |
 |---|------|--------|
-| RC1 | All must-have items from contract 32 resolved | 3 blockers remaining (M14, M15, M16) |
+| RC1 | All must-have items from contract 32 resolved | 1 blocker remaining (M14: Matrix third-party inbound) |
 | RC2 | All four transports have live evidence OR scope is explicit | 2 transports pending |
 | RC3 | Full unit suite passes from clean install | ✅ 2127/2127 |
 | RC4 | README accurate | ✅ (this tranche) |
 | RC4a | License governance consistently documented across README, risk register, contracts | ✅ (Track 7) |
 | RC5 | pyproject.toml metadata complete | Authors + URLs pending; license governance noted |
 | RC6 | No contradictory claims | Audit needed at RC time |
-| RC7 | Third-party inbound confirmed for at least one transport | ⛔ (Matrix M16) |
+| RC7 | Third-party inbound confirmed for at least one transport | ⛔ (Matrix M14) |
 | RC8 | Clean install reproducibility verified | Verify at RC time |
 | RC9 | Version bumped | Pending |
 | RC10 | Release notes drafted | Pending |
 
-**Current assessment: Not ready for RC.** Three must-have blockers (M14, M15,
-M16) and two metadata gaps (authors, URLs) remain. License governance is now
+**Current assessment: Not ready for RC.** One must-have blocker (M14: Matrix third-party inbound) and two metadata gaps (authors, URLs) remain. License governance is now
 consistently documented (README, risk register, contracts) but not resolved.
 The honest path is to resolve blockers or scope the RC accordingly.
 

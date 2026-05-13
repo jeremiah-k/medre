@@ -1,11 +1,11 @@
 # MeshCore Live Smoke Test Runbook
 
-> Last updated: 2026-05-12 (Wave 2A/2C update)
-> Status: **ALPHA-OPERATIONAL (SDK layer) / HARDWARE-VALIDATION-NEEDED (BLE/serial path). Wave 2A complete: SDK factory methods fixed (`MeshCore.create_tcp/serial/ble`). Wave 2C BLE probe: adapter hci0 UP RUNNING, bleak importable, target MeshCore-B4C6ED2C at C4:4F:33:6A:B0:23 confirmed advertising. Serial probe: ttyACM0 is T-Beam companion firmware with 0x27 heartbeat protocol — NOT MeshCore SDK serial (which expects 0x3e start marker). BLE connection attempt still needed.**
+> Last updated: 2026-05-12 (SDK factory-method correction, hardware probe update)
+> Status: **ALPHA-OPERATIONAL (SDK layer) / HARDWARE-VALIDATION-NEEDED (BLE/serial path). SDK factory-method correction complete: `MeshCore.create_tcp/serial/ble` methods now used. BLE hardware probe: adapter hci0 UP RUNNING, bleak importable, target MeshCore-B4C6ED2C at C4:4F:33:6A:B0:23 confirmed advertising. Serial hardware probe: ttyACM0 is T-Beam companion firmware with 0x27 heartbeat protocol — NOT MeshCore SDK serial (which expects 0x3e start marker). BLE connection attempt still needed.**
 > See: `docs/contracts/19-meshcore-connectivity-readiness.md`
 > Scope: `tests/test_meshcore_live.py`
 > Audit source: PyPI `meshcore` v2.3.7 wheel, source-extracted inspection
-> Maturity: Alpha-operational (Tier 2) for SDK integration; hardware-validation-needed for live radio path
+> Maturity: Experimental / SDK-validated, hardware live validation pending
 
 This runbook describes how to test MeshCore connectivity against a real MeshCore radio node. It documents the SDK's connection methods, required environment variables, and expected behaviors so that when someone sits down with a MeshCore radio node, they have a verified procedure to follow.
 
@@ -13,13 +13,13 @@ The MEDRE adapter has session-backed real MeshCore support via `MeshCoreSession`
 
 **All SDK API claims below are labeled CONFIRMED (source-read), INFERRED (pattern-derived), or UNKNOWN (needs hardware).**
 
-## Wave 2A/2C Hardware Probe Findings (2026-05-12)
+## Hardware Probe Findings (2026-05-12)
 
-### Wave 2A: SDK Factory Method Fix — COMPLETE
+### SDK Factory-Method Correction — COMPLETE
 
 The MeshCore session now correctly uses `await MeshCore.create_tcp()`, `await MeshCore.create_serial()`, and `await MeshCore.create_ble()` factory methods instead of manual constructor calls. This was a code-level fix in the MEDRE adapter session layer. All deterministic tests pass.
 
-### Wave 2C: BLE Probe Findings
+### BLE Hardware Probe Findings
 
 | Item | Finding | Status |
 |------|---------|--------|
@@ -30,7 +30,7 @@ The MeshCore session now correctly uses `await MeshCore.create_tcp()`, `await Me
 | **BLE PIN pairing** | Unknown if device requires PIN | UNKNOWN |
 | **Blocker** | Need to run `await MeshCore.create_ble("C4:4F:33:6A:B0:23")` and observe appstart result | — |
 
-### Wave 2C: Serial Probe Findings
+### Serial Hardware Probe Findings
 
 | Item | Finding | Status |
 |------|---------|--------|
@@ -534,8 +534,8 @@ After running tests:
 - **Diagnostics snapshot:** NOT EXECUTED (against live hardware)
 - **Stop → clean teardown:** NOT EXECUTED (against live hardware)
 - **Reconnect observations:** NOT EXECUTED (against live hardware)
-- **Wave 2A SDK fix:** ✅ COMPLETE — factory methods now used in session layer, all deterministic tests pass
-- **Wave 2C hardware probe:**
+- **SDK factory-method correction:** ✅ COMPLETE — factory methods now used in session layer, all deterministic tests pass
+- **Hardware probe:**
   - ttyACM0 serial: 0x27 heartbeat protocol observed — NOT MeshCore SDK serial
   - BLE: hci0 UP, bleak importable, MeshCore-B4C6ED2C advertising — NOT YET CONNECTED
   - No live adapter operation has been achieved against real MeshCore radio hardware

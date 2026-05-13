@@ -142,7 +142,7 @@ Summary from [docs/contracts/32-beta-readiness-checklist.md](docs/contracts/32-b
 | Category | Satisfied | Blocked | Notes |
 |----------|-----------|---------|-------|
 | Cross-transport must-haves (M1–M10) | 10/10 | 0 | All pass. |
-| Per-transport must-haves (M11–M16) | 3/6 | 3 | M14 (MeshCore live), M15 (LXMF live), M16 (Matrix inbound) blocked on external resources. |
+| Per-transport must-haves (M11–M14) | 3/4 | 1 | M14 (Matrix third-party inbound) blocked on external resource (second account). MeshCore/LXMF live are deferred experimental (E1–E2), not beta-blocking. |
 | Packaging (P1–P6) | 6/6 | 0 | All verified. |
 | License governance | Resolved | 0 | GPL-3.0-or-later. LICENSE file present. |
 | RuntimeWarning cleanup | Resolved | 0 | `coroutine 'run' was never awaited` fixed. |

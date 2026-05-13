@@ -1,9 +1,9 @@
 # Contract 62 — Adapter Operational Maturity Matrix
 
 > Contract version: 2
-> Last updated: 2026-05-12 (Wave 2A/2B/2C/2D update)
+> Last updated: 2026-05-12 (SDK factory-method correction, hardware probe update)
 > Track: Operational Maturity Consolidation
-> Status: Active. Cross-adapter maturity assessment with per-field evidence labels. Wave 2C/2D hardware probe findings incorporated.
+> Status: Active. Cross-adapter maturity assessment with per-field evidence labels. Hardware probe findings incorporated.
 > References: Contract 37 (Transport Maturity Classification), Contract 61 (Operational Evidence Contract), Contract 32 (Beta Readiness Checklist)
 > Evidence source: `docs/runbooks/operational-evidence.md`, `docs/releases/beta-candidate-notes.md`
 
@@ -26,7 +26,7 @@ No transport qualifies as production-ready.
 
 | Field | Matrix | Meshtastic | MeshCore | LXMF |
 |-------|--------|------------|----------|------|
-| **Maturity label** | Beta-candidate (Tier 3) | Beta-candidate (Tier 3) | Alpha-operational/sdk + hardware-validation-needed (Tier 2/1) | Experimental/sdk + hardware-blocked (Tier 1) |
+| **Maturity label** | Beta-candidate (Tier 3) | Beta-candidate (Tier 3) | Experimental / SDK-validated, hardware live validation pending | Experimental / SDK-validated, Reticulum live validation pending |
 | **Fake mode** | ✅ S-tier | ✅ S-tier | ✅ S-tier | ✅ S-tier |
 | **Unit test suite** | ✅ 2,903 LOC / 10 files (S-tier) | ✅ 3,429 LOC / 8 files (S-tier) | ✅ 2,321 LOC / 7 files (S-tier) | ✅ 3,381 LOC / 8 files (S-tier) |
 | **Mocked SDK** | ✅ mindroom-nio (S-tier) | ✅ mtjk (S-tier) | ✅ meshcore_py (S-tier) | ✅ Reticulum/LXMF (S-tier) |
@@ -36,8 +36,8 @@ No transport qualifies as production-ready.
 | **Repeated start/stop** | ✅ H-tier (2026-05-10) | ✅ H-tier (2026-05-10) | ❌ NOT EXECUTED | ❌ NOT EXECUTED |
 | **Cleanup/reconnect** | ✅ H-tier (2026-05-10) | ⚠️ R-tier CLI-level only | ❌ NOT EXECUTED | ❌ NOT EXECUTED |
 | **Deterministic suite** | ✅ 4596 passed (2026-05-12) | ✅ included in 4596 | ✅ included in 4596 | ✅ included in 4596 |
-| **Hardware probe** | N/A (cloud service) | ✅ R-tier (2026-05-12) | ⚠️ Wave 2C: serial NOT VIABLE, BLE NOT YET CONNECTED | ❌ Wave 2D: KISS probe NO RESPONSE |
-| **Known blockers** | Third-party inbound (M16) | mtjk not in project venv; BLE untested | Serial: companion heartbeat ≠ SDK serial protocol. BLE: preconditions met, connection not attempted | RNode: KISS probe silent, firmware status unconfirmed. Serial path blocked |
+| **Hardware probe** | N/A (cloud service) | ✅ R-tier (2026-05-12) | ⚠️ Hardware probe: serial NOT VIABLE, BLE NOT YET CONNECTED | ❌ Hardware probe: KISS probe NO RESPONSE |
+| **Known blockers** | Third-party inbound (M14) | mtjk not in project venv; BLE untested | Serial: companion heartbeat ≠ SDK serial protocol. BLE: preconditions met, connection not attempted | RNode: KISS probe silent, firmware status unconfirmed. Serial path blocked |
 
 ## 3. Per-Adapter Evidence Detail
 
@@ -51,7 +51,7 @@ No transport qualifies as production-ready.
 | **Live startup** | Adapter started, `restore_login` succeeded, sync task running. 13/13 passed (2026-05-10, matrix.org) | H | `operational-evidence.md` §1.1 |
 | **Live send (plaintext)** | `room_send` returned event_id starting with `$`. Confirmed in 13/13 run and 12/12 sk.community run (2026-05-12). | H | `operational-evidence.md` §1.1, `beta-candidate-notes.md` |
 | **Live send (E2EE)** | Encrypted send succeeds with `ignore_unverified_devices=True`. 7/7 passed (2026-05-10). | H | `operational-evidence.md` §1.3 |
-| **Live receive** | Self-echo suppression confirmed live. Third-party inbound: **NOT EXECUTED** (requires second Matrix account, M16). Deterministic unit tests cover full third-party path (8 tests). | H (partial) | `operational-evidence.md` §1.7 |
+| **Live receive** | Self-echo suppression confirmed live. Third-party inbound: **NOT EXECUTED** (requires second Matrix account, M14). Deterministic unit tests cover full third-party path (8 tests). | H (partial) | `operational-evidence.md` §1.7 |
 | **Repeated start/stop** | Stop → start cycle re-establishes sync; second `health_check()` returns `healthy`. | H | `operational-evidence.md` §1.1 |
 | **Cleanup/reconnect** | Health stays `degraded` during reconnect, `healthy` after recovery. Budget exhaustion → `failed`. | H | `operational-evidence.md` §1.1 |
 | **2026-05-12 live attempt** | sk.community: NOT EXECUTED (access token rejected `M_UNKNOWN_TOKEN`). matrix.org: NOT EXECUTED (password login rejected `M_FORBIDDEN`). | — | `operational-evidence.md` §1.4, §1.4b |
@@ -80,43 +80,43 @@ No transport qualifies as production-ready.
 
 **Assessment:** Adapter-level live evidence is H-tier (2026-05-10, 10/10 passed). CLI-level R-tier evidence (2026-05-12) confirms hardware/firmware/serial connectivity. MEDRE adapter session reconnect and sustained operation remain NOT EXECUTED. Beta-candidate is justified on H-tier adapter evidence + R-tier hardware evidence. Adapter-level evidence is historical — current-tranche re-run requires `mtjk` in project venv.
 
-### 3.3 MeshCore — Alpha-operational/sdk + hardware-validation-needed (Tier 2/1)
+### 3.3 MeshCore — Experimental / SDK-validated, hardware live validation pending
 
 | Evidence Field | Status | Tier | Source |
 |----------------|--------|------|--------|
 | **Fake mode** | `FakeMeshCoreAdapter` confirmed in `fake_meshcore.py` | S | Contract 32 M3 |
 | **Unit tests** | 2,321 LOC / 7 test files. `test_meshcore_session.py`: 18 test functions (lowest session test count). | S | Contract 37 §6.2 |
 | **Mocked SDK** | meshcore_py mocked across all test files | S | Source audit |
-| **SDK factory methods** | ✅ Wave 2A complete: session uses `await MeshCore.create_tcp/serial/ble` | S | Code fix |
+| **SDK factory methods** | ✅ Corrected: session uses `await MeshCore.create_tcp/serial/ble` | S | Code fix |
 | **Live startup** | **NOT EXECUTED** | — | `operational-evidence.md` §3.1 |
 | **Live send** | **NOT EXECUTED** | — | `operational-evidence.md` §3.1 |
 | **Live receive** | **NOT EXECUTED** | — | `operational-evidence.md` §3.1 |
 | **Repeated start/stop** | **NOT EXECUTED** | — | `operational-evidence.md` §3.1 |
 | **Cleanup/reconnect** | **NOT EXECUTED** | — | `operational-evidence.md` §3.1 |
-| **Serial hardware probe (Wave 2C)** | ⚠️ ttyACM0 speaks 0x27 heartbeat, NOT MeshCore SDK serial (0x3e). Serial path NOT VIABLE for this firmware. | R | `hardware-inventory.md` §4a |
-| **BLE hardware probe (Wave 2C)** | ⚠️ hci0 UP, bleak importable, MeshCore-B4C6ED2C advertising at C4:4F:33:6A:B0:23. **Connection NOT ATTEMPTED.** | R | `hardware-inventory.md` §4a |
-| **Known blockers** | (1) Serial path blocked: companion heartbeat protocol ≠ SDK serial protocol. (2) BLE connection not attempted despite preconditions met. (3) TCP requires networked node (not available). (4) Lowest session test count (18). | — | Wave 2C findings |
+| **Serial hardware probe** | ⚠️ ttyACM0 speaks 0x27 heartbeat, NOT MeshCore SDK serial (0x3e). Serial path NOT VIABLE for this firmware. | R | `hardware-inventory.md` §4a |
+| **BLE hardware probe** | ⚠️ hci0 UP, bleak importable, MeshCore-B4C6ED2C advertising at C4:4F:33:6A:B0:23. **Connection NOT ATTEMPTED.** | R | `hardware-inventory.md` §4a |
+| **Known blockers** | (1) Serial path blocked: companion heartbeat protocol ≠ SDK serial protocol. (2) BLE connection not attempted despite preconditions met. (3) TCP requires networked node (not available). (4) Lowest session test count (18). | — | Hardware probe findings |
 
 **Assessment:** SDK integration layer is alpha-operational (factory methods fixed, deterministic tests pass, mock coverage complete). **Hardware path is Tier 1 (experimental)** — serial is confirmed NOT VIABLE for companion_radio_ble firmware, BLE is the only viable path but connection has not been attempted. The maturity label reflects this split: SDK layer at Tier 2, hardware validation at Tier 1. **Cannot promote hardware path beyond experimental until BLE `create_ble()` connection succeeds and appstart returns valid MeshCore instance.** This is the single next action needed.
 
-### 3.4 LXMF — Experimental/sdk + hardware-blocked (Tier 1)
+### 3.4 LXMF — Experimental / SDK-validated, Reticulum live validation pending
 
 | Evidence Field | Status | Tier | Source |
 |----------------|--------|------|--------|
 | **Fake mode** | `FakeLxmfAdapter` confirmed in `fake_lxmf.py` | S | Contract 32 M3 |
 | **Unit tests** | 3,381 LOC / 8 test files. `test_lxmf_session.py`: 41 test functions. Largest session at 1,260 LOC. | S | Contract 37 §7.2 |
 | **Mocked SDK** | Reticulum/LXMF mocked across all test files | S | Source audit |
-| **SDK diagnostics fix (Wave 2B)** | ✅ `pending_delivery_count` reporting fixed | S | Code fix |
+| **SDK diagnostics fix** | ✅ `pending_delivery_count` reporting fixed | S | Code fix |
 | **Live startup** | **NOT EXECUTED** | — | `operational-evidence.md` §4.1 |
 | **Live send** | **NOT EXECUTED** | — | `operational-evidence.md` §4.1 |
 | **Live receive** | **NOT EXECUTED** | — | `operational-evidence.md` §4.1 |
 | **Repeated start/stop** | **NOT EXECUTED** | — | `operational-evidence.md` §4.1 |
 | **Cleanup/reconnect** | **NOT EXECUTED** | — | `operational-evidence.md` §4.1 |
 | **Delivery state model** | Implemented (`OUTBOUND → SENDING → SENT → DELIVERED`) but **NOT validated** against real Reticulum network. State progression may have timing/assumption errors. | — | Contract 37 §7.3 |
-| **RNode hardware probe (Wave 2D)** | ❌ KISS DETECT sent at 115200 and 57600 baud to ttyUSB0 (CP2104 on T-LoRa V2.1-1.6). NO RESPONSE at either baud rate. Serial path BLOCKED. | R | `hardware-inventory.md` §4a |
-| **Known blockers** | (1) **RNode serial path blocked** — KISS probe silent, firmware status unconfirmed. (2) No working Reticulum transport interface. (3) Identity file is 64-byte raw private key (no encryption). (4) Non-standard license (Reticulum License, not OSI-approved). (5) Reticulum designed for long-running daemons — short-lived processes may not establish stable connectivity. (6) Largest/most complex session — complexity correlates with risk. | — | Wave 2D findings |
+| **RNode hardware probe** | ❌ KISS DETECT sent at 115200 and 57600 baud to ttyUSB0 (CP2104 on T-LoRa V2.1-1.6). NO RESPONSE at either baud rate. Serial path BLOCKED. | R | `hardware-inventory.md` §4a |
+| **Known blockers** | (1) **RNode serial path blocked** — KISS probe silent, firmware status unconfirmed. (2) No working Reticulum transport interface. (3) Identity file is 64-byte raw private key (no encryption). (4) Non-standard license (Reticulum License, not OSI-approved). (5) Reticulum designed for long-running daemons — short-lived processes may not establish stable connectivity. (6) Largest/most complex session — complexity correlates with risk. | — | Hardware probe findings |
 
-**Assessment:** **Downgraded from Alpha (Tier 2) to Experimental (Tier 1) for Reticulum path.** The Wave 2D hardware probe confirmed that the RNode serial device (ttyUSB0) does not respond to KISS commands at standard baud rates. This means the Reticulum RNodeInterface — the primary intended transport for LXMF over LoRa — cannot be initialized. SDK layer remains alpha-quality (fake mode, unit tests, diagnostics fix), but the complete absence of any working transport path makes the overall adapter experimental. The delivery state model (1,260 LOC session) is unvalidated against real infrastructure. **Promotion from Experimental requires:** (1) RNode firmware confirmed active on serial device, (2) Reticulum RNodeInterface successfully initialized, (3) at least one live send/receive cycle observed.
+**Assessment:** **Experimental / SDK-validated, Reticulum live validation pending.** The hardware probe confirmed that the RNode serial device (ttyUSB0) does not respond to KISS commands at standard baud rates. This means the Reticulum RNodeInterface — the primary intended transport for LXMF over LoRa — cannot be initialized. SDK layer validated via unit tests and diagnostics fix, but the complete absence of any working transport path makes the overall adapter experimental. The delivery state model (1,260 LOC session) is unvalidated against real infrastructure. **Promotion from Experimental requires:** (1) RNode firmware confirmed active on serial device, (2) Reticulum RNodeInterface successfully initialized, (3) at least one live send/receive cycle observed.
 
 ## 4. Evidence Tier Distribution
 
@@ -129,12 +129,12 @@ No transport qualifies as production-ready.
 
 ## 5. Live Evidence Consolidation Plan
 
-### 5.1 What exists now (2026-05-12, post Wave 2A/2B/2C/2D)
+### 5.1 What exists now (2026-05-12, post hardware probe tranche)
 
 - **Matrix:** H-tier evidence from 2026-05-10 (plaintext 13/13, E2EE 7/7, encrypted room 7/7 post-fix). 2026-05-12 live attempt failed (credential issues, not code issues). Deterministic: 4596 passed.
 - **Meshtastic:** H-tier adapter evidence from 2026-05-10 (10/10). R-tier CLI evidence from 2026-05-12 (serial validation, 4 reconnects, 1 outbound). Deterministic: 4596 passed.
-- **MeshCore:** S-tier only for live evidence. R-tier hardware probe evidence from Wave 2C (2026-05-12): serial NOT VIABLE (companion heartbeat), BLE preconditions met but connection NOT ATTEMPTED. SDK factory methods fixed (Wave 2A). Deterministic: 4596 passed.
-- **LXMF:** S-tier only for live evidence. R-tier hardware probe evidence from Wave 2D (2026-05-12): KISS probe to ttyUSB0 returned NO RESPONSE at 115200 and 57600. Diagnostics fix complete (Wave 2B). **Downgraded to Experimental (Tier 1).** Deterministic: 4596 passed.
+- **MeshCore:** S-tier only for live evidence. R-tier hardware probe evidence (2026-05-12): serial NOT VIABLE (companion heartbeat), BLE preconditions met but connection NOT ATTEMPTED. SDK factory methods corrected. Deterministic: 4596 passed.
+- **LXMF:** S-tier only for live evidence. R-tier hardware probe evidence (2026-05-12): KISS probe to ttyUSB0 returned NO RESPONSE at 115200 and 57600. Diagnostics fix complete. **Downgraded to Experimental (Tier 1).** Deterministic: 4596 passed.
 
 ### 5.2 Follow-Up Validation Requirements
 
@@ -156,9 +156,9 @@ No transport qualifies as production-ready.
 - Matrix H-tier evidence (2026-05-10): valid historical record. Not re-confirmed but not contradicted.
 - Meshtastic R-tier CLI evidence (2026-05-12): valid current-tranche hardware evidence.
 - Deterministic suite (4596 passed, 25 skipped, 63 deselected): confirmed 2026-05-12.
-- MeshCore Wave 2C R-tier hardware probe evidence: serial NOT VIABLE, BLE preconditions met.
-- LXMF Wave 2D R-tier hardware probe evidence: KISS probe NO RESPONSE.
-- Maturity labels: Matrix and Meshtastic beta-candidate justified on current evidence. MeshCore alpha-operational (SDK) + hardware-validation-needed justified on Wave 2C findings. LXMF experimental justified on Wave 2D findings (downgrade from alpha).
+- MeshCore R-tier hardware probe evidence: serial NOT VIABLE, BLE preconditions met.
+- LXMF R-tier hardware probe evidence: KISS probe NO RESPONSE.
+- Maturity labels: Matrix and Meshtastic beta-candidate justified on current evidence. MeshCore experimental / SDK-validated, hardware live validation pending, justified on hardware probe findings. LXMF experimental / SDK-validated, Reticulum live validation pending, justified on hardware probe findings.
 
 ### 5.4 Maturity promotion gates
 

@@ -1,11 +1,11 @@
 # LXMF Live Smoke Test Runbook
 
-> Last updated: 2026-05-12 (Wave 2B/2D update)
-> Status: **EXPERIMENTAL (SDK layer) / HARDWARE-BLOCKED (RNode serial path). Wave 2B complete: LXMF pending_delivery_count diagnostics fix. Wave 2D RNode probe: ttyUSB0 is Silicon Labs CP2104 on T-LoRa V2.1-1.6. KISS DETECT probe sent at 115200 and 57600 baud — NO RESPONSE received. Device may not have RNode firmware active, may need DTR/RTS toggling, or may be in sleep state. Reticulum/RNode serial path not confirmed working.**
+> Last updated: 2026-05-12 (diagnostics correction, RNode hardware probe update)
+> Status: **EXPERIMENTAL (SDK layer) / HARDWARE-BLOCKED (RNode serial path). Diagnostics correction complete: LXMF pending_delivery_count diagnostics fix. RNode hardware probe: ttyUSB0 is Silicon Labs CP2104 on T-LoRa V2.1-1.6. KISS DETECT probe sent at 115200 and 57600 baud — NO RESPONSE received. Device may not have RNode firmware active, may need DTR/RTS toggling, or may be in sleep state. Reticulum/RNode serial path not confirmed working.**
 > See: `docs/contracts/20-lxmf-connectivity-readiness.md`
 > Alpha operation runbook: `docs/runbooks/lxmf-alpha-operation.md`
 > Metadata normalization audit: `docs/contracts/26-metadata-normalization-audit.md`
-> Maturity: Experimental (Tier 1) for Reticulum path; hardware-blocked until RNode serial path confirmed
+> Maturity: Experimental / SDK-validated, Reticulum live validation pending
 
 This runbook describes how to test LXMF/Reticulum connectivity against
 a real Reticulum network. It documents the SDK's connection methods,
@@ -24,13 +24,13 @@ tests skip with `pytest.skip()`. Fake-mode tests run unconditionally.
 This is alpha operation requiring installed/configured SDK and live
 environment.
 
-## Wave 2B/2D Hardware Probe Findings (2026-05-12)
+## Hardware Probe Findings (2026-05-12)
 
-### Wave 2B: Diagnostics Fix — COMPLETE
+### Diagnostics Correction — COMPLETE
 
 The `pending_delivery_count` diagnostics reporting was fixed in the LXMF adapter. All deterministic tests pass.
 
-### Wave 2D: RNode Serial Probe Findings
+### RNode Serial Hardware Probe Findings
 
 | Item | Finding | Status |
 |------|---------|--------|
@@ -67,7 +67,7 @@ The KISS DETECT probe (0xC0 05 00 00 00 C0) is the standard RNode handshake. A p
 - **Reticulum AutoInterface (LAN)**: Not tested, no second Reticulum peer available
 - **Reticulum TCPClientInterface**: Not tested, no remote Reticulum node available
 - **Live smoke tests**: All 16 fake-mode tests pass, 3 real-mode tests skip (singleton constraint)
-- **Maturity**: Downgraded from Alpha (Tier 2) to Experimental (Tier 1) for Reticulum path — the hardware probe showed the RNode serial path is non-functional. SDK layer remains alpha-quality but cannot be validated without a working RNode.
+- **Maturity**: Experimental / SDK-validated, Reticulum live validation pending — the hardware probe showed the RNode serial path is non-functional. SDK layer validated via unit tests but cannot be validated without a working RNode.
 
 
 ## Purpose
@@ -524,13 +524,13 @@ For smoke testing, `AutoInterface` (LAN) or `TCPClientInterface`
 - **Diagnostics snapshot:** ✅ PASS (connected=True after start, False after stop)
 - **Stop → clean teardown:** ✅ PASS
 - **Reconnect observations:** N/A (real-mode restart skipped)
-- **Wave 2B fix:** ✅ COMPLETE — `pending_delivery_count` diagnostics reporting fixed
-- **Wave 2D RNode probe:** ❌ KISS DETECT sent at 115200 and 57600 baud to ttyUSB0 (CP2104 on T-LoRa V2.1-1.6) — NO RESPONSE at either baud rate. RNode firmware may not be active on this device. Serial port opens successfully but device is silent.
+- **Diagnostics correction:** ✅ COMPLETE — `pending_delivery_count` diagnostics reporting fixed
+- **RNode hardware probe:** ❌ KISS DETECT sent at 115200 and 57600 baud to ttyUSB0 (CP2104 on T-LoRa V2.1-1.6) — NO RESPONSE at either baud rate. RNode firmware may not be active on this device. Serial port opens successfully but device is silent.
 - **Caveats observed:**
   - **Bug fixed:** `compat.py` had `import lxmf` (lowercase) but the LXMF package's import namespace is `LXMF` (uppercase). Fixed to `import LXMF`. Also fixed `test_lxmf_adapter.py` which had the same casing issue.
   - Real-mode tests skip because `LXMRouter` requires a `storagepath` and Reticulum is a singleton — first test fails on storage path, subsequent tests fail on reinitialise. These are known Reticulum design constraints, not adapter bugs.
   - Manual SDK smoke test (identity creation, round-trip, Reticulum init, router creation, delivery identity, message construction) passed completely — confirming the SDK itself works correctly in this environment.
-  - **Wave 2D finding:** The RNode serial device (ttyUSB0, CP2104) did not respond to KISS DETECT probe. This means the RNode firmware may not be active on this device, or it may need DTR/RTS toggling to enter command mode. The Reticulum RNodeInterface path is blocked until this is resolved.
+  - **Hardware probe finding:** The RNode serial device (ttyUSB0, CP2104) did not respond to KISS DETECT probe. This means the RNode firmware may not be active on this device, or it may need DTR/RTS toggling to enter command mode. The Reticulum RNodeInterface path is blocked until this is resolved.
 - **Failures/Notes:** No test failures. Real-mode tests require a dedicated Reticulum instance (not shared with the test process) and proper session lifecycle management for full validation. The fake-mode test coverage is comprehensive: config validation, lifecycle, send/receive, restart, diagnostics, idempotency. **RNode hardware path is blocked — KISS probe returned no response.**
 
 

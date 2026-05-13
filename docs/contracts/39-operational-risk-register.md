@@ -67,7 +67,7 @@ Risk ratings use the following scale:
 | **Mitigation** | Inbound reception test exists in live harness but has not been executed against real traffic. |
 | **Residual exposure** | Medium — the code path exists but is unconfirmed end-to-end |
 | **Ownership** | medre owns the adapter. nio owns the sync loop. |
-| **Source** | Contract 32 M16 |
+| **Source** | Contract 32 M14 |
 
 ### T4: Meshtastic — fire-and-forget delivery uncertainty
 

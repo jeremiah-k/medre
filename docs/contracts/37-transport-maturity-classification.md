@@ -61,7 +61,7 @@ No transport in MEDRE currently qualifies as production-ready.
 |------|--------|----------|
 | **Architectural maturity** | High | Full adapter suite: codec (217 LOC), renderer (162 LOC), session (694 LOC), adapter (559 LOC), config (144 LOC), errors (41 LOC), compat (44 LOC), metadata (125 LOC), relations (103 LOC). E2EE layer implemented. Most complete transport. |
 | **Unit-test maturity** | High | 2,903 LOC across 10 test files. `test_matrix_session.py` alone has 102 test functions. Covers codec, renderer, adapter, session, config, metadata, relations, boundaries, lifecycle, pipeline, E2EE live. |
-| **Live-test maturity** | High | 13/13 plaintext pass against matrix.org (2026-05-10). 7/7 E2EE pass in encrypted room (2026-05-10). Inbound reception confirmed via self-message suppression. Third-party inbound **not** confirmed (M16 blocked). |
+| **Live-test maturity** | High | 13/13 plaintext pass against matrix.org (2026-05-10). 7/7 E2EE pass in encrypted room (2026-05-10). Inbound reception confirmed via self-message suppression. Third-party inbound **not** confirmed (M14 blocked). |
 | **Operational maturity** | High | Full runbooks (`matrix-live-smoke.md`, `matrix-alpha-operation.md`). Failure modes classified in contract 33. Resource containment reviewed in contract 35. E2EE readiness documented in contract 25. Session boundary in contract 31. |
 | **Known risks** | Moderate | Fork dependency (`mindroom-nio`) maintained by project. E2EE install friction (vodozemac/Rust). Access token stored as plain string. No cross-signed device trust. No confirmed third-party inbound. |
 | **Production suitability** | Constrained | Suitable for beta with documented caveats. Fork maintenance is an ongoing responsibility. E2EE requires Rust toolchain on some platforms. Token security is operator's responsibility. |
@@ -178,7 +178,7 @@ No transport in MEDRE currently qualifies as production-ready.
 
 ### 9.3 Matrix → Constrained-beta (Tier 4)
 
-1. Confirm third-party inbound reception (M16).
+1. Confirm third-party inbound reception (M14).
 2. Document access token handling recommendations.
 3. Run sustained throughput smoke test.
 
