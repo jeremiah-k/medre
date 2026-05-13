@@ -1571,7 +1571,7 @@ class TestBackwardCompat:
         assert summary.to_dict()["run_id"] == ""
 
     async def test_replay_request_defaults(self) -> None:
-        """New ReplayRequest fields have backward-compatible defaults."""
+        """New ReplayRequest fields have sensible defaults."""
         req = ReplayRequest()
         assert req.route_ids == ()
         assert req.run_id == ""

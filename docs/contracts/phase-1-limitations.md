@@ -3,7 +3,7 @@
 > Document version: 3
 > Last updated: 2026-05-08
 
-This document explicitly records what Phase 1 does **not** implement, what is reserved for future phases, and what behavioral contracts are locked in for backward compatibility.
+This document explicitly records what Phase 1 does **not** implement, what is reserved for future phases, and what behavioral contracts are locked in as stable.
 
 ---
 
@@ -105,7 +105,7 @@ A true retry mode requires receipt deduplication, dead-letter queue integration,
 | Guarantee | Description |
 |-----------|-------------|
 | New fields append with defaults | Future schema versions add fields; existing consumers read `v1` fields normally |
-| Existing fields deprecated, not removed | A deprecated field remains populated for at least one version cycle |
+| Existing fields may be deprecated, not removed | A deprecated field remains populated for at least one version cycle once a stability guarantee is in effect |
 | Unknown fields preserved | msgspec skips unknown struct fields during decode (forward compatibility) |
 | `schema_version >= 1` | Enforced at construction; the minimum valid version is 1 |
 

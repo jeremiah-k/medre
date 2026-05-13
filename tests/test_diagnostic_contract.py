@@ -941,9 +941,9 @@ class TestBoundedJsonSafeSanitization:
             "last_message_time": "2025-01-01T00:00:00",
         }
 
-        from medre.core.runtime.diagnostic_contract import _sanitize_dict
+        from medre.core.runtime.diagnostic_contract import sanitize_diagnostic_mapping
 
-        result = _sanitize_dict(raw)
+        result = sanitize_diagnostic_mapping(raw)
 
         serialized = json.dumps(result, sort_keys=True)
         assert isinstance(serialized, str)
@@ -969,3 +969,89 @@ class TestBoundedJsonSafeSanitization:
 
         parsed = json.loads(serialized)
         assert parsed["transport_specific"]["nested"]["obj"] == "<ValueError>"
+
+
+# ===========================================================================
+# 9. Public sanitizer API
+# ===========================================================================
+
+
+class TestPublicSanitizerAPI:
+    """Tests for the public sanitize_diagnostic_value / sanitize_diagnostic_mapping."""
+
+    def test_sanitize_diagnostic_value_scalars(self) -> None:
+        from medre.core.runtime.diagnostic_contract import sanitize_diagnostic_value
+
+        assert sanitize_diagnostic_value(42) == 42
+        assert sanitize_diagnostic_value(3.14) == 3.14
+        assert sanitize_diagnostic_value(True) is True
+        assert sanitize_diagnostic_value("hello") == "hello"
+        assert sanitize_diagnostic_value(None) is None
+
+    def test_sanitize_diagnostic_value_truncates_long_string(self) -> None:
+        from medre.core.runtime.diagnostic_contract import sanitize_diagnostic_value
+
+        long_str = "x" * 5000
+        result = sanitize_diagnostic_value(long_str)
+        assert isinstance(result, str)
+        assert len(result) < 5000
+        assert "5000 chars" in result
+
+    def test_sanitize_diagnostic_value_unsafe_object(self) -> None:
+        from medre.core.runtime.diagnostic_contract import sanitize_diagnostic_value
+
+        assert sanitize_diagnostic_value(ValueError("boom")) == "<ValueError>"
+        assert sanitize_diagnostic_value(b"bytes") == "<bytes>"
+
+    def test_sanitize_diagnostic_value_list(self) -> None:
+        from medre.core.runtime.diagnostic_contract import sanitize_diagnostic_value
+
+        result = sanitize_diagnostic_value([1, b"x", "ok"])
+        assert result == [1, "<bytes>", "ok"]
+
+    def test_sanitize_diagnostic_value_nested_dict(self) -> None:
+        from medre.core.runtime.diagnostic_contract import sanitize_diagnostic_value
+
+        result = sanitize_diagnostic_value({"a": 1, "password": "secret"})
+        assert isinstance(result, dict)
+        assert result["a"] == 1
+        assert "password" not in result
+
+    def test_sanitize_diagnostic_mapping_strips_secrets(self) -> None:
+        from medre.core.runtime.diagnostic_contract import sanitize_diagnostic_mapping
+
+        raw = {
+            "connected": True,
+            "password": "hunter2",
+            "api_key": "abc123",
+            "node_id": "ABC",
+        }
+        result = sanitize_diagnostic_mapping(raw)
+        assert "password" not in result
+        assert "api_key" not in result
+        assert result["connected"] is True
+        assert result["node_id"] == "ABC"
+
+    def test_sanitize_diagnostic_mapping_json_safe(self) -> None:
+        from medre.core.runtime.diagnostic_contract import sanitize_diagnostic_mapping
+
+        raw = {
+            "ok": "value",
+            "exc": RuntimeError("oops"),
+            "nested": {"password": "x", "count": 3},
+        }
+        result = sanitize_diagnostic_mapping(raw)
+        serialized = json.dumps(result, sort_keys=True)
+        assert isinstance(serialized, str)
+        assert result["exc"] == "<RuntimeError>"
+        assert "password" not in result["nested"]
+        assert result["nested"]["count"] == 3
+
+    def test_public_symbols_in_all(self) -> None:
+        """Public sanitizer symbols are listed in __all__."""
+        import medre.core.runtime.diagnostic_contract as mod
+
+        assert "sanitize_diagnostic_value" in mod.__all__
+        assert "sanitize_diagnostic_mapping" in mod.__all__
+        assert "normalize_diagnostics" in mod.__all__
+        assert "COMMON_DIAGNOSTIC_KEYS" in mod.__all__

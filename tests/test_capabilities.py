@@ -192,7 +192,7 @@ class TestSerializeAdapterCapabilities:
 
 
 class TestSummarizeAdapterCapabilities:
-    """summarize_adapter_capabilities projects legacy flags correctly."""
+    """summarize_adapter_capabilities projects adapter flags correctly."""
 
     def test_returns_transport_capabilities(self) -> None:
         tc = summarize_adapter_capabilities(AdapterCapabilities())

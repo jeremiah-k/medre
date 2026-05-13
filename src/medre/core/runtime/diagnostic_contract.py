@@ -59,6 +59,13 @@ import re
 from dataclasses import asdict, is_dataclass
 from typing import Any, Mapping
 
+__all__ = [
+    "COMMON_DIAGNOSTIC_KEYS",
+    "normalize_diagnostics",
+    "sanitize_diagnostic_value",
+    "sanitize_diagnostic_mapping",
+]
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -147,6 +154,60 @@ def _sanitize_dict(d: dict[str, Any]) -> dict[str, Any]:
             continue
         out[key] = _sanitize_value(value)
     return out
+
+
+# ---------------------------------------------------------------------------
+# Public sanitizer helpers
+# ---------------------------------------------------------------------------
+
+
+def sanitize_diagnostic_value(value: Any) -> Any:
+    """Coerce a single value into a serialization-safe form.
+
+    This is the public wrapper around the internal value sanitizer.
+    It handles:
+
+    * ``bool`` / ``int`` / ``float`` / ``str`` / ``None`` — passed through.
+    * ``dict`` — recursively sanitized via :func:`sanitize_diagnostic_mapping`.
+    * ``list`` / ``tuple`` / ``set`` / ``frozenset`` — each element
+      sanitized, returned as ``list``.
+    * All other types — replaced with a safe type-name placeholder
+      (e.g. ``"<ValueError>"``).
+
+    String values longer than 4096 characters are truncated.
+
+    Parameters
+    ----------
+    value:
+        Any Python value to sanitize.
+
+    Returns
+    -------
+    Any
+        A JSON-safe representation of *value*.
+    """
+    return _sanitize_value(value)
+
+
+def sanitize_diagnostic_mapping(d: dict[str, Any]) -> dict[str, Any]:
+    """Return a JSON-safe, bounded, secret-free copy of *d*.
+
+    Removes keys matching known secret patterns (``password``, ``api_key``,
+    etc.) and recursively sanitises all values via
+    :func:`sanitize_diagnostic_value`.
+
+    Parameters
+    ----------
+    d:
+        A dictionary to sanitize.
+
+    Returns
+    -------
+    dict[str, Any]
+        A new dictionary with secrets stripped and values coerced to
+        JSON-safe forms.
+    """
+    return _sanitize_dict(d)
 
 
 def _to_flat_dict(raw: Any) -> dict[str, Any]:

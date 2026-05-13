@@ -874,7 +874,7 @@ class TestDeliveryOutcomeWithFailureKind:
         )
         assert outcome.failure_kind is DeliveryFailureKind.RENDERER_FAILURE
 
-    def test_backward_compatible_positional_args(self) -> None:
+    def test_positional_args_without_failure_kind(self) -> None:
         """DeliveryOutcome works with positional args (no failure_kind)."""
         outcome = DeliveryOutcome(
             "e6", "a", None, "r6", "p6", "skipped"

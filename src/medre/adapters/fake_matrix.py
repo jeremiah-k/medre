@@ -104,7 +104,7 @@ class FakeMatrixAdapter(BaseAdapter):
     ----------
     received_events:
         Events delivered outbound to this adapter via :meth:`deliver`
-        (legacy canonical-event path).
+        (canonical-event path).
     delivered_payloads:
         :class:`RenderingResult` payloads stored for test inspection.
     inbound_events:

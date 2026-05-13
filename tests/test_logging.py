@@ -5,7 +5,7 @@ Covers:
 - _JsonFormatter extra-field inclusion and redaction
 - diagnostic_event context redaction
 - No raw secret leakage in output
-- Human-readable format remains backward compatible
+- Human-readable format remains stable
 - Repeated setup_logging is a no-op
 """
 

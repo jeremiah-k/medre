@@ -194,6 +194,15 @@ class TestRuntimeCoreNoSdk:
         lines = _import_lines(source)
 
         banned = _banned_imports(lines, _SDK_PACKAGES)
+        # Config imports (medre.adapters.*.config) are pure dataclasses,
+        # not third-party SDK packages — explicitly permitted per the test
+        # docstring and _ADAPTER_CONFIG_ALLOWED.
+        banned = [
+            line for line in banned
+            if not any(
+                line.startswith(f"from {prefix}") for prefix in _ADAPTER_CONFIG_ALLOWED
+            )
+        ]
         assert banned == [], (
             f"{module_name} imports transport SDKs: {banned}"
         )

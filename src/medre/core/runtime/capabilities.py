@@ -48,9 +48,9 @@ class TransportCapabilities:
 def summarize_adapter_capabilities(
     capabilities: AdapterCapabilities,
 ) -> TransportCapabilities:
-    """Project legacy adapter flags into runtime capability metadata.
+    """Project adapter capability flags into runtime capability metadata.
 
-    The projection is deliberately conservative: legacy relation strings only
+    The projection is deliberately conservative: relation strings only
     become boolean support when they are not ``"unsupported"``.  Newer
     operational capability fields are copied directly from
     :class:`~medre.adapters.base.AdapterCapabilities`.

@@ -36,7 +36,7 @@ from medre.core.runtime.supervision import (
     classify_startup_outcome,
     runtime_supervision_snapshot,
 )
-from medre.core.lifecycle.states import AdapterState
+from medre.core.lifecycle.states import AdapterState, require_valid_transition
 from medre.runtime.boot_summary import BootSummary, build_boot_summary
 
 if TYPE_CHECKING:
@@ -55,7 +55,7 @@ if TYPE_CHECKING:
     from medre.core.storage.sqlite import SQLiteStorage
     from medre.runtime.builder import AdapterBuildFailure
     from medre.runtime.capacity import CapacityController
-    from medre.runtime.route_engine import RouteEligibility
+    from medre.runtime.route_engine import RouteEligibility, RouteStartupReadiness
 
 __all__ = ["MedreApp", "RuntimeState"]
 
@@ -167,7 +167,11 @@ class MedreApp:
     _boot_summary: BootSummary | None = field(default=None, init=False)
     _failed_adapter_ids: list[str] = field(default_factory=list, init=False)
     _route_eligibility: RouteEligibility | None = field(default=None, init=False)
+    _route_provenance: dict[str, str] = field(default_factory=dict, init=False)
+    _registered_routes: tuple = field(default=(), init=False)  # tuple[Route, ...]
+    _startup_readiness: RouteStartupReadiness | None = field(default=None, init=False)
     _event_buffer: EventBuffer | None = field(default=None, init=False)  # set in __post_init__
+    _adapter_states: dict[str, AdapterState] = field(default_factory=dict, init=False)
 
     # -- Post-init --------------------------------------------------------------
 
@@ -198,10 +202,39 @@ class MedreApp:
         return self._route_eligibility
 
     @property
+    def startup_readiness(self) -> RouteStartupReadiness | None:
+        """Return startup-derived route readiness, or ``None`` if not yet started."""
+        return self._startup_readiness
+
+    @property
     def event_buffer(self) -> EventBuffer:
         """Return the bounded runtime event buffer."""
         assert self._event_buffer is not None  # always set in __post_init__
         return self._event_buffer
+
+    @property
+    def adapter_states(self) -> dict[str, AdapterState]:
+        """Return a read-only copy of per-adapter lifecycle states."""
+        return dict(self._adapter_states)
+
+    def _set_adapter_state(
+        self, adapter_id: str, target_state: AdapterState
+    ) -> None:
+        """Transition *adapter_id* to *target_state*, validating the move.
+
+        * Initial assignment (adapter not yet in registry) is always allowed.
+        * Same-state assignments are silently ignored (idempotent).
+        * Otherwise :func:`require_valid_transition` is consulted.
+        """
+        current = self._adapter_states.get(adapter_id)
+        if current is None:
+            # Initial assignment — no transition to validate.
+            self._adapter_states[adapter_id] = target_state
+            return
+        if current is target_state:
+            return
+        require_valid_transition(current, target_state)
+        self._adapter_states[adapter_id] = target_state
 
     def _emit_event(
         self,
@@ -337,6 +370,12 @@ class MedreApp:
             ", ".join(adapter_ids) if adapter_ids else "(none)",
         )
 
+        # Initialize per-adapter lifecycle states.
+        for adapter_id in adapter_ids:
+            self._set_adapter_state(adapter_id, AdapterState.INITIALIZING)
+        for bf in self.build_failures:
+            self._set_adapter_state(bf.adapter_id, AdapterState.FAILED)
+
         failed_adapter_ids: list[str] = []
         try:
             for adapter_id in adapter_ids:
@@ -358,6 +397,7 @@ class MedreApp:
                     elapsed = _monotonic_ms() - t0
                     self.adapter_start_monotonic[adapter_id] = t0
                     self.started_adapter_ids.append(adapter_id)
+                    self._set_adapter_state(adapter_id, AdapterState.READY)
                     _logger.info(
                         "Adapter %s.%s started in %.0fms",
                         transport,
@@ -371,6 +411,7 @@ class MedreApp:
                 except Exception as exc:
                     elapsed = _monotonic_ms() - t0
                     failed_adapter_ids.append(adapter_id)
+                    self._set_adapter_state(adapter_id, AdapterState.FAILED)
                     _logger.error(
                         "Adapter %s.%s failed to start (%.0fms): %s",
                         transport,
@@ -409,14 +450,7 @@ class MedreApp:
         )
 
         # -- Classify runtime health from adapter states ----------------------
-        # Started adapters are READY; failed adapters and build failures are FAILED.
-        adapter_states: list[AdapterState] = []
-        for _aid in self.started_adapter_ids:
-            adapter_states.append(AdapterState.READY)
-        for _aid in failed_adapter_ids:
-            adapter_states.append(AdapterState.FAILED)
-        for _bf in self.build_failures:
-            adapter_states.append(AdapterState.FAILED)
+        adapter_states: list[AdapterState] = list(self._adapter_states.values())
         health = classify_runtime_health(adapter_states)
 
         # Store health state (supervision snapshot) for downstream consumers.
@@ -463,6 +497,18 @@ class MedreApp:
             replay_available=self._replay_engine is not None,
             persisted_events_count=persisted_count,
         )
+
+        # -- Compute startup-derived route readiness ----------------------------
+        if self._route_eligibility is not None and self._route_provenance is not None:
+            from medre.runtime.route_engine import compute_startup_readiness
+
+            self._startup_readiness = compute_startup_readiness(
+                eligibility=self._route_eligibility,
+                adapter_states=dict(self._adapter_states),
+                provenance=self._route_provenance,
+                registered_routes=self._registered_routes,
+                config_routes=self.config.routes,
+            )
 
         # -- Emit startup classified event ------------------------------------
         self._emit_event(
@@ -612,16 +658,19 @@ class MedreApp:
                 continue
             transport = getattr(adapter, "platform", "unknown")
             _logger.debug("Adapter %s.%s stopping", transport, adapter_id)
+            self._set_adapter_state(adapter_id, AdapterState.STOPPING)
             try:
                 await adapter.stop(timeout=float(timeout))
                 _logger.info(
                     "Adapter %s.%s stopped", transport, adapter_id
                 )
+                self._set_adapter_state(adapter_id, AdapterState.STOPPED)
                 self._emit_event(
                     RuntimeEventType.ADAPTER_STOPPED,
                     {"adapter_id": adapter_id},
                 )
             except Exception as exc:
+                self._set_adapter_state(adapter_id, AdapterState.FAILED)
                 _logger.error(
                     "Error stopping adapter %s.%s: %s",
                     transport,
@@ -632,6 +681,8 @@ class MedreApp:
 
         # Also stop any adapters that were in self.adapters but not in
         # started_adapter_ids (e.g. if start() was never called).
+        # These are still in INITIALIZING state; mark FAILED since
+        # INITIALIZING->STOPPED is not a valid transition.
         for adapter_id, adapter in self.adapters.items():
             if adapter_id in self.started_adapter_ids:
                 continue
@@ -641,7 +692,9 @@ class MedreApp:
             )
             try:
                 await adapter.stop(timeout=float(timeout))
+                self._set_adapter_state(adapter_id, AdapterState.FAILED)
             except Exception as exc:
+                self._set_adapter_state(adapter_id, AdapterState.FAILED)
                 _logger.debug(
                     "Error stopping never-started adapter %s.%s: %s",
                     transport,
@@ -707,14 +760,17 @@ class MedreApp:
             if adapter is None:
                 continue
             transport = getattr(adapter, "platform", "unknown")
+            self._set_adapter_state(adapter_id, AdapterState.STOPPING)
             try:
                 await adapter.stop(timeout=float(timeout))
+                self._set_adapter_state(adapter_id, AdapterState.STOPPED)
                 _logger.info(
                     "Cleaned up adapter %s.%s during failed startup",
                     transport,
                     adapter_id,
                 )
             except Exception as exc:
+                self._set_adapter_state(adapter_id, AdapterState.FAILED)
                 _logger.error(
                     "Error cleaning up adapter %s.%s during failed startup: %s",
                     transport,

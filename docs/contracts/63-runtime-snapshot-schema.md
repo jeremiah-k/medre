@@ -109,16 +109,18 @@ One-time boot classification and build failures.
 
 ### 5.3 `lifecycle`
 
-Runtime state transitions and timing.
+Runtime state transitions, per-adapter lifecycle states, and timing.
 
 ```
 {
+  "adapters": {adapter_id: str, ...},
   "runtime_state": str,
   "startup_timestamp": str | null,
   "uptime_seconds": float | null,
 }
 ```
 
+- `adapters`: Per-adapter lifecycle state mapping. Keys are adapter IDs (sorted alphabetically); values are `AdapterState` enum strings (`"initializing"`, `"ready"`, `"degraded"`, `"backpressured"`, `"disconnected"`, `"stopping"`, `"failed"`, `"stopped"`). Empty dict before startup.
 - `runtime_state`: Current `RuntimeState` enum value as lowercase string.
 - `startup_timestamp`: ISO-8601 wall-clock time set during `app.start()`, or null.
 - `uptime_seconds`: Computed from monotonic clock, rounded to 6 decimal places, clamped to >= 0. Null before startup.
@@ -126,12 +128,13 @@ Runtime state transitions and timing.
 
 ### 5.4 `routes`
 
-Route delivery statistics, eligibility, and per-route readiness state.
+Route delivery statistics, eligibility, per-route readiness state, and startup-derived readiness.
 
 ```
 {
   "eligibility": {...} | null,
   "readiness": {route_id: str} | null,
+  "startup_readiness": {...} | null,
   "stats": {route_id: {...}},
 }
 ```
@@ -195,14 +198,56 @@ Values come from `RouteOperationalState` enum:
 | `configured` | Route is enabled in config (initial state before build) |
 | `registered` | Route successfully registered with all adapters built |
 | `active` | Reserved for future use — not assigned by current logic |
-| `degraded` | Route registered but some target adapters failed to build |
+| `degraded` | Route registered but some target adapters failed to build, or some expanded routes skipped while others registered |
 | `skipped` | Route could not register (source failed or all targets failed) |
 | `unavailable` | Route references adapter IDs not in configured set |
 | `disabled` | Route is explicitly disabled in configuration |
 
 Keys are deterministically sorted. The mapping covers all config route IDs.
 
-#### 5.4.3 `routes.stats`
+Expanded route IDs are mapped back to config route IDs using explicit provenance (no string-prefix inference). A config route that expands to multiple routes (e.g. `fan_out__0`, `fan_out__1`) maps to the worst state among its expansions.
+
+#### 5.4.3 `routes.startup_readiness`
+
+Startup-derived route readiness based on adapter lifecycle states. This is computed **after** `MedreApp.start()` completes and reflects adapters that built successfully but failed to start.
+
+```
+{
+  "degraded": [
+    {
+      "route_id":           str,
+      "failed_adapter_ids": [str],
+    }
+  ],
+  "readiness": {route_id: str},
+  "skipped": [
+    {
+      "failed_adapter_ids": [str],
+      "reason":             str,
+      "route_id":            str,
+    }
+  ],
+}
+```
+
+Semantics:
+- `readiness`: Per-config-route operational state derived from adapter lifecycle states. Keys are sorted config route IDs; values are `RouteOperationalState` enum strings.
+- `degraded`: Expanded routes where some target adapters failed to start (but source and at least one target survived).
+- `skipped`: Expanded routes where the source adapter failed to start (`source_adapter_start_failed`) or all target adapters failed to start (`no_surviving_targets_start_failed`).
+
+Rules:
+- **Disabled** routes remain `disabled`.
+- Routes already **skipped** at build time remain `skipped` (build eligibility is the source of truth for build failures).
+- For routes that were registered or degraded at build time:
+  - Source adapter `FAILED` → `skipped` (reason: `source_adapter_start_failed`).
+  - Some target adapters `FAILED` but others `READY` → `degraded`.
+  - All target adapters `FAILED` → `skipped` (reason: `no_surviving_targets_start_failed`).
+  - Source and all targets `READY` → `registered`.
+- Adapters in states other than `FAILED` or `READY` (e.g. `DEGRADED`, `BACKPRESSURED`) are treated as surviving.
+- This is a **diagnostic surface**, not a trigger for dynamic routing or live health-aware routing.
+- `null` before `MedreApp.start()` has been called.
+
+#### 5.4.4 `routes.stats`
 
 Per-route delivery counters from `RouteStats.snapshot()`, bounded at `_MAX_ROUTES`.
 
@@ -288,7 +333,10 @@ Frozen dataclass (not a list):
 class RouteRegistrationResult:
     registered_routes: tuple[Route, ...]
     eligibility: RouteEligibility
+    provenance: dict[str, str]  # expanded_route_id → config_route_id
 ```
+
+The `provenance` field provides explicit mapping from expanded route IDs back to their config route origins, replacing any string-prefix inference.
 
 ### 7.2 `RouteEligibility`
 
@@ -311,6 +359,34 @@ All tuple fields contain deterministically sorted route IDs. `route_states` keys
 Enum with values: `configured`, `registered`, `active`, `degraded`, `skipped`, `unavailable`, `disabled`.
 
 
+### 7.4 `ExpandedRouteProvenance`
+
+Frozen dataclass carrying the triple `(config_route_id, expanded_route_id, Route)` for explicit expansion mapping.
+
+```python
+@dataclass(frozen=True)
+class ExpandedRouteProvenance:
+    config_route_id: str
+    expanded_route_id: str
+    route: Route
+```
+
+
+### 7.5 `RouteStartupReadiness`
+
+Frozen dataclass with startup-derived route readiness:
+
+```python
+@dataclass(frozen=True)
+class RouteStartupReadiness:
+    route_states: dict[str, RouteOperationalState]
+    degraded: tuple[DegradedRoute, ...]
+    skipped: tuple[SkippedRoute, ...]
+```
+
+Computed by `compute_startup_readiness()` after `MedreApp.start()` completes. Derives per-route states from adapter lifecycle states, independent of build-time eligibility.
+
+
 ## 8. Test Alignment
 
 The following test suites validate conformance to this contract:
@@ -321,7 +397,7 @@ The following test suites validate conformance to this contract:
 | `tests/test_snapshot_schema_stability.py` | Top-level key set validation, deterministic ordering, bounded exports, malformed adapter resilience, replay/capacity consistency, accounting schema |
 | `tests/test_snapshot_stress.py` | Large route/adapter tables, repeated snapshot determinism, failing/partially-initialised adapters, replay pressure, capacity exhaustion, secret safety at scale |
 | `tests/test_runtime_events.py` | EventBuffer emit/bound/snapshot, RuntimeEvent frozen/to_dict, RuntimeEventType str-enum, route_eligibility integration, runtime_events integration, deterministic key ordering |
-| `tests/test_route_eligibility.py` | RouteOperationalState enum, DegradedRoute, per-route readiness states, sorted ordering, mixed scenarios, frozen dataclass validation |
+| `tests/test_route_eligibility.py` | RouteOperationalState enum, DegradedRoute, per-route readiness states, sorted ordering, mixed scenarios, frozen dataclass validation, prefix collision, bidirectional/multi-source provenance, startup readiness (source fail, partial targets, all targets fail, mixed) |
 | `tests/test_runtime_builder.py` | Degraded route validation, builder integration with route eligibility |
 
 The authoritative top-level key set is defined in `_EXPECTED_RUNTIME_SNAPSHOT_TOP_KEYS` within `test_snapshot_schema_stability.py`. Any new top-level key must be added there.

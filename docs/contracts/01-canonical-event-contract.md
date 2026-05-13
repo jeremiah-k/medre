@@ -37,7 +37,7 @@ class CanonicalEvent(msgspec.Struct, frozen=True):
 
 ### Field Notes
 
-**`schema_version`** must be `>= 1`. The current compatibility contract is `v1` (`CURRENT_SCHEMA_VERSION = 1`). Future versions append fields with defaults; existing fields are deprecated, not removed.
+**`schema_version`** must be `>= 1`. The current compatibility contract is `v1` (`CURRENT_SCHEMA_VERSION = 1`). Future versions append fields with defaults; existing fields may be deprecated but are not removed.
 
 **`source_transport_id`** identifies the native actor, not the native message. Native message IDs belong in `native_message_refs` (Section 12.2 of the master spec).
 
@@ -195,7 +195,7 @@ The canonical event kind registry. Every constant is a plain `str` following `<d
 
 2. **New fields append with defaults.** When a new schema version adds fields, those fields carry sensible defaults so that `v1` consumers can read `v2` payloads without error.
 
-3. **Existing fields deprecated, not removed.** A field may be marked deprecated but remains populated for at least one version cycle alongside its replacement.
+3. **Existing fields may be deprecated, not removed.** A field may be marked deprecated but remains populated for at least one version cycle alongside its replacement, once a public stability guarantee is in effect.
 
 4. **`schema_version >= 1`** is enforced at construction. Values `< 1` raise `ValueError`.
 

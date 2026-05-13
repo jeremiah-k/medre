@@ -24,6 +24,7 @@ stable operator-facing data from unstable/debug internals::
       },
       "identity": {},
       "lifecycle": {
+        "adapters": {adapter_id: str},
         "runtime_state": str,
         "startup_timestamp": str | null,
         "uptime_seconds": float | null,
@@ -34,6 +35,7 @@ stable operator-facing data from unstable/debug internals::
       "routes": {
         "eligibility": {...} | null,
         "readiness": {route_id: str} | null,
+        "startup_readiness": {...} | null,
         "stats": {route_id: {...}},
       },
       "startup": {
@@ -405,6 +407,17 @@ def build_runtime_snapshot(
         "uptime_seconds": uptime_seconds,
     }
 
+    # -- Per-adapter lifecycle states (sorted deterministically) --------------
+    adapter_lifecycle_states: dict[str, str] = {}
+    adapter_states_raw: Any = getattr(app, "_adapter_states", None)
+    if adapter_states_raw is not None:
+        for aid in sorted(adapter_states_raw.keys()):
+            state = adapter_states_raw[aid]
+            adapter_lifecycle_states[aid] = (
+                state.value if hasattr(state, "value") else str(state)
+            )
+    lifecycle["adapters"] = adapter_lifecycle_states
+
     # -- Adapters (sorted, bounded) ------------------------------------------
     adapters_raw: dict[str, Any] = getattr(app, "adapters", {}) or {}
     adapters: dict[str, dict[str, Any]] = {}
@@ -536,6 +549,34 @@ def build_runtime_snapshot(
     else:
         route_readiness_snapshot = None
 
+    # -- Startup-derived route readiness ------------------------------------
+    startup_readiness_obj: Any = getattr(app, "_startup_readiness", None)
+    startup_readiness_snapshot: dict[str, Any] | None
+    if startup_readiness_obj is not None:
+        startup_readiness_snapshot = {
+            "degraded": [
+                {
+                    "failed_adapter_ids": list(d.failed_adapter_ids),
+                    "route_id": d.route_id,
+                }
+                for d in startup_readiness_obj.degraded
+            ],
+            "readiness": {
+                rid: state.value
+                for rid, state in sorted(startup_readiness_obj.route_states.items())
+            },
+            "skipped": [
+                {
+                    "failed_adapter_ids": list(s.failed_adapter_ids),
+                    "reason": s.reason,
+                    "route_id": s.route_id,
+                }
+                for s in startup_readiness_obj.skipped
+            ],
+        }
+    else:
+        startup_readiness_snapshot = None
+
     # -- Runtime events (bounded, debug/unstable) ----------------------------
     event_buffer_obj: Any = getattr(app, "_event_buffer", None)
     runtime_events_snapshot: dict[str, Any] | None
@@ -568,6 +609,7 @@ def build_runtime_snapshot(
         "routes": {
             "eligibility": route_eligibility_snapshot,
             "readiness": route_readiness_snapshot,
+            "startup_readiness": startup_readiness_snapshot,
             "stats": routes_snapshot,
         },
         "startup": {

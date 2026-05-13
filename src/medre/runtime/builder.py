@@ -196,13 +196,16 @@ def _build_fake_adapter(transport: str, adapter_id: str) -> BaseAdapter:
         return FakeMatrixAdapter(adapter_id=adapter_id)
     if transport == "meshtastic":
         from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
-        return FakeMeshtasticAdapter()
+        from medre.adapters.meshtastic.config import MeshtasticConfig
+        return FakeMeshtasticAdapter(MeshtasticConfig(adapter_id=adapter_id))
     if transport == "meshcore":
         from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
-        return FakeMeshCoreAdapter()
+        from medre.adapters.meshcore.config import MeshCoreConfig
+        return FakeMeshCoreAdapter(MeshCoreConfig(adapter_id=adapter_id))
     if transport == "lxmf":
         from medre.adapters.fake_lxmf import FakeLxmfAdapter
-        return FakeLxmfAdapter()
+        from medre.adapters.lxmf.config import LxmfConfig
+        return FakeLxmfAdapter(LxmfConfig(adapter_id=adapter_id))
     raise RuntimeConfigError(
         f"Unknown transport type {transport!r} for fake adapter "
         f"{adapter_id!r}. Known types: {', '.join(sorted(_ADAPTER_BUILDERS))}"
@@ -351,6 +354,8 @@ class RuntimeBuilder:
         app._replay_engine = replay_engine
         app._runtime_accounting = runtime_accounting
         app._route_eligibility = route_result.eligibility
+        app._route_provenance = route_result.provenance
+        app._registered_routes = route_result.registered_routes
         return app
 
     # -- Storage construction ----------------------------------------------------

@@ -2,7 +2,7 @@
 
 Tests the immutable ReplaySummary model, collect_replay_summary helper,
 _build_summary construction, to_dict() determinism, JSON-serialisation,
-and backward compatibility with collect_replay_state.
+and integration with collect_replay_state.
 """
 
 from __future__ import annotations

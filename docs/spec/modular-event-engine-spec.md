@@ -66,7 +66,7 @@ Example candidates:
 - **Conduit** (neutral, pipe metaphor)
 - **Crossnet** (cross-network bridging)
 
-Configuration, data, and state paths will use the final project name at release time. No paths are hardcoded to any legacy tool's conventions.
+Configuration, data, and state paths will use the final project name at release time. No paths are hardcoded to any external tool's conventions.
 
 
 ## 3. Design Principles
@@ -285,7 +285,7 @@ class EventTransform(Protocol):
 | **LXMFFieldEmbedding** | `message.text` + relation metadata | `message.text` with LXMF fields dict | Embeds canonical event ID, relation, and schema metadata into LXMF `fields` dict for framework-aware LXMF peers. |
 | **PluginEventRouter** | `plugin.event` | Varies | Routes plugin outputs to the correct event kind based on plugin type. |
 
-> **Rendering vs. Transform boundary.** The following transforms produce output that is specific to a single presentation adapter's formatting model (HTML, embeds, namespace-specific metadata). These are architecturally **rendering concerns** (handled by `core/rendering/`) and must not be configured as pipeline transforms in production. They are listed here as built-in transforms for backward compatibility during development. In a future revision, they will be removed from the transform registry and relocated to `core/rendering/` as dedicated renderers. **Do not register these in the `transforms:` config block.** Use the adapter's rendering pipeline instead.
+> **Rendering vs. Transform boundary.** The following transforms produce output that is specific to a single presentation adapter's formatting model (HTML, embeds, namespace-specific metadata). These are architecturally **rendering concerns** (handled by `core/rendering/`) and must not be configured as pipeline transforms in production. They are listed here as built-in transforms for development convenience. In a future revision, they will be removed from the transform registry and relocated to `core/rendering/` as dedicated renderers. **Do not register these in the `transforms:` config block.** Use the adapter's rendering pipeline instead.
 >
 > | Transform | Target Adapter | Rendering Concern |
 > |---|---|---|

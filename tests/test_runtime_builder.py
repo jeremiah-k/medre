@@ -963,7 +963,7 @@ class TestDegradedRouteValidation:
                 frozenset({"a"}),
             )
 
-    def test_backward_compat_no_built_adapter_ids(self) -> None:
+    def test_no_built_adapter_ids_falls_back(self) -> None:
         """Calling register_routes without built_adapter_ids uses adapter_ids for both."""
         rcs = RouteConfigSet(routes=(
             _rc("r1", ("a",), ("b",)),
@@ -972,7 +972,7 @@ class TestDegradedRouteValidation:
         result = register_routes(router, rcs, frozenset({"a", "b"}))
         assert len(result.registered_routes) == 1
 
-    def test_backward_compat_unknown_raises_without_built_ids(self) -> None:
+    def test_unknown_adapter_ids_raise_without_built_ids(self) -> None:
         """Without built_adapter_ids, unknown adapter IDs still raise."""
         rcs = RouteConfigSet(routes=(
             _rc("r1", ("a",), ("unknown",)),
@@ -1124,3 +1124,107 @@ class TestDegradedRouteValidation:
         route_ids = list(app.router._routes.keys())
         assert "good_route" in route_ids
         assert "degraded_route" not in route_ids
+
+
+# ---------------------------------------------------------------------------
+# Fake adapter ID propagation
+# ---------------------------------------------------------------------------
+
+
+class TestFakeAdapterIdPropagation:
+    """Fake adapters receive and report the configured adapter_id."""
+
+    def test_fake_matrix_adapter_id(self, tmp_paths: MedrePaths) -> None:
+        rt = MatrixRuntimeConfig(
+            adapter_id="custom_matrix_id",
+            enabled=True,
+            adapter_kind="fake",
+            config=_make_fake_matrix_config(),
+        )
+        config = RuntimeConfig(
+            adapters=AdapterConfigSet(matrix={"cm": rt}),
+        )
+        builder = RuntimeBuilder(config, tmp_paths)
+        adapters: dict[str, BaseAdapter] = {}
+        builder._build_adapters(adapters)
+        assert "custom_matrix_id" in adapters
+        assert adapters["custom_matrix_id"].adapter_id == "custom_matrix_id"
+
+    def test_fake_meshtastic_adapter_id(self, tmp_paths: MedrePaths) -> None:
+        rt = MeshtasticRuntimeConfig(
+            adapter_id="custom_mesh_id",
+            enabled=True,
+            adapter_kind="fake",
+            config=_make_fake_meshtastic_config(),
+        )
+        config = RuntimeConfig(
+            adapters=AdapterConfigSet(meshtastic={"cm": rt}),
+        )
+        builder = RuntimeBuilder(config, tmp_paths)
+        adapters: dict[str, BaseAdapter] = {}
+        builder._build_adapters(adapters)
+        assert "custom_mesh_id" in adapters
+        assert adapters["custom_mesh_id"].adapter_id == "custom_mesh_id"
+
+    def test_fake_meshcore_adapter_id(self, tmp_paths: MedrePaths) -> None:
+        rt = MeshCoreRuntimeConfig(
+            adapter_id="custom_core_id",
+            enabled=True,
+            adapter_kind="fake",
+            config=_make_fake_meshcore_config(),
+        )
+        config = RuntimeConfig(
+            adapters=AdapterConfigSet(meshcore={"cc": rt}),
+        )
+        builder = RuntimeBuilder(config, tmp_paths)
+        adapters: dict[str, BaseAdapter] = {}
+        builder._build_adapters(adapters)
+        assert "custom_core_id" in adapters
+        assert adapters["custom_core_id"].adapter_id == "custom_core_id"
+
+    def test_fake_lxmf_adapter_id(self, tmp_paths: MedrePaths) -> None:
+        rt = LxmfRuntimeConfig(
+            adapter_id="custom_lxmf_id",
+            enabled=True,
+            adapter_kind="fake",
+            config=_make_fake_lxmf_config(),
+        )
+        config = RuntimeConfig(
+            adapters=AdapterConfigSet(lxmf={"cl": rt}),
+        )
+        builder = RuntimeBuilder(config, tmp_paths)
+        adapters: dict[str, BaseAdapter] = {}
+        builder._build_adapters(adapters)
+        assert "custom_lxmf_id" in adapters
+        assert adapters["custom_lxmf_id"].adapter_id == "custom_lxmf_id"
+
+    def test_all_four_fakes_report_configured_ids(self, tmp_paths: MedrePaths) -> None:
+        config = RuntimeConfig(
+            runtime=RuntimeOptions(name="id-prop-test"),
+            storage=StorageConfig(backend="memory"),
+            adapters=AdapterConfigSet(
+                matrix={"fm": MatrixRuntimeConfig(
+                    adapter_id="fm_id", enabled=True, adapter_kind="fake",
+                    config=_make_fake_matrix_config(),
+                )},
+                meshtastic={"ft": MeshtasticRuntimeConfig(
+                    adapter_id="ft_id", enabled=True, adapter_kind="fake",
+                    config=_make_fake_meshtastic_config(),
+                )},
+                meshcore={"fc": MeshCoreRuntimeConfig(
+                    adapter_id="fc_id", enabled=True, adapter_kind="fake",
+                    config=_make_fake_meshcore_config(),
+                )},
+                lxmf={"fl": LxmfRuntimeConfig(
+                    adapter_id="fl_id", enabled=True, adapter_kind="fake",
+                    config=_make_fake_lxmf_config(),
+                )},
+            ),
+        )
+        builder = RuntimeBuilder(config, tmp_paths)
+        app = builder.build()
+        assert len(app.adapters) == 4
+        assert app.adapters["fm_id"].adapter_id == "fm_id"
+        assert app.adapters["ft_id"].adapter_id == "ft_id"
+        assert app.adapters["fc_id"].adapter_id == "fc_id"
+        assert app.adapters["fl_id"].adapter_id == "fl_id"

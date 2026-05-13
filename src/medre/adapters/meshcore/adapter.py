@@ -66,7 +66,7 @@ from medre.adapters.meshcore.errors import (
 from medre.adapters.meshcore.packet_classifier import MeshCorePacketClassifier
 from medre.adapters.meshcore.session import MeshCoreSession
 from medre.core.rendering.renderer import RenderingResult
-from medre.core.runtime.diagnostic_contract import _sanitize_dict
+from medre.core.runtime.diagnostic_contract import sanitize_diagnostic_mapping
 
 # Capabilities for the MeshCore transport adapter.
 _MESHCORE_CAPABILITIES = AdapterCapabilities(
@@ -414,7 +414,7 @@ class MeshCoreAdapter(BaseAdapter):
             "mode": self._config.connection_type,
         }
         if self._session is not None:
-            base["session"] = _sanitize_dict(
+            base["session"] = sanitize_diagnostic_mapping(
                 self._session.diagnostics()
             )
         return base

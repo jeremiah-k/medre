@@ -18,7 +18,7 @@ packages can register JSON-Schema validators, pydantic models, or any
 Schema Migration Contract (Phase 1)
 ------------------------------------
 * ``v1`` is the current compatibility contract.
-* New fields append with defaults; existing fields are deprecated, not removed.
+* New fields append with defaults; existing fields may be deprecated but are not removed.
 * ``schema_version`` must be ``>= 1``.
 * The migration executor is not implemented – :data:`MIGRATION_REGISTRY`
   provides a minimal registry-only hook for future migration functions.
@@ -269,8 +269,8 @@ class _MigrationRegistry:
     * Migrations are keyed by ``(event_kind, from_version, to_version)``.
     * A migration receives the payload dict and returns a **new** dict
       with any appended default fields.
-    * Fields are never removed – only appended or deprecated.
-    * Deprecated fields remain populated for at least one version cycle.
+    * Fields are never removed – only appended or deprecated-in-place.
+    * Deprecated fields remain populated for at least one version cycle once a public stability guarantee is in effect.
 
     Thread-safety is the caller's responsibility, same as :class:`SchemaRegistry`.
     """

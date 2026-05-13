@@ -206,7 +206,7 @@ class MatrixAdapter(BaseAdapter):
         )
         await self._session.start()
 
-        # Mirror session state onto adapter for backward-compatible access.
+        # Mirror session state onto adapter for convenient access.
         self._client = self._session.client
         self._sync_task = self._session._sync_task
 

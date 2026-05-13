@@ -291,8 +291,7 @@ class AdapterCodec(ABC):
         **Default**: raises :class:`NotImplementedError`.  Outbound rendering
         is handled by renderers registered with the
         :class:`~medre.core.rendering.renderer.RenderingPipeline`.
-        Subclasses should not override this unless they have a legacy
-        encode contract.
+        Subclasses should not override this.
 
         Parameters
         ----------

@@ -26,14 +26,17 @@ import pytest
 
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.routing import Router
+from medre.core.lifecycle.states import AdapterState
 from medre.runtime.route_engine import (
     DegradedRoute,
     RouteEligibility,
     RouteOperationalState,
     RouteRegistrationResult,
+    RouteStartupReadiness,
     RouteValidationError,
     SkippedRoute,
     UnavailableRoute,
+    compute_startup_readiness,
     register_routes,
 )
 from medre.runtime.routes import (
@@ -696,6 +699,7 @@ class TestFrozenModels:
                 degraded=(), skipped=(), unavailable=(),
                 route_states={},
             ),
+            provenance={},
         )
         with pytest.raises(AttributeError):
             r.registered_routes = ()  # type: ignore[misc]
@@ -776,3 +780,417 @@ class TestBuilderIntegration:
         assert app.route_eligibility.skipped == ()
         assert app.route_eligibility.unavailable == ()
         assert app.route_eligibility.route_states["bridge"] == RouteOperationalState.REGISTERED
+
+
+# ===================================================================
+# Prefix collision: routes with overlapping name prefixes
+# ===================================================================
+
+
+class TestPrefixCollision:
+    """Routes whose IDs share prefixes (e.g. radio / radio_backup) must
+    not be matched via string-prefix inference."""
+
+    def test_radio_radio_backup_both_registered(self) -> None:
+        """'radio' and 'radio_backup' must both resolve independently."""
+        rcs = RouteConfigSet(routes=(
+            _rc("radio", ("a",), ("b",)),
+            _rc("radio_backup", ("c",), ("d",)),
+        ))
+        router = Router()
+        result = register_routes(
+            router, rcs, frozenset({"a", "b", "c", "d"}),
+        )
+        assert "radio" in result.eligibility.registered
+        assert "radio_backup" in result.eligibility.registered
+        assert result.eligibility.route_states["radio"] == RouteOperationalState.REGISTERED
+        assert result.eligibility.route_states["radio_backup"] == RouteOperationalState.REGISTERED
+
+    def test_radio_backup_skipped_radio_registered(self) -> None:
+        """If 'radio_backup' source fails, 'radio' must stay registered."""
+        rcs = RouteConfigSet(routes=(
+            _rc("radio", ("a",), ("b",)),
+            _rc("radio_backup", ("c",), ("d",)),
+        ))
+        router = Router()
+        result = register_routes(
+            router, rcs,
+            adapter_ids=frozenset({"a", "b", "c", "d"}),
+            built_adapter_ids=frozenset({"a", "b", "d"}),  # "c" failed
+        )
+        assert "radio" in result.eligibility.registered
+        assert result.eligibility.route_states["radio"] == RouteOperationalState.REGISTERED
+        assert result.eligibility.route_states["radio_backup"] == RouteOperationalState.SKIPPED
+
+    def test_provenance_distinguishes_overlapping_ids(self) -> None:
+        """Provenance mapping must be exact, not prefix-based."""
+        rcs = RouteConfigSet(routes=(
+            _rc("radio", ("a",), ("b",)),
+            _rc("radio_backup", ("c",), ("d",)),
+        ))
+        router = Router()
+        result = register_routes(
+            router, rcs, frozenset({"a", "b", "c", "d"}),
+        )
+        assert result.provenance["radio"] == "radio"
+        assert result.provenance["radio_backup"] == "radio_backup"
+
+
+# ===================================================================
+# Bidirectional __rev_N maps correctly
+# ===================================================================
+
+
+class TestBidirectionalProvenance:
+    """Bidirectional routes produce __rev_N expanded IDs with correct provenance."""
+
+    def test_bidirectional_provenance(self) -> None:
+        rcs = RouteConfigSet(routes=(
+            _rc("bridge", ("a",), ("b",),
+                directionality=RouteDirectionality.BIDIRECTIONAL),
+        ))
+        router = Router()
+        result = register_routes(
+            router, rcs, frozenset({"a", "b"}),
+        )
+        # Forward: "bridge", Reverse: "bridge__rev_0"
+        assert result.provenance.get("bridge") == "bridge"
+        assert result.provenance.get("bridge__rev_0") == "bridge"
+        assert result.eligibility.route_states["bridge"] == RouteOperationalState.REGISTERED
+
+    def test_bidirectional_multi_source_provenance(self) -> None:
+        rcs = RouteConfigSet(routes=(
+            _rc("multi", ("a", "b"), ("c",),
+                directionality=RouteDirectionality.BIDIRECTIONAL),
+        ))
+        router = Router()
+        result = register_routes(
+            router, rcs, frozenset({"a", "b", "c"}),
+        )
+        # Forward: "multi__0", "multi__1"
+        # Reverse: "multi__rev_0"
+        assert result.provenance["multi__0"] == "multi"
+        assert result.provenance["multi__1"] == "multi"
+        assert result.provenance["multi__rev_0"] == "multi"
+
+
+# ===================================================================
+# Multi-source expansion maps correctly
+# ===================================================================
+
+
+class TestMultiSourceProvenance:
+    """Multi-source routes produce __N expanded IDs with correct provenance."""
+
+    def test_multi_source_provenance(self) -> None:
+        rcs = RouteConfigSet(routes=(
+            _rc("fan_out", ("a", "b", "c"), ("d",)),
+        ))
+        router = Router()
+        result = register_routes(
+            router, rcs, frozenset({"a", "b", "c", "d"}),
+        )
+        assert result.provenance["fan_out__0"] == "fan_out"
+        assert result.provenance["fan_out__1"] == "fan_out"
+        assert result.provenance["fan_out__2"] == "fan_out"
+
+    def test_multi_source_one_failed_maps_correctly(self) -> None:
+        """If one source fails, provenance still maps correctly."""
+        rcs = RouteConfigSet(routes=(
+            _rc("fan_out", ("a", "b", "c"), ("d",)),
+        ))
+        router = Router()
+        result = register_routes(
+            router, rcs,
+            adapter_ids=frozenset({"a", "b", "c", "d"}),
+            built_adapter_ids=frozenset({"b", "c", "d"}),  # "a" failed
+        )
+        # fan_out__0 (source "a") should be skipped
+        # fan_out__1, fan_out__2 should be registered
+        assert result.eligibility.route_states["fan_out"] == RouteOperationalState.DEGRADED
+        skipped_ids = {s.route_id for s in result.eligibility.skipped}
+        assert "fan_out__0" in skipped_ids
+
+
+# ===================================================================
+# RouteRegistrationResult provenance field
+# ===================================================================
+
+
+class TestProvenanceField:
+    """RouteRegistrationResult carries explicit provenance mapping."""
+
+    def test_single_route_provenance(self) -> None:
+        rcs = RouteConfigSet(routes=(
+            _rc("r1", ("a",), ("b",)),
+        ))
+        router = Router()
+        result = register_routes(router, rcs, frozenset({"a", "b"}))
+        assert result.provenance == {"r1": "r1"}
+
+    def test_empty_config_provenance(self) -> None:
+        rcs = RouteConfigSet()
+        router = Router()
+        result = register_routes(router, rcs, frozenset({"a"}))
+        assert result.provenance == {}
+
+    def test_provenance_immutable_copy(self) -> None:
+        """Provenance dict should not be mutated by callers."""
+        rcs = RouteConfigSet(routes=(
+            _rc("r1", ("a",), ("b",)),
+        ))
+        router = Router()
+        result = register_routes(router, rcs, frozenset({"a", "b"}))
+        # The dict itself is stored; frozen dataclass prevents replacing it.
+        original = dict(result.provenance)
+        assert result.provenance == original
+
+
+# ===================================================================
+# compute_startup_readiness: full coverage
+# ===================================================================
+
+
+def _make_config_set(*routes: RouteConfig) -> RouteConfigSet:
+    """Build a RouteConfigSet from the given routes."""
+    return RouteConfigSet(routes=routes)
+
+
+class TestStartupReadinessAllReady:
+    """When all adapters are READY, startup readiness mirrors build eligibility."""
+
+    def test_all_ready_registered(self) -> None:
+        rcs = _make_config_set(_rc("r1", ("a",), ("b",)))
+        router = Router()
+        reg = register_routes(router, rcs, frozenset({"a", "b"}))
+        readiness = compute_startup_readiness(
+            eligibility=reg.eligibility,
+            adapter_states={"a": AdapterState.READY, "b": AdapterState.READY},
+            provenance=reg.provenance,
+            registered_routes=reg.registered_routes,
+            config_routes=rcs,
+        )
+        assert readiness.route_states["r1"] == RouteOperationalState.REGISTERED
+        assert readiness.degraded == ()
+        assert readiness.skipped == ()
+
+
+class TestStartupReadinessSourceStartFailed:
+    """Source adapter that built but failed to start → SKIPPED."""
+
+    def test_source_start_failed(self) -> None:
+        rcs = _make_config_set(_rc("r1", ("a",), ("b",)))
+        router = Router()
+        reg = register_routes(router, rcs, frozenset({"a", "b"}))
+        readiness = compute_startup_readiness(
+            eligibility=reg.eligibility,
+            adapter_states={"a": AdapterState.FAILED, "b": AdapterState.READY},
+            provenance=reg.provenance,
+            registered_routes=reg.registered_routes,
+            config_routes=rcs,
+        )
+        assert readiness.route_states["r1"] == RouteOperationalState.SKIPPED
+        assert len(readiness.skipped) == 1
+        assert readiness.skipped[0].reason == "source_adapter_start_failed"
+        assert readiness.skipped[0].failed_adapter_ids == ("a",)
+
+
+class TestStartupReadinessPartialTargetsStartFailed:
+    """Some targets failed to start → DEGRADED."""
+
+    def test_partial_targets_start_failed(self) -> None:
+        rcs = _make_config_set(_rc("r1", ("a",), ("b", "c")))
+        router = Router()
+        reg = register_routes(
+            router, rcs,
+            adapter_ids=frozenset({"a", "b", "c"}),
+            built_adapter_ids=frozenset({"a", "b", "c"}),
+        )
+        readiness = compute_startup_readiness(
+            eligibility=reg.eligibility,
+            adapter_states={
+                "a": AdapterState.READY,
+                "b": AdapterState.FAILED,
+                "c": AdapterState.READY,
+            },
+            provenance=reg.provenance,
+            registered_routes=reg.registered_routes,
+            config_routes=rcs,
+        )
+        assert readiness.route_states["r1"] == RouteOperationalState.DEGRADED
+        assert len(readiness.degraded) == 1
+        assert readiness.degraded[0].failed_adapter_ids == ("b",)
+
+
+class TestStartupReadinessAllTargetsStartFailed:
+    """All targets failed to start → SKIPPED."""
+
+    def test_all_targets_start_failed(self) -> None:
+        rcs = _make_config_set(_rc("r1", ("a",), ("b", "c")))
+        router = Router()
+        reg = register_routes(
+            router, rcs,
+            adapter_ids=frozenset({"a", "b", "c"}),
+            built_adapter_ids=frozenset({"a", "b", "c"}),
+        )
+        readiness = compute_startup_readiness(
+            eligibility=reg.eligibility,
+            adapter_states={
+                "a": AdapterState.READY,
+                "b": AdapterState.FAILED,
+                "c": AdapterState.FAILED,
+            },
+            provenance=reg.provenance,
+            registered_routes=reg.registered_routes,
+            config_routes=rcs,
+        )
+        assert readiness.route_states["r1"] == RouteOperationalState.SKIPPED
+        assert len(readiness.skipped) == 1
+        assert readiness.skipped[0].reason == "no_surviving_targets_start_failed"
+        assert set(readiness.skipped[0].failed_adapter_ids) == {"b", "c"}
+
+
+class TestStartupReadinessBuildSkippedUnchanged:
+    """Routes already skipped at build time stay SKIPPED at startup."""
+
+    def test_build_skipped_stays_skipped(self) -> None:
+        rcs = _make_config_set(_rc("r1", ("a",), ("b",)))
+        router = Router()
+        reg = register_routes(
+            router, rcs,
+            adapter_ids=frozenset({"a", "b"}),
+            built_adapter_ids=frozenset({"b"}),  # "a" failed to build
+        )
+        readiness = compute_startup_readiness(
+            eligibility=reg.eligibility,
+            adapter_states={"b": AdapterState.READY},
+            provenance=reg.provenance,
+            registered_routes=reg.registered_routes,
+            config_routes=rcs,
+        )
+        assert readiness.route_states["r1"] == RouteOperationalState.SKIPPED
+        # No new startup skips (it was already skipped at build time)
+        assert readiness.skipped == ()
+
+
+class TestStartupReadinessDisabledUnchanged:
+    """Disabled routes stay DISABLED in startup readiness."""
+
+    def test_disabled_stays_disabled(self) -> None:
+        rcs = _make_config_set(_rc("r1", ("a",), ("b",), enabled=False))
+        router = Router()
+        reg = register_routes(router, rcs, frozenset({"a", "b"}))
+        readiness = compute_startup_readiness(
+            eligibility=reg.eligibility,
+            adapter_states={"a": AdapterState.READY, "b": AdapterState.READY},
+            provenance=reg.provenance,
+            registered_routes=reg.registered_routes,
+            config_routes=rcs,
+        )
+        assert readiness.route_states["r1"] == RouteOperationalState.DISABLED
+
+
+class TestStartupReadinessMixedScenario:
+    """Mixed scenario: registered, start-failed source, partial target failure."""
+
+    def test_mixed_startup_readiness(self) -> None:
+        rcs = _make_config_set(
+            _rc("ok_route", ("a",), ("b",)),
+            _rc("source_fail", ("c",), ("d",)),
+            _rc("partial_targets", ("e",), ("f", "g")),
+        )
+        router = Router()
+        reg = register_routes(
+            router, rcs,
+            adapter_ids=frozenset({"a", "b", "c", "d", "e", "f", "g"}),
+            built_adapter_ids=frozenset({"a", "b", "c", "d", "e", "f", "g"}),
+        )
+        readiness = compute_startup_readiness(
+            eligibility=reg.eligibility,
+            adapter_states={
+                "a": AdapterState.READY,
+                "b": AdapterState.READY,
+                "c": AdapterState.FAILED,  # source_fail source
+                "d": AdapterState.READY,
+                "e": AdapterState.READY,
+                "f": AdapterState.FAILED,  # partial target
+                "g": AdapterState.READY,
+            },
+            provenance=reg.provenance,
+            registered_routes=reg.registered_routes,
+            config_routes=rcs,
+        )
+        assert readiness.route_states["ok_route"] == RouteOperationalState.REGISTERED
+        assert readiness.route_states["source_fail"] == RouteOperationalState.SKIPPED
+        assert readiness.route_states["partial_targets"] == RouteOperationalState.DEGRADED
+
+
+class TestStartupReadinessUnknownRefsStillRaise:
+    """Unknown adapter refs in routes still raise at register time (not startup)."""
+
+    def test_unknown_ref_raises_at_register(self) -> None:
+        rcs = _make_config_set(_rc("r1", ("ghost",), ("b",)))
+        router = Router()
+        with pytest.raises(RouteValidationError, match="unknown source"):
+            register_routes(router, rcs, frozenset({"a", "b"}))
+
+
+class TestStartupReadinessPrefixCollisionStartup:
+    """Startup readiness handles radio/radio_backup correctly."""
+
+    def test_radio_backup_source_fails_radio_ok(self) -> None:
+        rcs = _make_config_set(
+            _rc("radio", ("a",), ("b",)),
+            _rc("radio_backup", ("c",), ("d",)),
+        )
+        router = Router()
+        reg = register_routes(
+            router, rcs,
+            adapter_ids=frozenset({"a", "b", "c", "d"}),
+            built_adapter_ids=frozenset({"a", "b", "c", "d"}),
+        )
+        readiness = compute_startup_readiness(
+            eligibility=reg.eligibility,
+            adapter_states={
+                "a": AdapterState.READY,
+                "b": AdapterState.READY,
+                "c": AdapterState.FAILED,  # radio_backup source
+                "d": AdapterState.READY,
+            },
+            provenance=reg.provenance,
+            registered_routes=reg.registered_routes,
+            config_routes=rcs,
+        )
+        assert readiness.route_states["radio"] == RouteOperationalState.REGISTERED
+        assert readiness.route_states["radio_backup"] == RouteOperationalState.SKIPPED
+
+
+class TestStartupReadinessBidirectional:
+    """Startup readiness handles bidirectional routes with __rev_N provenance."""
+
+    def test_bidirectional_forward_ok_reverse_source_fails(self) -> None:
+        rcs = _make_config_set(
+            _rc("bridge", ("a",), ("b",),
+                directionality=RouteDirectionality.BIDIRECTIONAL),
+        )
+        router = Router()
+        reg = register_routes(
+            router, rcs,
+            adapter_ids=frozenset({"a", "b"}),
+            built_adapter_ids=frozenset({"a", "b"}),
+        )
+        # "b" is source for reverse leg, and it failed to start
+        readiness = compute_startup_readiness(
+            eligibility=reg.eligibility,
+            adapter_states={
+                "a": AdapterState.READY,
+                "b": AdapterState.FAILED,
+            },
+            provenance=reg.provenance,
+            registered_routes=reg.registered_routes,
+            config_routes=rcs,
+        )
+        # Forward is ok (source "a" ready, target "b" failed → degraded)
+        # Reverse skipped (source "b" failed)
+        # Overall: worst state wins → SKIPPED
+        assert readiness.route_states["bridge"] == RouteOperationalState.SKIPPED

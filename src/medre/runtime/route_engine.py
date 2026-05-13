@@ -14,13 +14,16 @@ Public symbols
 * :func:`build_runtime_routes` — expand config routes into core Route objects
 * :func:`validate_route_adapter_refs` — validate adapter references
 * :func:`register_routes` — build, validate, and register routes on a Router
+* :func:`compute_startup_readiness` — derive startup route readiness from adapter states
 * :class:`RouteValidationError` — raised on invalid route adapter references
 * :class:`RouteOperationalState` — typed route readiness / state enum
 * :class:`DegradedRoute` — a route registered with partial target loss
 * :class:`SkippedRoute` — a route skipped due to adapter build failure
 * :class:`UnavailableRoute` — a route unavailable due to unknown adapter refs
+* :class:`ExpandedRouteProvenance` — explicit expansion mapping with config origin
 * :class:`RouteEligibility` — structured route readiness metadata
 * :class:`RouteRegistrationResult` — frozen dataclass with routes and eligibility
+* :class:`RouteStartupReadiness` — startup-derived route readiness from adapter states
 """
 
 from __future__ import annotations
@@ -35,17 +38,21 @@ from medre.core.routing.router import Router
 from medre.runtime.errors import RuntimeConfigError
 
 if TYPE_CHECKING:
+    from medre.core.lifecycle.states import AdapterState
     from medre.runtime.routes import RouteConfig, RouteConfigSet
 
 __all__ = [
     "DegradedRoute",
+    "ExpandedRouteProvenance",
     "RouteEligibility",
     "RouteOperationalState",
     "RouteRegistrationResult",
+    "RouteStartupReadiness",
     "RouteValidationError",
     "SkippedRoute",
     "UnavailableRoute",
     "build_runtime_routes",
+    "compute_startup_readiness",
     "register_routes",
     "validate_route_adapter_refs",
 ]
@@ -161,6 +168,59 @@ class UnavailableRoute:
 
 
 @dataclass(frozen=True)
+class ExpandedRouteProvenance:
+    """Explicit mapping from an expanded route to its config route origin.
+
+    Carries the triple ``(config_route_id, expanded_route_id, Route)``
+    so that downstream consumers can deterministically map any expanded
+    route back to the configuration entry that produced it — without
+    relying on string-prefix inference.
+
+    Attributes
+    ----------
+    config_route_id:
+        The route ID from the :class:`RouteConfig`.
+    expanded_route_id:
+        The route ID assigned to the expanded :class:`Route` (may equal
+        *config_route_id* for single-source non-swapped routes).
+    route:
+        The expanded core :class:`Route` object.
+    """
+
+    config_route_id: str
+    expanded_route_id: str
+    route: Route
+
+
+@dataclass(frozen=True)
+class RouteStartupReadiness:
+    """Startup-derived route readiness based on adapter lifecycle states.
+
+    Unlike :class:`RouteEligibility` (which reflects build-time adapter
+    availability), this captures the route state **after** adapters have
+    attempted to start.  An adapter that built successfully but failed
+    during :meth:`~medre.runtime.app.MedreApp.start` will downgrade
+    routes that depend on it.
+
+    Attributes
+    ----------
+    route_states:
+        Mapping from config route ID to :class:`RouteOperationalState`.
+        Keys are deterministically sorted.  Covers all config route IDs.
+    degraded:
+        Expanded routes registered with partial target loss due to
+        adapter start failures.
+    skipped:
+        Expanded routes skipped due to adapter start failures (source
+        failed or all targets failed).
+    """
+
+    route_states: dict[str, RouteOperationalState]
+    degraded: tuple[DegradedRoute, ...]
+    skipped: tuple[SkippedRoute, ...]
+
+
+@dataclass(frozen=True)
 class RouteEligibility:
     """Structured route readiness metadata after registration.
 
@@ -209,16 +269,22 @@ class RouteRegistrationResult:
     eligibility:
         Structured readiness metadata describing configured, registered,
         disabled, degraded, skipped, and unavailable routes.
+    provenance:
+        Explicit mapping from expanded route ID to config route ID.
+        Used to avoid string-prefix inference when mapping expanded
+        routes back to their config route origins.
     """
 
     registered_routes: tuple[Route, ...]
     eligibility: RouteEligibility
+    provenance: dict[str, str]
 
     def __repr__(self) -> str:
         return (
             f"RouteRegistrationResult("
             f"registered_routes=({len(self.registered_routes)} routes), "
-            f"eligibility={self.eligibility!r})"
+            f"eligibility={self.eligibility!r}, "
+            f"provenance=({len(self.provenance)} mappings))"
         )
 
 
@@ -376,6 +442,55 @@ def _expand_route_config(
     return routes
 
 
+def _expand_all_routes(
+    route_config_set: RouteConfigSet,
+) -> tuple[list[Route], dict[str, str]]:
+    """Expand enabled route configs into core Route objects with provenance.
+
+    Returns
+    -------
+    tuple[list[Route], dict[str, str]]
+        A pair of (expanded routes, provenance mapping).
+        The provenance dict maps ``expanded_route_id → config_route_id``.
+    """
+    from medre.runtime.routes import RouteDirectionality
+
+    all_routes: list[Route] = []
+    provenance: dict[str, str] = {}  # expanded_id → config_route_id
+
+    for rc in route_config_set.routes:
+        if not rc.enabled:
+            _logger.debug("Skipping disabled route %r", rc.route_id)
+            continue
+
+        direction = rc.directionality
+
+        new_routes: list[Route] = []
+        if direction == RouteDirectionality.SOURCE_TO_DEST:
+            new_routes = _expand_route_config(rc)
+        elif direction == RouteDirectionality.DEST_TO_SOURCE:
+            new_routes = _expand_route_config(rc, swap_direction=True)
+        elif direction == RouteDirectionality.BIDIRECTIONAL:
+            new_routes = _expand_route_config(rc)
+            new_routes.extend(_expand_route_config(rc, swap_direction=True))
+
+        # Validate expanded route IDs are unique before accumulating.
+        for r in new_routes:
+            if r.id in provenance:
+                raise RouteValidationError(
+                    f"Expanded route ID collision: {r.id!r} from route "
+                    f"{rc.route_id!r} conflicts with route "
+                    f"{provenance[r.id]!r}. Route IDs must be unique and "
+                    f"must not match the expansion pattern "
+                    f"'<id>__<N>' or '<id>__rev_<N>'."
+                )
+            provenance[r.id] = rc.route_id
+
+        all_routes.extend(new_routes)
+
+    return all_routes, provenance
+
+
 def build_runtime_routes(
     route_config_set: RouteConfigSet,
 ) -> list[Route]:
@@ -406,42 +521,8 @@ def build_runtime_routes(
     list[Route]
         Ordered list of core route objects ready for registration.
     """
-    from medre.runtime.routes import RouteDirectionality
-
-    all_routes: list[Route] = []
-    expanded_ids: dict[str, str] = {}  # expanded_id → config route_id
-
-    for rc in route_config_set.routes:
-        if not rc.enabled:
-            _logger.debug("Skipping disabled route %r", rc.route_id)
-            continue
-
-        direction = rc.directionality
-
-        new_routes: list[Route] = []
-        if direction == RouteDirectionality.SOURCE_TO_DEST:
-            new_routes = _expand_route_config(rc)
-        elif direction == RouteDirectionality.DEST_TO_SOURCE:
-            new_routes = _expand_route_config(rc, swap_direction=True)
-        elif direction == RouteDirectionality.BIDIRECTIONAL:
-            new_routes = _expand_route_config(rc)
-            new_routes.extend(_expand_route_config(rc, swap_direction=True))
-
-        # Validate expanded route IDs are unique before accumulating.
-        for r in new_routes:
-            if r.id in expanded_ids:
-                raise RouteValidationError(
-                    f"Expanded route ID collision: {r.id!r} from route "
-                    f"{rc.route_id!r} conflicts with route "
-                    f"{expanded_ids[r.id]!r}. Route IDs must be unique and "
-                    f"must not match the expansion pattern "
-                    f"'<id>__<N>' or '<id>__rev_<N>'."
-                )
-            expanded_ids[r.id] = rc.route_id
-
-        all_routes.extend(new_routes)
-
-    return all_routes
+    routes, _provenance = _expand_all_routes(route_config_set)
+    return routes
 
 
 # ---------------------------------------------------------------------------
@@ -575,7 +656,7 @@ def register_routes(
     built_adapter_ids:
         Frozenset of adapter IDs that were **successfully** built.
         When ``None`` (the default), it falls back to *adapter_ids*
-        for full backward compatibility.  When provided, routes whose
+        for consistent behavior when build status is unavailable.  When provided, routes whose
         source or target adapters are in *adapter_ids* but not in
         *built_adapter_ids* are degraded rather than raising.
 
@@ -608,8 +689,8 @@ def register_routes(
     # Step 1: Validate adapter references against configured IDs.
     validate_route_adapter_refs(route_config_set, adapter_ids)
 
-    # Step 2: Build core routes.
-    routes = build_runtime_routes(route_config_set)
+    # Step 2: Build core routes with explicit provenance.
+    routes, provenance = _expand_all_routes(route_config_set)
 
     if not routes:
         _logger.info("No enabled routes to register")
@@ -626,7 +707,7 @@ def register_routes(
             unavailable=(),
             route_states=route_states,
         )
-        return RouteRegistrationResult((), eligibility)
+        return RouteRegistrationResult((), eligibility, provenance)
 
     # Step 3: Degrade routes referencing adapters that failed to build.
     skipped_routes: list[SkippedRoute] = []
@@ -718,21 +799,28 @@ def register_routes(
     degraded_ids = {dr.route_id for dr in degraded_routes}
     registered_ids = {r.id for r in registered_routes}
 
+    # Build a reverse provenance: config_route_id → set of expanded route IDs.
+    config_to_expanded: dict[str, set[str]] = {}
+    for expanded_id, config_id in provenance.items():
+        config_to_expanded.setdefault(config_id, set()).add(expanded_id)
+
     route_states: dict[str, RouteOperationalState] = {}
     # Disabled routes.
     for rid in sorted(disabled_config_ids):
         route_states[rid] = RouteOperationalState.DISABLED
-    # Enabled routes: map expanded route IDs to their operational state.
+    # Enabled routes: map expanded route IDs to their operational state
+    # using explicit provenance (no string-prefix inference).
     for rid in sorted(enabled_config_ids):
-        # Check expanded route IDs derived from this config route.
-        # A config route may expand to multiple route IDs (e.g. __0, __1).
-        # We map the config route ID to the worst state among its expansions.
-        matching_skipped = [sr for sr in skipped_routes if sr.route_id.startswith(rid)]
-        matching_degraded = [dr for dr in degraded_routes if dr.route_id.startswith(rid)]
-        matching_registered = [r for r in registered_routes if r.id.startswith(rid)]
+        expanded = config_to_expanded.get(rid, set())
+        matching_skipped = [sr for sr in skipped_routes if sr.route_id in expanded]
+        matching_degraded = [dr for dr in degraded_routes if dr.route_id in expanded]
+        matching_registered = [r for r in registered_routes if r.id in expanded]
 
         if matching_skipped and not matching_registered:
             route_states[rid] = RouteOperationalState.SKIPPED
+        elif matching_skipped and matching_registered:
+            # Some expanded routes skipped, some registered — degraded.
+            route_states[rid] = RouteOperationalState.DEGRADED
         elif matching_degraded:
             route_states[rid] = RouteOperationalState.DEGRADED
         elif matching_registered:
@@ -750,4 +838,179 @@ def register_routes(
         unavailable=(),
         route_states=route_states,
     )
-    return RouteRegistrationResult(tuple(registered_routes), eligibility)
+    return RouteRegistrationResult(tuple(registered_routes), eligibility, provenance)
+
+
+# ---------------------------------------------------------------------------
+# Startup readiness
+# ---------------------------------------------------------------------------
+
+
+def compute_startup_readiness(
+    eligibility: RouteEligibility,
+    adapter_states: dict[str, AdapterState],
+    provenance: dict[str, str],
+    registered_routes: tuple[Route, ...],
+    config_routes: RouteConfigSet,
+) -> RouteStartupReadiness:
+    """Derive startup route readiness from adapter lifecycle states.
+
+    This function is called **after** :meth:`~medre.runtime.app.MedreApp.start`
+    has completed adapter startup.  It examines the per-adapter lifecycle
+    states (which reflect startup outcomes) and produces a startup readiness
+    assessment that is independent of build-time eligibility.
+
+    Rules:
+
+    * **Disabled** routes remain DISABLED.
+    * Routes already **SKIPPED** at build time remain SKIPPED (build
+      eligibility is the source of truth for build failures).
+    * For routes that were REGISTERED or DEGRADED at build time:
+      - If the source adapter has state ``FAILED`` → SKIPPED
+        (reason: ``source_adapter_start_failed``).
+      - If some target adapters have state ``FAILED`` but others are
+        ``READY`` → DEGRADED.
+      - If all target adapters have state ``FAILED`` → SKIPPED
+        (reason: ``no_surviving_targets_start_failed``).
+      - If source and all targets are ``READY`` → REGISTERED.
+    * Adapters in states other than ``FAILED`` or ``READY`` (e.g.
+      ``DEGRADED``, ``BACKPRESSURED``) are treated as surviving for
+      routing purposes.
+
+    Parameters
+    ----------
+    eligibility:
+        Build-time route eligibility from :func:`register_routes`.
+    adapter_states:
+        Per-adapter lifecycle states populated during startup.
+    provenance:
+        Explicit mapping from expanded route ID to config route ID
+        (from :class:`RouteRegistrationResult`).
+    registered_routes:
+        Tuple of routes that were registered on the router at build time.
+    config_routes:
+        The original route configuration set (to inspect disabled routes).
+
+    Returns
+    -------
+    RouteStartupReadiness
+        Startup-derived readiness assessment with per-route states.
+    """
+    from medre.core.lifecycle.states import AdapterState
+
+    # Build reverse provenance: config_route_id → set of expanded route IDs.
+    config_to_expanded: dict[str, set[str]] = {}
+    for expanded_id, config_id in provenance.items():
+        config_to_expanded.setdefault(config_id, set()).add(expanded_id)
+
+    # Index registered routes by expanded ID for lookup.
+    route_by_id: dict[str, Route] = {r.id: r for r in registered_routes}
+
+    startup_degraded: list[DegradedRoute] = []
+    startup_skipped: list[SkippedRoute] = []
+    startup_route_states: dict[str, RouteOperationalState] = {}
+
+    # Collect all config route IDs.
+    all_config_ids: set[str] = set()
+    for rc in config_routes.routes:
+        all_config_ids.add(rc.route_id)
+
+    for config_id in sorted(all_config_ids):
+        # Check if disabled.
+        if config_id in {rid for rid in eligibility.disabled}:
+            startup_route_states[config_id] = RouteOperationalState.DISABLED
+            continue
+
+        # Check if already skipped at build time.
+        expanded = config_to_expanded.get(config_id, set())
+        build_skipped = [
+            sr for sr in eligibility.skipped if sr.route_id in expanded
+        ]
+        if build_skipped and not any(r.id in expanded for r in registered_routes):
+            startup_route_states[config_id] = RouteOperationalState.SKIPPED
+            continue
+
+        # Routes that were registered (or degraded) at build time.
+        # Check each expanded route's adapter states.
+        any_registered = False
+        any_degraded = False
+        any_skipped = False
+
+        for expanded_id in sorted(expanded):
+            route = route_by_id.get(expanded_id)
+            if route is None:
+                continue
+
+            src = route.source.adapter
+            if src is not None:
+                src_state = adapter_states.get(src)
+                if src_state is AdapterState.FAILED:
+                    _logger.warning(
+                        "Startup readiness: route %r source adapter %r "
+                        "failed to start — skipping",
+                        expanded_id, src,
+                    )
+                    startup_skipped.append(SkippedRoute(
+                        route_id=expanded_id,
+                        reason="source_adapter_start_failed",
+                        failed_adapter_ids=(src,),
+                    ))
+                    any_skipped = True
+                    continue
+
+            # Check target adapter states.
+            failed_target_ids: list[str] = []
+            surviving_count = 0
+            for t in route.targets:
+                if t.adapter is None:
+                    surviving_count += 1
+                    continue
+                t_state = adapter_states.get(t.adapter)
+                if t_state is AdapterState.FAILED:
+                    failed_target_ids.append(t.adapter)
+                else:
+                    surviving_count += 1
+
+            if surviving_count == 0:
+                _logger.warning(
+                    "Startup readiness: route %r has no surviving targets "
+                    "after startup — skipping",
+                    expanded_id,
+                )
+                startup_skipped.append(SkippedRoute(
+                    route_id=expanded_id,
+                    reason="no_surviving_targets_start_failed",
+                    failed_adapter_ids=tuple(sorted(failed_target_ids)),
+                ))
+                any_skipped = True
+            elif failed_target_ids:
+                _logger.warning(
+                    "Startup readiness: route %r degraded — target "
+                    "adapters %r failed to start",
+                    expanded_id, failed_target_ids,
+                )
+                startup_degraded.append(DegradedRoute(
+                    route_id=expanded_id,
+                    failed_adapter_ids=tuple(sorted(failed_target_ids)),
+                ))
+                any_degraded = True
+                any_registered = True
+            else:
+                any_registered = True
+
+        if any_skipped and not any_registered:
+            startup_route_states[config_id] = RouteOperationalState.SKIPPED
+        elif any_degraded:
+            startup_route_states[config_id] = RouteOperationalState.DEGRADED
+        elif any_registered:
+            startup_route_states[config_id] = RouteOperationalState.REGISTERED
+        else:
+            # Config route was configured but had no expanded routes
+            # (shouldn't happen normally).
+            startup_route_states[config_id] = RouteOperationalState.SKIPPED
+
+    return RouteStartupReadiness(
+        route_states=startup_route_states,
+        degraded=tuple(startup_degraded),
+        skipped=tuple(startup_skipped),
+    )

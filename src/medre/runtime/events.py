@@ -33,7 +33,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from medre.core.runtime.diagnostic_contract import _sanitize_dict
+from medre.core.runtime.diagnostic_contract import sanitize_diagnostic_mapping
 
 __all__ = ["RuntimeEvent", "RuntimeEventType", "EventBuffer"]
 
@@ -76,7 +76,7 @@ def _sanitize_detail(detail: dict[str, Any]) -> dict[str, Any]:
     """Return a JSON-safe, bounded, secret-free copy of *detail*.
 
     Delegates to the central diagnostics sanitizer
-    (:func:`~medre.core.runtime.diagnostic_contract._sanitize_dict`)
+    (:func:`~medre.core.runtime.diagnostic_contract.sanitize_diagnostic_mapping`)
     which:
 
     * Strips keys matching known secret patterns (password, api_key, etc.).
@@ -85,7 +85,7 @@ def _sanitize_detail(detail: dict[str, Any]) -> dict[str, Any]:
       with safe type-name placeholders.
     * Truncates oversized string values.
     """
-    return _sanitize_dict(detail)
+    return sanitize_diagnostic_mapping(detail)
 
 
 @dataclass(frozen=True)

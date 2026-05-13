@@ -298,7 +298,7 @@ class ReplayRequest:
         deliver stage result set to ``"skipped"``.
     route_ids:
         Restrict routing to only these route IDs.  ``()`` (empty) means
-        all routes are considered (backward compatible).  When non-empty,
+        all routes are considered.  When non-empty,
         only routes whose ``id`` appears in this tuple are used during
         replay.  If a requested route ID is disabled or does not match
         the event, a warning is recorded in the route attribution.
@@ -1435,8 +1435,8 @@ class ReplayEngine:
         :meth:`_stage_deliver` can call ``deliver_to_targets``.
         For stub pipelines where the second element is not a
         ``DeliveryPlan``, the ``plan_delivery`` fallback path is used
-        and bare plans are returned for backward compatibility with the
-        ``deliver()`` method.
+        and bare plans are returned so that :meth:`_stage_deliver`
+        can process them.
         """
         t0 = time.monotonic()
         if route_result is None:
@@ -1821,7 +1821,7 @@ def _filter_replay_loops(
     # explicitly provided (called from _stage_route), use it — even if
     # it is None (fresh event, no prior routing).  When left as the
     # default sentinel, fall back to the event's current routing
-    # metadata for backward compatibility with unit tests.
+        # metadata as a fallback when no explicit routing context is provided.
     prev_matched: set[str] = set()
     if previous_routing is _UNSET:
         routing_meta = event.metadata.routing

@@ -77,7 +77,40 @@ These rules are pure, deterministic, and transport-agnostic. They depend only on
 
 **Key invariant:** Partial startup is allowed. The runtime enters `DEGRADED` state. Only total startup failure (zero adapters started) is fatal.
 
-## 4. Runtime Diagnostics Aggregation
+## 4. Adapter Lifecycle State Registry
+
+`MedreApp` owns an authoritative per-adapter lifecycle state registry (`_adapter_states: dict[str, AdapterState]`) that tracks each adapter's lifecycle state through build, start, stop, and cleanup.
+
+### 4.1 State Source of Truth
+
+The registry is the single source of truth for adapter lifecycle states. Runtime health classification (`classify_runtime_health`) consumes registry values rather than constructing ephemeral state lists.
+
+### 4.2 State Mutation Points
+
+| When | State set | Transition |
+|------|-----------|------------|
+| Before adapter start loop | `INITIALIZING` | (initial) |
+| Build failure | `FAILED` | (initial) |
+| Successful adapter start | `READY` | `INITIALIZING` → `READY` |
+| Adapter start failure | `FAILED` | `INITIALIZING` → `FAILED` |
+| Before adapter stop | `STOPPING` | `READY` → `STOPPING` |
+| Successful adapter stop | `STOPPED` | `STOPPING` → `STOPPED` |
+| Adapter stop failure | `FAILED` | `STOPPING` → `FAILED` |
+| Cleanup: successful stop | `STOPPED` | `STOPPING` → `STOPPED` |
+| Cleanup: failed stop | `FAILED` | `STOPPING` → `FAILED` |
+| Never-started adapter during stop | `FAILED` | `INITIALIZING` → `FAILED` |
+
+All transitions are validated via `require_valid_transition()`. Initial assignments (adapter not yet in registry) bypass validation.
+
+### 4.3 Read-Only Access
+
+The `adapter_states` property returns a shallow copy of the registry. Snapshot consumers read from `_adapter_states` directly.
+
+### 4.4 Snapshot Exposure
+
+Per-adapter lifecycle states are exposed in the snapshot under `lifecycle.adapters` as a sorted `{adapter_id: state_string}` mapping (Contract 63 §5.3).
+
+## 5. Runtime Diagnostics Aggregation
 
 The supervision module provides a diagnostics snapshot hook:
 
@@ -90,7 +123,7 @@ Returns a JSON-safe dictionary containing:
 
 This is observational only. It does not trigger restarts, alerts, or state changes.
 
-### 4.1 Snapshot Health Field Semantics
+### 5.1 Snapshot Health Field Semantics
 
 The runtime snapshot exposes health through two explicit top-level fields:
 
@@ -101,7 +134,7 @@ The runtime snapshot exposes health through two explicit top-level fields:
 
 The split ensures operators cannot confuse the one-time startup health assessment with live runtime health. When active health polling is implemented in a future tranche, `live_health` will carry refreshed data while `startup_health` retains its original value for comparison.
 
-## 5. Architectural Boundaries
+## 6. Architectural Boundaries
 
 The following boundaries are enforced by tests:
 
@@ -114,7 +147,7 @@ The following boundaries are enforced by tests:
 | Accounting code | Transport SDKs, concrete adapter packages | Runtime core modules only |
 | Persistence contract | Transport SDKs, concrete adapter packages | Runtime core modules only |
 
-## 6. Test Coverage Requirements
+## 7. Test Coverage Requirements
 
 1. **Classification tests:** `RuntimeHealth` classification for all meaningful combinations of `AdapterState` values.
 2. **Failure severity tests:** `FATAL` when all adapters down, `NON_FATAL` when some remain.
@@ -122,7 +155,7 @@ The following boundaries are enforced by tests:
 4. **Boundary tests:** Import-line analysis ensuring no transport SDK or concrete adapter package leakage.
 5. **Fake adapters only:** No live transport dependencies in any supervision test.
 
-## 7. Deferred
+## 8. Deferred
 
 The following are explicitly out of scope:
 
