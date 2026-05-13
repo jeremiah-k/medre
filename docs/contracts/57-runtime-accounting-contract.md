@@ -153,6 +153,12 @@ gate *before* any adapter interaction. Durable evidence of the rejection
 is recorded via `RuntimeAccounting` counters and `RouteStats`, not via
 `delivery_receipts`.
 
+**Receipt traceability:** When receipts are created, each `DeliveryReceipt`
+carries a `source` field (`"live"` or `"replay"`) and a nullable
+`replay_run_id` field. These distinguish live delivery receipts from
+replay delivery receipts at the storage layer. `RuntimeAccounting`
+remains process-local and is not affected by receipt traceability fields.
+
 ## Relationship to Existing Metrics
 
 | Module | Scope | Overlap |

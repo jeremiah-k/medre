@@ -1322,3 +1322,153 @@ class TestSchemaShapeValidation:
         await temp_storage.append(event)
         retrieved = await temp_storage.get(event.event_id)
         assert retrieved is not None
+
+
+# ===================================================================
+# Receipt source and replay_run_id round-trip
+# ===================================================================
+
+
+class TestReceiptSourceReplayRunId:
+    """DeliveryReceipt source and replay_run_id fields round-trip through
+    storage and are populated correctly by default."""
+
+    async def test_live_receipt_round_trip(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """A receipt with source='live' and no replay_run_id round-trips."""
+        event = _make_event(event_id="evt-live-rcpt")
+        await temp_storage.append(event)
+
+        receipt = DeliveryReceipt(
+            receipt_id="rcpt-live-1",
+            event_id="evt-live-rcpt",
+            delivery_plan_id="plan-live",
+            target_adapter="adapter_a",
+            status="sent",
+            source="live",
+        )
+        await temp_storage.append_receipt(receipt)
+
+        fetched = await temp_storage.delivery_status("plan-live", "adapter_a")
+        assert fetched is not None
+        assert fetched.source == "live"
+        assert fetched.replay_run_id is None
+
+    async def test_replay_receipt_round_trip(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """A receipt with source='replay' and replay_run_id round-trips."""
+        event = _make_event(event_id="evt-replay-rcpt")
+        await temp_storage.append(event)
+
+        receipt = DeliveryReceipt(
+            receipt_id="rcpt-replay-1",
+            event_id="evt-replay-rcpt",
+            delivery_plan_id="plan-replay",
+            target_adapter="adapter_b",
+            status="sent",
+            source="replay",
+            replay_run_id="run-abc-123",
+        )
+        await temp_storage.append_receipt(receipt)
+
+        fetched = await temp_storage.delivery_status("plan-replay", "adapter_b")
+        assert fetched is not None
+        assert fetched.source == "replay"
+        assert fetched.replay_run_id == "run-abc-123"
+
+    async def test_default_source_is_live(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """DeliveryReceipt default source is 'live' and replay_run_id is None."""
+        receipt = DeliveryReceipt(
+            receipt_id="rcpt-default",
+            event_id="evt-default",
+            delivery_plan_id="plan-default",
+            target_adapter="adapter_c",
+            status="queued",
+        )
+        assert receipt.source == "live"
+        assert receipt.replay_run_id is None
+
+    async def test_list_receipts_preserves_source_fields(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """list_receipts_for_plan preserves source and replay_run_id."""
+        event = _make_event(event_id="evt-list-rcpt")
+        await temp_storage.append(event)
+
+        r1 = DeliveryReceipt(
+            receipt_id="rcpt-list-1",
+            event_id="evt-list-rcpt",
+            delivery_plan_id="plan-list",
+            target_adapter="adapter_d",
+            status="sent",
+            source="live",
+            attempt_number=1,
+        )
+        r2 = DeliveryReceipt(
+            receipt_id="rcpt-list-2",
+            event_id="evt-list-rcpt",
+            delivery_plan_id="plan-list",
+            target_adapter="adapter_d",
+            status="sent",
+            source="replay",
+            replay_run_id="run-xyz",
+            attempt_number=2,
+            parent_receipt_id="rcpt-list-1",
+        )
+        await temp_storage.append_receipt(r1)
+        await temp_storage.append_receipt(r2)
+
+        receipts = await temp_storage.list_receipts_for_plan("plan-list", "adapter_d")
+        assert len(receipts) == 2
+        assert receipts[0].source == "live"
+        assert receipts[0].replay_run_id is None
+        assert receipts[1].source == "replay"
+        assert receipts[1].replay_run_id == "run-xyz"
+
+
+# ===================================================================
+# IntegrityError classification in _write_batch
+# ===================================================================
+
+
+class TestIntegrityErrorClassification:
+    """_write_batch distinguishes canonical_events PK violations from other
+    IntegrityErrors."""
+
+    async def test_duplicate_event_raises_duplicate_event_error(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Appending a duplicate canonical event raises DuplicateEventError."""
+        event = _make_event(event_id="evt-dup-classify")
+        await temp_storage.append(event)
+
+        with pytest.raises(DuplicateEventError):
+            await temp_storage.append(event)
+
+    async def test_non_canonical_integrity_error_raises_storage_error(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """A UNIQUE constraint violation on delivery_receipts (not
+        canonical_events) raises StorageError, not DuplicateEventError."""
+        event = _make_event(event_id="evt-unique-rcpt")
+        await temp_storage.append(event)
+
+        receipt = DeliveryReceipt(
+            receipt_id="rcpt-dup-unique",
+            event_id="evt-unique-rcpt",
+            delivery_plan_id="plan-unique",
+            target_adapter="adapter_u",
+            status="sent",
+        )
+        await temp_storage.append_receipt(receipt)
+
+        # Insert same receipt_id again — UNIQUE constraint on
+        # delivery_receipts.receipt_id, NOT canonical_events.
+        with pytest.raises(StorageError) as exc_info:
+            await temp_storage.append_receipt(receipt)
+        # Must NOT be a DuplicateEventError.
+        assert not isinstance(exc_info.value, DuplicateEventError)

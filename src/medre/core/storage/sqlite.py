@@ -107,6 +107,8 @@ CREATE TABLE IF NOT EXISTS delivery_receipts (
     next_retry_at TEXT,
     attempt_number INTEGER NOT NULL DEFAULT 1,
     parent_receipt_id TEXT,
+    source TEXT NOT NULL DEFAULT 'live',
+    replay_run_id TEXT,
     created_at TEXT NOT NULL
 );
 
@@ -114,7 +116,7 @@ CREATE VIEW IF NOT EXISTS delivery_status AS
 SELECT dr.sequence, dr.receipt_id, dr.event_id, dr.delivery_plan_id,
        dr.target_adapter, dr.route_id, dr.status, dr.error,
        dr.adapter_message_id, dr.next_retry_at, dr.attempt_number,
-       dr.parent_receipt_id, dr.created_at
+       dr.parent_receipt_id, dr.source, dr.replay_run_id, dr.created_at
 FROM delivery_receipts dr
 JOIN (
     SELECT delivery_plan_id, target_adapter, MAX(sequence) AS max_seq
@@ -178,7 +180,7 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
         "sequence", "receipt_id", "event_id", "delivery_plan_id",
         "target_adapter", "route_id", "status", "error",
         "adapter_message_id", "next_retry_at", "attempt_number",
-        "parent_receipt_id", "created_at",
+        "parent_receipt_id", "source", "replay_run_id", "created_at",
     }),
     "plugin_state": frozenset({
         "plugin_id", "key", "value", "updated_at",
@@ -225,8 +227,8 @@ _INSERT_RECEIPT = """
 INSERT INTO delivery_receipts
     (receipt_id, event_id, delivery_plan_id, target_adapter,
      route_id, status, error, adapter_message_id, next_retry_at,
-     attempt_number, parent_receipt_id, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     attempt_number, parent_receipt_id, source, replay_run_id, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 _SELECT_EVENT = "SELECT * FROM canonical_events WHERE event_id = ?"
@@ -352,6 +354,8 @@ def _row_to_receipt(row: dict[str, Any]) -> DeliveryReceipt:
         ),
         attempt_number=row.get("attempt_number", 1),
         parent_receipt_id=row.get("parent_receipt_id"),
+        source=row.get("source", "live"),
+        replay_run_id=row.get("replay_run_id"),
         created_at=datetime.fromisoformat(row["created_at"]),
     )
 
@@ -594,9 +598,18 @@ class SQLiteStorage:
             else:
                 await asyncio.to_thread(self._sync_write_batch, db, ops)
         except sqlite3.IntegrityError as exc:
-            raise DuplicateEventError(
-                f"Duplicate event: {exc}"
-            ) from exc
+            msg = str(exc)
+            # Only raise DuplicateEventError for canonical_events PK/UNIQUE
+            # violations.  Other IntegrityErrors (FK violations, etc.) are
+            # raised as generic StorageError.
+            if "canonical_events" in msg and (
+                "UNIQUE constraint failed" in msg
+                or "PRIMARY KEY" in msg.upper()
+            ):
+                raise DuplicateEventError(
+                    f"Duplicate event: {exc}"
+                ) from exc
+            raise StorageError(f"Batch write failed: {exc}") from exc
         except sqlite3.Error as exc:
             raise StorageError(f"Batch write failed: {exc}") from exc
 
@@ -842,6 +855,8 @@ class SQLiteStorage:
                 else None,
                 receipt.attempt_number,
                 receipt.parent_receipt_id,
+                receipt.source,
+                receipt.replay_run_id,
                 receipt.created_at.isoformat(),
             ),
         )

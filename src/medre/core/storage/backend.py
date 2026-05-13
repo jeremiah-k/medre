@@ -205,7 +205,12 @@ class StorageBackend(Protocol):
     # -- Receipts -----------------------------------------------------------
 
     async def append_receipt(self, receipt: DeliveryReceipt) -> None:
-        """Append a delivery receipt record."""
+        """Append a delivery receipt record.
+
+        The receipt's ``source`` field indicates the origin (``"live"`` or
+        ``"replay"``); ``replay_run_id`` is populated when
+        ``source="replay"``.
+        """
         ...
 
     async def delivery_status(

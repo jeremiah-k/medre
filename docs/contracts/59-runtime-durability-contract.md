@@ -71,6 +71,7 @@ The following state survives process termination (crash, shutdown, or restart). 
 |-------|---------------|--------------|
 | Canonical events | Yes | During pipeline store step, before delivery |
 | Delivery receipts | Yes | After each delivery attempt completes |
+| Receipt traceability (`source`, `replay_run_id` on receipts) | Yes | With the delivery receipt |
 | Route attribution (`route_id` on receipts) | Yes | With the delivery receipt |
 | Native references (platform message IDs) | Yes | With the delivery receipt |
 | Cross-adapter relationships | Yes | During pipeline store step |
@@ -124,11 +125,12 @@ All `CapacityController`, `RouteStats`, `RuntimeAccounting`, and `Diagnostician`
 
 `ReplayMode.BEST_EFFORT` is the only replay mode that produces storage side effects. Its behavior:
 
-- Every BEST_EFFORT delivery creates **new** `DeliveryReceipt` and `NativeMessageRef` records in storage.
-- These records are **not distinguishable** from live (non-replay) records at the storage layer — they share the same schema, auto-incremented sequence numbers, and ID formats.
-- `run_id` is available in the `ReplaySummary` and per-event result stream only. It does **not** propagate to stored `DeliveryReceipt` or `NativeMessageRef` records. Downstream consumers that need to correlate replay deliveries must use application-level deduplication or inspect replay envelope metadata in the result output.
+- Every BEST_EFFORT delivery creates **new** `DeliveryReceipt` and `NativeMessageRef` records in storage. These are durable `DeliveryReceipt` records indistinguishable in schema from live receipts, but **distinguishable by origin** via the `source` and `replay_run_id` columns.
+- `source` is set to `"replay"` on replay-produced receipts (live deliveries use `"live"`). `replay_run_id` carries the replay run's ID, enabling operators to trace which receipts originated from a specific replay run. `replay_run_id` is for operator tracing only.
+- **Traceability is not deduplication.** Replay may still produce duplicate sends — replaying an event that was previously delivered will produce a second delivery attempt with no storage-level deduplication. Traceability means the operator can identify which receipts came from replay using `source` and `replay_run_id`.
 - `ReplaySummary` itself is **not durably persisted**. It is an in-memory dataclass returned to the caller. Process crash or restart loses it entirely; the replay must be re-run to regenerate the summary.
 - **Duplicate-send risk** applies to all adapter transports. Replaying an event that was previously delivered will produce a second delivery attempt with no storage-level deduplication.
+- `RuntimeAccounting` remains process-local and is reset on restart. Receipt traceability fields (`source`, `replay_run_id`) are stored in the durable `DeliveryReceipt` record and survive crashes.
 
 
 ## 5. Degraded-Runtime Semantics
@@ -229,9 +231,9 @@ The following are explicitly **not** provided:
 - **Exactly-once delivery.** MEDRE is best-effort. Delivery receipts may be duplicated on retry. Events may be delivered more than once.
 - **Transactionality.** There is no transactional boundary across multiple adapter deliveries. A fan-out to 3 adapters may have 2 succeed and 1 fail.
 - **Persistent in-flight recovery.** In-flight work is lost on crash or shutdown. No retry of abandoned deliveries.
-- **Replay deduplication.** Replayed events may produce duplicate deliveries. BEST_EFFORT replay creates new `DeliveryReceipt` and `NativeMessageRef` records indistinguishable from live records (see §4.3).
+- **Replay deduplication.** Replayed events may produce duplicate deliveries. BEST_EFFORT replay creates new `DeliveryReceipt` and `NativeMessageRef` records. Replay receipts are distinguishable from live receipts by `source`/`replay_run_id` (see §4.3), but no deduplication mechanism prevents duplicate sends.
 - **Replay resume.** An interrupted replay run must be re-initiated manually. Completed `ReplaySummary` results are not durably persisted.
-- **Replay run audit.** There is no persistent replay run or audit table. `run_id` is available only in the result stream and summary, not in stored records.
+- **Replay run audit table.** There is no separate persistent replay run or audit table. Replay run traceability is available via `source` and `replay_run_id` columns on `delivery_receipts`, not via a dedicated audit store.
 - **Distributed durability.** State is local to the machine. No replication or consensus.
 - **Persistence of in-memory counters.** All diagnostic, capacity, route, and accounting counters are zeroed on startup.
 - **Database size bounding.** SQLite grows with event volume. No automatic pruning or retention policy.

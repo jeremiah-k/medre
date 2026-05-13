@@ -216,6 +216,8 @@ CREATE TABLE delivery_receipts (
     next_retry_at TEXT,
     attempt_number INTEGER NOT NULL DEFAULT 1,
     parent_receipt_id TEXT,
+    source TEXT NOT NULL DEFAULT 'live',  -- "live" for normal deliveries, "replay" for replay deliveries
+    replay_run_id TEXT,                   -- Set to the replay run_id when source='replay'; NULL for live
     created_at TEXT NOT NULL
 );
 ```
@@ -230,6 +232,10 @@ Status values are `accepted`, `queued`, `sent`, `confirmed`, `failed`, `dead_let
 
 `parent_receipt_id` is the receipt ID of the preceding attempt in this delivery chain. `NULL` for the first attempt. Together with `attempt_number` this provides explicit receipt lineage.
 
+`source` indicates the origin of the delivery: `"live"` for normal pipeline deliveries, `"replay"` for deliveries produced during replay. Every receipt has this field set; it defaults to `"live"` so receipts from normal pipeline operation are always explicitly tagged.
+
+`replay_run_id` is `NULL` for live deliveries. When `source='replay'`, this field carries the `run_id` of the replay that produced the delivery. This allows operators to trace which receipts came from a specific replay run. It is for traceability only — it does not prevent duplicate sends.
+
 Receipts are **append-only records**. The "current status" of a delivery is a **projection**: the latest receipt for a given `(delivery_plan_id, target_adapter)` tuple, provided by the `delivery_status` view (Section 3.5). No code path writes to the view directly. To change the "current status", append a new receipt row.
 
 ### 3.5 delivery_status View
@@ -241,7 +247,7 @@ CREATE VIEW IF NOT EXISTS delivery_status AS
 SELECT dr.sequence, dr.receipt_id, dr.event_id, dr.delivery_plan_id,
        dr.target_adapter, dr.route_id, dr.status, dr.error,
        dr.adapter_message_id, dr.next_retry_at, dr.attempt_number,
-       dr.parent_receipt_id, dr.created_at
+       dr.parent_receipt_id, dr.source, dr.replay_run_id, dr.created_at
 FROM delivery_receipts dr
 JOIN (
     SELECT delivery_plan_id, target_adapter, MAX(sequence) AS max_seq
@@ -425,6 +431,7 @@ storage:
 - Inserts a new row into `delivery_receipts`.
 - Never updates an existing row. Every call creates a new row with a new `sequence` value.
 - The current status of a delivery is read from the `delivery_status` view, not from any single row.
+- The `source` field defaults to `"live"` for normal pipeline deliveries. Replay deliveries set `source='replay'` and populate `replay_run_id` with the replay run ID.
 
 ### 5.8 archive_raw(event_id, adapter, data) (Future)
 
@@ -436,7 +443,7 @@ MEDRE has not yet made its first release. There is no automatic migration suppor
 
 1. **Schema version check** against `_medre_schema_meta`: On a fresh database, the version row is inserted automatically. If the stored version mismatches `_EXPECTED_SCHEMA_VERSION`, `StorageInitializationError` is raised with guidance to resolve the mismatch manually (export data, delete the database file, and restart; or downgrade medre to match the database version).
 
-2. **Column-shape validation** via `_validate_schema_shape()`: After DDL execution, `initialize()` inspects `PRAGMA table_info` for each required table and compares column names against `_REQUIRED_COLUMNS`. If any required column is missing, `StorageInitializationError` is raised with a message identifying the affected table and missing columns, advising the operator to recreate the database. This catches old pre-release databases whose `schema_version` still reads `1` but whose column shape predates the current DDL.
+2. **Column-shape validation** via `_validate_schema_shape()`: After DDL execution, `initialize()` inspects `PRAGMA table_info` for each required table and compares column names against `_REQUIRED_COLUMNS` (which includes `source` and `replay_run_id` on `delivery_receipts`). If any required column is missing, `StorageInitializationError` is raised with a message identifying the affected table and missing columns, advising the operator to recreate the database. This catches old pre-release databases whose `schema_version` still reads `1` but whose column shape predates the current DDL.
 
 ## 6. Replay Interface
 

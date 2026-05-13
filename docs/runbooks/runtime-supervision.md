@@ -79,7 +79,7 @@ Check delivery receipts in SQLite:
 
 ```sql
 -- Find receipts for events from a specific source
-SELECT r.event_id, r.status, r.route_id, r.dest_adapter, r.attempt_number, r.created_at
+SELECT r.event_id, r.status, r.route_id, r.dest_adapter, r.attempt_number, r.source, r.replay_run_id, r.created_at
 FROM delivery_receipts r
 WHERE r.source_adapter = 'bot1'
 ORDER BY r.created_at DESC
@@ -303,6 +303,7 @@ If a `BEST_EFFORT` replay was running when the runtime crashed:
 - Deliveries that completed before the crash produced receipts — those are persisted.
 - The replay run itself is lost — it does not resume on restart.
 - Re-running the replay is safe but may produce duplicate deliveries (no replay deduplication).
+- Replay-produced receipts are distinguishable from live receipts by `source='replay'` and carry `replay_run_id` for tracing. Use `WHERE source = 'replay'` to filter replay receipts.
 
 ### 7.2 Using Replay for Crash Recovery
 
@@ -336,6 +337,7 @@ Replay is a one-shot operation initiated by the operator or test harness. It is 
 | Do I need to manually replay after crash? | Only if orphaned events need delivery. Not automatic. |
 | Does MEDRE back up its own database? | **No.** Operators handle backup. |
 | Can I query historical delivery state? | **Yes.** Query receipts from SQLite. |
+| Can I tell which receipts came from replay? | **Yes.** Query `WHERE source = 'replay'` on `delivery_receipts`. Use `replay_run_id` to group by replay run. |
 | Can I see historical capacity metrics? | **No.** Counters are process-local only. Implement external monitoring. |
 
 

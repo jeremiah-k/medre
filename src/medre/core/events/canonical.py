@@ -205,6 +205,12 @@ class DeliveryReceipt(msgspec.Struct, frozen=True):
         Receipt ID of the preceding attempt in this delivery chain.
         ``None`` for the first attempt.  Together with
         ``attempt_number`` this provides an explicit receipt lineage.
+    source:
+        Origin of this receipt: ``"live"`` for normal pipeline delivery,
+        ``"replay"`` for replay-originated delivery.
+    replay_run_id:
+        When ``source="replay"``, the ``run_id`` of the replay execution
+        that produced this receipt.  ``None`` for live deliveries.
     created_at:
         Timestamp when this receipt was created.
     """
@@ -228,6 +234,8 @@ class DeliveryReceipt(msgspec.Struct, frozen=True):
     next_retry_at: datetime | None = None
     attempt_number: int = 1
     parent_receipt_id: str | None = None
+    source: str = "live"
+    replay_run_id: str | None = None
     created_at: datetime = msgspec.field(default_factory=lambda: datetime.now(timezone.utc))
 
 

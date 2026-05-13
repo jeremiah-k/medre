@@ -559,6 +559,9 @@ class PipelineRunner:
         self,
         event: CanonicalEvent,
         route_targets: list[tuple[Route, DeliveryPlan]],
+        *,
+        source: str = "live",
+        replay_run_id: str | None = None,
     ) -> list[DeliveryOutcome]:
         """Deliver *event* to every target and return categorised outcomes.
 
@@ -574,6 +577,11 @@ class PipelineRunner:
         route_targets:
             Paired routes and their per-target delivery plans, as
             returned by :meth:`route_event`.
+        source:
+            Origin of delivery: ``"live"`` for normal pipeline,
+            ``"replay"`` for replay-originated delivery.
+        replay_run_id:
+            When ``source="replay"``, the replay run identifier.
 
         Returns
         -------
@@ -582,12 +590,17 @@ class PipelineRunner:
             order of *route_targets*.
         """
         # Per-target capacity acquire/release happens inside _deliver_one().
-        return await self._deliver_to_targets_inner(event, route_targets)
+        return await self._deliver_to_targets_inner(
+            event, route_targets, source=source, replay_run_id=replay_run_id,
+        )
 
     async def _deliver_to_targets_inner(
         self,
         event: CanonicalEvent,
         route_targets: list[tuple[Route, DeliveryPlan]],
+        *,
+        source: str = "live",
+        replay_run_id: str | None = None,
     ) -> list[DeliveryOutcome]:
 
         async def _deliver_one(
@@ -707,7 +720,10 @@ class PipelineRunner:
                     # Accounting: outbound delivery attempt.
                     if self._runtime_accounting is not None:
                         self._runtime_accounting.record_outbound_attempt()
-                    receipt = await self.deliver_to_target(event, route, route_plan)
+                    receipt = await self.deliver_to_target(
+                        event, route, route_plan,
+                        source=source, replay_run_id=replay_run_id,
+                    )
                     elapsed = (time.monotonic() - t0) * 1000.0
                     if self._route_stats is not None:
                         self._route_stats.record_delivered(route.id)
@@ -862,6 +878,8 @@ class PipelineRunner:
         plan: DeliveryPlan,
         *,
         previous_receipt: DeliveryReceipt | None = None,
+        source: str = "live",
+        replay_run_id: str | None = None,
     ) -> DeliveryReceipt:
         """Deliver *event* to a single target adapter and record the receipt.
 
@@ -932,6 +950,8 @@ class PipelineRunner:
                 created_at=now,
                 attempt_number=attempt_number,
                 parent_receipt_id=parent_receipt_id,
+                source=source,
+                replay_run_id=replay_run_id,
             )
             await self._config.storage.append_receipt(receipt)
             raise _AdapterDeliveryError(
@@ -954,6 +974,8 @@ class PipelineRunner:
                 created_at=now,
                 attempt_number=attempt_number,
                 parent_receipt_id=parent_receipt_id,
+                source=source,
+                replay_run_id=replay_run_id,
             )
             await self._config.storage.append_receipt(receipt)
             raise _AdapterDeliveryError(
@@ -992,6 +1014,8 @@ class PipelineRunner:
                 created_at=now,
                 attempt_number=attempt_number,
                 parent_receipt_id=parent_receipt_id,
+                source=source,
+                replay_run_id=replay_run_id,
             )
             await self._config.storage.append_receipt(receipt)
             raise _RendererDeliveryError(adapter_id or "", rendering_error) from None
@@ -1017,6 +1041,8 @@ class PipelineRunner:
                 created_at=now,
                 attempt_number=attempt_number,
                 parent_receipt_id=parent_receipt_id,
+                source=source,
+                replay_run_id=replay_run_id,
             )
             await self._config.storage.append_receipt(receipt)
             raise _AdapterDeliveryError(
@@ -1074,6 +1100,8 @@ class PipelineRunner:
             created_at=now,
             attempt_number=attempt_number,
             parent_receipt_id=parent_receipt_id,
+            source=source,
+            replay_run_id=replay_run_id,
         )
         await self._config.storage.append_receipt(receipt)
 
@@ -1088,6 +1116,8 @@ class PipelineRunner:
                 previous_receipt_id=receipt_id,
                 attempt_number=attempt_number + 1,
                 error=error or "Retry exhausted",
+                source=source,
+                replay_run_id=replay_run_id,
             )
             await self._config.storage.append_receipt(dead_receipt)
 

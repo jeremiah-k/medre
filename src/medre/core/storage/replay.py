@@ -236,6 +236,9 @@ class _PipelineProtocol(Protocol):
         self,
         event: CanonicalEvent,
         route_targets: list[tuple[Any, Any]],
+        *,
+        source: str = "live",
+        replay_run_id: str | None = None,
     ) -> list[Any]:
         """Deliver *event* to every target and return outcomes.
 
@@ -1734,6 +1737,8 @@ class ReplayEngine:
                 # Real pipeline: plan_result is list[tuple[Route, DeliveryPlan]].
                 outcomes = await self._pipeline.deliver_to_targets(
                     event, plan_result,
+                    source="replay",
+                    replay_run_id=request.run_id or None,
                 )
                 replay_output = _replay_delivery_envelope(outcomes)
             else:
