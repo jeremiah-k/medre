@@ -132,7 +132,13 @@ CREATE TABLE canonical_events (
 );
 ```
 
-> **Index note:** The implementation DDL does not currently create indexes. The following indexes are documented as intended query patterns for future creation: `idx_events_kind(event_kind)`, `idx_events_timestamp(timestamp)`, `idx_events_source(source_adapter, source_transport_id)`, `idx_events_parent(parent_event_id)`.
+**Indexes:**
+
+| Index | Columns | Type | Purpose |
+|---|---|---|---|
+| `idx_events_timestamp_event_id` | `(timestamp, event_id)` | Manual `CREATE INDEX` | Supports `query()` ORDER BY timestamp ascending with tiebreaker on event_id. |
+
+> **Additional query patterns:** Lookups by `event_kind`, `(source_adapter, source_transport_id)`, and `parent_event_id` are documented as candidates for future indexes but are not yet created. The PRIMARY KEY on `event_id` provides direct lookups by event ID.
 
 `source_transport_id` identifies the native actor (who produced the event), not the native message. Native message IDs belong in `native_message_refs`.
 
@@ -161,7 +167,13 @@ CREATE TABLE event_relations (
 );
 ```
 
-> **Index note:** The implementation DDL does not currently create indexes. The following indexes are documented as intended query patterns for future creation: `idx_relations_event(event_id)`, `idx_relations_target(target_event_id)`, `idx_relations_type(relation_type)`.
+**Indexes:**
+
+| Index | Columns | Type | Purpose |
+|---|---|---|---|
+| `idx_relations_event_id` | `(event_id, id)` | Manual `CREATE INDEX` | Supports `list_relations(event_id)` lookups with deterministic row ordering via `id`. |
+
+> **Additional query patterns:** Lookups by `target_event_id` and `relation_type` are candidates for future indexes but are not yet created.
 
 The `target_native_*` split columns store the `NativeRef` fields when the canonical event ID for the relation target is not yet known. When a relation is unresolved, `target_event_id` is `NULL` and the four `target_native_*` columns carry the native reference. The relation resolution stage resolves these to `target_event_id` by calling `resolve_native_ref(adapter, native_channel_id, native_message_id)` against `native_message_refs`. At load time, `_row_to_relation` reconstructs the in-memory `EventRelation.target_native_ref` from the four split columns.
 
@@ -200,6 +212,13 @@ Transport-specific examples:
 | MeshCore | Channel slot index | MeshCore message reference |
 | LXMF | Source hash (16-byte hex) | LXMF message ID |
 
+**Indexes:**
+
+| Index | Columns | Type | Purpose |
+|---|---|---|---|
+| `idx_native_refs_event_id` | `(event_id)` | Manual `CREATE INDEX` | Reverse lookup from a canonical event to all its native message references. |
+| *(autoindex)* | `(adapter, native_channel_id, native_message_id)` | SQLite autoindex from `UNIQUE` constraint | No manual `CREATE INDEX` is needed — the `UNIQUE` constraint already produces an SQLite autoindex that covers `resolve_native_ref` lookups. |
+
 ### 3.4 delivery_receipts
 
 ```sql
@@ -237,6 +256,14 @@ Status values are `accepted`, `queued`, `sent`, `confirmed`, `failed`, `dead_let
 `replay_run_id` is `NULL` for live deliveries. When `source='replay'`, this field carries the `run_id` of the replay that produced the delivery. This allows operators to trace which receipts came from a specific replay run. It is for traceability only — it does not prevent duplicate sends.
 
 Receipts are **append-only records**. The "current status" of a delivery is a **projection**: the latest receipt for a given `(delivery_plan_id, target_adapter)` tuple, provided by the `delivery_status` view (Section 3.5). No code path writes to the view directly. To change the "current status", append a new receipt row.
+
+**Indexes:**
+
+| Index | Columns | Type | Purpose |
+|---|---|---|---|
+| `idx_receipts_plan` | `(delivery_plan_id, target_adapter, sequence)` | Manual `CREATE INDEX` | Supports `delivery_status` view's `GROUP BY (delivery_plan_id, target_adapter)` + `MAX(sequence)` and `delivery_status()` / `list_receipts_for_plan()` lookups. |
+| `idx_receipts_event` | `(event_id, sequence)` | Manual `CREATE INDEX` | Supports receipt lookups by event (e.g., finding all delivery attempts for a given event). |
+| `idx_receipts_source` | `(source, replay_run_id)` | Manual `CREATE INDEX` | Supports filtering receipts by replay run — traceability queries for `source='replay'` with a specific `replay_run_id`. |
 
 ### 3.5 delivery_status View
 
@@ -371,6 +398,18 @@ storage:
       matrix-home: false
 ```
 
+### 3.10 Index Policy
+
+All indexes are created via `CREATE INDEX IF NOT EXISTS` during `initialize()`, alongside table DDL. They are part of the pre-release schema shape but are **not** individually versioned.
+
+Key points:
+
+- **No automatic migration.** Adding or changing an index does not bump `_EXPECTED_SCHEMA_VERSION`. Indexes are created idempotently (`IF NOT EXISTS`) on every `initialize()` call.
+- **Performance only.** Indexes affect query performance, not correctness. A database that lacks an index will return the same results, just more slowly.
+- **Recreation guidance.** Existing old pre-release databases that predate an index addition will gain the index on the next `initialize()` call. No manual intervention is required.
+- **Column-shape validation remains the hard compatibility check.** The `_validate_schema_shape()` check (Section 5.10) catches structural incompatibilities. Missing indexes are never a compatibility failure.
+- **SQLite autoindexes are not duplicated.** Tables with `UNIQUE` constraints (e.g., `native_message_refs(adapter, native_channel_id, native_message_id)`) already have an SQLite autoindex. No manual `CREATE INDEX` is created for those column sets.
+
 ## 4. Required Guarantees
 
 | Guarantee | Required | Details |
@@ -437,7 +476,18 @@ storage:
 
 > **Note:** `archive_raw` is not part of the Phase 1 `StorageBackend` protocol. It appears in the master spec as a future capability. The `native_archive` table schema is defined in Section 3.9 for reference but is not created or used in Phase 1.
 
-### 5.9 Pre-release Database Policy
+### 5.9 Delivery Plan Methods
+
+The delivery pipeline creates delivery receipts through the `build_retry_receipt` helper, which is used by `RetryExecutor` and the replay engine to construct a `DeliveryReceipt` for each delivery attempt.
+
+**`build_retry_receipt`** accepts the following parameters beyond the standard receipt fields:
+
+- `source` (default `"live"`) — Matches the `DeliveryReceipt.source` field. Set to `"replay"` when the receipt is produced during a replay run. Normal pipeline deliveries leave this as `"live"`.
+- `replay_run_id` (default `None`) — Matches the `DeliveryReceipt.replay_run_id` field. When `source="replay"`, this carries the `run_id` of the replay that produced the delivery. `None` for live deliveries.
+
+These parameters ensure that receipts created by `RetryExecutor` carry the same traceability fields as receipts from the normal delivery pipeline, enabling operators to distinguish live deliveries from replay deliveries without inspecting the call site.
+
+### 5.10 Pre-release Database Policy
 
 MEDRE has not yet made its first release. There is no automatic migration support. Existing databases from prior development builds are not guaranteed to be compatible after schema-affecting changes. The `initialize()` method performs two validation checks:
 

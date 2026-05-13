@@ -728,6 +728,40 @@ class TestRetryExecutor:
         # backoff for attempt 2: base * 2^1 = 4.0 seconds
         assert receipt.next_retry_at > receipt.created_at
 
+    def test_build_retry_receipt_defaults_source_live(self) -> None:
+        """build_retry_receipt defaults source='live' and replay_run_id=None."""
+        policy = RetryPolicy(backoff_base=2.0, jitter=False, max_delay_seconds=60.0)
+        executor = RetryExecutor(policy)
+        receipt = executor.build_retry_receipt(
+            event_id="evt-default-src",
+            delivery_plan_id="plan-src",
+            target_adapter="adapter-x",
+            previous_receipt_id=None,
+            attempt_number=1,
+            error="timeout",
+        )
+        assert receipt.source == "live"
+        assert receipt.replay_run_id is None
+
+    def test_build_retry_receipt_replay_source_propagates(self) -> None:
+        """build_retry_receipt propagates source='replay' and replay_run_id."""
+        policy = RetryPolicy(backoff_base=2.0, jitter=False, max_delay_seconds=60.0)
+        executor = RetryExecutor(policy)
+        receipt = executor.build_retry_receipt(
+            event_id="evt-replay-src",
+            delivery_plan_id="plan-replay",
+            target_adapter="adapter-y",
+            previous_receipt_id="rcpt-prev",
+            attempt_number=2,
+            error="ConnectionError",
+            source="replay",
+            replay_run_id="run-42",
+        )
+        assert receipt.source == "replay"
+        assert receipt.replay_run_id == "run-42"
+        assert receipt.status == "failed"
+        assert receipt.attempt_number == 2
+
     def test_build_dead_letter_receipt(self) -> None:
         """Dead-letter receipt has status=dead_lettered and no next_retry_at."""
         policy = RetryPolicy(max_attempts=3)

@@ -286,6 +286,8 @@ class RetryExecutor:
         previous_receipt_id: str | None,
         attempt_number: int,
         error: str,
+        source: str = "live",
+        replay_run_id: str | None = None,
     ) -> DeliveryReceipt:
         """Build a ``failed`` receipt for a retryable transient failure.
 
@@ -306,6 +308,10 @@ class RetryExecutor:
             The 1-indexed attempt number for this receipt.
         error:
             Human-readable error description.
+        source:
+            Origin of delivery: ``"live"`` or ``"replay"``.
+        replay_run_id:
+            When ``source="replay"``, the replay run identifier.
 
         Returns
         -------
@@ -327,6 +333,8 @@ class RetryExecutor:
             created_at=now,
             attempt_number=attempt_number,
             parent_receipt_id=previous_receipt_id,
+            source=source,
+            replay_run_id=replay_run_id,
         )
 
     def build_dead_letter_receipt(

@@ -137,6 +137,26 @@ CREATE TABLE IF NOT EXISTS _medre_schema_meta (
 );
 """
 
+# Targeted indexes matching actual query patterns.
+# Run AFTER shape validation so that old-shape DBs fail with a clear
+# StorageInitializationError before index creation is attempted.
+# NOTE: native_message_refs(adapter, native_channel_id, native_message_id) is
+# already covered by the UNIQUE constraint autoindex; no manual duplicate needed.
+_INDEXES: str = """
+CREATE INDEX IF NOT EXISTS idx_events_timestamp
+    ON canonical_events(timestamp, event_id);
+CREATE INDEX IF NOT EXISTS idx_relations_event_id
+    ON event_relations(event_id, id);
+CREATE INDEX IF NOT EXISTS idx_nrefs_event_id
+    ON native_message_refs(event_id);
+CREATE INDEX IF NOT EXISTS idx_receipts_plan
+    ON delivery_receipts(delivery_plan_id, target_adapter, sequence);
+CREATE INDEX IF NOT EXISTS idx_receipts_event
+    ON delivery_receipts(event_id, sequence);
+CREATE INDEX IF NOT EXISTS idx_receipts_source
+    ON delivery_receipts(source, replay_run_id);
+"""
+
 # ---------------------------------------------------------------------------
 # Schema versioning
 # ---------------------------------------------------------------------------
@@ -467,6 +487,11 @@ class SQLiteStorage:
         # schema_version=1 but predate current columns.
         await self._validate_schema_shape()
 
+        # Create targeted indexes AFTER shape validation so that old-shape
+        # databases fail with a clear StorageInitializationError before
+        # index creation references missing columns.
+        await self._create_indexes()
+
     async def _verify_schema_version(self) -> None:
         """Check that the stored schema version matches the expected version.
 
@@ -532,6 +557,25 @@ class SQLiteStorage:
                     f"build.  Please recreate the database — no automatic "
                     f"migration is provided."
                 )
+
+    async def _create_indexes(self) -> None:
+        """Create targeted indexes for current query patterns.
+
+        Called after :meth:`_validate_schema_shape` so that old-shape
+        databases raise :class:`StorageInitializationError` *before*
+        any index DDL references columns that may not exist.
+        """
+        if self._use_aiosqlite:
+            await self._db.executescript(_INDEXES)  # type: ignore[union-attr]
+            await self._db.commit()  # type: ignore[union-attr]
+        else:
+            await asyncio.to_thread(self._sync_create_indexes)
+
+    def _sync_create_indexes(self) -> None:
+        """Synchronous counterpart of :meth:`_create_indexes`."""
+        db = self._require_db()
+        db.executescript(_INDEXES)
+        db.commit()
 
     def _sync_open(self) -> sqlite3.Connection:
         """Synchronous counterpart of :meth:`initialize` for the fallback path."""

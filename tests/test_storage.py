@@ -1472,3 +1472,101 @@ class TestIntegrityErrorClassification:
             await temp_storage.append_receipt(receipt)
         # Must NOT be a DuplicateEventError.
         assert not isinstance(exc_info.value, DuplicateEventError)
+
+
+# ===================================================================
+# Storage indexes
+# ===================================================================
+
+
+class TestStorageIndexes:
+    """Targeted indexes matching actual query patterns are created on init."""
+
+    @staticmethod
+    async def _index_columns(storage: SQLiteStorage, table: str) -> dict[str, frozenset[str]]:
+        """Return {index_name: frozenset of column names} for *table*."""
+        rows = await storage._read_all(
+            f"PRAGMA index_list({table})", ()
+        )
+        result: dict[str, frozenset[str]] = {}
+        for row in rows:
+            idx_name = row["name"]
+            # Skip SQLite autoindices (internal names like sqlite_autoindex_...)
+            if idx_name.startswith("sqlite_autoindex"):
+                continue
+            cols = await storage._read_all(
+                f"PRAGMA index_info({idx_name})", ()
+            )
+            result[idx_name] = frozenset(r["name"] for r in cols)
+        return result
+
+    async def test_canonical_events_timestamp_index(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """idx_events_timestamp on canonical_events(timestamp, event_id)."""
+        indexes = await self._index_columns(temp_storage, "canonical_events")
+        assert "idx_events_timestamp" in indexes
+        assert indexes["idx_events_timestamp"] == frozenset({"timestamp", "event_id"})
+
+    async def test_event_relations_event_id_index(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """idx_relations_event_id on event_relations(event_id, id)."""
+        indexes = await self._index_columns(temp_storage, "event_relations")
+        assert "idx_relations_event_id" in indexes
+        assert indexes["idx_relations_event_id"] == frozenset({"event_id", "id"})
+
+    async def test_native_message_refs_event_id_index(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """idx_nrefs_event_id on native_message_refs(event_id).
+
+        The UNIQUE(adapter, native_channel_id, native_message_id) constraint
+        creates an autoindex; we do NOT assert a manual index for that triple.
+        """
+        indexes = await self._index_columns(temp_storage, "native_message_refs")
+        assert "idx_nrefs_event_id" in indexes
+        assert indexes["idx_nrefs_event_id"] == frozenset({"event_id"})
+
+    async def test_receipts_plan_index(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """idx_receipts_plan on delivery_receipts(delivery_plan_id, target_adapter, sequence)."""
+        indexes = await self._index_columns(temp_storage, "delivery_receipts")
+        assert "idx_receipts_plan" in indexes
+        assert indexes["idx_receipts_plan"] == frozenset(
+            {"delivery_plan_id", "target_adapter", "sequence"}
+        )
+
+    async def test_receipts_event_index(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """idx_receipts_event on delivery_receipts(event_id, sequence)."""
+        indexes = await self._index_columns(temp_storage, "delivery_receipts")
+        assert "idx_receipts_event" in indexes
+        assert indexes["idx_receipts_event"] == frozenset({"event_id", "sequence"})
+
+    async def test_receipts_source_index(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """idx_receipts_source on delivery_receipts(source, replay_run_id)."""
+        indexes = await self._index_columns(temp_storage, "delivery_receipts")
+        assert "idx_receipts_source" in indexes
+        assert indexes["idx_receipts_source"] == frozenset({"source", "replay_run_id"})
+
+    async def test_no_manual_index_for_unique_autoindex(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """No manual index duplicates the UNIQUE autoindex on
+        native_message_refs(adapter, native_channel_id, native_message_id).
+
+        The UNIQUE constraint already creates an autoindex; a manual
+        duplicate would be redundant.
+        """
+        indexes = await self._index_columns(temp_storage, "native_message_refs")
+        for name, cols in indexes.items():
+            # None of our manual indexes should cover the UNIQUE triple.
+            if cols == frozenset({"adapter", "native_channel_id", "native_message_id"}):
+                pytest.fail(
+                    f"Redundant manual index '{name}' duplicates UNIQUE autoindex"
+                )
