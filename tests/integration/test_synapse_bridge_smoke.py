@@ -22,15 +22,31 @@ Running locally::
     pip install -e ".[matrix]"
     pytest tests/integration/test_synapse_bridge_smoke.py -m docker -v
 
-Fallback note
--------------
-The inbound sync test (``test_inbound_via_sync_routes_to_fake_adapter``)
-relies on the real nio sync loop receiving the event within 15 seconds.
-If this proves flaky in certain CI environments, the fallback is to call
-``_on_room_message`` directly with a real Synapse event_id (obtained via
-HTTP API).  That approach still exercises the real codec, pipeline, and
-storage but skips the sync loop — which is already proven healthy by
-``test_synapse_connectivity.py``.
+Evidence classification
+-----------------------
+Each inbound test produces a compact ``report`` dict containing at least:
+
+- ``transport``: ``"matrix"``
+- ``evidence_level``: ``"docker_sdk_boundary"``
+- ``inbound_path``: one of ``"sync_loop"`` or
+  ``"direct_on_room_message_fallback"``
+- ``source_adapter``, ``target_adapter``, ``native_event_id``,
+  ``route_id``, ``receipt_status``
+- ``accounting``: snapshot of ``RuntimeAccounting`` counters
+- ``limitations``: list of what this run does **not** prove
+
+The ``inbound_path`` field is critical for honest evidence reporting:
+
+- ``"sync_loop"`` — the real nio ``sync_forever`` callback fired and
+  dispatched the event through the normal SDK path.  This proves the
+  full SDK-boundary inbound chain.
+- ``"direct_on_room_message_fallback"`` — the sync loop did not deliver
+  within 15 seconds, so the test called ``_on_room_message`` directly
+  with a real Synapse ``event_id``.  This proves codec + pipeline +
+  storage but **does not** prove the real nio sync callback dispatch.
+  ``test_synapse_connectivity.py`` proves the sync loop can start and
+  connect, but not that it reliably delivers inbound events under all
+  timing conditions.
 """
 
 from __future__ import annotations
@@ -76,6 +92,14 @@ if not HAS_NIO:
         pytest.mark.docker,
         pytest.mark.skip(reason="mindroom-nio not installed; run: pip install '.[matrix]'"),
     ]
+
+
+# ---------------------------------------------------------------------------
+# Inbound path constants — used in report.inbound_path
+# ---------------------------------------------------------------------------
+
+_INBOUND_SYNC_LOOP = "sync_loop"
+_INBOUND_FALLBACK = "direct_on_room_message_fallback"
 
 
 # ---------------------------------------------------------------------------
@@ -232,14 +256,21 @@ class TestSynapseBridgeSmoke:
         finally:
             await adapter.stop()
 
-    async def test_inbound_via_sync_routes_to_fake_adapter(
+    async def test_inbound_routes_to_fake_adapter(
         self, synapse_env: SynapseEnvironment, temp_storage: SQLiteStorage,
     ) -> None:
-        """Test user sends via HTTP API; bot receives via real nio sync;
-        PipelineRunner routes to FakeMatrixAdapter; storage and accounting
-        assertions pass.
+        """Test user sends via HTTP API; bot receives and pipeline routes
+        to FakeMatrixAdapter; storage and accounting assertions pass.
 
-        This is the strongest SDK-boundary proof:
+        The test first attempts delivery through the real nio ``sync_forever``
+        loop.  If the sync loop does not deliver within 15 seconds, a fallback
+        path calls ``_on_room_message`` directly with the real Synapse
+        ``event_id``.  The ``report["inbound_path"]`` field records which
+        path was used so that test output distinguishes sync-loop proof from
+        codec+pipeline-only proof.
+
+        This is the strongest SDK-boundary proof when ``inbound_path`` is
+        ``"sync_loop"``:
 
         1. Real nio AsyncClient + sync_forever running against Docker Synapse.
         2. Test user sends message via Synapse HTTP API.
@@ -252,13 +283,12 @@ class TestSynapseBridgeSmoke:
            ``outbound_delivered``.
         9. Adapter diagnostics counters reflect the inbound event.
 
-        The test polls for up to 15 seconds to give the real sync loop time
-        to process the event.  If the sync-based approach proves flaky in
-        certain CI environments, the documented fallback is to call
-        ``_on_room_message`` directly with the real Synapse event_id (which
-        still exercises codec + pipeline + storage with a real event_id,
-        while existing tests in ``test_synapse_connectivity.py`` already
-        prove the sync loop starts successfully).
+        When ``inbound_path`` is ``"direct_on_room_message_fallback"``, steps
+        1 and 3 are skipped — the test proves codec + pipeline + storage but
+        does NOT prove the real nio sync callback dispatch.
+        ``test_synapse_connectivity.py`` proves the sync loop can start and
+        connect, but not that it reliably delivers inbound events under all
+        timing conditions.
         """
         ts = int(time.time())
         body_text = f"MEDRE bridge inbound smoke (ts={ts})"
@@ -324,15 +354,23 @@ class TestSynapseBridgeSmoke:
                     break
                 await asyncio.sleep(0.3)
 
-            if not found:
+            # 4. Record which inbound path was used — this is the critical
+            #    evidence distinction.
+            inbound_path: str
+            if found:
+                inbound_path = _INBOUND_SYNC_LOOP
+            else:
                 # Fallback: if sync didn't deliver in time, call
                 # _on_room_message directly with a real-Synapse-constructed
                 # event.  This still proves the SDK-boundary codec + pipeline
                 # + storage path with a genuine Synapse event_id.
                 #
                 # Limitation: the real nio sync callback path is NOT exercised
-                # by this fallback — it is already proven by
-                # test_synapse_connectivity.py.
+                # by this fallback.  test_synapse_connectivity.py proves the
+                # sync loop can start and connect, but not that it reliably
+                # delivers inbound events under all timing conditions.
+                inbound_path = _INBOUND_FALLBACK
+
                 from types import SimpleNamespace
 
                 room = SimpleNamespace(room_id=synapse_env.test_room_id)
@@ -351,7 +389,7 @@ class TestSynapseBridgeSmoke:
                 # Give the pipeline a moment to process.
                 await asyncio.sleep(0.5)
 
-            # 4. Assertions on the fake outbound adapter.
+            # 5. Assertions on the fake outbound adapter.
             assert len(fake_out.delivered_payloads) >= 1, (
                 "FakeMatrixAdapter should have received at least one "
                 "rendered payload via the pipeline"
@@ -362,34 +400,32 @@ class TestSynapseBridgeSmoke:
                 f"got {rendered.payload.get('body')!r}"
             )
 
-            # 5. DeliveryReceipt persisted in storage.
-            receipt_rows = await temp_storage._read_all(
-                "SELECT * FROM delivery_receipts WHERE target_adapter = ?",
-                ("fake-out",),
+            # 6. Inbound NativeMessageRef — resolve via public API.
+            #    Maps the real Synapse event_id to the canonical event_id.
+            canonical_id = await temp_storage.resolve_native_ref(
+                adapter="synapse-bridge-bot",
+                native_channel_id=synapse_env.test_room_id,
+                native_message_id=native_event_id,
             )
-            assert len(receipt_rows) >= 1, (
-                "Expected at least one delivery receipt for fake-out"
+            assert canonical_id is not None, (
+                f"Expected inbound native ref for event {native_event_id!r} "
+                f"in room {synapse_env.test_room_id!r}"
             )
-            assert receipt_rows[0]["status"] == "sent"
 
-            # 6. Inbound NativeMessageRef persisted — maps the real Synapse
-            #    event_id to the canonical event_id.
-            inbound_refs = await temp_storage._read_all(
-                "SELECT * FROM native_message_refs "
-                "WHERE adapter = ? AND direction = 'inbound'",
-                ("synapse-bridge-bot",),
+            # 7. DeliveryReceipt persisted — via public API.
+            receipts = await temp_storage.list_receipts_for_event(
+                canonical_id,
             )
-            assert len(inbound_refs) >= 1, (
-                "Expected at least one inbound native ref for the bot adapter"
+            assert len(receipts) >= 1, (
+                "Expected at least one delivery receipt for "
+                f"event {canonical_id!r}"
             )
-            ref = inbound_refs[0]
-            assert ref["native_message_id"].startswith("$"), (
-                f"Native ref event_id should start with '$', "
-                f"got {ref['native_message_id']!r}"
+            receipt_status = receipts[0].status
+            assert receipt_status == "sent", (
+                f"Expected receipt status 'sent', got {receipt_status!r}"
             )
-            assert ref["native_channel_id"] == synapse_env.test_room_id
 
-            # 7. RuntimeAccounting counters incremented.
+            # 8. RuntimeAccounting counters incremented.
             counters = accounting.snapshot()
             assert counters["inbound_accepted"] >= 1, (
                 f"Expected inbound_accepted >= 1, got {counters['inbound_accepted']}"
@@ -399,10 +435,52 @@ class TestSynapseBridgeSmoke:
                 f"got {counters['outbound_delivered']}"
             )
 
-            # 8. Adapter diagnostics counters reflect inbound processing.
+            # 9. Adapter diagnostics counters reflect inbound processing.
             assert matrix_adapter._inbound_published >= 1
             diag = matrix_adapter.diagnostics()
             assert diag["inbound_published"] >= 1
+
+            # 10. Build and assert compact evidence report.
+            #     The inbound_path field is the key honesty mechanism:
+            #     it records whether sync_loop or fallback was used.
+            limitations = [
+                "Not a live-network proof (Docker loopback only).",
+                "Single message only (not a throughput test).",
+            ]
+            if inbound_path == _INBOUND_FALLBACK:
+                limitations.append(
+                    "Real nio sync_forever callback dispatch NOT proven "
+                    "by this run (direct _on_room_message fallback used)."
+                )
+
+            report: dict[str, Any] = {
+                "transport": "matrix",
+                "evidence_level": "docker_sdk_boundary",
+                "inbound_path": inbound_path,
+                "source_adapter": "synapse-bridge-bot",
+                "target_adapter": "fake-out",
+                "native_event_id": native_event_id,
+                "route_id": route.id,
+                "receipt_status": receipt_status,
+                "accounting": counters,
+                "diagnostics": diag,
+                "limitations": limitations,
+            }
+            # Assert report shape is well-formed.
+            assert report["inbound_path"] in (
+                _INBOUND_SYNC_LOOP, _INBOUND_FALLBACK,
+            )
+            assert report["evidence_level"] == "docker_sdk_boundary"
+            assert report["receipt_status"] == "sent"
+            assert report["native_event_id"].startswith("$")
+
+            logger.info(
+                "Matrix bridge smoke report: inbound_path=%s "
+                "native_event_id=%s receipt_status=%s",
+                report["inbound_path"],
+                report["native_event_id"],
+                report["receipt_status"],
+            )
         finally:
             await matrix_adapter.stop()
             await fake_out.stop()

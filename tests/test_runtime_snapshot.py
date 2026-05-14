@@ -11,7 +11,7 @@ Covers:
 - Startup timestamp and uptime computation.
 - Schema version presence.
 - Startup health state tolerance (null when absent, dict when present).
-- Live health explicitly unavailable (always null).
+- Live health null before refresh, populated after refresh_live_health() (scope transitions "startup" to "live").
 - Sectioned schema (schema_version 1).
 """
 

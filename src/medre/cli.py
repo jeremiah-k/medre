@@ -3,6 +3,8 @@
 Usage::
 
     medre run [--config PATH]       Start the MEDRE runtime
+    medre smoke [--config] [--message TEXT] [--json]
+                                    Run fake bridge smoke test
     medre config check [--config]   Validate config file
     medre config sample             Print a sample TOML config
     medre paths                     Print resolved MEDRE paths
@@ -28,7 +30,7 @@ import platform
 import signal
 import sys
 import time
-from typing import NoReturn
+from typing import Any, NoReturn
 
 from medre.config.loader import load_config, ConfigSource
 from medre.config.sample import generate_sample_config
@@ -59,6 +61,8 @@ EXIT_BUILD = 3
 """Runtime build error (missing dependency, bad path, adapter construction failure)."""
 EXIT_STARTUP = 4
 """Total startup failure (zero adapters started, core subsystem failure)."""
+EXIT_NOT_FOUND = 5
+"""Requested entity (event, receipt, native ref) not found in storage."""
 
 
 # ---------------------------------------------------------------------------
@@ -801,6 +805,134 @@ async def _diagnostics_refresh(config_path: str | None) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Inspect commands (read-only storage queries)
+# ---------------------------------------------------------------------------
+
+
+def _struct_to_json(obj: object) -> str:
+    """Serialise a msgspec Struct (or list of Structs) to deterministic JSON."""
+    import json
+    import msgspec
+
+    raw = msgspec.json.encode(obj)
+    return json.dumps(json.loads(raw), sort_keys=True, indent=2)
+
+
+async def _open_readonly_storage(config_path: str | None) -> Any:
+    """Load config, resolve DB path, and open storage for read-only inspection.
+
+    Raises ``SystemExit`` on config or storage errors.
+    """
+    from medre.config.paths import MedrePathsError
+    from medre.core.storage.sqlite import SQLiteStorage
+
+    try:
+        config, _source, paths = load_config(config_path)
+    except Exception as exc:
+        print(f"Config error: {exc}", file=sys.stderr)
+        sys.exit(EXIT_CONFIG)
+
+    if config.storage.backend == "memory":
+        print(
+            "Error: storage backend is 'memory' — no persistent data to inspect.",
+            file=sys.stderr,
+        )
+        sys.exit(EXIT_CONFIG)
+
+    if config.storage.path:
+        try:
+            db_path = str(paths.expand_placeholder(config.storage.path))
+        except MedrePathsError as exc:
+            print(f"Invalid storage path: {exc}", file=sys.stderr)
+            sys.exit(EXIT_CONFIG)
+    else:
+        db_path = str(paths.database_path)
+
+    storage = SQLiteStorage(db_path)
+    try:
+        await storage.initialize()
+    except Exception as exc:
+        print(f"Storage error: {exc}", file=sys.stderr)
+        try:
+            await storage.close()
+        except Exception:
+            pass
+        sys.exit(EXIT_BUILD)
+    return storage
+
+
+async def _inspect_event(config_path: str | None, event_id: str) -> None:
+    """Look up and print a canonical event by its ID."""
+    storage = await _open_readonly_storage(config_path)
+    try:
+        event = await storage.get(event_id)
+        if event is None:
+            print(
+                f"Error: event not found: {event_id}",
+                file=sys.stderr,
+            )
+            sys.exit(EXIT_NOT_FOUND)
+        print(_struct_to_json(event))
+    finally:
+        await storage.close()
+
+
+async def _inspect_receipts(
+    config_path: str | None,
+    event_id: str | None,
+    replay_run_id: str | None,
+) -> None:
+    """List delivery receipts for an event or replay run."""
+    storage = await _open_readonly_storage(config_path)
+    try:
+        if event_id is not None:
+            receipts = await storage.list_receipts_for_event(event_id)
+        elif replay_run_id is not None:
+            receipts = await storage.list_receipts_by_replay_run(replay_run_id)
+        else:
+            print("Error: specify --event or --replay-run", file=sys.stderr)
+            sys.exit(EXIT_CONFIG)
+        print(_struct_to_json(receipts))
+    finally:
+        await storage.close()
+
+
+async def _inspect_native_ref(
+    config_path: str | None,
+    adapter: str,
+    channel: str | None,
+    message: str,
+) -> None:
+    """Resolve a native message reference to a canonical event."""
+    import json as _json
+    import msgspec as _msgspec
+
+    storage = await _open_readonly_storage(config_path)
+    try:
+        event_id = await storage.resolve_native_ref(adapter, channel, message)
+        if event_id is None:
+            print(
+                f"Error: native ref not found: adapter={adapter!r}, "
+                f"channel={channel!r}, message={message!r}",
+                file=sys.stderr,
+            )
+            sys.exit(EXIT_NOT_FOUND)
+        # Fetch the full event for richer output.
+        event = await storage.get(event_id)
+        result: dict[str, object] = {
+            "adapter": adapter,
+            "native_channel_id": channel,
+            "native_message_id": message,
+            "event_id": event_id,
+        }
+        if event is not None:
+            result["event"] = _json.loads(_msgspec.json.encode(event))
+        print(_json.dumps(result, sort_keys=True, indent=2))
+    finally:
+        await storage.close()
+
+
+# ---------------------------------------------------------------------------
 # Run command (async)
 # ---------------------------------------------------------------------------
 
@@ -1045,6 +1177,66 @@ def _setup_logging(config: object) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Smoke command (async)
+# ---------------------------------------------------------------------------
+
+
+async def _smoke(config_path: str | None, message_text: str, json_output: bool) -> None:
+    """Run fake bridge smoke test and print a compact evidence report.
+
+    Builds and starts the runtime with fake adapters, injects one
+    ``message.text`` event through the full pipeline, inspects storage
+    evidence, and prints a PASS/FAIL report.  Docker-free, network-free.
+
+    Exit codes: 0 on PASS, 1 on FAIL.
+    """
+    import json as _json
+    from medre.runtime.smoke import run_fake_bridge_smoke
+
+    report = await run_fake_bridge_smoke(
+        config_path,
+        message_text=message_text,
+    )
+
+    if json_output:
+        print(_json.dumps(report, sort_keys=True, indent=2))
+    else:
+        # Human-readable summary
+        status = report["status"]
+        event_id = report.get("event_id", "N/A")
+        source = report.get("source_adapter", "N/A")
+        targets = report.get("target_adapters", [])
+        routes = report.get("route_ids", [])
+        acc = report.get("accounting", {})
+        n_receipts = len(report.get("delivery_receipts", []))
+        n_refs = len(report.get("native_refs", []))
+
+        if status == "PASS":
+            print(f"Fake bridge smoke: PASS")
+        else:
+            print(f"Fake bridge smoke: FAIL")
+            reasons = report.get("fail_reasons", [])
+            for r in reasons:
+                print(f"  \u2717 {r}")
+
+        print(f"  Event:       {event_id}")
+        print(f"  Source:      {source}")
+        print(f"  Targets:     {', '.join(targets) if targets else '(none)'}")
+        print(f"  Routes:      {', '.join(routes) if routes else '(none)'}")
+        print(f"  Receipts:    {n_receipts}")
+        print(f"  Native refs: {n_refs}")
+        if acc:
+            print(f"  Accounting:  inbound={acc.get('inbound_accepted', 0)} delivered={acc.get('outbound_delivered', 0)} failed={acc.get('outbound_failed', 0)}")
+
+        # Print one limitation as a reminder.
+        limitations = report.get("limitations", [])
+        if limitations:
+            print(f"  Note: {limitations[0]}")
+
+    sys.exit(0 if report["status"] == "PASS" else 1)
+
+
+# ---------------------------------------------------------------------------
 # Argument parser
 # ---------------------------------------------------------------------------
 
@@ -1096,6 +1288,39 @@ def _build_parser() -> argparse.ArgumentParser:
     routes_list_p = routes_sub.add_parser("list", help="List configured routes")
     routes_list_p.add_argument("--config", default=None, help="Path to config file")
 
+    # smoke
+    smoke_p = sub.add_parser("smoke", help="Run fake bridge smoke test")
+    smoke_p.add_argument("--config", default=None, help="Path to config file (default: examples/configs/fake-bridge-smoke.toml)")
+    smoke_p.add_argument("--message", default="medre smoke test", help="Text for test message")
+    smoke_p.add_argument("--json", action="store_true", default=False, help="Output JSON report")
+
+    # inspect (with sub-subcommands)
+    inspect_p = sub.add_parser("inspect", help="Read-only storage inspection")
+    inspect_sub = inspect_p.add_subparsers(dest="inspect_command", required=True)
+
+    # inspect event <event_id>
+    inspect_evt = inspect_sub.add_parser("event", help="Inspect a canonical event")
+    inspect_evt.add_argument("--config", default=None, help="Path to config file")
+    inspect_evt.add_argument("event_id", help="Canonical event ID to look up")
+
+    # inspect receipts (--event <id> | --replay-run <run_id>)
+    inspect_rcpt = inspect_sub.add_parser("receipts", help="List delivery receipts")
+    inspect_rcpt.add_argument("--config", default=None, help="Path to config file")
+    inspect_rcpt_group = inspect_rcpt.add_mutually_exclusive_group(required=True)
+    inspect_rcpt_group.add_argument(
+        "--event", default=None, help="Event ID to query receipts for",
+    )
+    inspect_rcpt_group.add_argument(
+        "--replay-run", default=None, help="Replay run ID to query receipts for",
+    )
+
+    # inspect native-ref --adapter A --message M [--channel C]
+    inspect_nref = inspect_sub.add_parser("native-ref", help="Resolve native ref to canonical event")
+    inspect_nref.add_argument("--config", default=None, help="Path to config file")
+    inspect_nref.add_argument("--adapter", required=True, help="Adapter name")
+    inspect_nref.add_argument("--channel", default=None, help="Native channel ID (omit for channelless protocols)")
+    inspect_nref.add_argument("--message", required=True, help="Native message ID")
+
     return parser
 
 
@@ -1141,6 +1366,34 @@ def main(argv: list[str] | None = None) -> None:
             _routes_topology(args.config)
         elif args.routes_command == "list":
             _routes_list(args.config)
+    elif args.command == "smoke":
+        import asyncio
+
+        asyncio.run(
+            _smoke(args.config, args.message, args.json)
+        )
+    elif args.command == "inspect":
+        import asyncio
+
+        if args.inspect_command == "event":
+            asyncio.run(_inspect_event(args.config, args.event_id))
+        elif args.inspect_command == "receipts":
+            asyncio.run(
+                _inspect_receipts(
+                    args.config,
+                    event_id=args.event,
+                    replay_run_id=args.replay_run,
+                )
+            )
+        elif args.inspect_command == "native-ref":
+            asyncio.run(
+                _inspect_native_ref(
+                    args.config,
+                    adapter=args.adapter,
+                    channel=args.channel,
+                    message=args.message,
+                )
+            )
 
 
 if __name__ == "__main__":

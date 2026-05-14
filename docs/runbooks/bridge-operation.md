@@ -177,11 +177,22 @@ Docker SDK-boundary tests do **not** prove live network behavior. Services
 run on localhost via Docker containers. See `docs/runbooks/integration-testing.md`
 for the full Docker test tier documentation and provenance levels.
 
+The Synapse bridge smoke test (`test_synapse_bridge_smoke.py`) provides the
+strongest evidence at this tier: it exercises real nio SDK inbound via sync
+loop (with fallback to direct `_on_room_message` if sync does not deliver in
+15 seconds), real `MatrixCodec` decode, real `PipelineRunner` routing to a
+`FakeMatrixAdapter`, `DeliveryReceipt` persistence with genuine Synapse
+event_ids, `NativeMessageRef` inbound mapping, and `RuntimeAccounting`
+counter increments — all against a Docker-local Synapse homeserver. The
+outbound target is a fake adapter; real cross-transport delivery to a second
+real adapter is not proven.
+
 | Provenance tier | Status | What is proven |
 |----------------|--------|---------------|
 | Fake bridge | **Proven** | Pipeline routing, rendering, receipts, accounting |
 | Adapter-wrapper | **Proven** | Per-transport adapter codec, renderer, session |
 | Docker SDK-boundary | **Proven** | Real SDK lifecycle, config, dependency resolution |
+| Docker SDK-boundary bridge smoke | **Proven** | Real Matrix SDK codec + pipeline routing + storage + accounting with genuine Synapse event_ids |
 | Live network | **Not claimed** | No cross-transport bridge test against real endpoints |
 
 

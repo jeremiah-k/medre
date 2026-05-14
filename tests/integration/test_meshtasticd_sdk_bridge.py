@@ -44,6 +44,19 @@ What these tests do NOT prove
 
 - **Sustained throughput or reconnect resilience.** These are smoke
   tests, not reliability tests.
+
+Evidence classification
+-----------------------
+Each bridge test produces a compact ``report`` dict containing:
+
+- ``transport``: ``"meshtastic"``
+- ``evidence_level``: ``"docker_sdk_boundary"``
+- ``inbound_path``: ``"simulate_inbound"`` (always — real pubsub
+  delivery is not exercised by these smoke tests)
+- ``source_adapter``, ``target_adapter``, ``native_event_id``,
+  ``route_id``, ``receipt_status``
+- ``accounting``: relevant counters
+- ``limitations``: list of what this run does not prove
 """
 
 from __future__ import annotations
@@ -334,21 +347,27 @@ class TestMeshtasticdSdkBridge:
             assert "channel_index" in result.payload
             assert "meshnet_name" in result.payload
 
-            # Inbound native ref persisted in storage.
+            # Inbound native ref persisted in storage (public API).
             resolved = await temp_storage.resolve_native_ref(
                 adapter="sdk-bridge-in",
                 native_channel_id="0",
                 native_message_id="88888",
             )
-            assert resolved is not None
-
-            # Delivery receipt persisted as 'sent'.
-            rows = await temp_storage._read_all(
-                "SELECT * FROM delivery_receipts WHERE target_adapter = ?",
-                ("sdk-bridge-fake-out",),
+            assert resolved is not None, (
+                "Expected inbound native ref for packet_id 88888 on channel 0"
             )
-            assert len(rows) == 1
-            assert rows[0]["status"] == "sent"
+            canonical_id = resolved
+
+            # Delivery receipt persisted as 'sent' (public API).
+            receipts = await temp_storage.list_receipts_for_event(
+                canonical_id,
+            )
+            assert len(receipts) == 1, (
+                f"Expected exactly 1 receipt for event {canonical_id!r}, "
+                f"got {len(receipts)}"
+            )
+            receipt_status = receipts[0].status
+            assert receipt_status == "sent"
 
             # Outbound native ref exists from FakeMeshtasticAdapter
             # (which generates deterministic IDs).
@@ -358,6 +377,34 @@ class TestMeshtasticdSdkBridge:
                 native_message_id="1",
             )
             assert resolved_out is not None
+
+            # Build compact evidence report.
+            report: dict[str, object] = {
+                "transport": "meshtastic",
+                "evidence_level": "docker_sdk_boundary",
+                "inbound_path": "simulate_inbound",
+                "source_adapter": "sdk-bridge-in",
+                "target_adapter": "sdk-bridge-fake-out",
+                "native_event_id": "88888",
+                "route_id": route.id,
+                "receipt_status": receipt_status,
+                "limitations": [
+                    "Inbound injected via simulate_inbound (not real pubsub).",
+                    "meshtasticd simulation mode (-s), not real LoRa hardware.",
+                    "Not a throughput or reconnect resilience test.",
+                ],
+            }
+            assert report["evidence_level"] == "docker_sdk_boundary"
+            assert report["receipt_status"] == "sent"
+            assert report["inbound_path"] == "simulate_inbound"
+
+            logger.info(
+                "Meshtastic bridge smoke report: inbound_path=%s "
+                "native_event_id=%s receipt_status=%s",
+                report["inbound_path"],
+                report["native_event_id"],
+                report["receipt_status"],
+            )
         finally:
             await mesh_adapter.stop()
             await runner.stop()

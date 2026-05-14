@@ -2,7 +2,7 @@
 
 > Last updated: 2026-05-14
 > Scope: Proving cross-adapter bridge behavior with fake adapters
-> Status: Pre-beta. Fake bridge proven; Docker SDK-boundary proven; live bridge not claimed.
+> Status: Pre-beta. Fake bridge proven; Docker SDK-boundary proven; Docker SDK-boundary bridge smoke proven (Matrix → fake via real SDK); live bridge not claimed.
 
 This runbook describes how to prove that the MEDRE runtime correctly bridges
 events between adapters using fake adapters and in-memory storage. It covers
@@ -16,12 +16,15 @@ what each test proves, how to run the tests, and what the results mean.
 | **Fake bridge** | Proven | Full pipeline routing with fake adapters (this runbook) |
 | **Adapter-wrapper** | Proven | Per-transport adapter internals with mocked transport |
 | **Docker SDK-boundary** | Proven | Real SDK code paths against containerized Synapse/meshtasticd (see `integration-testing.md`) |
+| **Docker SDK-boundary bridge smoke** | Proven | Real Matrix SDK codec + pipeline routing + storage + accounting with genuine Synapse event_ids (see `integration-testing.md`) |
 | **Live network** | **Not claimed** | No cross-transport bridge test against real endpoints has been executed |
 
 Fake bridge and Docker SDK-boundary are complementary. Fake bridge proves the
 pipeline routing logic is correct. Docker SDK-boundary proves the real SDK
 boundary works (config loading, dependency resolution, adapter lifecycle).
-Neither proves live network behavior.
+Docker SDK-boundary bridge smoke proves the real SDK's inbound path integrates
+with the pipeline, storage, and accounting — but routes to a fake outbound
+target. None proves live network behavior.
 
 
 ## 1. What "Fake Bridge Proven" Means
@@ -213,6 +216,9 @@ PYTHONPATH=src pytest tests/integration/test_synapse_connectivity.py -m docker -
 
 # Meshtastic (meshtasticd) only
 PYTHONPATH=src pytest tests/integration/test_meshtasticd_connectivity.py -m docker -v
+
+# Synapse bridge smoke (full pipeline: real Matrix SDK → PipelineRunner → FakeMatrixAdapter)
+PYTHONPATH=src pytest tests/integration/test_synapse_bridge_smoke.py -m docker -v
 ```
 
 Docker tests are **excluded from default runs** via `addopts = "-m 'not live and not docker'"`
@@ -248,3 +254,148 @@ pytest -m "" -v
 # Enable ResourceWarning as error to catch unclosed resources:
 PYTHONPATH=src pytest -W error::ResourceWarning -q
 ```
+
+
+## 7.5 Operator Smoke Command
+
+The ``medre smoke`` command provides a single-command Docker-free bridge
+validation.  It loads a config (default: ``examples/configs/fake-bridge-smoke.toml``),
+builds and starts the runtime with fake adapters, injects one ``message.text``
+event through the full pipeline, inspects every evidence surface, stops
+cleanly, and prints a compact PASS/FAIL report.
+
+```bash
+# Default: uses shipped fake-bridge-smoke.toml
+PYTHONPATH=src medre smoke
+
+# JSON report (machine-readable)
+PYTHONPATH=src medre smoke --json
+
+# Explicit config
+PYTHONPATH=src medre smoke --config examples/configs/fake-bridge-smoke.toml
+
+# Custom message text
+PYTHONPATH=src medre smoke --message "operator check $(date -Iseconds)"
+
+# Exit codes: 0 = PASS, 1 = FAIL
+PYTHONPATH=src medre smoke --json; echo "exit: $?"
+```
+
+**Report fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| ``status`` | ``PASS`` / ``FAIL`` | Overall result |
+| ``evidence_level`` | ``fake_bridge`` | What the report proves |
+| ``source_adapter`` | str | Adapter that sourced the test event |
+| ``target_adapters`` | list[str] | Adapters that received delivery |
+| ``event_id`` | str | Canonical event ID |
+| ``route_ids`` | list[str] | Routes that matched the event |
+| ``delivery_receipts`` | list[dict] | Per-target receipt summaries |
+| ``native_refs`` | list[dict] | Native message ref mappings |
+| ``accounting`` | dict | RuntimeAccounting counters |
+| ``route_stats`` | dict | Per-route delivery statistics |
+| ``snapshot`` | dict | Abbreviated runtime snapshot |
+| ``limitations`` | list[str] | What this does NOT prove |
+| ``preflight`` | dict | Config/route validation summary |
+
+**PASS criteria (all must be true):**
+
+1. Event stored in storage (``storage.get(event_id)`` returns non-None).
+2. At least one ``DeliveryOutcome`` with ``status == "success"``.
+3. At least one ``DeliveryReceipt`` with ``status == "sent"``.
+4. ``accounting.outbound_delivered >= 1``.
+
+**What this proves:**
+
+- The runtime pipeline correctly routes events between adapters.
+- DeliveryReceipts are persisted for every outbound delivery attempt.
+- NativeMessageRefs are persisted when adapters return native IDs.
+- RuntimeAccounting counters reflect actual flow.
+- RouteStats track per-route delivery counts.
+- The full snapshot is JSON-safe.
+
+**What this does NOT prove:**
+
+- Real transport connectivity (no network involved).
+- Real adapter codec correctness for live packet formats.
+- Delivery confirmation beyond local adapter acceptance.
+- Persistence or crash recovery (in-memory storage).
+
+The underlying function ``run_fake_bridge_smoke()`` in
+``medre.runtime.smoke`` can also be called programmatically:
+
+```python
+from medre.runtime.smoke import run_fake_bridge_smoke
+report = await run_fake_bridge_smoke("path/to/config.toml")
+assert report["status"] == "PASS"
+```
+
+### Expected fake bridge PASS output
+
+```bash
+PYTHONPATH=src pytest tests/test_fake_bridge_smoke.py -v
+# Expected: 30+ passed in under 30 seconds
+# Key test classes that must PASS:
+#   TestMatrixToMeshtastic, TestMeshtasticToMatrix,
+#   TestBidirectionalBridge, TestFanoutDelivery,
+#   TestLoopPrevention, TestReplyRelationPreservation,
+#   TestRenderingContract, TestSnapshotReflectsBridgeFlow,
+#   TestRouteConfigThroughRuntime
+```
+
+### Expected Docker bridge smoke PASS output
+
+```bash
+PYTHONPATH=src pytest tests/integration/test_synapse_bridge_smoke.py -m docker -v
+# Expected: 3 passed
+# Key assertions in test_inbound_via_sync_routes_to_fake_adapter:
+#   - native_message_id starts with "$" (real Synapse event_id)
+#   - fake_out.delivered_payloads >= 1 (pipeline routed successfully)
+#   - receipt status == "sent" (DeliveryReceipt persisted)
+#   - inbound NativeMessageRef maps real event_id to canonical ID
+#   - RuntimeAccounting inbound_accepted >= 1, outbound_delivered >= 1
+#   - No aiohttp ResourceWarnings after shutdown
+```
+
+### Inspecting stored evidence after fake bridge
+
+```python
+# After a fake bridge test with in-memory or SQLite storage:
+# Event stored
+event = await storage.get(event_id)
+assert event.source_adapter == "expected-source"
+
+# DeliveryReceipt
+receipts = await storage.list_receipts_for_event(event_id)
+assert receipts[0].status == "sent"
+
+# NativeMessageRef (when adapter returns native_message_id)
+ref = await storage.resolve_native_ref(adapter, channel, native_id)
+assert ref is not None
+
+# RuntimeAccounting
+counters = app._runtime_accounting.snapshot()
+assert counters["inbound_accepted"] >= 1
+
+# RouteStats
+stats = app.route_stats.snapshot()
+assert stats["per_route"]["route-id"]["delivered"] >= 1
+```
+
+
+## 8. What Remains Unproven
+
+| Capability | Status | Notes |
+|-----------|--------|-------|
+| Live external Matrix (beyond Docker localhost) | Not proven | Docker tests use loopback Synapse only |
+| Real radio hardware (Meshtastic/MeshCore/LXMF) | Not proven | No live hardware smoke test recorded |
+| Final delivery ACK / remote receipt | Not proven | Radio is fire-and-forget; Matrix is server-level only |
+| Replay deduplication | Not proven | Replay produces duplicates by design |
+| Active restart / supervision | Not proven | No per-adapter restart, no auto-remediation |
+| Background health polling | Not proven | Manual `--refresh-health` only; no scheduler |
+| Sustained throughput | Not proven | All tests are smoke tests, not load tests |
+| Network resilience / reconnection | Not proven | No live failure/reconnect test |
+| Cross-instance loop prevention | Not proven | Loop prevention is local-process only |
+| Third-party Matrix inbound | Not proven | Bridge smoke uses HTTP API sender, not a second Matrix client |
+| Full cross-transport relay | Not proven | Bridge smoke routes real Matrix to fake outbound, not to a second real adapter |

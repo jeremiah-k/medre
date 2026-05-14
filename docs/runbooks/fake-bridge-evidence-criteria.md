@@ -32,6 +32,7 @@ live-network criteria are tracked separately per transport.
 | Fake bridge | **Proven** | Pipeline routing, rendering, receipts, accounting, loop prevention all work with fake adapters |
 | Adapter-wrapper | **Proven** | Per-transport adapter codec, renderer, session logic work with mocked transport |
 | Docker SDK-boundary | **Proven** | Real SDK code paths exercise against containerized Synapse/meshtasticd |
+| Docker SDK-boundary bridge smoke | **Proven** | Real Matrix SDK codec + pipeline routing + storage + accounting with genuine Synapse event_ids |
 | Live network | **Not claimed** | No live cross-transport bridge test has been executed against real endpoints |
 
 
@@ -172,3 +173,24 @@ direction):
    and filters events correctly.
 
 6. **Duplicate rejection**: `RouteConfigSet` rejects duplicate route IDs.
+
+
+## What Remains Unproven
+
+The evidence criteria above define what *must* be asserted to consider a
+flow proven at a given tier. The following capabilities have **no** passing
+test at any tier and remain explicitly unproven:
+
+| Capability | Status | Notes |
+|-----------|--------|-------|
+| Live external Matrix (beyond Docker localhost) | Not proven | Docker tests use loopback Synapse only |
+| Real radio hardware (Meshtastic/MeshCore/LXMF) | Not proven | No live hardware smoke test recorded |
+| Final delivery ACK / remote receipt | Not proven | Radio is fire-and-forget; Matrix is server-level only |
+| Replay deduplication | Not proven | Replay produces duplicates by design |
+| Active restart / supervision | Not proven | No per-adapter restart, no auto-remediation |
+| Background health polling | Not proven | Manual `--refresh-health` only; no scheduler |
+| Sustained throughput | Not proven | All tests are smoke tests, not load tests |
+| Network resilience / reconnection | Not proven | No live failure/reconnect test |
+| Cross-instance loop prevention | Not proven | Loop prevention is local-process only |
+| Third-party Matrix inbound | Not proven | Bridge smoke uses HTTP API sender, not a second Matrix client |
+| Full cross-transport relay | Not proven | Bridge smoke routes real Matrix to fake outbound, not to a second real adapter |
