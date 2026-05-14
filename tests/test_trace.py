@@ -876,3 +876,351 @@ class TestTraceReplay:
         parsed = json.loads(output)
         keys = list(parsed.keys())
         assert keys == sorted(keys)
+
+
+# ===================================================================
+# Enriched receipt entries in assemble_event_timeline
+# ===================================================================
+
+
+class TestEnrichedReceiptEntries:
+    """Receipt entries include full fields: receipt_id, event_id, route_id,
+    delivery_plan_id, target_adapter, status, failure_kind, error,
+    attempt_number, source, replay_run_id, native_message_id, native_channel_id."""
+
+    def test_receipt_includes_all_required_fields(self) -> None:
+        from medre.runtime.trace import assemble_event_timeline
+
+        ts = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+        event = _make_event(event_id="evt-rcpt-fields", timestamp=ts)
+        receipt = _make_receipt(
+            receipt_id="rcpt-fields-1",
+            event_id="evt-rcpt-fields",
+            created_at=datetime(2026, 1, 15, 12, 0, 1, tzinfo=timezone.utc),
+        )
+
+        timeline = assemble_event_timeline(event, [receipt], [], [])
+        receipt_entry = next(e for e in timeline if e["entry_type"] == "receipt")
+        data = receipt_entry["data"]
+
+        required = [
+            "receipt_id", "event_id", "route_id", "delivery_plan_id",
+            "target_adapter", "status", "failure_kind", "error",
+            "attempt_number", "source", "replay_run_id",
+            "native_message_id", "native_channel_id",
+        ]
+        for field in required:
+            assert field in data, f"Missing field: {field}"
+
+    def test_receipt_values_populated_from_struct(self) -> None:
+        from medre.runtime.trace import assemble_event_timeline
+
+        ts = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+        event = _make_event(event_id="evt-rcpt-vals", timestamp=ts)
+        receipt = _make_receipt(
+            receipt_id="rcpt-vals-1",
+            event_id="evt-rcpt-vals",
+            created_at=datetime(2026, 1, 15, 12, 0, 1, tzinfo=timezone.utc),
+        )
+
+        timeline = assemble_event_timeline(event, [receipt], [], [])
+        data = next(e for e in timeline if e["entry_type"] == "receipt")["data"]
+
+        assert data["receipt_id"] == "rcpt-vals-1"
+        assert data["event_id"] == "evt-rcpt-vals"
+        assert data["delivery_plan_id"] == "plan-1"
+        assert data["target_adapter"] == "dest_adapter"
+        assert data["status"] == "sent"
+        assert data["source"] == "live"
+        assert data["attempt_number"] == 1
+        assert data["replay_run_id"] is None
+        assert data["error"] is None
+        assert data["failure_kind"] is None
+        assert data["native_message_id"] is None
+        assert data["native_channel_id"] is None
+
+    def test_receipt_replay_fields(self) -> None:
+        from medre.runtime.trace import assemble_event_timeline
+
+        ts = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+        event = _make_event(event_id="evt-rcpt-replay", timestamp=ts)
+        receipt = _make_receipt(
+            receipt_id="rcpt-replay-1",
+            event_id="evt-rcpt-replay",
+            source="replay",
+            replay_run_id="run-xyz",
+            created_at=datetime(2026, 1, 15, 12, 0, 1, tzinfo=timezone.utc),
+        )
+
+        timeline = assemble_event_timeline(event, [receipt], [], [])
+        data = next(e for e in timeline if e["entry_type"] == "receipt")["data"]
+
+        assert data["source"] == "replay"
+        assert data["replay_run_id"] == "run-xyz"
+
+
+# ===================================================================
+# Enriched native_ref entries in assemble_event_timeline
+# ===================================================================
+
+
+class TestEnrichedNativeRefEntries:
+    """Native_ref entries include: event_id, adapter, native_channel_id,
+    native_message_id, native_thread_id, direction."""
+
+    def test_native_ref_includes_event_id(self) -> None:
+        from medre.runtime.trace import assemble_event_timeline
+
+        ts = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+        event = _make_event(event_id="evt-nref-enriched", timestamp=ts)
+        nref = _make_native_ref(
+            ref_id="nref-enriched-1",
+            event_id="evt-nref-enriched",
+            created_at=ts,
+        )
+
+        timeline = assemble_event_timeline(event, [], [nref], [])
+        data = next(e for e in timeline if e["entry_type"] == "native_ref")["data"]
+
+        assert data["event_id"] == "evt-nref-enriched"
+
+    def test_native_ref_includes_thread_id(self) -> None:
+        from medre.runtime.trace import assemble_event_timeline
+
+        ts = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+        event = _make_event(event_id="evt-nref-thread", timestamp=ts)
+        nref = NativeMessageRef(
+            id="nref-thread-1",
+            event_id="evt-nref-thread",
+            adapter="matrix",
+            native_channel_id="!room:test",
+            native_message_id="$msg-thread",
+            native_thread_id="thread-42",
+            native_relation_id=None,
+            direction="outbound",
+            created_at=ts,
+        )
+
+        timeline = assemble_event_timeline(event, [], [nref], [])
+        data = next(e for e in timeline if e["entry_type"] == "native_ref")["data"]
+
+        assert data["native_thread_id"] == "thread-42"
+
+    def test_native_ref_thread_id_none_when_absent(self) -> None:
+        from medre.runtime.trace import assemble_event_timeline
+
+        ts = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+        event = _make_event(event_id="evt-nref-nothread", timestamp=ts)
+        nref = _make_native_ref(
+            ref_id="nref-nothread-1",
+            event_id="evt-nref-nothread",
+            created_at=ts,
+        )
+
+        timeline = assemble_event_timeline(event, [], [nref], [])
+        data = next(e for e in timeline if e["entry_type"] == "native_ref")["data"]
+
+        assert data["native_thread_id"] is None
+
+    def test_native_ref_all_fields(self) -> None:
+        from medre.runtime.trace import assemble_event_timeline
+
+        ts = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+        event = _make_event(event_id="evt-nref-all", timestamp=ts)
+        nref = _make_native_ref(
+            ref_id="nref-all-1",
+            event_id="evt-nref-all",
+            adapter="meshtastic",
+            channel="!ch:1",
+            message_id="$msg-all",
+            direction="inbound",
+            created_at=ts,
+        )
+
+        timeline = assemble_event_timeline(event, [], [nref], [])
+        data = next(e for e in timeline if e["entry_type"] == "native_ref")["data"]
+
+        assert data["id"] == "nref-all-1"
+        assert data["event_id"] == "evt-nref-all"
+        assert data["adapter"] == "meshtastic"
+        assert data["native_channel_id"] == "!ch:1"
+        assert data["native_message_id"] == "$msg-all"
+        assert data["direction"] == "inbound"
+
+
+# ===================================================================
+# Enriched replay timeline
+# ===================================================================
+
+
+class TestEnrichedReplayTimeline:
+    """assemble_replay_timeline includes full receipt fields,
+    missing_event_ids, duplicate_send_caveat."""
+
+    def test_replay_receipt_includes_full_fields(self) -> None:
+        from medre.runtime.trace import assemble_replay_timeline
+
+        ts = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+        event = _make_event(event_id="evt-rpl-fields", timestamp=ts)
+        receipt = _make_receipt(
+            receipt_id="rcpt-rpl-fields",
+            event_id="evt-rpl-fields",
+            source="replay",
+            replay_run_id="run-fields",
+            created_at=datetime(2026, 1, 15, 12, 0, 1, tzinfo=timezone.utc),
+        )
+
+        result = assemble_replay_timeline(
+            "run-fields", [receipt], {"evt-rpl-fields": event},
+        )
+        receipt_entry = next(
+            e for e in result["timeline"] if e["entry_type"] == "receipt"
+        )
+        data = receipt_entry["data"]
+
+        required = [
+            "receipt_id", "event_id", "route_id", "delivery_plan_id",
+            "target_adapter", "status", "failure_kind", "error",
+            "attempt_number", "source", "replay_run_id",
+            "native_message_id", "native_channel_id",
+        ]
+        for field in required:
+            assert field in data, f"Missing field: {field}"
+
+        assert data["source"] == "replay"
+        assert data["replay_run_id"] == "run-fields"
+
+    def test_replay_missing_event_ids_populated(self) -> None:
+        from medre.runtime.trace import assemble_replay_timeline
+
+        receipt = _make_receipt(
+            receipt_id="rcpt-miss",
+            event_id="evt-missing-1",
+            source="replay",
+            replay_run_id="run-miss",
+        )
+
+        result = assemble_replay_timeline("run-miss", [receipt], {})
+
+        assert result["missing_event_ids"] == ["evt-missing-1"]
+        assert result["status"] == "partial"
+
+    def test_replay_no_missing_event_ids_when_complete(self) -> None:
+        from medre.runtime.trace import assemble_replay_timeline
+
+        ts = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+        event = _make_event(event_id="evt-complete", timestamp=ts)
+        receipt = _make_receipt(
+            receipt_id="rcpt-complete",
+            event_id="evt-complete",
+            source="replay",
+            replay_run_id="run-complete",
+        )
+
+        result = assemble_replay_timeline(
+            "run-complete", [receipt], {"evt-complete": event},
+        )
+
+        assert result["missing_event_ids"] == []
+        assert result["status"] == "complete"
+
+    def test_replay_duplicate_send_caveat_present(self) -> None:
+        from medre.runtime.trace import assemble_replay_timeline
+
+        ts = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+        event = _make_event(event_id="evt-caveat", timestamp=ts)
+        receipt = _make_receipt(
+            receipt_id="rcpt-caveat",
+            event_id="evt-caveat",
+            source="replay",
+            replay_run_id="run-caveat",
+        )
+
+        result = assemble_replay_timeline(
+            "run-caveat", [receipt], {"evt-caveat": event},
+        )
+
+        assert "duplicate_send_caveat" in result
+        assert isinstance(result["duplicate_send_caveat"], str)
+        assert "deduplicate" in result["duplicate_send_caveat"].lower()
+
+    def test_replay_empty_has_caveat(self) -> None:
+        from medre.runtime.trace import assemble_replay_timeline
+
+        result = assemble_replay_timeline("run-empty-caveat", [], {})
+
+        assert "duplicate_send_caveat" in result
+        assert result["missing_event_ids"] == []
+        assert result["status"] == "empty"
+
+
+# ===================================================================
+# Best-effort warning text (cli.py)
+# ===================================================================
+
+
+class TestBestEffortWarningText:
+    """_BEST_EFFORT_WARNING must not claim replay records are
+    NOT distinguishable; it must mention source='replay',
+    replay_run_id, traceability is NOT dedupe, and duplicate-send risk."""
+
+    def test_warning_mentions_distinguishable(self) -> None:
+        from medre.cli import _BEST_EFFORT_WARNING
+
+        assert "distinguishable" in _BEST_EFFORT_WARNING.lower()
+        # Must NOT say "NOT distinguishable from live records"
+        assert "NOT" not in _BEST_EFFORT_WARNING or \
+            "NOT distinguishable" not in _BEST_EFFORT_WARNING
+
+    def test_warning_mentions_source_replay(self) -> None:
+        from medre.cli import _BEST_EFFORT_WARNING
+
+        assert "source='replay'" in _BEST_EFFORT_WARNING
+        assert "replay_run_id" in _BEST_EFFORT_WARNING
+
+    def test_warning_mentions_traceability_not_dedupe(self) -> None:
+        from medre.cli import _BEST_EFFORT_WARNING
+
+        assert "traceability" in _BEST_EFFORT_WARNING.lower()
+        assert "dedupe" in _BEST_EFFORT_WARNING.lower() or \
+            "NOT dedupe" in _BEST_EFFORT_WARNING
+
+    def test_warning_mentions_duplicate_send_risk(self) -> None:
+        from medre.cli import _BEST_EFFORT_WARNING
+
+        assert "duplicate" in _BEST_EFFORT_WARNING.lower()
+
+
+# ===================================================================
+# Public sanitize_error (snapshot.py)
+# ===================================================================
+
+
+class TestPublicSanitizeError:
+    """sanitize_error is exported as a public function from snapshot.py."""
+
+    def test_import_from_public_name(self) -> None:
+        from medre.runtime.snapshot import sanitize_error
+
+        assert callable(sanitize_error)
+
+    def test_sanitize_error_redacts_tokens(self) -> None:
+        from medre.runtime.snapshot import sanitize_error
+
+        result = sanitize_error("Error: token syt_abc123def456 for user")
+        assert "syt_abc123def456" not in result
+        assert "[REDACTED]" in result
+
+    def test_sanitize_error_in_all(self) -> None:
+        import medre.runtime.snapshot as snap_mod
+
+        assert "sanitize_error" in snap_mod.__all__
+
+    def test_evidence_imports_public_name(self) -> None:
+        """evidence.py uses the public import, not private underscore."""
+        import inspect
+        from medre.runtime import evidence
+
+        source = inspect.getsource(evidence._sanitize_error)
+        assert "_sanitize_error as" not in source
+        assert "sanitize_error" in source

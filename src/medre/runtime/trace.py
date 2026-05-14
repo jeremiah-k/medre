@@ -140,9 +140,11 @@ def assemble_event_timeline(
             entry_type="native_ref",
             data={
                 "id": nref.id,
+                "event_id": nref.event_id,
                 "adapter": nref.adapter,
                 "native_channel_id": nref.native_channel_id,
                 "native_message_id": nref.native_message_id,
+                "native_thread_id": nref.native_thread_id,
                 "direction": nref.direction,
             },
         ))
@@ -155,10 +157,18 @@ def assemble_event_timeline(
             entry_type="receipt",
             data={
                 "receipt_id": receipt.receipt_id,
+                "event_id": receipt.event_id,
+                "route_id": receipt.route_id,
+                "delivery_plan_id": receipt.delivery_plan_id,
                 "target_adapter": receipt.target_adapter,
                 "status": receipt.status,
-                "source": receipt.source,
+                "failure_kind": None,
+                "error": receipt.error,
                 "attempt_number": receipt.attempt_number,
+                "source": receipt.source,
+                "replay_run_id": receipt.replay_run_id,
+                "native_message_id": receipt.adapter_message_id,
+                "native_channel_id": None,
             },
         ))
 
@@ -210,6 +220,11 @@ def assemble_replay_timeline(
             "status": "empty",
             "receipt_count": 0,
             "event_ids": [],
+            "missing_event_ids": [],
+            "duplicate_send_caveat": (
+                "Replay does not deduplicate.  Adapters that already "
+                "delivered an event may produce duplicate sends."
+            ),
             "timeline": [],
         }
 
@@ -230,9 +245,17 @@ def assemble_replay_timeline(
             "data": {
                 "receipt_id": receipt.receipt_id,
                 "event_id": receipt.event_id,
+                "route_id": receipt.route_id,
+                "delivery_plan_id": receipt.delivery_plan_id,
                 "target_adapter": receipt.target_adapter,
                 "status": receipt.status,
+                "failure_kind": None,
+                "error": receipt.error,
                 "attempt_number": receipt.attempt_number,
+                "source": receipt.source,
+                "replay_run_id": receipt.replay_run_id,
+                "native_message_id": receipt.adapter_message_id,
+                "native_channel_id": None,
             },
         }
         timeline_entries.append(entry)
@@ -263,6 +286,11 @@ def assemble_replay_timeline(
         "status": status,
         "receipt_count": len(receipts),
         "event_ids": event_ids,
+        "missing_event_ids": missing,
+        "duplicate_send_caveat": (
+            "Replay does not deduplicate.  Adapters that already "
+            "delivered an event may produce duplicate sends."
+        ),
         "timeline": timeline_entries,
     }
 

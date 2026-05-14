@@ -25,6 +25,124 @@ and the decision tree for choosing the right recovery action.
 - Provide automatic retry scheduling.
 
 
+## 0. Complete Incident Workflow (End-to-End)
+
+This section describes a coherent end-to-end workflow that chains smoke,
+trace, inspect, recover, and evidence into a single incident response
+procedure. Use this when you suspect events were lost or not delivered
+correctly.
+
+**Caveat:** Traceability is not deduplication. This workflow shows you what
+happened and lets you re-deliver, but it cannot tell you whether a duplicate
+reached the remote side. BEST_EFFORT sends real messages. There is no final
+ACK guarantee for radio transports. There is no active retry scheduler — every
+step below is operator-initiated. Runtime events and counters are process-local
+and reset on restart.
+
+### Step 1: Verify Pipeline Health
+
+```bash
+# Smoke-test the pipeline with persistent storage so evidence survives exit.
+# This uses fake adapters — it proves routing and receipt persistence, not
+# real transport connectivity.
+PYTHONPATH=src medre smoke --storage-path /tmp/medre-incident.db --json
+```
+
+Exit code 0 = pipeline healthy. If this fails, fix config or environment
+before proceeding.
+
+### Step 2: Trace the Suspect Event
+
+```bash
+# If you know the event_id from logs or a previous run:
+medre trace event <event_id> --config my-bridge.toml
+
+# With JSON for programmatic inspection:
+medre trace event <event_id> --config my-bridge.toml --json
+```
+
+The trace output shows the full lifecycle: ingestion, routing, delivery
+attempts, retry chains, and replay attribution. If no receipts exist, the
+event is orphaned — proceed to Step 4.
+
+### Step 3: Inspect Delivery Receipts
+
+```bash
+# All receipts for the event, including retry lineage and replay attribution
+medre inspect receipts --event <event_id> --config my-bridge.toml
+
+# Check native message refs to map transport-native IDs
+medre inspect native-ref --adapter <name> --message <native_id> \
+  --config my-bridge.toml
+```
+
+Look for:
+- `source` field: `"live"` means original delivery, `"replay"` means
+  re-delivered via replay engine.
+- `replay_run_id`: groups receipts from the same replay run.
+- `failure_kind`: tells you why delivery failed (if it did).
+- `attempt_number` and `parent_receipt_id`: traces the retry chain.
+
+### Step 4: Recover Orphaned or Failed Events
+
+```bash
+# Targeted recovery of a single event (DRY_RUN first):
+medre recover --event <event_id> --dry-run --config my-bridge.toml
+
+# If preview looks correct, execute:
+medre recover --event <event_id> --config my-bridge.toml
+
+# Or replay all orphaned events:
+medre replay --mode DRY_RUN --config my-bridge.toml
+medre replay --mode BEST_EFFORT --config my-bridge.toml
+```
+
+**Warning:** BEST_EFFORT sends real messages. Events that already have `sent`
+receipts will be delivered again. Traceability is not deduplication — each
+replay produces new outbound messages. There is no retry scheduler; replay
+is a one-shot operator action.
+
+### Step 5: Collect Evidence Bundle
+
+```bash
+# Full evidence for the incident, including the event and its receipts
+medre evidence --event <event_id> --config my-bridge.toml --json \
+  > incident-evidence.json
+
+# If live health is also needed (starts real adapters):
+medre evidence --event <event_id> --include-refresh-health \
+  --config my-bridge.toml --json > incident-evidence-full.json
+```
+
+The evidence bundle includes config summary, route validation, diagnostics
+snapshot, storage data (event, receipts, native refs), and optional live
+health. Attach this to incident reports or bug filings.
+
+### Workflow Summary
+
+```
+medre smoke --storage-path <db>
+  → verifies pipeline, persists evidence
+  ↓
+medre trace event <id>
+  → shows full event lifecycle
+  ↓
+medre inspect receipts --event <id>
+  → delivery details, retry chains, replay attribution
+  ↓
+medre recover --event <id>   (dry-run first)
+  → re-delivers orphaned event (BEST_EFFORT sends real messages)
+  ↓
+medre evidence --event <id> --json
+  → collects full evidence bundle
+```
+
+See [Event Tracing](event-tracing.md) for trace command details,
+[Replay Operation](replay-operation.md) for replay modes, and
+[Bridge Evidence Bundle](bridge-evidence-bundle.md) for the full evidence
+report shape.
+
+
 ## 1. Recovery Decision Tree
 
 ```

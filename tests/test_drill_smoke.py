@@ -905,3 +905,253 @@ class TestDrillCrossCutting:
             assert "timestamp" in step, (
                 f"Step {step['step']} in {drill_name} missing timestamp"
             )
+
+
+# ---------------------------------------------------------------------------
+# Drill → storage cross-check tests
+# ---------------------------------------------------------------------------
+
+
+_CROSSCHECK_DRILLS = (
+    "renderer_failure",
+    "adapter_permanent_failure",
+    "adapter_transient_failure",
+    "capacity_rejection",
+    "shutdown_rejection",
+    "replay_duplicate_risk",
+)
+
+# Drills that produce at least one delivery receipt.
+_RECEIPT_DRILLS = (
+    "renderer_failure",
+    "adapter_permanent_failure",
+    "adapter_transient_failure",
+    "replay_duplicate_risk",
+)
+
+# Drills where all deliveries are rejected (zero receipts expected).
+_REJECTION_DRILLS = (
+    "capacity_rejection",
+    "shutdown_rejection",
+)
+
+
+def _crosscheck_config_text(db_path: str) -> str:
+    """Return a minimal TOML config pointing at *db_path*."""
+    return (
+        "[runtime]\n"
+        "name = \"drill-crosscheck\"\n"
+        "\n"
+        "[storage]\n"
+        f"path = \"{db_path}\"\n"
+    )
+
+
+def _write_crosscheck_config(tmp_path: Path, db_path: str) -> str:
+    """Write a config file pointing at *db_path* and return its string path."""
+    cfg = tmp_path / "crosscheck.toml"
+    cfg.write_text(_crosscheck_config_text(db_path))
+    return str(cfg)
+
+
+def _capture_cli(*args: str) -> str:
+    """Run a CLI command, capture stdout, and return it.
+
+    Exits with code 0 are swallowed; non-zero exits are re-raised.
+    """
+    import io
+    from contextlib import redirect_stdout, redirect_stderr
+    from medre.cli import main
+
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    try:
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            main(list(args))
+    except SystemExit as exc:
+        if exc.code not in (None, 0):
+            raise
+    return stdout.getvalue()
+
+
+class TestDrillStorageCrossCheck:
+    """Proves drill outputs can be traced through storage using CLI commands.
+
+    Each test runs a drill with ``--storage-path`` to a temp SQLite DB,
+    then verifies that ``medre trace event``, ``medre inspect receipts``,
+    and ``medre evidence`` can inspect the stored data.
+
+    Tests are synchronous because CLI dispatch uses ``asyncio.run()``
+    internally, which cannot be called from a running event loop.
+    The drill execution is wrapped in ``asyncio.run()`` at the test level.
+    """
+
+    @staticmethod
+    def _run_drill_sync(
+        drill_name: str, *, storage_path: str,
+    ) -> dict[str, Any]:
+        """Run a drill synchronously via ``asyncio.run()``."""
+        import asyncio as _asyncio
+        return _asyncio.run(run_drill(
+            drill_name,
+            config_path=_smoke_config_path(),
+            storage_path=storage_path,
+        ))
+
+    # -- trace event ---------------------------------------------------------
+
+    @pytest.mark.parametrize("drill_name", _CROSSCHECK_DRILLS)
+    def test_trace_event_after_drill(
+        self, drill_name: str, tmp_path: Path,
+    ) -> None:
+        """``medre trace event`` finds the drill-generated event in storage."""
+        db_path = str(tmp_path / f"{drill_name}-trace.db")
+        report = self._run_drill_sync(drill_name, storage_path=db_path)
+        assert report["status"] == "PASS", report.get("fail_reasons", [])
+        event_id = report["event_id"]
+
+        config_path = _write_crosscheck_config(tmp_path, db_path)
+        output = _capture_cli(
+            "trace", "event", event_id,
+            "--config", config_path, "--json",
+        )
+        timeline = json.loads(output)
+        assert isinstance(timeline, list)
+        assert len(timeline) >= 1
+        types = [e["entry_type"] for e in timeline]
+        assert "event" in types
+        event_entry = next(e for e in timeline if e["entry_type"] == "event")
+        assert event_entry["data"]["event_id"] == event_id
+
+    # -- inspect receipts (receipt-producing drills) -------------------------
+
+    @pytest.mark.parametrize("drill_name", _RECEIPT_DRILLS)
+    def test_inspect_receipts_after_drill(
+        self, drill_name: str, tmp_path: Path,
+    ) -> None:
+        """``medre inspect receipts`` finds at least one receipt."""
+        db_path = str(tmp_path / f"{drill_name}-rcpt.db")
+        report = self._run_drill_sync(drill_name, storage_path=db_path)
+        assert report["status"] == "PASS", report.get("fail_reasons", [])
+        event_id = report["event_id"]
+
+        config_path = _write_crosscheck_config(tmp_path, db_path)
+        output = _capture_cli(
+            "inspect", "receipts", "--event", event_id,
+            "--config", config_path,
+        )
+        receipts = json.loads(output)
+        assert isinstance(receipts, list)
+        assert len(receipts) >= 1, (
+            f"Expected at least 1 receipt for {drill_name}, got {len(receipts)}"
+        )
+
+    # -- inspect receipts (rejection drills: zero receipts expected) ---------
+
+    @pytest.mark.parametrize("drill_name", _REJECTION_DRILLS)
+    def test_inspect_no_receipts_for_rejection_drills(
+        self, drill_name: str, tmp_path: Path,
+    ) -> None:
+        """Rejection drills produce zero receipts (event still stored)."""
+        db_path = str(tmp_path / f"{drill_name}-reject.db")
+        report = self._run_drill_sync(drill_name, storage_path=db_path)
+        assert report["status"] == "PASS", report.get("fail_reasons", [])
+        event_id = report["event_id"]
+
+        config_path = _write_crosscheck_config(tmp_path, db_path)
+
+        # Event is still traceable.
+        trace_output = _capture_cli(
+            "trace", "event", event_id,
+            "--config", config_path, "--json",
+        )
+        timeline = json.loads(trace_output)
+        types = [e["entry_type"] for e in timeline]
+        assert "event" in types
+
+        # Receipts list is empty for rejected deliveries.
+        rcpt_output = _capture_cli(
+            "inspect", "receipts", "--event", event_id,
+            "--config", config_path,
+        )
+        receipts = json.loads(rcpt_output)
+        assert isinstance(receipts, list)
+        assert len(receipts) == 0, (
+            f"Expected 0 receipts for {drill_name}, got {len(receipts)}"
+        )
+
+    # -- evidence --event ----------------------------------------------------
+
+    @pytest.mark.parametrize("drill_name", _CROSSCHECK_DRILLS)
+    def test_evidence_after_drill(
+        self, drill_name: str, tmp_path: Path,
+    ) -> None:
+        """``medre evidence --event`` retrieves the drill event from storage."""
+        db_path = str(tmp_path / f"{drill_name}-ev.db")
+        report = self._run_drill_sync(drill_name, storage_path=db_path)
+        assert report["status"] == "PASS", report.get("fail_reasons", [])
+        event_id = report["event_id"]
+
+        config_path = _write_crosscheck_config(tmp_path, db_path)
+        output = _capture_cli(
+            "evidence", "--config", config_path, "--json",
+            "--event", event_id,
+        )
+        evidence = json.loads(output)
+        assert evidence["schema_version"] == 1
+        storage_section = evidence["sections"]["storage"]
+        assert storage_section["status"] == "ok"
+        assert storage_section["data"]["db_exists"] is True
+        assert storage_section["data"]["event"] is not None
+        assert storage_section["data"]["event"]["event_id"] == event_id
+
+    # -- comprehensive cross-check (all 6 drills) ---------------------------
+
+    def test_all_drills_produce_traceable_evidence(self, tmp_path: Path) -> None:
+        """All 6 drills produce events traceable via CLI storage commands."""
+        for drill_name in _CROSSCHECK_DRILLS:
+            db_path = str(tmp_path / f"all-{drill_name}.db")
+            report = self._run_drill_sync(drill_name, storage_path=db_path)
+            assert report["status"] == "PASS", (
+                f"Drill {drill_name} failed: {report.get('fail_reasons', [])}"
+            )
+            event_id = report["event_id"]
+            assert event_id is not None
+
+            sub = tmp_path / drill_name
+            sub.mkdir(exist_ok=True)
+            config_path = _write_crosscheck_config(sub, db_path)
+
+            # 1. trace event — event must be found.
+            trace_output = _capture_cli(
+                "trace", "event", event_id,
+                "--config", config_path, "--json",
+            )
+            timeline = json.loads(trace_output)
+            types = [e["entry_type"] for e in timeline]
+            assert "event" in types, (
+                f"Event missing from timeline for {drill_name}"
+            )
+
+            # 2. inspect receipts — must return a valid list.
+            rcpt_output = _capture_cli(
+                "inspect", "receipts", "--event", event_id,
+                "--config", config_path,
+            )
+            receipts = json.loads(rcpt_output)
+            assert isinstance(receipts, list), (
+                f"Receipts not a list for {drill_name}"
+            )
+            if drill_name in _RECEIPT_DRILLS:
+                assert len(receipts) >= 1, (
+                    f"No receipts for receipt-producing drill {drill_name}"
+                )
+
+            # 3. evidence — must find the event.
+            ev_output = _capture_cli(
+                "evidence", "--config", config_path, "--json",
+                "--event", event_id,
+            )
+            evidence = json.loads(ev_output)
+            assert evidence["sections"]["storage"]["status"] == "ok"
+            assert evidence["sections"]["storage"]["data"]["db_exists"] is True

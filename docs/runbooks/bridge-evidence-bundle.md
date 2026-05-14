@@ -429,6 +429,17 @@ The `storage` section populates `event` with the canonical event data and
 `native_refs_for_event` with any native message ref mappings for that event.
 If the event is not found, the storage section status is `"partial"`.
 
+When the event has delivery receipts, the `storage` section also includes
+`trace_event` — the same enriched trace report produced by `medre trace event`.
+When `--replay-run <run_id>` is provided, `trace_replay` contains the enriched
+replay trace report produced by `medre trace replay`.
+
+**Caveat:** Traceability is not deduplication. The trace sections show all
+receipts including duplicates from replay, but cannot tell you which delivery
+actually reached the remote side. BEST_EFFORT sends real messages. There is
+no final ACK guarantee for radio transports. There is no active retry
+scheduler. Runtime events and counters are process-local.
+
 ```json
 {
   "storage": {
@@ -455,11 +466,135 @@ If the event is not found, the storage section status is `"partial"`.
           "direction": "outbound"
         }
       ],
+      "trace_event": {
+        "event": { "...": "canonical event data" },
+        "receipts": [
+          {
+            "receipt_id": "rcpt_001",
+            "target_adapter": "radio",
+            "route_id": "bot-to-radio",
+            "status": "sent",
+            "failure_kind": null,
+            "attempt_number": 1,
+            "parent_receipt_id": null,
+            "source": "live",
+            "replay_run_id": null,
+            "created_at": "2026-05-14T10:30:00.050Z"
+          },
+          {
+            "receipt_id": "rcpt_r1",
+            "target_adapter": "radio",
+            "route_id": "bot-to-radio",
+            "status": "sent",
+            "failure_kind": null,
+            "attempt_number": 1,
+            "parent_receipt_id": null,
+            "source": "replay",
+            "replay_run_id": "replay_xyz789",
+            "created_at": "2026-05-14T11:00:00Z"
+          }
+        ],
+        "native_refs": [
+          {
+            "native_message_id": "fake_123",
+            "native_channel_id": "general",
+            "canonical_event_id": "evt_abc123",
+            "adapter": "radio",
+            "direction": "outbound"
+          }
+        ],
+        "timeline": [
+          {
+            "timestamp": "2026-05-14T10:30:00.000Z",
+            "phase": "ingestion",
+            "description": "Event stored from source adapter 'bot'"
+          },
+          {
+            "timestamp": "2026-05-14T10:30:00.050Z",
+            "phase": "delivery",
+            "description": "Delivery to adapter 'radio': status=sent"
+          },
+          {
+            "timestamp": "2026-05-14T11:00:00.000Z",
+            "phase": "replay",
+            "description": "Event evt_abc123 re-delivered via replay run replay_xyz789 to adapter 'radio': status=sent"
+          }
+        ]
+      },
+      "trace_replay": null,
       "replay_run_receipts": null
     }
   }
 }
 ```
+
+**With `--replay-run <run_id>` (targets a specific replay run):**
+
+The `storage` section populates `trace_replay` with the enriched replay trace
+report — the same data produced by `medre trace replay <run_id>`. The
+`replay_run_receipts` array lists all receipts for that run. Each receipt has
+`source='replay'` and the matching `replay_run_id`.
+
+```json
+{
+  "storage": {
+    "status": "ok",
+    "error": null,
+    "data": {
+      "db_exists": true,
+      "db_path": "/opt/medre/state/medre.sqlite",
+      "event_count": 42,
+      "receipt_count": 45,
+      "event": null,
+      "native_refs_for_event": null,
+      "trace_event": null,
+      "trace_replay": {
+        "replay_run_id": "replay_xyz789",
+        "receipts": [
+          {
+            "receipt_id": "rcpt_r1",
+            "event_id": "evt_abc123",
+            "target_adapter": "radio",
+            "route_id": "bot-to-radio",
+            "status": "sent",
+            "source": "replay",
+            "replay_run_id": "replay_xyz789",
+            "attempt_number": 1,
+            "created_at": "2026-05-14T11:00:00Z"
+          }
+        ],
+        "summary": {
+          "total_receipts": 1,
+          "sent": 1,
+          "failed": 0,
+          "events_covered": 1,
+          "duplicate_risk": "possible — check source='replay' receipts against live receipts for same events"
+        },
+        "timeline": [
+          {
+            "timestamp": "2026-05-14T11:00:00.000Z",
+            "phase": "replay",
+            "description": "Event evt_abc123 re-delivered via replay run replay_xyz789 to adapter 'radio': status=sent"
+          }
+        ]
+      },
+      "replay_run_receipts": [
+        {
+          "receipt_id": "rcpt_r1",
+          "event_id": "evt_abc123",
+          "target_adapter": "radio",
+          "status": "sent",
+          "source": "replay",
+          "replay_run_id": "replay_xyz789"
+        }
+      ]
+    }
+  }
+}
+```
+
+See [Event Tracing](event-tracing.md) for the full trace report shapes and
+[Replay Operation](replay-operation.md) for replay receipt interpretation.
 
 
 ## 4. Interpreting the Bundle

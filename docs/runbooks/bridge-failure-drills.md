@@ -823,7 +823,54 @@ provide cross-instance loop prevention. See
 [Routing Correctness > Loop Prevention](routing-correctness.md#2-loop-prevention).
 
 
-## 11. Inspect Follow-Up Quick Reference
+## 11. Incident Workflow Cross-Check
+
+Each drill in this runbook can feed into the incident workflow described in
+[Bridge Recovery §0](bridge-recovery.md#0-complete-incident-workflow-end-to-end).
+When drills use `--storage-path`, the resulting SQLite database enables
+post-drill tracing and evidence collection:
+
+```bash
+# Step 1: Run a drill with persistent storage
+PYTHONPATH=src medre smoke --drill adapter_transient_failure \
+  --storage-path /tmp/medre-drill.db --json
+
+# Step 2: Trace the drill's event through its lifecycle
+medre trace event <event_id> --config my-bridge.toml
+
+# Step 3: Inspect receipts for retry chains, failure kinds
+medre inspect receipts --event <event_id> --config my-bridge.toml
+
+# Step 4: Collect full evidence for the drill
+medre evidence --event <event_id> --config my-bridge.toml --json \
+  > drill-evidence.json
+```
+
+This cross-check workflow applies to all drills in this runbook:
+
+| Drill | What to trace after | Key receipt fields to check |
+|-------|---------------------|-----------------------------|
+| `renderer_failure` | Event ingestion, no delivery | `failure_kind == "RENDERER_FAILURE"`, `status == "failed"` |
+| `adapter_permanent_failure` | Delivery attempt | `failure_kind == "ADAPTER_PERMANENT"`, no retry chain |
+| `adapter_transient_failure` | Retry chain | `attempt_number`, `parent_receipt_id` progression |
+| `capacity_rejection` | No receipt (permanent failure) | `delivery_timeouts` counter (process-local, lost on restart) |
+| `shutdown_rejection` | No receipt (rejected) | `delivery_rejections` counter (process-local) |
+| `replay_duplicate_risk` | Live vs. replay receipts | `source` field, `replay_run_id` grouping |
+| `degraded_live_health` | Health snapshot | `health.live_health.adapters[].health`, `.error` |
+
+**Caveat:** Drill trace data uses fake adapters — it proves pipeline
+correctness, not real transport behavior. Traceability is not deduplication.
+BEST_EFFORT replay sends real messages. There is no final ACK guarantee for
+radio transports. There is no active retry scheduler. Runtime events and
+counters are process-local and reset on restart.
+
+See [Bridge Recovery](bridge-recovery.md) for the complete incident workflow,
+[Event Tracing](event-tracing.md) for trace command details, and
+[Bridge Evidence Bundle](bridge-evidence-bundle.md) for the full evidence
+report shape.
+
+
+## 12. Inspect Follow-Up Quick Reference
 
 | After this failure... | Run this to inspect |
 |----------------------|-------------------|
@@ -859,7 +906,7 @@ medre inspect receipts --event <event_id> --config my-bridge.toml
 ```
 
 
-## 12. Caveats
+## 13. Caveats
 
 1. **No live-network claims.** These drills use fake adapters and in-memory
    storage unless explicitly noted. They prove pipeline correctness, not real

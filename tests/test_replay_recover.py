@@ -91,15 +91,21 @@ class _FakeReceipt:
         target_adapter: str = "dest_a",
         status: str = "sent",
         attempt_number: int = 1,
+        error: str | None = None,
+        source: str = "live",
+        replay_run_id: str | None = None,
     ) -> None:
         self.receipt_id = receipt_id
         self.event_id = event_id
         self.target_adapter = target_adapter
         self.status = status
         self.attempt_number = attempt_number
+        self.error = error
         self.delivery_plan_id = "plan-1"
-        self.source = "live"
-        self.replay_run_id = None
+        self.route_id = "route-1"
+        self.adapter_message_id = None
+        self.source = source
+        self.replay_run_id = replay_run_id
         self.sequence = 1
         self.created_at = datetime(2026, 1, 15, 12, 0, 1, tzinfo=timezone.utc)
 
@@ -349,7 +355,7 @@ class TestReplayDispatch:
 class TestRecoverDispatch:
     """Tests for 'medre recover' command dispatch with mocked storage."""
 
-    def test_recover_broad_scan_json(self) -> None:
+    def test_recover_broad_scan_json_stub(self) -> None:
         """Broad scan (no --event) returns JSON with scope=scan."""
         mock_storage = AsyncMock()
 
@@ -602,3 +608,424 @@ class TestReplayWithEvent:
             )
             parsed = json.loads(output)
             assert parsed["mode"] == "dry_run"
+
+
+# ---------------------------------------------------------------------------
+# Failure-kind classification tests
+# ---------------------------------------------------------------------------
+
+
+class TestFailureKindClassification:
+    """Tests for failure-kind inference from receipt error/status fields."""
+
+    def test_infer_adapter_transient_from_timeout_error(self) -> None:
+        from medre.cli import _infer_failure_kind
+        assert _infer_failure_kind("TimeoutError: connection timed out", "failed") == "adapter_transient"
+
+    def test_infer_adapter_transient_from_connection_reset(self) -> None:
+        from medre.cli import _infer_failure_kind
+        assert _infer_failure_kind("ConnectionResetError: connection reset", "failed") == "adapter_transient"
+
+    def test_infer_adapter_transient_from_dead_lettered(self) -> None:
+        """dead_lettered status implies transient (retries exhausted)."""
+        from medre.cli import _infer_failure_kind
+        assert _infer_failure_kind("some error", "dead_lettered") == "adapter_transient"
+
+    def test_infer_adapter_permanent_from_generic_error(self) -> None:
+        from medre.cli import _infer_failure_kind
+        assert _infer_failure_kind("permission denied", "failed") == "adapter_permanent"
+
+    def test_infer_renderer_failure(self) -> None:
+        from medre.cli import _infer_failure_kind
+        assert _infer_failure_kind("no renderer registered for event_kind", "failed") == "renderer_failure"
+
+    def test_infer_adapter_missing(self) -> None:
+        from medre.cli import _infer_failure_kind
+        assert _infer_failure_kind("adapter_missing: adapter 'x' not registered", "failed") == "adapter_missing"
+
+    def test_infer_capacity_rejection(self) -> None:
+        from medre.cli import _infer_failure_kind
+        assert _infer_failure_kind("delivery_capacity_exceeded", "failed") == "capacity_rejection"
+
+    def test_infer_shutdown_rejection(self) -> None:
+        from medre.cli import _infer_failure_kind
+        assert _infer_failure_kind("delivery_rejected_shutdown", "failed") == "shutdown_rejection"
+
+    def test_infer_deadline_exceeded(self) -> None:
+        from medre.cli import _infer_failure_kind
+        assert _infer_failure_kind("deadline_exceeded: plan deadline passed", "failed") == "deadline_exceeded"
+
+    def test_infer_unknown_no_error(self) -> None:
+        from medre.cli import _infer_failure_kind
+        assert _infer_failure_kind(None, "failed") == "unknown"
+
+    def test_failure_category_retryable(self) -> None:
+        from medre.cli import _failure_category
+        assert _failure_category("adapter_transient") == "retryable"
+
+    def test_failure_category_permanent(self) -> None:
+        from medre.cli import _failure_category
+        assert _failure_category("adapter_permanent") == "permanent"
+        assert _failure_category("adapter_missing") == "permanent"
+        assert _failure_category("renderer_failure") == "permanent"
+
+    def test_failure_category_operational(self) -> None:
+        from medre.cli import _failure_category
+        assert _failure_category("capacity_rejection") == "operational"
+        assert _failure_category("shutdown_rejection") == "operational"
+        assert _failure_category("deadline_exceeded") == "operational"
+
+    def test_failure_category_unknown(self) -> None:
+        from medre.cli import _failure_category
+        assert _failure_category("unknown") == "unknown"
+        assert _failure_category("something_else") == "unknown"
+
+
+# ---------------------------------------------------------------------------
+# Recovery classification integration tests
+# ---------------------------------------------------------------------------
+
+
+class TestRecoverClassification:
+    """Tests for recover command failure classification output."""
+
+    def test_retryable_grouping(self) -> None:
+        """Transient failures are classified as retryable."""
+        event = _FakeEvent()
+        r1 = _FakeReceipt(
+            status="failed",
+            target_adapter="adapter_a",
+            error="TimeoutError: timed out",
+        )
+        r2 = _FakeReceipt(
+            status="dead_lettered",
+            target_adapter="adapter_b",
+            error="ConnectionError: reset",
+        )
+        ok = _FakeReceipt(status="sent", target_adapter="adapter_c")
+
+        mock_storage = AsyncMock()
+        mock_storage.get = AsyncMock(return_value=event)
+        mock_storage.list_receipts_for_event = AsyncMock(return_value=[r1, r2, ok])
+        mock_storage.list_native_refs_for_event = AsyncMock(return_value=[])
+        mock_storage.list_relations = AsyncMock(return_value=[])
+        mock_storage.close = AsyncMock()
+
+        with patch("medre.cli._open_readonly_storage", return_value=mock_storage):
+            output = _run_cli(
+                "recover", "--event", "evt-1",
+                "--json", "--config", "/nonexistent",
+            )
+            parsed = json.loads(output)
+            fc = parsed["failure_classification"]
+            assert "retryable" in fc
+            retryable_adapters = [i["target_adapter"] for i in fc["retryable"]]
+            assert "adapter_a" in retryable_adapters
+            assert "adapter_b" in retryable_adapters
+            assert "adapter_c" not in retryable_adapters
+
+    def test_permanent_grouping(self) -> None:
+        """Permanent failures are classified as permanent."""
+        event = _FakeEvent()
+        r1 = _FakeReceipt(
+            status="failed",
+            target_adapter="bad_adapter",
+            error="permission denied",
+        )
+        r2 = _FakeReceipt(
+            status="failed",
+            target_adapter="missing_adapter",
+            error="adapter_missing: not registered",
+        )
+
+        mock_storage = AsyncMock()
+        mock_storage.get = AsyncMock(return_value=event)
+        mock_storage.list_receipts_for_event = AsyncMock(return_value=[r1, r2])
+        mock_storage.list_native_refs_for_event = AsyncMock(return_value=[])
+        mock_storage.list_relations = AsyncMock(return_value=[])
+        mock_storage.close = AsyncMock()
+
+        with patch("medre.cli._open_readonly_storage", return_value=mock_storage):
+            output = _run_cli(
+                "recover", "--event", "evt-1",
+                "--json", "--config", "/nonexistent",
+            )
+            parsed = json.loads(output)
+            fc = parsed["failure_classification"]
+            assert "permanent" in fc
+            permanent_adapters = [i["target_adapter"] for i in fc["permanent"]]
+            assert "bad_adapter" in permanent_adapters
+            assert "missing_adapter" in permanent_adapters
+
+    def test_operational_grouping(self) -> None:
+        """Capacity/shutdown/deadline failures are classified as operational."""
+        event = _FakeEvent()
+        r1 = _FakeReceipt(
+            status="failed",
+            target_adapter="op_adapter",
+            error="delivery_capacity_exceeded",
+        )
+
+        mock_storage = AsyncMock()
+        mock_storage.get = AsyncMock(return_value=event)
+        mock_storage.list_receipts_for_event = AsyncMock(return_value=[r1])
+        mock_storage.list_native_refs_for_event = AsyncMock(return_value=[])
+        mock_storage.list_relations = AsyncMock(return_value=[])
+        mock_storage.close = AsyncMock()
+
+        with patch("medre.cli._open_readonly_storage", return_value=mock_storage):
+            output = _run_cli(
+                "recover", "--event", "evt-1",
+                "--json", "--config", "/nonexistent",
+            )
+            parsed = json.loads(output)
+            fc = parsed["failure_classification"]
+            assert "operational" in fc
+            assert fc["operational"][0]["failure_kind"] == "capacity_rejection"
+
+    def test_recommended_commands_retryable(self) -> None:
+        """Retryable failures recommend DRY_RUN and BEST_EFFORT."""
+        event = _FakeEvent()
+        receipt = _FakeReceipt(
+            status="failed",
+            target_adapter="adapter_a",
+            error="TimeoutError: timed out",
+        )
+
+        mock_storage = AsyncMock()
+        mock_storage.get = AsyncMock(return_value=event)
+        mock_storage.list_receipts_for_event = AsyncMock(return_value=[receipt])
+        mock_storage.list_native_refs_for_event = AsyncMock(return_value=[])
+        mock_storage.list_relations = AsyncMock(return_value=[])
+        mock_storage.close = AsyncMock()
+
+        with patch("medre.cli._open_readonly_storage", return_value=mock_storage):
+            output = _run_cli(
+                "recover", "--event", "evt-1",
+                "--json", "--config", "/nonexistent",
+            )
+            parsed = json.loads(output)
+            cmds = parsed["recommended_commands"]
+            cmd_text = " ".join(cmds)
+            assert "DRY_RUN" in cmd_text
+            assert "BEST_EFFORT" in cmd_text
+
+    def test_recommended_commands_permanent(self) -> None:
+        """Permanent failures recommend trace and inspect."""
+        event = _FakeEvent()
+        receipt = _FakeReceipt(
+            status="failed",
+            target_adapter="adapter_a",
+            error="permission denied",
+        )
+
+        mock_storage = AsyncMock()
+        mock_storage.get = AsyncMock(return_value=event)
+        mock_storage.list_receipts_for_event = AsyncMock(return_value=[receipt])
+        mock_storage.list_native_refs_for_event = AsyncMock(return_value=[])
+        mock_storage.list_relations = AsyncMock(return_value=[])
+        mock_storage.close = AsyncMock()
+
+        with patch("medre.cli._open_readonly_storage", return_value=mock_storage):
+            output = _run_cli(
+                "recover", "--event", "evt-1",
+                "--json", "--config", "/nonexistent",
+            )
+            parsed = json.loads(output)
+            cmds = parsed["recommended_commands"]
+            cmd_text = " ".join(cmds)
+            assert "trace event" in cmd_text
+            assert "inspect receipts" in cmd_text
+
+    def test_recommended_commands_operational(self) -> None:
+        """Operational failures recommend diagnostics and config check."""
+        event = _FakeEvent()
+        receipt = _FakeReceipt(
+            status="failed",
+            target_adapter="adapter_a",
+            error="delivery_capacity_exceeded",
+        )
+
+        mock_storage = AsyncMock()
+        mock_storage.get = AsyncMock(return_value=event)
+        mock_storage.list_receipts_for_event = AsyncMock(return_value=[receipt])
+        mock_storage.list_native_refs_for_event = AsyncMock(return_value=[])
+        mock_storage.list_relations = AsyncMock(return_value=[])
+        mock_storage.close = AsyncMock()
+
+        with patch("medre.cli._open_readonly_storage", return_value=mock_storage):
+            output = _run_cli(
+                "recover", "--event", "evt-1",
+                "--json", "--config", "/nonexistent",
+            )
+            parsed = json.loads(output)
+            cmds = parsed["recommended_commands"]
+            cmd_text = " ".join(cmds)
+            assert "diagnostics" in cmd_text
+            assert "config check" in cmd_text
+
+    def test_duplicate_send_warning_on_retryable(self) -> None:
+        """Duplicate-send warning appears when BEST_EFFORT is recommended."""
+        event = _FakeEvent()
+        receipt = _FakeReceipt(
+            status="failed",
+            target_adapter="adapter_a",
+            error="TimeoutError: timed out",
+        )
+
+        mock_storage = AsyncMock()
+        mock_storage.get = AsyncMock(return_value=event)
+        mock_storage.list_receipts_for_event = AsyncMock(return_value=[receipt])
+        mock_storage.list_native_refs_for_event = AsyncMock(return_value=[])
+        mock_storage.list_relations = AsyncMock(return_value=[])
+        mock_storage.close = AsyncMock()
+
+        with patch("medre.cli._open_readonly_storage", return_value=mock_storage):
+            output = _run_cli(
+                "recover", "--event", "evt-1",
+                "--json", "--config", "/nonexistent",
+            )
+            parsed = json.loads(output)
+            warnings = parsed.get("warnings", [])
+            warning_text = " ".join(warnings).lower()
+            assert "duplicate" in warning_text
+            assert "best_effort" in warning_text or "dry_run" in warning_text
+
+    def test_no_duplicate_send_warning_on_permanent_only(self) -> None:
+        """No BEST_EFFORT duplicate warning when only permanent failures exist."""
+        event = _FakeEvent()
+        receipt = _FakeReceipt(
+            status="failed",
+            target_adapter="adapter_a",
+            error="permission denied",
+        )
+
+        mock_storage = AsyncMock()
+        mock_storage.get = AsyncMock(return_value=event)
+        mock_storage.list_receipts_for_event = AsyncMock(return_value=[receipt])
+        mock_storage.list_native_refs_for_event = AsyncMock(return_value=[])
+        mock_storage.list_relations = AsyncMock(return_value=[])
+        mock_storage.close = AsyncMock()
+
+        with patch("medre.cli._open_readonly_storage", return_value=mock_storage):
+            output = _run_cli(
+                "recover", "--event", "evt-1",
+                "--json", "--config", "/nonexistent",
+            )
+            parsed = json.loads(output)
+            warnings = parsed.get("warnings", [])
+            best_effort_warnings = [w for w in warnings if "BEST_EFFORT" in w]
+            assert len(best_effort_warnings) == 0
+
+    def test_replay_context_included(self) -> None:
+        """Replay context is included when event has replay receipts."""
+        event = _FakeEvent()
+        replay_receipt = _FakeReceipt(
+            status="failed",
+            target_adapter="adapter_a",
+            error="permission denied",
+            source="replay",
+            replay_run_id="run-42",
+        )
+
+        mock_storage = AsyncMock()
+        mock_storage.get = AsyncMock(return_value=event)
+        mock_storage.list_receipts_for_event = AsyncMock(return_value=[replay_receipt])
+        mock_storage.list_native_refs_for_event = AsyncMock(return_value=[])
+        mock_storage.list_relations = AsyncMock(return_value=[])
+        mock_storage.close = AsyncMock()
+
+        with patch("medre.cli._open_readonly_storage", return_value=mock_storage):
+            output = _run_cli(
+                "recover", "--event", "evt-1",
+                "--json", "--config", "/nonexistent",
+            )
+            parsed = json.loads(output)
+            assert "replay_context" in parsed
+            assert parsed["replay_context"][0]["replay_run_id"] == "run-42"
+
+    def test_recover_no_replay_side_effects(self) -> None:
+        """Recovery is read-only — no replay or write operations."""
+        event = _FakeEvent()
+        receipt = _FakeReceipt(
+            status="failed",
+            target_adapter="adapter_a",
+            error="TimeoutError: timed out",
+        )
+
+        mock_storage = AsyncMock()
+        mock_storage.get = AsyncMock(return_value=event)
+        mock_storage.list_receipts_for_event = AsyncMock(return_value=[receipt])
+        mock_storage.list_native_refs_for_event = AsyncMock(return_value=[])
+        mock_storage.list_relations = AsyncMock(return_value=[])
+        mock_storage.close = AsyncMock()
+
+        with patch("medre.cli._open_readonly_storage", return_value=mock_storage):
+            output = _run_cli(
+                "recover", "--event", "evt-1",
+                "--json", "--config", "/nonexistent",
+            )
+            parsed = json.loads(output)
+            # Verify advisory output structure.
+            assert "failure_classification" in parsed
+            assert "recommended_commands" in parsed
+            # Verify no replay was executed.
+            assert "replay_result" not in parsed
+            assert "replay_summary" not in parsed
+            # Only read methods called.
+            mock_storage.get.assert_called()
+            mock_storage.list_receipts_for_event.assert_called()
+            # No write methods.
+            mock_storage.append.assert_not_called()
+            mock_storage.append_receipt.assert_not_called()
+
+    def test_failure_kind_on_failed_targets(self) -> None:
+        """Each failed target includes failure_kind and category."""
+        event = _FakeEvent()
+        receipt = _FakeReceipt(
+            status="failed",
+            target_adapter="adapter_a",
+            error="TimeoutError: timed out",
+        )
+
+        mock_storage = AsyncMock()
+        mock_storage.get = AsyncMock(return_value=event)
+        mock_storage.list_receipts_for_event = AsyncMock(return_value=[receipt])
+        mock_storage.list_native_refs_for_event = AsyncMock(return_value=[])
+        mock_storage.list_relations = AsyncMock(return_value=[])
+        mock_storage.close = AsyncMock()
+
+        with patch("medre.cli._open_readonly_storage", return_value=mock_storage):
+            output = _run_cli(
+                "recover", "--event", "evt-1",
+                "--json", "--config", "/nonexistent",
+            )
+            parsed = json.loads(output)
+            ft = parsed["failed_targets"][0]
+            assert ft["failure_kind"] == "adapter_transient"
+            assert ft["category"] == "retryable"
+
+    def test_human_readable_classification(self) -> None:
+        """Human-readable output includes failure classification summary."""
+        event = _FakeEvent()
+        receipt = _FakeReceipt(
+            status="failed",
+            target_adapter="adapter_a",
+            error="TimeoutError: timed out",
+        )
+
+        mock_storage = AsyncMock()
+        mock_storage.get = AsyncMock(return_value=event)
+        mock_storage.list_receipts_for_event = AsyncMock(return_value=[receipt])
+        mock_storage.list_native_refs_for_event = AsyncMock(return_value=[])
+        mock_storage.list_relations = AsyncMock(return_value=[])
+        mock_storage.close = AsyncMock()
+
+        with patch("medre.cli._open_readonly_storage", return_value=mock_storage):
+            output = _run_cli(
+                "recover", "--event", "evt-1",
+                "--config", "/nonexistent",
+            )
+            assert "adapter_transient" in output
+            assert "retryable" in output
+            assert "Recommended next commands" in output

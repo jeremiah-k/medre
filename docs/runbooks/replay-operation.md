@@ -244,6 +244,82 @@ ORDER BY event_id;
 ```
 
 
+### 4.3 `source` vs `replay_run_id` Distinction
+
+Replay receipts carry two key attribution fields. Understanding the distinction
+is critical for incident investigation and duplicate risk assessment:
+
+| Field | Purpose | Values |
+|-------|---------|--------|
+| `source` | **Origin classification** — was this delivery from the live pipeline or from a replay run? | `"live"` or `"replay"` |
+| `replay_run_id` | **Run grouping** — which specific replay invocation produced this receipt? | Unique run ID string when `source == "replay"`, `null` when `source == "live"` |
+
+**Practical use:**
+
+```sql
+-- Distinguish live from replay deliveries for a specific event
+SELECT source, replay_run_id, status, target_adapter
+FROM delivery_receipts
+WHERE event_id = 'evt_abc123'
+ORDER BY created_at ASC;
+
+-- Group all receipts from one replay run (audit trail)
+SELECT event_id, target_adapter, status, attempt_number
+FROM delivery_receipts
+WHERE source = 'replay' AND replay_run_id = 'replay_xyz789'
+ORDER BY event_id;
+```
+
+**Key points:**
+
+1. `source='replay'` is the reliable way to filter replay-attributed receipts.
+   Do not rely on `replay_run_id IS NOT NULL` alone — future features may
+   populate this field for non-replay purposes.
+2. `replay_run_id` groups receipts from a single `medre replay` invocation.
+   Multiple BEST_EFFORT replays produce different `replay_run_id` values for
+   the same events.
+3. An event can have both `source='live'` and `source='replay'` receipts.
+   This indicates duplicate delivery — the event was originally delivered
+   through the live pipeline and then re-delivered via replay.
+
+**Caveat:** Traceability is not deduplication. The `source` and
+`replay_run_id` fields tell you where a receipt came from, but cannot tell
+you whether the delivery actually reached the remote side. Radio transports
+are fire-and-forget. There is no final ACK guarantee.
+
+### 4.4 Stale Data Warning
+
+Before running BEST_EFFORT replay, operators should check for existing live
+receipts. Events with existing `source='live'` `sent` receipts will receive
+duplicate deliveries if replayed with BEST_EFFORT.
+
+```bash
+# Check for events that already have live sent receipts
+sqlite3 {state}/medre.sqlite "
+  SELECT e.event_id,
+    COUNT(CASE WHEN r.source = 'live' AND r.status = 'sent' THEN 1 END) AS live_sent
+  FROM canonical_events e
+  LEFT JOIN delivery_receipts r ON e.event_id = r.event_id
+  GROUP BY e.event_id
+  HAVING live_sent > 0
+  ORDER BY e.created_at DESC;
+"
+```
+
+If this query returns events in your replay scope, you have stale data:
+events that were already delivered. BEST_EFFORT replay will deliver them
+again. Options:
+
+1. **Accept duplicates** — radio transports treat duplicates as normal.
+2. **Narrow scope** — use `--event <id>` to replay only truly orphaned events.
+3. **Use RE_ROUTE** — re-evaluate route matching without side effects first.
+
+There is no automatic stale data detection in the replay engine. The
+operator is responsible for assessing duplicate risk before each BEST_EFFORT
+run. There is no active retry scheduler; replay is a one-shot operator
+action. BEST_EFFORT sends real messages.
+
+
 ## 5. Duplicate Risk Assessment
 
 Replay does not deduplicate. This is by design — MEDRE does not have a

@@ -97,9 +97,9 @@ def _fixed_mono() -> float:
 
 def _sanitize_error(error: str) -> str:
     """Sanitize and truncate an error string for the report."""
-    from medre.runtime.snapshot import _sanitize_error as _snap_sanitize
+    from medre.runtime.snapshot import sanitize_error
 
-    return _snap_sanitize(error)
+    return sanitize_error(error)
 
 
 def _section_ok(data: Any) -> dict[str, Any]:

@@ -98,7 +98,51 @@ timeline report to stdout.
 }
 ```
 
-### 1.2 Trace a Replay Run
+### 1.2 Receipt and Native-Ref Field Reference
+
+The trace output includes receipts and native refs with the following fields.
+Understanding these fields is essential for interpreting trace results and for
+cross-referencing with evidence bundles ([Bridge Evidence Bundle](bridge-evidence-bundle.md)).
+
+**DeliveryReceipt fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `receipt_id` | `str` | Unique receipt identifier |
+| `event_id` | `str` | Canonical event this receipt belongs to |
+| `target_adapter` | `str` | Adapter that received the delivery |
+| `route_id` | `str` | Route that matched the event |
+| `status` | `str` | `"sent"`, `"failed"`, or `"skipped"` |
+| `failure_kind` | `str or null` | `"RENDERER_FAILURE"`, `"ADAPTER_PERMANENT"`, `"ADAPTER_TRANSIENT"`, `"DEADLINE_EXCEEDED"`, `"delivery_capacity_exceeded"`, `"delivery_rejected_shutdown"`, or `null` |
+| `attempt_number` | `int` | 1 for first attempt, increments on retry |
+| `parent_receipt_id` | `str or null` | Links to the previous receipt in a retry chain |
+| `source` | `str` | `"live"` for original delivery, `"replay"` for replay-attributed delivery |
+| `replay_run_id` | `str or null` | Unique run ID when `source == "replay"`; groups all receipts from one replay run |
+| `created_at` | `str` | ISO-8601 timestamp of receipt creation |
+
+**NativeMessageRef fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `native_message_id` | `str` | Transport-native message ID (e.g., Matrix event ID, Meshtastic packet ID) |
+| `native_channel_id` | `str or null` | Transport-native channel or room ID |
+| `canonical_event_id` | `str` | Links back to the canonical event |
+| `adapter` | `str` | Adapter that produced this mapping |
+| `direction` | `str` | `"inbound"` (ingested from transport) or `"outbound"` (delivered to transport) |
+
+**Key distinction:** `source='live'` receipts are from normal pipeline
+delivery. `source='replay'` receipts are from operator-initiated replay
+(see [Replay Operation](replay-operation.md)). The `replay_run_id` field
+groups all receipts from a single replay invocation, enabling audit of
+which events were re-delivered in which run.
+
+**Caveat:** Traceability is not deduplication. The trace report shows all
+receipts including duplicates from replay, but cannot tell you which delivery
+actually reached the remote side. Radio transports are fire-and-forget —
+`sent` means local acceptance, not remote receipt. There is no final ACK
+guarantee.
+
+### 1.3 Trace a Replay Run
 
 ```bash
 medre trace replay <run_id> --config my-bridge.toml
@@ -131,11 +175,38 @@ reconstructs the replay timeline.
     "failed": 0,
     "events_covered": 1,
     "duplicate_risk": "possible — check source='replay' receipts against live receipts for same events"
-  }
+  },
+  "timeline": [
+    {
+      "timestamp": "2026-05-14T11:00:00.000Z",
+      "phase": "replay",
+      "description": "Event evt_abc123 re-delivered via replay run replay_xyz789 to adapter 'radio': status=sent"
+    }
+  ]
 }
 ```
 
-### 1.3 Exit Codes
+**Replay trace output fields:**
+
+| Field | Description |
+|-------|-------------|
+| `replay_run_id` | Unique identifier for this replay run — matches `replay_run_id` on individual receipts |
+| `receipts` | All delivery receipts produced by this replay run. Each has `source='replay'` and the same `replay_run_id`. |
+| `summary.total_receipts` | Total number of delivery receipts in this run |
+| `summary.sent` / `summary.failed` | Count of successful/failed deliveries |
+| `summary.events_covered` | Number of distinct events re-delivered |
+| `summary.duplicate_risk` | Always present. Describes the risk that events already had live deliveries. |
+| `timeline` | Ordered replay lifecycle events, same shape as event trace timeline. Phase is always `"replay"`. |
+
+**Caveat:** The `duplicate_risk` field is informational only — it does not
+prevent duplicates. BEST_EFFORT replay sends real messages regardless. There
+is no active retry scheduler; replay is operator-initiated and one-shot.
+Runtime events are process-local — if the process crashed during replay,
+completed deliveries are preserved (receipts in SQLite) but remaining events
+must be re-replayed manually.
+```
+
+### 1.4 Exit Codes
 
 | Code | Meaning |
 |------|---------|

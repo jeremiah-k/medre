@@ -210,7 +210,7 @@ from typing import TYPE_CHECKING, Any, Callable
 if TYPE_CHECKING:
     from medre.runtime.app import MedreApp
 
-__all__ = ["build_runtime_snapshot", "SCHEMA_VERSION"]
+__all__ = ["build_runtime_snapshot", "SCHEMA_VERSION", "sanitize_error"]
 
 _logger = logging.getLogger(__name__)
 
@@ -382,7 +382,7 @@ def _snapshot_limits(limits: Any) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def _sanitize_error(error: str) -> str:
+def sanitize_error(error: str) -> str:
     """Sanitize an error string for safe inclusion in snapshots.
 
     Strips likely token/secret patterns and SDK object repr strings,
@@ -415,7 +415,7 @@ def _snapshot_build_failures(failures: list[Any]) -> list[dict[str, Any]]:
     for bf in failures[:_MAX_BUILD_FAILURES]:
         adapter_id = getattr(bf, "adapter_id", "unknown")
         error = getattr(bf, "error", "unknown error")
-        error_str = _sanitize_error(str(error))
+        error_str = sanitize_error(str(error))
         entries.append({
             "adapter_id": adapter_id,
             "error": error_str,
