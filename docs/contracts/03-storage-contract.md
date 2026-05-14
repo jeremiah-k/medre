@@ -88,6 +88,20 @@ class StorageBackend(Protocol):
         """Return all receipts for a delivery plan / adapter in attempt order."""
         ...
 
+    async def list_receipts_by_replay_run(
+        self, run_id: str
+    ) -> list[DeliveryReceipt]:
+        """Return all receipts produced by a specific replay run, ordered by
+        sequence ascending. Returns empty list if no receipts match."""
+        ...
+
+    async def list_receipts_for_event(
+        self, event_id: str
+    ) -> list[DeliveryReceipt]:
+        """Return all delivery receipts for a specific event, ordered by
+        sequence ascending."""
+        ...
+
     # -- Lifecycle ----------------------------------------------------------
 
     async def initialize(self) -> None:
@@ -255,13 +269,15 @@ Status values are `accepted`, `queued`, `sent`, `confirmed`, `failed`, `dead_let
 
 `replay_run_id` is `NULL` for live deliveries. When `source='replay'`, this field carries the `run_id` of the replay that produced the delivery. This allows operators to trace which receipts came from a specific replay run. It is for traceability only — it does not prevent duplicate sends.
 
+**Native message refs are NOT source-tagged.** `NativeMessageRef` rows do not carry `source` or `replay_run_id` fields. This is intentional: native refs created during replay can be correlated to their replay origin through the associated `DeliveryReceipt` (which carries `source` and `replay_run_id`), then via the receipt's `delivery_plan_id` / `event_id` flow. Adding source tagging to native refs would increase schema complexity without proportional benefit, since the receipt → native ref linkage already provides full traceability.
+
 Receipts are **append-only records**. The "current status" of a delivery is a **projection**: the latest receipt for a given `(delivery_plan_id, target_adapter)` tuple, provided by the `delivery_status` view (Section 3.5). No code path writes to the view directly. To change the "current status", append a new receipt row.
 
 **Indexes:**
 
 | Index | Columns | Type | Purpose |
 |---|---|---|---|
-| `idx_receipts_plan` | `(delivery_plan_id, target_adapter, sequence)` | Manual `CREATE INDEX` | Supports `delivery_status` view's `GROUP BY (delivery_plan_id, target_adapter)` + `MAX(sequence)` and `delivery_status()` / `list_receipts_for_plan()` lookups. |
+| `idx_receipts_plan` | `(delivery_plan_id, target_adapter, attempt_number, sequence)` | Manual `CREATE INDEX` | Supports both `delivery_status` view's `GROUP BY (delivery_plan_id, target_adapter)` + `MAX(sequence)` projection and `list_receipts_for_plan()` `ORDER BY attempt_number, sequence` lineage walk. The four-column composite covers the `delivery_status` subquery prefix `(delivery_plan_id, target_adapter)` and the full ordering of `list_receipts_for_plan`. |
 | `idx_receipts_event` | `(event_id, sequence)` | Manual `CREATE INDEX` | Supports receipt lookups by event (e.g., finding all delivery attempts for a given event). |
 | `idx_receipts_source` | `(source, replay_run_id)` | Manual `CREATE INDEX` | Supports filtering receipts by replay run — traceability queries for `source='replay'` with a specific `replay_run_id`. |
 
@@ -471,6 +487,19 @@ Key points:
 - Never updates an existing row. Every call creates a new row with a new `sequence` value.
 - The current status of a delivery is read from the `delivery_status` view, not from any single row.
 - The `source` field defaults to `"live"` for normal pipeline deliveries. Replay deliveries set `source='replay'` and populate `replay_run_id` with the replay run ID.
+
+### 5.7a list_receipts_by_replay_run(run_id)
+
+- Returns all `DeliveryReceipt` rows whose `replay_run_id` matches *run_id*, ordered by `sequence` ascending.
+- Used for operator traceability: identifying all receipts produced by a specific replay run.
+- Returns an empty list when no receipts match.
+- This is a focused query helper for replay investigation. It does not provide deduplication or prevent duplicate sends.
+
+### 5.7b list_receipts_for_event(event_id)
+
+- Returns all `DeliveryReceipt` rows whose `event_id` matches *event_id*, ordered by `sequence` ascending.
+- Used to inspect all delivery attempts (across all plans and adapters) for a given event.
+- Returns an empty list when no receipts match.
 
 ### 5.8 archive_raw(event_id, adapter, data) (Future)
 

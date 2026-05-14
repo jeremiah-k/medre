@@ -733,6 +733,202 @@ class TestReceiptLineage:
 
 
 # ===================================================================
+# Receipt query helpers: list_receipts_by_replay_run, list_receipts_for_event
+# ===================================================================
+
+
+class TestReceiptQueryHelpers:
+    """list_receipts_by_replay_run and list_receipts_for_event round-trip
+    and ordering guarantees.
+    """
+
+    @staticmethod
+    def _make_receipt(
+        receipt_id: str,
+        event_id: str,
+        delivery_plan_id: str,
+        target_adapter: str,
+        status: str = "sent",
+        attempt_number: int = 1,
+        source: str = "live",
+        replay_run_id: str | None = None,
+    ) -> DeliveryReceipt:
+        return DeliveryReceipt(
+            receipt_id=receipt_id,
+            event_id=event_id,
+            delivery_plan_id=delivery_plan_id,
+            target_adapter=target_adapter,
+            status=status,  # type: ignore[arg-type]
+            attempt_number=attempt_number,
+            source=source,
+            replay_run_id=replay_run_id,
+        )
+
+    async def test_list_receipts_by_replay_run_returns_matching(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """list_receipts_by_replay_run returns only receipts with matching run_id."""
+        event = _make_event(event_id="evt-replay-q")
+        await temp_storage.append(event)
+
+        # Live receipt (no replay_run_id)
+        await temp_storage.append_receipt(
+            self._make_receipt(
+                "rcpt-live-1", "evt-replay-q", "plan-a", "adapter_a"
+            )
+        )
+        # Replay receipt with run_id="run-42"
+        await temp_storage.append_receipt(
+            self._make_receipt(
+                "rcpt-replay-1",
+                "evt-replay-q",
+                "plan-b",
+                "adapter_b",
+                source="replay",
+                replay_run_id="run-42",
+            )
+        )
+        # Replay receipt with run_id="run-99" (different run)
+        await temp_storage.append_receipt(
+            self._make_receipt(
+                "rcpt-replay-2",
+                "evt-replay-q",
+                "plan-c",
+                "adapter_c",
+                source="replay",
+                replay_run_id="run-99",
+            )
+        )
+
+        receipts = await temp_storage.list_receipts_by_replay_run("run-42")
+        assert len(receipts) == 1
+        assert receipts[0].receipt_id == "rcpt-replay-1"
+        assert receipts[0].source == "replay"
+        assert receipts[0].replay_run_id == "run-42"
+
+    async def test_list_receipts_by_replay_run_empty_for_unknown(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """list_receipts_by_replay_run returns empty list for unknown run_id."""
+        receipts = await temp_storage.list_receipts_by_replay_run("nonexistent-run")
+        assert receipts == []
+
+    async def test_list_receipts_by_replay_run_ordered_by_sequence(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Multiple receipts for same replay run are ordered by sequence."""
+        event = _make_event(event_id="evt-replay-order")
+        await temp_storage.append(event)
+
+        for i in range(4):
+            await temp_storage.append_receipt(
+                self._make_receipt(
+                    f"rcpt-order-{i}",
+                    "evt-replay-order",
+                    f"plan-order-{i}",
+                    f"adapter_{i}",
+                    source="replay",
+                    replay_run_id="run-order",
+                )
+            )
+
+        receipts = await temp_storage.list_receipts_by_replay_run("run-order")
+        assert len(receipts) == 4
+        # Sequences must be strictly ascending.
+        seqs = [r.sequence for r in receipts]
+        for i in range(1, len(seqs)):
+            assert seqs[i] > seqs[i - 1]
+
+    async def test_list_receipts_for_event_returns_all(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """list_receipts_for_event returns all receipts for a given event."""
+        event = _make_event(event_id="evt-ev-q")
+        await temp_storage.append(event)
+
+        await temp_storage.append_receipt(
+            self._make_receipt(
+                "rcpt-ev-1", "evt-ev-q", "plan-x", "adapter_x"
+            )
+        )
+        await temp_storage.append_receipt(
+            self._make_receipt(
+                "rcpt-ev-2",
+                "evt-ev-q",
+                "plan-y",
+                "adapter_y",
+                source="replay",
+                replay_run_id="run-7",
+            )
+        )
+        await temp_storage.append_receipt(
+            self._make_receipt(
+                "rcpt-ev-3",
+                "evt-ev-q",
+                "plan-x",
+                "adapter_x",
+                attempt_number=2,
+            )
+        )
+
+        receipts = await temp_storage.list_receipts_for_event("evt-ev-q")
+        assert len(receipts) == 3
+        ids = {r.receipt_id for r in receipts}
+        assert ids == {"rcpt-ev-1", "rcpt-ev-2", "rcpt-ev-3"}
+
+    async def test_list_receipts_for_event_ordered_by_sequence(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Receipts for an event are returned in sequence (append) order."""
+        event = _make_event(event_id="evt-ev-order")
+        await temp_storage.append(event)
+
+        for i, adapter in enumerate(["a", "b", "c"]):
+            await temp_storage.append_receipt(
+                self._make_receipt(
+                    f"rcpt-evo-{i}", "evt-ev-order", f"plan-evo-{i}", adapter
+                )
+            )
+
+        receipts = await temp_storage.list_receipts_for_event("evt-ev-order")
+        assert len(receipts) == 3
+        seqs = [r.sequence for r in receipts]
+        for i in range(1, len(seqs)):
+            assert seqs[i] > seqs[i - 1]
+
+    async def test_list_receipts_for_event_empty_for_unknown(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """list_receipts_for_event returns empty list for unknown event."""
+        receipts = await temp_storage.list_receipts_for_event("nonexistent-event")
+        assert receipts == []
+
+    async def test_delivery_status_still_works_after_index_change(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """delivery_status view still functions with the updated 4-column index."""
+        event = _make_event(event_id="evt-idx-verify")
+        await temp_storage.append(event)
+
+        for i, st in enumerate(["queued", "sent", "confirmed"]):
+            await temp_storage.append_receipt(
+                self._make_receipt(
+                    f"rcpt-idx-{i}",
+                    "evt-idx-verify",
+                    "plan-idx",
+                    "adapter_idx",
+                    status=st,
+                    attempt_number=i + 1,
+                )
+            )
+
+        status = await temp_storage.delivery_status("plan-idx", "adapter_idx")
+        assert status is not None
+        assert status.status == "confirmed"
+        assert status.attempt_number == 3
+
+
+# ===================================================================
 # Track 6: Receipt sequence monotonicity
 # ===================================================================
 
@@ -1531,11 +1727,11 @@ class TestStorageIndexes:
     async def test_receipts_plan_index(
         self, temp_storage: SQLiteStorage
     ) -> None:
-        """idx_receipts_plan on delivery_receipts(delivery_plan_id, target_adapter, sequence)."""
+        """idx_receipts_plan on delivery_receipts(delivery_plan_id, target_adapter, attempt_number, sequence)."""
         indexes = await self._index_columns(temp_storage, "delivery_receipts")
         assert "idx_receipts_plan" in indexes
         assert indexes["idx_receipts_plan"] == frozenset(
-            {"delivery_plan_id", "target_adapter", "sequence"}
+            {"delivery_plan_id", "target_adapter", "attempt_number", "sequence"}
         )
 
     async def test_receipts_event_index(

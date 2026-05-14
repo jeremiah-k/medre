@@ -236,6 +236,30 @@ class StorageBackend(Protocol):
         """
         ...
 
+    async def list_receipts_by_replay_run(
+        self,
+        run_id: str,
+    ) -> list[DeliveryReceipt]:
+        """Return all receipts produced by a specific replay run.
+
+        Receipts are ordered by ``sequence`` ascending.  Only receipts
+        with ``source='replay'`` and the given ``replay_run_id`` are
+        returned.  Returns an empty list when no receipts match.
+        """
+        ...
+
+    async def list_receipts_for_event(
+        self,
+        event_id: str,
+    ) -> list[DeliveryReceipt]:
+        """Return all delivery receipts for a specific event.
+
+        Receipts are ordered by ``sequence`` ascending, which reflects
+        the chronological append order across all delivery plans and
+        adapters for this event.
+        """
+        ...
+
     # -- Lifecycle ----------------------------------------------------------
 
     async def initialize(self) -> None:

@@ -150,7 +150,7 @@ CREATE INDEX IF NOT EXISTS idx_relations_event_id
 CREATE INDEX IF NOT EXISTS idx_nrefs_event_id
     ON native_message_refs(event_id);
 CREATE INDEX IF NOT EXISTS idx_receipts_plan
-    ON delivery_receipts(delivery_plan_id, target_adapter, sequence);
+    ON delivery_receipts(delivery_plan_id, target_adapter, attempt_number, sequence);
 CREATE INDEX IF NOT EXISTS idx_receipts_event
     ON delivery_receipts(event_id, sequence);
 CREATE INDEX IF NOT EXISTS idx_receipts_source
@@ -269,6 +269,18 @@ _SELECT_RECEIPTS_FOR_PLAN = """
 SELECT * FROM delivery_receipts
 WHERE delivery_plan_id = ? AND target_adapter = ?
 ORDER BY attempt_number ASC, sequence ASC
+"""
+
+_SELECT_RECEIPTS_BY_REPLAY_RUN = """
+SELECT * FROM delivery_receipts
+WHERE replay_run_id = ?
+ORDER BY sequence ASC
+"""
+
+_SELECT_RECEIPTS_FOR_EVENT = """
+SELECT * FROM delivery_receipts
+WHERE event_id = ?
+ORDER BY sequence ASC
 """
 
 
@@ -930,5 +942,37 @@ class SQLiteStorage:
         rows = await self._read_all(
             _SELECT_RECEIPTS_FOR_PLAN,
             (delivery_plan_id, target_adapter),
+        )
+        return [_row_to_receipt(r) for r in rows]
+
+    async def list_receipts_by_replay_run(
+        self,
+        run_id: str,
+    ) -> list[DeliveryReceipt]:
+        """Return all receipts produced by a specific replay run.
+
+        Receipts are ordered by ``sequence`` ascending.  Only receipts
+        with the given ``replay_run_id`` are returned.  Returns an
+        empty list when no receipts match.
+        """
+        rows = await self._read_all(
+            _SELECT_RECEIPTS_BY_REPLAY_RUN,
+            (run_id,),
+        )
+        return [_row_to_receipt(r) for r in rows]
+
+    async def list_receipts_for_event(
+        self,
+        event_id: str,
+    ) -> list[DeliveryReceipt]:
+        """Return all delivery receipts for a specific event.
+
+        Receipts are ordered by ``sequence`` ascending, which reflects
+        the chronological append order across all delivery plans and
+        adapters for this event.
+        """
+        rows = await self._read_all(
+            _SELECT_RECEIPTS_FOR_EVENT,
+            (event_id,),
         )
         return [_row_to_receipt(r) for r in rows]
