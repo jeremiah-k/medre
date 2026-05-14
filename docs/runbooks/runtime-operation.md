@@ -699,15 +699,15 @@ See Contract 63 for the complete snapshot schema, and Contract 56 for health cla
 medre diagnostics --refresh-health
 ```
 
-This command builds the runtime from configuration, **starts all adapters**, polls each adapter's `health_check()` once, prints a snapshot with live health data, and stops the runtime cleanly. It is the operator-facing interface for manual health refresh — there is no background polling, scheduler, or automatic refresh.
+This command builds the runtime from configuration, **starts all adapters**, refreshes each adapter's `health_check()` once, prints a snapshot with live health data, and stops the runtime cleanly. It is the operator-facing interface for manual health refresh — there is no background polling, scheduler, or automatic refresh.
 
 **What it does:**
 
 1. Load config, build runtime via `RuntimeBuilder` (same path as `medre run`).
 2. Start all enabled adapters (opens real connections to configured transports).
-3. Call `app.refresh_live_health()` — polls each adapter's `health_check()` in deterministic order.
-4. Build and print the runtime snapshot JSON with `health.live_health` populated.
-5. Stop the runtime cleanly (reverse adapter order, drain, storage close).
+3. Call `app.refresh_live_health()` — refreshes each adapter's `health_check()` once in deterministic order.
+4. Build and print the runtime snapshot JSON with `health.live_health` populated. The snapshot is captured **before** `app.stop()`, so `lifecycle.runtime_state` reflects `"running"`.
+5. Stop the runtime cleanly in a `finally` block (reverse adapter order, drain, storage close).
 
 **Output shape:**
 
@@ -719,7 +719,7 @@ The snapshot has the same structure as `medre diagnostics` but with key differen
 | `health.live_refresh` | `false` | `true` |
 | `health.scope` | `"startup"` | `"live"` |
 | `startup.startup_health` | Frozen startup classification | Frozen startup classification (unchanged, separate from live) |
-| `lifecycle.runtime_state` | `"initialized"` | `"stopped"` (runtime has started and stopped) |
+| `lifecycle.runtime_state` | `"initialized"` | `"running"` (snapshot captured before runtime stop) |
 | `lifecycle.adapters.{id}` | `{}` (empty — never started) | Current adapter lifecycle state at snapshot time |
 | Timestamps | Fixed (`2026-01-01T00:00:00Z`) | Real wall-clock and monotonic timestamps |
 
@@ -769,6 +769,91 @@ Validates the config file without starting the runtime. Checks for:
 ### Per-Adapter Diagnostics
 
 Diagnostics are per-adapter. Each adapter's snapshot is isolated from other adapters. See Contract 29 for the complete diagnostics schema.
+
+### Sample Output
+
+The following compact excerpts illustrate the key structural differences between plain diagnostics and `--refresh-health` output. Values are illustrative, not from a real run.
+
+**`medre diagnostics` (build-time, no adapter start):**
+
+```json
+{
+  "lifecycle": {
+    "runtime_state": "stopped",
+    "adapters": {}
+  },
+  "health": {
+    "scope": "startup",
+    "live_refresh": false,
+    "live_health": null
+  },
+  "startup": {
+    "startup_health": "degraded",
+    "boot_summary": { "startup_outcome": "partial", "adapters_started": 1, "adapters_failed": 1 }
+  },
+  "routes": {
+    "startup_readiness": [
+      { "route_id": "matrix-to-radio", "readiness": "degraded", "failed_adapter_ids": ["radio"] }
+    ]
+  }
+}
+```
+
+**`medre diagnostics --refresh-health` (live health refresh, snapshot before stop):**
+
+```json
+{
+  "lifecycle": {
+    "runtime_state": "running",
+    "adapters": {
+      "bridge": { "state": "started", "health": "healthy" }
+    }
+  },
+  "health": {
+    "scope": "live",
+    "live_refresh": true,
+    "live_health": {
+      "poll_count": 1,
+      "runtime_health": "healthy",
+      "adapters": [
+        { "adapter_id": "bridge", "health": "healthy", "poll_timestamp_wall": "2026-05-14T10:30:00Z" }
+      ]
+    }
+  },
+  "startup": {
+    "startup_health": "degraded",
+    "boot_summary": { "startup_outcome": "partial" }
+  },
+  "diagnostics": {
+    "runtime_events": [
+      { "event": "health_refreshed", "timestamp": "2026-05-14T10:30:00Z" }
+    ]
+  }
+}
+```
+
+Note: `startup.startup_health` is the frozen startup classification in both outputs. `health.live_health` is only populated by `--refresh-health`. `lifecycle.runtime_state` is `"running"` in the `--refresh-health` snapshot because the snapshot is captured before the runtime stops.
+
+### How to Interpret Live Health
+
+When reading `health.live_health.runtime_health` from `--refresh-health` output:
+
+| Value | Meaning |
+|-------|---------|
+| `healthy` | All started adapters report healthy/operational. |
+| `degraded` | Some adapters report degraded or failed health. Runtime may still be usable. |
+| `failed` | All adapters failed or health checks could not complete. |
+| `unknown` | No live health available, or an adapter returned unknown status. |
+
+**`startup_health` vs `live_health`:** `startup.startup_health` is frozen at startup time and never changes. `health.live_health` reflects the current state at the moment of the health refresh. They can differ — an adapter that started successfully may fail its live health check, or a degraded startup may recover by the time you run `--refresh-health`.
+
+**Failed health does not trigger automatic remediation.** MEDRE does not restart adapters, routes, or the runtime based on health state.
+
+**Manual next steps when health is not `healthy`:**
+1. Check `health.live_health.adapters[].error` and `health.live_health.adapters[].health` per adapter.
+2. Review adapter diagnostics and logs for the affected adapter.
+3. Verify transport connectivity (network, serial device, credentials).
+4. Fix the environment or config, then run `medre diagnostics --refresh-health` again to confirm recovery.
 
 
 ## Log File Location

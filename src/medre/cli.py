@@ -9,7 +9,7 @@ Usage::
     medre version                   Print MEDRE version
     medre adapters                  List available and configured adapters
     medre diagnostics [--config]    Print runtime snapshot JSON (no server)
-    medre diagnostics --refresh-health [--config]  Start runtime, poll adapter health, print live snapshot
+    medre diagnostics --refresh-health [--config]  Start runtime, refresh adapter health once, print live snapshot
     medre routes validate [--config]  Validate route configuration
     medre routes topology [--config]  Print route topology preview
     medre routes list [--config]      List configured routes
@@ -712,7 +712,7 @@ def _diagnostics(config_path: str | None) -> None:
 
 
 async def _diagnostics_refresh(config_path: str | None) -> None:
-    """Start runtime, poll adapter health, print live snapshot JSON.
+    """Start runtime, refresh adapter health once, print live snapshot JSON.
 
     Builds the runtime via the same :class:`RuntimeBuilder` path as
     :func:`_diagnostics`, then starts the runtime, calls
@@ -720,8 +720,13 @@ async def _diagnostics_refresh(config_path: str | None) -> None:
     snapshot with ``health.live_health`` populated, and stops the runtime
     cleanly.
 
+    The snapshot is built after the health refresh but **before**
+    ``app.stop()``, so ``lifecycle.runtime_state`` reflects ``"running"``
+    when printed.  ``app.stop()`` is called in a ``finally`` block to
+    ensure clean shutdown regardless of snapshot or print errors.
+
     Uses real timestamps (not fixed) so operators can see when the
-    health poll occurred.
+    health refresh occurred.
 
     Exit codes mirror ``medre run`` semantics:
     ``EXIT_CONFIG`` (2), ``EXIT_BUILD`` (3), ``EXIT_STARTUP`` (4).
@@ -781,7 +786,7 @@ async def _diagnostics_refresh(config_path: str | None) -> None:
         sys.exit(EXIT_STARTUP)
 
     try:
-        # Refresh live health — polls each adapter's health_check().
+        # Refresh live health — refreshes each adapter's health_check() once.
         await app.refresh_live_health()
 
         # Build snapshot with REAL timestamps (not fixed).
@@ -1078,7 +1083,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--refresh-health",
         action="store_true",
         default=False,
-        help="Start runtime, poll adapter health, print live snapshot",
+        help="Start runtime, refresh adapter health once, print live snapshot",
     )
 
     # routes (with sub-subcommands)
