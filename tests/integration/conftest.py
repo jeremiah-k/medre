@@ -203,6 +203,16 @@ def _ensure_image(image: str) -> None:
 class SynapseEnvironment:
     """Holds all connection details for a running Synapse container."""
 
+    container_name: str
+    base_url: str
+    port: int
+    bot_user_id: str
+    bot_access_token: str
+    test_room_id: str
+    data_dir: Path
+    test_user_id: str
+    test_access_token: str
+
     def __init__(
         self,
         container_name: str,
@@ -212,6 +222,8 @@ class SynapseEnvironment:
         bot_access_token: str,
         test_room_id: str,
         data_dir: Path,
+        test_user_id: str = "",
+        test_access_token: str = "",
     ) -> None:
         self.container_name = container_name
         self.base_url = base_url
@@ -220,6 +232,8 @@ class SynapseEnvironment:
         self.bot_access_token = bot_access_token
         self.test_room_id = test_room_id
         self.data_dir = data_dir
+        self.test_user_id = test_user_id
+        self.test_access_token = test_access_token
 
 
 @pytest.fixture(scope="session")
@@ -350,6 +364,7 @@ def synapse_env() -> Generator[SynapseEnvironment, None, None]:
     ], timeout=30)
 
     # Get bot access token via login API.
+    import urllib.error
     import urllib.request
 
     login_payload = json.dumps({
@@ -390,6 +405,45 @@ def synapse_env() -> Generator[SynapseEnvironment, None, None]:
 
     test_room_id = room_body["room_id"]
 
+    # Get test user access token via login API (for inbound message tests).
+    test_login_payload = json.dumps({
+        "type": "m.login.password",
+        "user": user_localpart,
+        "password": user_password,
+    }).encode()
+    test_login_req = urllib.request.Request(
+        f"{base_url}/_matrix/client/v3/login",
+        data=test_login_payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(test_login_req, timeout=10) as resp:
+        test_login_body = json.loads(resp.read())
+
+    test_user_id = test_login_body["user_id"]
+    test_access_token = test_login_body["access_token"]
+
+    # Join the test user to the bot-created room so it can send messages.
+    # Without this, the test user gets 403 on /send because it has not
+    # joined the room (even public rooms require an explicit join).
+    join_req = urllib.request.Request(
+        f"{base_url}/_matrix/client/v3/join/{test_room_id}",
+        data=b"{}",
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {test_access_token}",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(join_req, timeout=10) as resp:
+            json.loads(resp.read())  # consume response body
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(
+            f"Test user {test_user_id} failed to join room "
+            f"{test_room_id}: HTTP {exc.code} {exc.read().decode()}"
+        ) from exc
+
     env = SynapseEnvironment(
         container_name=container,
         base_url=base_url,
@@ -398,6 +452,8 @@ def synapse_env() -> Generator[SynapseEnvironment, None, None]:
         bot_access_token=bot_access_token,
         test_room_id=test_room_id,
         data_dir=data_dir,
+        test_user_id=test_user_id,
+        test_access_token=test_access_token,
     )
 
     logger.info(

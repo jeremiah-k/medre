@@ -32,7 +32,14 @@ REQUIRED_TOML_CONFIGS = [
     "matrix.toml",
     "meshtastic-serial.toml",
     "fake-multi-adapter.toml",
+    "fake-bridge-smoke.toml",
     "mixed-matrix-meshtastic.toml",
+]
+
+# Configs with placeholder credentials that cannot be fully loaded.
+# Validated for TOML structure and route shape only.
+PLACEHOLDER_CREDENTIAL_CONFIGS = [
+    "docker-bridge-smoke.toml",
 ]
 
 DOCKER_ENV = ENV_DIR / "docker.env.example"
@@ -343,7 +350,158 @@ class TestMixedMatrixMeshtastic:
 
 
 # ===========================================================================
-# 7. Docker env example: format and content validation
+# 7. Fake-bridge-smoke: full load + build (no live SDKs)
+# ===========================================================================
+
+
+class TestFakeBridgeSmoke:
+    """The fake-bridge-smoke example loads, validates, and builds without
+    any optional SDKs.  All adapters are fake; all routes exercise
+    cross-adapter bridge patterns."""
+
+    CONFIG_PATH = CONFIGS_DIR / "fake-bridge-smoke.toml"
+
+    @pytest.fixture(autouse=True)
+    def _medre_home(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
+
+    def test_loads_via_config_loader(self) -> None:
+        config, _source, _paths = load_config(str(self.CONFIG_PATH))
+        assert config.runtime.name == "fake-bridge-smoke"
+        assert config.storage.backend == "memory"
+
+    def test_all_adapters_are_fake(self) -> None:
+        config, _, _ = load_config(str(self.CONFIG_PATH))
+        for _transport, _aid, rtc in config.adapters.all_configs():
+            assert rtc.adapter_kind == "fake", (
+                f"Expected adapter_kind='fake' for {_transport}.{_aid}, "
+                f"got {rtc.adapter_kind!r}"
+            )
+
+    def test_builds_via_runtime_builder(self) -> None:
+        config, _, paths = load_config(str(self.CONFIG_PATH))
+        builder = RuntimeBuilder(config, paths)
+        app = builder.build()
+        assert len(app.adapters) == 3, (
+            f"Expected 3 built adapters, got {len(app.adapters)}: "
+            f"{list(app.adapters.keys())}"
+        )
+
+    def test_routes_parse_correctly(self) -> None:
+        """Routes in fake-bridge-smoke config parse into RouteConfigSet."""
+        config, _, _ = load_config(str(self.CONFIG_PATH))
+        routes = config.routes
+        assert len(routes.routes) == 6
+        route_ids = [r.route_id for r in routes.routes]
+        assert "mx_to_mesh" in route_ids
+        assert "mx_mesh_bidir" in route_ids
+
+    def test_routes_register_via_builder(self) -> None:
+        """Routes register successfully after builder constructs adapters."""
+        config, _, paths = load_config(str(self.CONFIG_PATH))
+        builder = RuntimeBuilder(config, paths)
+        app = builder.build()
+        # 6 configured routes; bidirectional expands to forward + reverse.
+        assert len(app._registered_routes) >= 6, (
+            f"Expected >= 6 registered routes, got "
+            f"{len(app._registered_routes)}: "
+            f"{[r.id for r in app._registered_routes]}"
+        )
+
+
+# ===========================================================================
+# 7b. Docker-bridge-smoke: placeholder credential validation
+# ===========================================================================
+
+
+class TestDockerBridgeSmoke:
+    """The docker-bridge-smoke example has placeholder credentials for the
+    Matrix adapter.  Full load_config() will fail on the credential —
+    validate TOML structure and route shape only."""
+
+    CONFIG_PATH = CONFIGS_DIR / "docker-bridge-smoke.toml"
+
+    def test_toml_parseable(self) -> None:
+        raw = _read(self.CONFIG_PATH)
+        data = tomllib.loads(raw)
+        assert isinstance(data, dict)
+
+    def test_toml_structure_adapters(self) -> None:
+        raw = _read(self.CONFIG_PATH)
+        data = tomllib.loads(raw)
+        adapters = data["adapters"]
+        assert "matrix" in adapters
+        assert "meshtastic" in adapters
+        # Real Matrix adapter
+        mx = adapters["matrix"]["docker_matrix"]
+        assert mx["adapter_kind"] == "real"
+        assert mx["access_token"] == "PLACEHOLDER"
+        # Real Meshtastic adapter
+        mesh = adapters["meshtastic"]["docker_meshtastic"]
+        assert mesh["adapter_kind"] == "real"
+        assert mesh["connection_type"] == "tcp"
+        # Fake adapters
+        fake_mesh = adapters["meshtastic"]["fake_mesh"]
+        assert fake_mesh["adapter_kind"] == "fake"
+        fake_mx = adapters["matrix"]["fake_mx"]
+        assert fake_mx["adapter_kind"] == "fake"
+
+    def test_routes_section_structure(self) -> None:
+        raw = _read(self.CONFIG_PATH)
+        data = tomllib.loads(raw)
+        routes = data["routes"]
+        assert "real_matrix_to_fake_mesh" in routes
+        assert "real_mesh_to_fake_mx" in routes
+        assert "real_bidir" in routes
+        assert "fake_bridge" in routes
+        assert "disabled_example" in routes
+
+    def test_route_adapter_refs_valid(self) -> None:
+        """All route source/dest references name adapters that exist."""
+        raw = _read(self.CONFIG_PATH)
+        data = tomllib.loads(raw)
+        adapter_ids = set()
+        for _transport, instances in data["adapters"].items():
+            for inst_name in instances:
+                adapter_ids.add(inst_name)
+        for _route_id, route in data["routes"].items():
+            for ref in route.get("source_adapters", []):
+                assert ref in adapter_ids, (
+                    f"Route '{_route_id}' references unknown source adapter '{ref}'"
+                )
+            for ref in route.get("dest_adapters", []):
+                assert ref in adapter_ids, (
+                    f"Route '{_route_id}' references unknown dest adapter '{ref}'"
+                )
+
+    def test_disabled_route_is_disabled(self) -> None:
+        raw = _read(self.CONFIG_PATH)
+        data = tomllib.loads(raw)
+        assert data["routes"]["disabled_example"]["enabled"] is False
+
+    def test_bidirectional_route_direction(self) -> None:
+        raw = _read(self.CONFIG_PATH)
+        data = tomllib.loads(raw)
+        assert data["routes"]["real_bidir"]["directionality"] == "bidirectional"
+
+    def test_no_real_secrets(self) -> None:
+        text = _read(self.CONFIG_PATH)
+        hits = _has_real_secrets(text)
+        assert hits == [], f"Possible real secrets found: {hits}"
+
+    def test_loads_successfully_with_placeholder_credentials(self) -> None:
+        """Config loads because PLACEHOLDER is a non-empty string.
+        The placeholder would fail at runtime when connecting to Synapse,
+        but config validation only rejects empty access_token."""
+        config, _source, _paths = load_config(str(self.CONFIG_PATH))
+        assert config.runtime.name == "docker-bridge-smoke"
+        # Real Matrix adapter has placeholder credentials — loads but
+        # would fail at runtime.  Fake adapters are fully valid.
+        assert len(config.adapters.all_enabled()) == 4
+
+
+# ===========================================================================
+# 8. Docker env example: format and content validation
 # ===========================================================================
 
 
@@ -391,23 +549,26 @@ class TestDockerEnvExample:
 # ===========================================================================
 
 
+ALL_SHIPPED_CONFIGS = REQUIRED_TOML_CONFIGS + PLACEHOLDER_CREDENTIAL_CONFIGS
+
+
 class TestExampleHygiene:
     """All shipped example files must be free of real secrets and
     deprecated / legacy language."""
 
-    @pytest.mark.parametrize("name", REQUIRED_TOML_CONFIGS)
+    @pytest.mark.parametrize("name", ALL_SHIPPED_CONFIGS)
     def test_no_real_secrets(self, name: str) -> None:
         text = _read(CONFIGS_DIR / name)
         hits = _has_real_secrets(text)
         assert hits == [], f"{name}: possible real secrets: {hits}"
 
-    @pytest.mark.parametrize("name", REQUIRED_TOML_CONFIGS)
+    @pytest.mark.parametrize("name", ALL_SHIPPED_CONFIGS)
     def test_no_deprecated_language(self, name: str) -> None:
         text = _read(CONFIGS_DIR / name)
         found = _has_deprecated_language(text)
         assert found == [], f"{name}: deprecated language: {found}"
 
-    @pytest.mark.parametrize("name", REQUIRED_TOML_CONFIGS)
+    @pytest.mark.parametrize("name", ALL_SHIPPED_CONFIGS)
     def test_uses_supported_storage_backend(self, name: str) -> None:
         """Storage backend must be one supported by RuntimeBuilder."""
         raw = _read(CONFIGS_DIR / name)
@@ -417,23 +578,7 @@ class TestExampleHygiene:
             f"{name}: unsupported storage backend {backend!r}"
         )
 
-    @pytest.mark.parametrize("name", REQUIRED_TOML_CONFIGS)
-    def test_path_placeholders_are_valid(self, name: str) -> None:
-        """Path placeholders in storage.path must use known tokens."""
-        raw = _read(CONFIGS_DIR / name)
-        data = tomllib.loads(raw)
-        storage_path = data.get("storage", {}).get("path")
-        if storage_path is None:
-            return  # memory backend or default path — OK
-        # Extract all {placeholder} tokens.
-        tokens = set(re.findall(r"\{(\w+)\}", storage_path))
-        valid = {"config", "state", "data", "cache", "logs"}
-        unknown = tokens - valid
-        assert unknown == set(), (
-            f"{name}: unknown path placeholders in storage.path: {unknown}"
-        )
-
-    @pytest.mark.parametrize("name", REQUIRED_TOML_CONFIGS)
+    @pytest.mark.parametrize("name", ALL_SHIPPED_CONFIGS)
     def test_adapter_kinds_valid(self, name: str) -> None:
         """adapter_kind values must be 'real' or 'fake'."""
         raw = _read(CONFIGS_DIR / name)

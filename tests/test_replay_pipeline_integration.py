@@ -513,18 +513,19 @@ async def test_replay_summary_includes_route_counts(replay_env):
 
 
 # ===================================================================
-# Test 10 – BEST_EFFORT creates new receipts indistinguishable from live
+# Test 11 – BEST_EFFORT replay receipts are traceable (source + replay_run_id)
 # ===================================================================
 
 
 @pytest.mark.asyncio
-async def test_best_effort_creates_new_receipts_indistinguishable_from_live(
+async def test_best_effort_replay_receipts_are_traceable(
     replay_env,
 ):
-    """BEST_EFFORT replay creates new DeliveryReceipt rows in storage that
-    are not distinguishable from live (non-replay) records at the storage
-    layer.  No replay-specific column (e.g. run_id) is persisted on receipts.
-    Duplicate-send risk therefore applies to all adapter transports.
+    """BEST_EFFORT replay creates DeliveryReceipt rows with source='replay'
+    and a populated replay_run_id, making them storage-distinguishable from
+    live receipts.  Traceability supports audit; it does not prevent
+    duplicate-send risk — multiple BEST_EFFORT replays of the same event
+    produce additional receipt rows, each with a different replay_run_id.
     """
     env = replay_env
     event = await env.seed_event()
@@ -544,21 +545,38 @@ async def test_best_effort_creates_new_receipts_indistinguishable_from_live(
         "BEST_EFFORT replay should persist at least one delivery receipt"
     )
 
-    # Receipt rows share the same schema as live receipts: no replay-
-    # specific column like 'run_id' or 'replay_source' exists.
+    # Replay receipts are distinguishable from live receipts via source='replay'.
+    # The replay_run_id field is populated when the operator provides a run_id
+    # in the ReplayRequest; otherwise it is None.  Traceability is provided by
+    # the source field, not the optional run_id.
     first = rows[0]
     assert "event_id" in first.keys()
     assert "target_adapter" in first.keys()
     assert "status" in first.keys()
-    # Verify absence of replay-specific storage columns.
-    for col in ("run_id", "replay_source", "is_replay"):
-        assert col not in first.keys(), (
-            f"Receipt row should not have replay-specific column '{col}'; "
-            f"BEST_EFFORT receipts are not storage-distinguishable from live"
-        )
+    assert first["source"] == "replay", (
+        "Replay receipt should have source='replay'"
+    )
+    # replay_run_id is None when no explicit run_id was provided.
+    assert "replay_run_id" in first.keys(), (
+        "Receipt row must have 'replay_run_id' column for traceability"
+    )
 
-    # Run BEST_EFFORT replay a second time — creates additional receipts,
-    # demonstrating duplicate-send risk.
+    # Verify that providing an explicit run_id populates the field.
+    request_with_id = ReplayRequest(mode=ReplayMode.BEST_EFFORT, run_id="run-42")
+    await collect_replay_summary(env.replay.replay(request_with_id))
+    rows_with_id = await env.storage._read_all(
+        "SELECT * FROM delivery_receipts WHERE event_id = ? AND replay_run_id = ?",
+        (event_id, "run-42"),
+    )
+    assert len(rows_with_id) >= 1, (
+        "Replay with explicit run_id should produce receipts with that run_id"
+    )
+    assert rows_with_id[0]["source"] == "replay"
+    assert rows_with_id[0]["replay_run_id"] == "run-42"
+
+    # Run BEST_EFFORT replay again without run_id — creates additional receipts,
+    # demonstrating that traceability is not dedupe.  Duplicate-send risk
+    # remains: each replay run produces new receipt rows for the same event.
     summary2 = await collect_replay_summary(env.replay.replay(request))
     rows2 = await env.storage._read_all(
         "SELECT * FROM delivery_receipts WHERE event_id = ?",
@@ -566,5 +584,5 @@ async def test_best_effort_creates_new_receipts_indistinguishable_from_live(
     )
     assert len(rows2) > len(rows), (
         "Second BEST_EFFORT replay should create additional delivery receipts "
-        "(duplicate-send risk applies to all transports)"
+        "(traceability is not dedupe; duplicate-send risk remains for all transports)"
     )

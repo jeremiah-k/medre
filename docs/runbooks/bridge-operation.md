@@ -2,7 +2,7 @@
 
 > Last updated: 2026-05-11
 > Scope: Delivery-state discipline for cross-transport bridge operation
-> Status: Pre-beta. Not production. Operational model is accurate to code; live bridge validation is not yet complete.
+> Status: Pre-beta. Not production. Operational model is accurate to code; live bridge validation is not claimed. Docker SDK-boundary bridge tests prove real SDK lifecycle against containerized services.
 
 This runbook documents how delivery state works when MEDRE bridges events across transports. It covers what each transport can honestly report, where retry boundaries fall, how the pipeline records results, and what operators should expect when routing events through a multi-transport bridge.
 
@@ -155,6 +155,34 @@ Replay route attribution records which routes matched each historical event. Thi
 **Operational implication:** When re-routing after a config change, use `RE_ROUTE` or `DRY_RUN` first to verify matching behavior. Only use `BEST_EFFORT` when you intend to re-deliver real messages. Re-delivery through `BEST_EFFORT` will produce new outbound messages on all matched targets — including radio transports where duplicates are normal.
 
 **Test coverage note:** The replay pipeline integration path — including route matching, loop prevention via `_filter_replay_loops`, and `ReplayRouteAttribution` — is exercised by `test_replay_pipeline_integration.py` (which tests the real `PipelineRunner` replay path) and `test_replay_routing.py` (which covers route matching through the actual `Router`, `ReplayEngine`, and `_filter_replay_loops` code paths). Boundary tests in `test_architectural_boundaries.py` confirm that replay and routing modules remain free of transport SDK imports. Replay test purity is enforced: no replay test file imports live adapter packages or SDKs.
+
+Replay receipts carry `source="replay"` and a populated `replay_run_id` for audit traceability. This distinguishes replay-originated receipts from live deliveries at the storage layer. Traceability supports audit but does not prevent duplicate delivery — multiple BEST_EFFORT replays of the same event produce additional receipt rows, each with a different `replay_run_id`.
+
+
+## 7a. Docker SDK-Boundary Bridge Validation
+
+Docker SDK-boundary tests prove that real adapter SDKs work against
+containerized services (Synapse for Matrix, meshtasticd for Meshtastic).
+These tests validate:
+
+- **Real SDK initialization** — adapter code loads and uses real SDK libraries.
+- **Config-to-runtime path** — configs with real connection parameters build
+  and start correctly.
+- **Lifecycle correctness** — start, health check, deliver, stop all work
+  through real SDK code paths.
+- **SDK boundary integrity** — no SDK objects leak across the adapter boundary
+  into diagnostics or snapshots.
+
+Docker SDK-boundary tests do **not** prove live network behavior. Services
+run on localhost via Docker containers. See `docs/runbooks/integration-testing.md`
+for the full Docker test tier documentation and provenance levels.
+
+| Provenance tier | Status | What is proven |
+|----------------|--------|---------------|
+| Fake bridge | **Proven** | Pipeline routing, rendering, receipts, accounting |
+| Adapter-wrapper | **Proven** | Per-transport adapter codec, renderer, session |
+| Docker SDK-boundary | **Proven** | Real SDK lifecycle, config, dependency resolution |
+| Live network | **Not claimed** | No cross-transport bridge test against real endpoints |
 
 
 ## 8. Operational Checklist

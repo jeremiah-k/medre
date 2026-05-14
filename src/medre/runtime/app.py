@@ -301,14 +301,19 @@ class MedreApp:
     # -- Live Health ------------------------------------------------------------
 
     async def refresh_live_health(self) -> LiveHealthSnapshot:
-        """Manually poll adapter health and store a :class:`LiveHealthSnapshot`.
+        """Perform a one-shot, caller-triggered health refresh of all adapters.
+
+        This is a **manual** operation — there is no background polling,
+        no scheduler, and no automatic refresh.  The caller (e.g. ``medre
+        diagnostics --refresh-health``) invokes this explicitly when live
+        adapter health state is needed.
 
         Callable only when the runtime is :attr:`RUNNING`; non-``RUNNING``
         states raise :class:`RuntimeError`.
 
         Iterates adapters in deterministic ``adapter_id`` order (same as
-        startup), calls each adapter's :meth:`~medre.adapters.base.BaseAdapter.health_check`,
-        builds per-adapter :class:`~medre.core.runtime.health.AdapterLiveHealth`
+        startup), calls each adapter's :meth:`~medre.adapters.base.BaseAdapter.health_check`
+        once, builds per-adapter :class:`~medre.core.runtime.health.AdapterLiveHealth`
         entries, classifies aggregate runtime health from the live results,
         and stores the resulting :class:`LiveHealthSnapshot` on the app.
 

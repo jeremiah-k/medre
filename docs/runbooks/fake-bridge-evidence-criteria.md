@@ -2,7 +2,7 @@
 
 > Last updated: 2026-05-14
 > Scope: Defining what assertions constitute proof of correct bridge behavior
-> Status: Pre-beta. Criteria defined for fake bridge level only.
+> Status: Pre-beta. Criteria defined for fake bridge and Docker SDK-boundary levels.
 
 This document defines evidence-level criteria for each bridge flow type. Each
 criterion specifies what must be asserted to consider a flow "proven" at a given
@@ -18,11 +18,21 @@ constraints and reduces the gap between test and production:
 |-------|-------------|-----------|----------------|
 | **Fake bridge** | In-memory, fake adapters | Simulated | Pipeline routing, rendering, receipts, accounting, loop prevention |
 | **Adapter-wrapper** | Unit test, real adapter code | Mocked transport | Adapter codec, renderer, session logic |
-| **Docker** | Container, real deps | Loopback | Dependency resolution, config loading, lifecycle |
+| **Docker SDK-boundary** | Container, real deps | Loopback | Dependency resolution, config loading, adapter lifecycle, real SDK boundary, pipeline routing through real adapters |
 | **Live network** | Real endpoints | Real transport | Actual connectivity, protocol compliance |
 
-This document covers **fake bridge** level criteria. Adapter-wrapper and
+This document covers **fake bridge** level criteria. Docker SDK-boundary criteria
+are documented in `docs/runbooks/integration-testing.md`. Adapter-wrapper and
 live-network criteria are tracked separately per transport.
+
+### Honest Provenance Claims
+
+| Tier | Status | What can be claimed |
+|------|--------|-------------------|
+| Fake bridge | **Proven** | Pipeline routing, rendering, receipts, accounting, loop prevention all work with fake adapters |
+| Adapter-wrapper | **Proven** | Per-transport adapter codec, renderer, session logic work with mocked transport |
+| Docker SDK-boundary | **Proven** | Real SDK code paths exercise against containerized Synapse/meshtasticd |
+| Live network | **Not claimed** | No live cross-transport bridge test has been executed against real endpoints |
 
 
 ## Unidirectional Bridge (A -> B)

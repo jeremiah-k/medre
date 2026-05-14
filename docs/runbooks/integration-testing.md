@@ -126,3 +126,52 @@ The following transports do not have official Docker images:
 Cross-transport relay tests (Matrix ↔ Meshtastic through the full MEDRE
 runtime) are planned for a future iteration once single-adapter
 connectivity is proven stable.
+
+
+## Docker SDK-Boundary Bridge Tests
+
+### What This Tier Proves
+
+Docker SDK-boundary bridge tests exercise the boundary between real adapter
+SDK code and the MEDRE pipeline. They prove:
+
+1. **Dependency resolution** — real SDK libraries load and initialize.
+2. **Config loading** — adapter configs with real connection parameters
+   parse and validate correctly.
+3. **Adapter lifecycle** — real adapters start, connect to containerized
+   services, and stop cleanly.
+4. **SDK boundary** — the adapter-to-runtime boundary works with real SDK
+   objects (no SDK objects leak across the boundary).
+5. **Pipeline routing** — events flow through the real adapter code path
+   into the pipeline.
+
+### What This Tier Does NOT Prove
+
+- **Live network connectivity** — services run on localhost via Docker.
+- **Sustained throughput** — tests are smoke tests, not load tests.
+- **Cross-transport relay** — a full Matrix-to-Meshtastic bridge through
+  two real adapters is not yet tested end-to-end.
+- **Network resilience** — no reconnection or failure recovery testing.
+
+### Provenance Levels
+
+| Tier | Environment | What it proves | Status |
+|------|-------------|----------------|--------|
+| Fake bridge | In-memory, fake adapters | Pipeline routing, rendering, receipts, accounting | **Proven** |
+| Adapter-wrapper | Unit test, mocked transport | Adapter codec, renderer, session logic | **Proven** |
+| Docker SDK-boundary | Container, real deps, loopback | Real SDK lifecycle, config, dependency resolution | **Proven** |
+| Live network | Real endpoints | Actual connectivity, protocol compliance | **Not claimed** |
+
+### Docker Bridge Example Config
+
+An illustrative TOML config is provided at
+`examples/configs/docker-bridge-smoke.toml`. This config has **placeholder
+credentials** — it cannot be used directly with `medre run`. Docker
+integration tests build configs programmatically from `conftest.py` fixtures
+that auto-register users and allocate ports.
+
+To validate the config's TOML structure and route shape without Docker:
+
+```bash
+PYTHONPATH=src pytest tests/test_example_configs.py::TestDockerBridgeSmoke -v
+```

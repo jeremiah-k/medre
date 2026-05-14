@@ -712,7 +712,15 @@ class TestHealthStateTolerance:
 
 
 class TestLiveHealthExplicitlyUnavailable:
-    """live_health is null before refresh_live_health() is called."""
+    """live_health is null before manual refresh_live_health() is called.
+
+    Before an explicit call to :meth:`MedreApp.refresh_live_health`, the
+    ``health.live_health`` field is ``null`` and ``health.scope`` is
+    ``"startup"``.  This is not a missing feature — it is the correct
+    default state reflecting that no live health poll has been performed.
+    After ``refresh_live_health()`` is called, ``live_health`` is populated
+    with a :class:`LiveHealthSnapshot` and ``scope`` becomes ``"live"``.
+    """
 
     def test_live_health_is_null_when_no_live_health_state(self) -> None:
         """live_health is null when _live_health_state is not set."""

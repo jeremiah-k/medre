@@ -779,7 +779,7 @@ The following compact excerpts illustrate the key structural differences between
 ```json
 {
   "lifecycle": {
-    "runtime_state": "stopped",
+    "runtime_state": "initialized",
     "adapters": {}
   },
   "health": {

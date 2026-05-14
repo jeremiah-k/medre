@@ -2,11 +2,26 @@
 
 > Last updated: 2026-05-14
 > Scope: Proving cross-adapter bridge behavior with fake adapters
-> Status: Pre-beta. Fake bridge proven; live bridge not yet validated.
+> Status: Pre-beta. Fake bridge proven; Docker SDK-boundary proven; live bridge not claimed.
 
 This runbook describes how to prove that the MEDRE runtime correctly bridges
 events between adapters using fake adapters and in-memory storage. It covers
 what each test proves, how to run the tests, and what the results mean.
+
+
+## 0. Provenance Summary
+
+| Tier | Status | What is proven |
+|------|--------|---------------|
+| **Fake bridge** | Proven | Full pipeline routing with fake adapters (this runbook) |
+| **Adapter-wrapper** | Proven | Per-transport adapter internals with mocked transport |
+| **Docker SDK-boundary** | Proven | Real SDK code paths against containerized Synapse/meshtasticd (see `integration-testing.md`) |
+| **Live network** | **Not claimed** | No cross-transport bridge test against real endpoints has been executed |
+
+Fake bridge and Docker SDK-boundary are complementary. Fake bridge proves the
+pipeline routing logic is correct. Docker SDK-boundary proves the real SDK
+boundary works (config loading, dependency resolution, adapter lifecycle).
+Neither proves live network behavior.
 
 
 ## 1. What "Fake Bridge Proven" Means
@@ -141,3 +156,95 @@ What is NOT tested at the integration level: multi-hop cycles (A -> B -> C -> A)
 through the runtime. The route engine's `check_route_loops()` detects these
 statically at startup, but exercising them through the full pipeline requires
 three or more adapters with cyclic routes.
+
+
+## 7. Commands Reference
+
+### Fake bridge tests (no network, no Docker, no SDKs)
+
+```bash
+# Full fake bridge test suite
+PYTHONPATH=src pytest tests/test_fake_bridge_smoke.py -v
+
+# Specific bridge flow
+PYTHONPATH=src pytest tests/test_fake_bridge_smoke.py::TestMatrixToMeshtastic -v
+
+# Replay pipeline integration (proves replay with real PipelineRunner)
+PYTHONPATH=src pytest tests/test_replay_pipeline_integration.py -v
+
+# Runtime snapshot (proves JSON safety, provenance, health fields)
+PYTHONPATH=src pytest tests/test_runtime_snapshot.py -v
+
+# Example config validation (proves all shipped configs parse/build)
+PYTHONPATH=src pytest tests/test_example_configs.py -v
+```
+
+### Config validation (no runtime start)
+
+```bash
+# Validate config without starting
+PYTHONPATH=src medre config check --config examples/configs/fake-bridge-smoke.toml
+
+# Validate routes
+PYTHONPATH=src medre routes validate --config examples/configs/fake-bridge-smoke.toml
+```
+
+### Diagnostics (no runtime start)
+
+```bash
+# Build-time snapshot (no adapter start, no I/O)
+PYTHONPATH=src medre diagnostics --config examples/configs/fake-bridge-smoke.toml
+
+# Live health refresh (starts adapters, polls health, stops)
+PYTHONPATH=src medre diagnostics --refresh-health --config examples/configs/fake-multi-adapter.toml
+```
+
+### Docker SDK-boundary tests
+
+```bash
+# Prerequisites: Docker daemon running, SDK extras installed
+pip install -e ".[matrix,meshtastic,dev]"
+
+# All Docker integration tests
+PYTHONPATH=src pytest tests/integration/ -m docker -v
+
+# Matrix (Synapse) only
+PYTHONPATH=src pytest tests/integration/test_synapse_connectivity.py -m docker -v
+
+# Meshtastic (meshtasticd) only
+PYTHONPATH=src pytest tests/integration/test_meshtasticd_connectivity.py -m docker -v
+```
+
+Docker tests are **excluded from default runs** via `addopts = "-m 'not live and not docker'"`
+in `pyproject.toml`. They are collected and skipped unless explicitly enabled.
+
+### Skip behavior
+
+```bash
+# Default: Docker tests collected but not run
+PYTHONPATH=src pytest -q
+# Expected: all non-Docker tests pass, Docker tests shown as skipped/deselected
+
+# Explicitly skip Docker (redundant with default but explicit)
+MEDRE_SKIP_DOCKER=1 pytest tests/integration/ -v
+
+# Run everything including Docker + live
+pytest -m "" -v
+```
+
+### Failure interpretation
+
+| Symptom | Likely cause | Action |
+|---------|-------------|--------|
+| Docker tests skip with "Docker not available" | Docker daemon not running | Start Docker: `docker info` |
+| Docker tests skip with "mtjk not installed" | Meshtastic SDK not installed | `pip install -e ".[meshtastic]"` |
+| Docker tests skip with "mindroom-nio not installed" | Matrix SDK not installed | `pip install -e ".[matrix]"` |
+| Config validation exits 2 | TOML syntax or credential error | `medre config check --config <path>` |
+| Routes validate exits 2 | Unknown adapter ref in route | Check adapter IDs in routes match adapters section |
+
+### ResourceWarning (optional, CI hardening)
+
+```bash
+# Enable ResourceWarning as error to catch unclosed resources:
+PYTHONPATH=src pytest -W error::ResourceWarning -q
+```
