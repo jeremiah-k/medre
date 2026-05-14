@@ -390,3 +390,9 @@ Replay is a one-shot operation initiated by the operator or test harness. It is 
 - [Runtime Operation](runtime-operation.md) — general runtime operation
 - [Bridge Operation](bridge-operation.md) — bridge delivery semantics
 - [Configuration](configuration.md) — TOML configuration reference
+- [Event Tracing](event-tracing.md) — operator guide for tracing events through
+  pipeline lifecycle, timeline reports, SQL queries
+- [Replay Operation](replay-operation.md) — replay modes, command shape,
+  receipt interpretation, duplicate risk assessment
+- [Bridge Recovery](bridge-recovery.md) — crash recovery procedures, orphan
+  detection, recovery decision tree

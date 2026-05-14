@@ -930,6 +930,404 @@ async def _inspect_native_ref(
 
 
 # ---------------------------------------------------------------------------
+# Trace commands (read-only timeline assembly)
+# ---------------------------------------------------------------------------
+
+
+async def _trace_event(
+    config_path: str | None,
+    event_id: str,
+    json_output: bool,
+) -> None:
+    """Assemble and print a chronological timeline for a single event."""
+    import json as _json
+
+    from medre.runtime.trace import assemble_event_timeline, timeline_to_json
+
+    storage = await _open_readonly_storage(config_path)
+    try:
+        event = await storage.get(event_id)
+        if event is None:
+            print(
+                f"Error: event not found: {event_id}",
+                file=sys.stderr,
+            )
+            sys.exit(EXIT_NOT_FOUND)
+
+        receipts = await storage.list_receipts_for_event(event_id)
+        native_refs = await storage.list_native_refs_for_event(event_id)
+        relations = await storage.list_relations(event_id)
+
+        timeline = assemble_event_timeline(event, receipts, native_refs, relations)
+
+        if json_output:
+            print(timeline_to_json(timeline))
+        else:
+            # Human-readable summary.
+            print(f"Event timeline: {event_id}")
+            print(f"  Kind:    {event.event_kind}")
+            print(f"  Source:  {event.source_adapter}")
+            print(f"  Entries: {len(timeline)}")
+            print()
+            for entry in timeline:
+                ts = entry["timestamp"]
+                etype = entry["entry_type"]
+                data = entry["data"]
+                if etype == "relation":
+                    print(f"  {ts}  [{etype}] {data.get('relation_type', '')}")
+                elif etype == "event":
+                    print(f"  {ts}  [{etype}] {data.get('event_kind', '')} from {data.get('source_adapter', '')}")
+                elif etype == "native_ref":
+                    direction = data.get("direction", "")
+                    adapter = data.get("adapter", "")
+                    msg_id = data.get("native_message_id", "")
+                    print(f"  {ts}  [{etype}] {direction} via {adapter}: {msg_id}")
+                elif etype == "receipt":
+                    status = data.get("status", "")
+                    target = data.get("target_adapter", "")
+                    attempt = data.get("attempt_number", 1)
+                    print(f"  {ts}  [{etype}] {status} -> {target} (attempt {attempt})")
+                else:
+                    print(f"  {ts}  [{etype}] {data}")
+    finally:
+        await storage.close()
+
+
+async def _trace_replay(
+    config_path: str | None,
+    run_id: str,
+    json_output: bool,
+) -> None:
+    """Assemble and print a chronological timeline for a replay run."""
+    import json as _json
+
+    from medre.runtime.trace import assemble_replay_timeline, timeline_to_json
+
+    storage = await _open_readonly_storage(config_path)
+    try:
+        receipts = await storage.list_receipts_by_replay_run(run_id)
+        if not receipts:
+            print(
+                f"Error: no receipts found for replay run: {run_id}",
+                file=sys.stderr,
+            )
+            sys.exit(EXIT_NOT_FOUND)
+
+        # Build event cache for all referenced events.
+        event_ids = list(dict.fromkeys(r.event_id for r in receipts))
+        event_cache = {}
+        for eid in event_ids:
+            event = await storage.get(eid)
+            if event is not None:
+                event_cache[eid] = event
+
+        result = assemble_replay_timeline(run_id, receipts, event_cache)
+
+        if json_output:
+            print(timeline_to_json(result))
+        else:
+            # Human-readable summary.
+            print(f"Replay timeline: {run_id}")
+            print(f"  Status:  {result['status']}")
+            print(f"  Receipts: {result['receipt_count']}")
+            print(f"  Events:  {len(result['event_ids'])}")
+            print()
+            for entry in result["timeline"]:
+                ts = entry["timestamp"]
+                etype = entry["entry_type"]
+                data = entry["data"]
+                if etype == "receipt":
+                    status = data.get("status", "")
+                    target = data.get("target_adapter", "")
+                    eid = data.get("event_id", "")
+                    print(f"  {ts}  [{etype}] {status} -> {target} (event: {eid})")
+                elif etype == "event_summary":
+                    kind = data.get("event_kind", "")
+                    src = data.get("source_adapter", "")
+                    print(f"  {ts}  [{etype}] {kind} from {src}")
+                else:
+                    print(f"  {ts}  [{etype}] {data}")
+    finally:
+        await storage.close()
+
+
+# ---------------------------------------------------------------------------
+# Replay command (build runtime, use ReplayEngine, do NOT start app)
+# ---------------------------------------------------------------------------
+
+
+# Radio transports that use fire-and-forget delivery.
+_RADIO_TRANSPORTS = frozenset({"meshtastic", "meshcore", "lxmf"})
+
+_BEST_EFFORT_WARNING = (
+    "WARNING: BEST_EFFORT replay incurs the same duplicate-send risk as "
+    "all adapter transports.  Every BEST_EFFORT delivery creates new "
+    "DeliveryReceipt and NativeMessageRef records that are NOT "
+    "distinguishable from live records at the storage layer.  "
+    "Use --dry-run first to preview."
+)
+
+
+async def _replay(
+    config_path: str | None,
+    mode: str,
+    event_id: str | None,
+    json_output: bool,
+    target_adapters: list[str] | None,
+    route_ids: list[str] | None,
+    limit: int,
+) -> None:
+    """Execute a replay operation via the built (not started) runtime."""
+    import json as _json
+    import time as _time
+
+    from medre.config.paths import MedrePathsError
+    from medre.core.storage.replay import (
+        ReplayMode,
+        ReplayRequest,
+        ReplaySummary,
+        collect_replay_summary,
+    )
+    from medre.runtime.builder import RuntimeBuilder
+
+    # Validate mode.
+    mode_map = {m.value: m for m in ReplayMode}
+    if mode not in mode_map:
+        print(
+            f"Error: invalid mode {mode!r}. "
+            f"Valid modes: {', '.join(sorted(mode_map.keys()))}",
+            file=sys.stderr,
+        )
+        sys.exit(EXIT_CONFIG)
+
+    replay_mode = mode_map[mode]
+
+    # Warn for BEST_EFFORT.
+    if replay_mode == ReplayMode.BEST_EFFORT and not json_output:
+        print(_BEST_EFFORT_WARNING, file=sys.stderr)
+        print(file=sys.stderr)
+
+    # Load config and build runtime (but do NOT start it).
+    try:
+        config, _source, paths = load_config(config_path)
+    except Exception as exc:
+        print(f"Config error: {exc}", file=sys.stderr)
+        sys.exit(EXIT_CONFIG)
+
+    config = apply_env_overrides(config, paths)
+
+    builder = RuntimeBuilder(config, paths)
+    try:
+        app = builder.build()
+    except Exception as exc:
+        print(f"Runtime build error: {exc}", file=sys.stderr)
+        sys.exit(EXIT_BUILD)
+
+    if app.replay_engine is None:
+        print(
+            "Error: replay engine not available — runtime was built without one.",
+            file=sys.stderr,
+        )
+        sys.exit(EXIT_BUILD)
+
+    # Build replay request.
+    request = ReplayRequest(
+        mode=replay_mode,
+        correlation_ids=[event_id] if event_id else None,
+        target_adapters=target_adapters,
+        route_ids=tuple(route_ids) if route_ids else (),
+        limit=limit,
+    )
+
+    # Execute replay.
+    t0 = _time.monotonic()
+    results = app.replay_engine.replay(request)
+    summary = await collect_replay_summary(
+        results,
+        mode=replay_mode,
+        elapsed_ms=(_time.monotonic() - t0) * 1000,
+    )
+
+    summary_dict = summary.to_dict()
+
+    if json_output:
+        print(_json.dumps(summary_dict, sort_keys=True, indent=2))
+    else:
+        # Human-readable summary.
+        print(f"Replay: {mode}")
+        print(f"  Events scanned:  {summary.events_scanned}")
+        print(f"  Events replayed: {summary.events_replayed}")
+        print(f"  Passed:          {summary.by_status.get('passed', 0)}")
+        print(f"  Skipped:         {summary.by_status.get('skipped', 0)}")
+        print(f"  Failed:          {summary.by_status.get('failed', 0)}")
+        print(f"  Errors:          {summary.by_status.get('error', 0)}")
+        print(f"  Elapsed:         {summary.elapsed_ms:.1f}ms")
+        if summary.errors:
+            print(f"  Errors ({len(summary.errors)}):")
+            for err in summary.errors[:10]:
+                print(f"    {err[:120]}")
+        if summary.by_route:
+            print("  Per-route:")
+            for rid, counts in sorted(summary.by_route.items()):
+                print(
+                    f"    {rid}: {counts['succeeded']} succeeded, "
+                    f"{counts['failed']} failed"
+                )
+
+
+# ---------------------------------------------------------------------------
+# Recover command (analyze failed deliveries, generate runbook)
+# ---------------------------------------------------------------------------
+
+
+async def _recover(
+    config_path: str | None,
+    event_id: str | None,
+    failed_only: bool,
+    since: str | None,
+    dry_run: bool,
+    json_output: bool,
+) -> None:
+    """Analyze failed deliveries and generate a recovery runbook."""
+    import json as _json
+    import uuid
+
+    from medre.core.storage.replay import ReplayMode, ReplayRequest
+    from medre.runtime.trace import assemble_event_timeline
+
+    storage = await _open_readonly_storage(config_path)
+    try:
+        # Determine scope: single event or broad scan.
+        failed_targets: list[dict[str, Any]] = []
+        timeline: list[dict[str, Any]] = []
+        if event_id is not None:
+            # Single-event recovery.
+            event = await storage.get(event_id)
+            if event is None:
+                print(
+                    f"Error: event not found: {event_id}",
+                    file=sys.stderr,
+                )
+                sys.exit(EXIT_NOT_FOUND)
+
+            receipts = await storage.list_receipts_for_event(event_id)
+            native_refs = await storage.list_native_refs_for_event(event_id)
+            relations = await storage.list_relations(event_id)
+
+            # Identify failed targets.
+            failed_targets = [
+                {
+                    "target_adapter": r.target_adapter,
+                    "status": r.status,
+                    "attempt_number": r.attempt_number,
+                    "receipt_id": r.receipt_id,
+                }
+                for r in receipts
+                if r.status in ("failed", "dead_lettered")
+            ]
+
+            # Build timeline for runbook.
+            timeline = assemble_event_timeline(
+                event, receipts, native_refs, relations,
+            )
+
+            runbook: dict[str, Any] = {
+                "scope": "event",
+                "event_id": event_id,
+                "event_kind": event.event_kind,
+                "source_adapter": event.source_adapter,
+                "total_receipts": len(receipts),
+                "failed_targets": failed_targets,
+                "timeline": timeline,
+                "warnings": [],
+            }
+
+            # Add duplicate-send risk warnings for radio transports.
+            for nref in native_refs:
+                if nref.adapter.lower() in _RADIO_TRANSPORTS or any(
+                    nref.adapter.lower().startswith(t)
+                    for t in _RADIO_TRANSPORTS
+                ):
+                    runbook["warnings"].append(
+                        f"Adapter {nref.adapter} uses a radio transport — "
+                        f"recovery may produce duplicate sends. "
+                        f"Use --dry-run first to preview."
+                    )
+                    break
+
+            if runbook["warnings"]:
+                runbook["warnings"].append(
+                    "Radio transports (Meshtastic, MeshCore, LXMF) use "
+                    "fire-and-forget delivery.  Recovery is best-effort "
+                    "and duplicates are possible."
+                )
+
+        else:
+            # Broad scan: list events with failed receipts.
+            runbook = {
+                "scope": "scan",
+                "failed_only": failed_only,
+                "since": since,
+                "warnings": [
+                    "Specify --event <event_id> for a detailed recovery runbook.",
+                    "Radio transports (Meshtastic, MeshCore, LXMF) use "
+                    "fire-and-forget delivery.  Recovery is best-effort "
+                    "and duplicates are possible.",
+                ],
+                "note": "Use --event <event_id> --dry-run to preview recovery.",
+            }
+
+        # If --dry-run, include a replay preview section.
+        if dry_run and event_id is not None:
+            runbook["dry_run"] = {
+                "mode": "dry_run",
+                "event_id": event_id,
+                "status": "preview",
+                "message": (
+                    "DRY_RUN replay would re-process this event through "
+                    "all pipeline stages except delivery.  Use "
+                    "'medre replay --mode dry_run --event <event_id>' "
+                    "to execute."
+                ),
+            }
+
+        if json_output:
+            print(_json.dumps(runbook, sort_keys=True, indent=2, default=str))
+        else:
+            # Human-readable runbook.
+            if event_id is not None:
+                print(f"Recovery runbook: {event_id}")
+                print(f"  Kind:    {runbook['event_kind']}")
+                print(f"  Source:  {runbook['source_adapter']}")
+                print(f"  Receipts: {runbook['total_receipts']}")
+                if failed_targets:
+                    print(f"  Failed targets ({len(failed_targets)}):")
+                    for ft in failed_targets:
+                        print(
+                            f"    {ft['target_adapter']}: {ft['status']} "
+                            f"(attempt {ft['attempt_number']})"
+                        )
+                else:
+                    print("  Failed targets: none")
+                print(f"  Timeline entries: {len(timeline)}")
+            else:
+                print("Recovery scan")
+                print(f"  Failed-only: {failed_only}")
+                print(f"  Since: {since or '(all)'}")
+
+            if runbook.get("warnings"):
+                print()
+                for w in runbook["warnings"]:
+                    print(f"  \u26a0 {w}")
+
+            if dry_run and event_id is not None:
+                print()
+                print("  DRY RUN: No side effects. Preview only.")
+    finally:
+        await storage.close()
+
+
+# ---------------------------------------------------------------------------
 # Run command (async)
 # ---------------------------------------------------------------------------
 
@@ -1419,6 +1817,57 @@ def _build_parser() -> argparse.ArgumentParser:
     inspect_nref.add_argument("--channel", default=None, help="Native channel ID (omit for channelless protocols)")
     inspect_nref.add_argument("--message", required=True, help="Native message ID")
 
+    # trace (with sub-subcommands)
+    trace_p = sub.add_parser("trace", help="Chronological timeline assembly")
+    trace_sub = trace_p.add_subparsers(dest="trace_command", required=True)
+
+    # trace event <event_id>
+    trace_evt = trace_sub.add_parser("event", help="Assemble timeline for a canonical event")
+    trace_evt.add_argument("--config", default=None, help="Path to config file")
+    trace_evt.add_argument("event_id", help="Canonical event ID to trace")
+    trace_evt.add_argument("--json", action="store_true", default=False, help="Output JSON timeline")
+
+    # trace replay <run_id>
+    trace_rpl = trace_sub.add_parser("replay", help="Assemble timeline for a replay run")
+    trace_rpl.add_argument("--config", default=None, help="Path to config file")
+    trace_rpl.add_argument("run_id", help="Replay run ID to trace")
+    trace_rpl.add_argument("--json", action="store_true", default=False, help="Output JSON timeline")
+
+    # replay
+    replay_p = sub.add_parser("replay", help="Execute a replay operation")
+    replay_p.add_argument("--config", default=None, help="Path to config file")
+    replay_p.add_argument(
+        "--mode", required=True,
+        choices=["strict", "re_render", "re_route", "best_effort", "dry_run"],
+        help="Replay mode",
+    )
+    replay_p.add_argument("--event", default=None, metavar="EVENT_ID", help="Event ID to replay")
+    replay_p.add_argument("--json", action="store_true", default=False, help="Output JSON report")
+    replay_p.add_argument(
+        "--target-adapters", default=None, nargs="+", metavar="ADAPTER",
+        help="Restrict replay to these adapter IDs",
+    )
+    replay_p.add_argument(
+        "--route-ids", default=None, nargs="+", metavar="ROUTE",
+        help="Restrict replay to these route IDs",
+    )
+    replay_p.add_argument("--limit", type=int, default=100, help="Max events to replay (default: 100)")
+
+    # recover
+    recover_p = sub.add_parser("recover", help="Analyze failed deliveries and generate recovery runbook")
+    recover_p.add_argument("--config", default=None, help="Path to config file")
+    recover_p.add_argument("--event", default=None, metavar="EVENT_ID", help="Event ID to analyze")
+    recover_p.add_argument(
+        "--failed-only", action="store_true", default=False,
+        help="Only include events with failed deliveries",
+    )
+    recover_p.add_argument("--since", default=None, metavar="TIMESTAMP", help="Only consider events after this timestamp")
+    recover_p.add_argument(
+        "--dry-run", action="store_true", default=False,
+        help="Preview recovery without side effects",
+    )
+    recover_p.add_argument("--json", action="store_true", default=False, help="Output JSON runbook")
+
     return parser
 
 
@@ -1503,6 +1952,40 @@ def main(argv: list[str] | None = None) -> None:
                 getattr(args, "event", None),
                 getattr(args, "replay_run", None),
                 args.include_refresh_health,
+            )
+        )
+    elif args.command == "trace":
+        import asyncio
+
+        if args.trace_command == "event":
+            asyncio.run(_trace_event(args.config, args.event_id, args.json))
+        elif args.trace_command == "replay":
+            asyncio.run(_trace_replay(args.config, args.run_id, args.json))
+    elif args.command == "replay":
+        import asyncio
+
+        asyncio.run(
+            _replay(
+                args.config,
+                mode=args.mode,
+                event_id=args.event,
+                json_output=args.json,
+                target_adapters=args.target_adapters,
+                route_ids=args.route_ids,
+                limit=args.limit,
+            )
+        )
+    elif args.command == "recover":
+        import asyncio
+
+        asyncio.run(
+            _recover(
+                args.config,
+                event_id=args.event,
+                failed_only=args.failed_only,
+                since=args.since,
+                dry_run=args.dry_run,
+                json_output=args.json,
             )
         )
 

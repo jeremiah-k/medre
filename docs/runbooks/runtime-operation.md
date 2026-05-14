@@ -956,6 +956,11 @@ MEDRE does not rotate logs internally. Use external log rotation (logrotate, Doc
 3. Crypto stores survive — E2EE sessions resume.
 4. Check logs for the crash cause: `grep ERROR {log_dir}/medre.log`
 
+For a detailed crash recovery workflow including orphan detection and replay
+procedures, see [Bridge Recovery](bridge-recovery.md). For tracing events
+through the pipeline, see [Event Tracing](event-tracing.md). For the replay
+workflow, see [Replay Operation](replay-operation.md).
+
 ### Adapter Not Connecting
 
 1. Check adapter health: `medre diagnostics`

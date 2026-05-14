@@ -492,20 +492,29 @@ async def _drill_adapter_transient_failure(
 
     report["config_source"] = cs
     report["preflight"] = preflight
-    steps.append(_step("runtime_start", "ok"))
+    steps.append(_step(
+        "runtime_start", "ok",
+        timestamp=datetime.now(timezone.utc).isoformat(),
+    ))
 
     try:
         source_aid, source_adapter = _pick_source_adapter(app)
         event = _make_smoke_event(source_adapter, "drill: adapter_transient_failure")
-        steps.append(_step("inject_event", "ok", event_id=event.event_id))
+        steps.append(_step(
+            "inject_event", "ok",
+            event_id=event.event_id,
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        ))
         report["event_id"] = event.event_id
         report["source_adapter"] = source_aid
 
         # Patch the first non-source adapter to raise transient error.
         patched_aid = None
+        original_deliver = None
         for aid in sorted(app.adapters.keys()):
             if aid != source_aid:
                 adapter = app.adapters[aid]
+                original_deliver = adapter.deliver
 
                 async def _transient_deliver(result: Any) -> Any:
                     raise AdapterSendError(
@@ -523,11 +532,19 @@ async def _drill_adapter_transient_failure(
             await _clean_stop(app)
             return report
 
-        steps.append(_step("patch_adapter", "ok", target_adapter=patched_aid))
+        steps.append(_step(
+            "patch_adapter", "ok",
+            target_adapter=patched_aid,
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        ))
         report["target_adapters"] = [patched_aid]
 
         outcomes = await app.pipeline_runner.handle_ingress(event)
-        steps.append(_step("ingress_complete", "ok", outcome_count=len(outcomes)))
+        steps.append(_step(
+            "ingress_complete", "ok",
+            outcome_count=len(outcomes),
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        ))
 
         target_outcome = None
         for o in outcomes:
@@ -548,6 +565,7 @@ async def _drill_adapter_transient_failure(
                 expected="transient_failure",
                 observed=target_outcome.status,
                 failure_kind=failure_kind,
+                timestamp=datetime.now(timezone.utc).isoformat(),
             ))
             # Verify: transient failure is retryable.
             is_retryable = (
@@ -558,6 +576,7 @@ async def _drill_adapter_transient_failure(
                 "verify_retryable",
                 "ok" if is_retryable else "unexpected",
                 is_retryable=is_retryable,
+                timestamp=datetime.now(timezone.utc).isoformat(),
             ))
             # Verify: no native ref for failed delivery.
             failed_adapter = app.adapters.get(patched_aid)
@@ -586,7 +605,49 @@ async def _drill_adapter_transient_failure(
                 "verify_no_native_ref",
                 "ok" if not has_unexpected_ref else "unexpected",
                 unexpected_native_ref=has_unexpected_ref,
+                timestamp=datetime.now(timezone.utc).isoformat(),
             ))
+
+            # Recovery simulation: restore adapter, re-deliver a new event.
+            recovery_ok = False
+            recovery_receipt_status: str | None = None
+            if original_deliver is not None and failed_adapter is not None:
+                failed_adapter.deliver = original_deliver  # type: ignore[assignment]
+                recovery_event = _make_smoke_event(
+                    source_adapter, "drill: adapter_transient_failure recovery",
+                )
+                recovery_outcomes = await app.pipeline_runner.handle_ingress(
+                    recovery_event,
+                )
+                recovery_target = None
+                for o in recovery_outcomes:
+                    if o.target_adapter == patched_aid:
+                        recovery_target = o
+                        break
+                if recovery_target is not None:
+                    recovery_receipt_status = recovery_target.status
+                    recovery_ok = recovery_target.status == "success"
+                steps.append(_step(
+                    "simulate_manual_recovery",
+                    "ok" if recovery_ok else "unexpected",
+                    recovery_event_id=recovery_event.event_id,
+                    recovery_receipt_status=recovery_receipt_status,
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                ))
+
+            report["recovery_path"] = {
+                "failure_kind": "ADAPTER_TRANSIENT",
+                "is_retryable": is_retryable,
+                "recovery_method": "manual_adapter_fix_and_redeliver",
+                "recovery_simulated": recovery_ok,
+                "receipt_before_recovery": {
+                    "status": target_outcome.status,
+                    "failure_kind": failure_kind,
+                },
+                "receipt_after_recovery": {
+                    "status": recovery_receipt_status,
+                },
+            }
 
             if target_outcome.status != "transient_failure" or not is_retryable:
                 report["status"] = "FAIL"
@@ -727,7 +788,10 @@ async def _drill_shutdown_rejection(
 
     report["config_source"] = cs
     report["preflight"] = preflight
-    steps.append(_step("runtime_start", "ok"))
+    steps.append(_step(
+        "runtime_start", "ok",
+        timestamp=datetime.now(timezone.utc).isoformat(),
+    ))
 
     try:
         cc = app._capacity_controller
@@ -739,16 +803,30 @@ async def _drill_shutdown_rejection(
             return report
 
         cc.stop_accepting()
-        steps.append(_step("stop_accepting", "ok", accepting_work=cc.accepting_work))
+        stop_ts = datetime.now(timezone.utc).isoformat()
+        steps.append(_step(
+            "stop_accepting", "ok",
+            accepting_work=cc.accepting_work,
+            timestamp=stop_ts,
+        ))
 
         source_aid, source_adapter = _pick_source_adapter(app)
         event = _make_smoke_event(source_adapter, "drill: shutdown_rejection")
-        steps.append(_step("inject_event", "ok", event_id=event.event_id))
+        inject_ts = datetime.now(timezone.utc).isoformat()
+        steps.append(_step(
+            "inject_event", "ok",
+            event_id=event.event_id,
+            timestamp=inject_ts,
+        ))
         report["event_id"] = event.event_id
         report["source_adapter"] = source_aid
 
         outcomes = await app.pipeline_runner.handle_ingress(event)
-        steps.append(_step("ingress_complete", "ok", outcome_count=len(outcomes)))
+        steps.append(_step(
+            "ingress_complete", "ok",
+            outcome_count=len(outcomes),
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        ))
 
         shutdown_outcomes = [
             o for o in outcomes
@@ -760,6 +838,7 @@ async def _drill_shutdown_rejection(
             "verify_shutdown_rejection",
             "ok" if has_shutdown else "unexpected",
             shutdown_rejections=len(shutdown_outcomes),
+            timestamp=datetime.now(timezone.utc).isoformat(),
         ))
         # Verify: no receipts for shutdown-rejected deliveries.
         if app.storage is not None:
@@ -777,7 +856,16 @@ async def _drill_shutdown_rejection(
             "verify_no_receipt",
             "ok" if not shutdown_receipts else "unexpected",
             receipt_count=len(shutdown_receipts),
+            timestamp=datetime.now(timezone.utc).isoformat(),
         ))
+
+        report["rejection_timeline"] = {
+            "stop_accepting_at": stop_ts,
+            "inject_at": inject_ts,
+            "accepting_work_at_rejection": False,
+            "shutdown_rejections": len(shutdown_outcomes),
+            "receipts_created_for_rejected": len(shutdown_receipts),
+        }
 
         if not has_shutdown:
             report["status"] = "FAIL"
@@ -812,17 +900,25 @@ async def _drill_replay_duplicate_risk(
 
     report["config_source"] = cs
     report["preflight"] = preflight
-    steps.append(_step("runtime_start", "ok"))
+    steps.append(_step(
+        "runtime_start", "ok",
+        timestamp=datetime.now(timezone.utc).isoformat(),
+    ))
 
     try:
         source_aid, source_adapter = _pick_source_adapter(app)
         event = _make_smoke_event(source_adapter, "drill: replay_duplicate_risk")
-        steps.append(_step("inject_event", "ok", event_id=event.event_id))
+        steps.append(_step(
+            "inject_event", "ok",
+            event_id=event.event_id,
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        ))
         report["event_id"] = event.event_id
         report["source_adapter"] = source_aid
 
         # First delivery.
         outcomes1 = await app.pipeline_runner.handle_ingress(event)
+        live_ts = datetime.now(timezone.utc).isoformat()
         receipts1 = []
         if app.storage is not None:
             try:
@@ -833,6 +929,7 @@ async def _drill_replay_duplicate_risk(
             "first_delivery", "ok",
             outcome_count=len(outcomes1),
             receipt_count=len(receipts1),
+            timestamp=live_ts,
         ))
 
         # Replay BEST_EFFORT.
@@ -852,9 +949,11 @@ async def _drill_replay_duplicate_risk(
         results = []
         async for result in replay_engine.replay(request):
             results.append(result)
+        replay_ts = datetime.now(timezone.utc).isoformat()
         steps.append(_step(
             "replay_best_effort", "ok",
             replay_results=len(results),
+            timestamp=replay_ts,
         ))
 
         # Collect receipts after replay.
@@ -866,13 +965,23 @@ async def _drill_replay_duplicate_risk(
                 pass
 
         new_receipts = len(receipts2) - len(receipts1)
+        timeline_verified = new_receipts > 0
         steps.append(_step(
             "verify_duplicate_receipts",
-            "ok" if new_receipts > 0 else "unexpected",
+            "ok" if timeline_verified else "unexpected",
             receipts_before=len(receipts1),
             receipts_after=len(receipts2),
             new_receipts=new_receipts,
+            timestamp=datetime.now(timezone.utc).isoformat(),
         ))
+
+        report["receipt_timeline"] = {
+            "live_receipt_count": len(receipts1),
+            "replay_receipt_count": new_receipts,
+            "total_receipt_count": len(receipts2),
+            "replay_run_id": request.run_id,
+            "timeline_verified": timeline_verified,
+        }
 
         if new_receipts <= 0:
             report["status"] = "FAIL"
@@ -907,7 +1016,10 @@ async def _drill_degraded_live_health(
 
     report["config_source"] = cs
     report["preflight"] = preflight
-    steps.append(_step("runtime_start", "ok"))
+    steps.append(_step(
+        "runtime_start", "ok",
+        timestamp=datetime.now(timezone.utc).isoformat(),
+    ))
 
     try:
         # Pick a target adapter and override health_check.
@@ -929,10 +1041,12 @@ async def _drill_degraded_live_health(
 
         # Preserve original capabilities if available.
         orig_caps = getattr(adapter, "_capabilities", None)
+        health_before = "unknown"
         if orig_caps is None:
             try:
                 info = await adapter.health_check()
                 orig_caps = info.capabilities
+                health_before = info.health
             except Exception:
                 orig_caps = AdapterCapabilities(text=True)
 
@@ -950,26 +1064,49 @@ async def _drill_degraded_live_health(
             )
 
         adapter.health_check = _degraded_health  # type: ignore[assignment]
-        steps.append(_step("patch_health", "ok", target_adapter=target_aid))
+        patch_ts = datetime.now(timezone.utc).isoformat()
+        steps.append(_step(
+            "patch_health", "ok",
+            target_adapter=target_aid,
+            health_before=health_before,
+            timestamp=patch_ts,
+        ))
 
         # Refresh live health.
         await app.refresh_live_health()
-        steps.append(_step("refresh_health", "ok"))
+        refresh_ts = datetime.now(timezone.utc).isoformat()
+        steps.append(_step(
+            "refresh_health", "ok",
+            timestamp=refresh_ts,
+        ))
 
         # Verify the snapshot sees degraded health.
         from medre.runtime.snapshot import build_runtime_snapshot
         snap = build_runtime_snapshot(app)
+        snapshot_ts = datetime.now(timezone.utc).isoformat()
         live_health = snap.get("health", {}).get("live_health", {})
         adapters_health = live_health.get("adapters", {})
         adapter_entry = adapters_health.get(target_aid, {})
         observed_health = adapter_entry.get("health", "unknown")
 
+        correlation_verified = observed_health == "degraded"
         steps.append(_step(
             "verify_degraded",
-            "ok" if observed_health == "degraded" else "unexpected",
+            "ok" if correlation_verified else "unexpected",
             target_adapter=target_aid,
             observed_health=observed_health,
+            timestamp=snapshot_ts,
         ))
+
+        report["health_timeline"] = {
+            "patched_at": patch_ts,
+            "refresh_at": refresh_ts,
+            "snapshot_at": snapshot_ts,
+            "health_before": health_before,
+            "health_after": observed_health,
+            "target_adapter": target_aid,
+            "correlation_verified": correlation_verified,
+        }
 
         if observed_health != "degraded":
             report["status"] = "FAIL"

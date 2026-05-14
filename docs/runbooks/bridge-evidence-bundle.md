@@ -613,3 +613,9 @@ PYTHONPATH=src medre smoke --drill <drill_name> --storage-path /tmp/medre-smoke.
   per-transport semantics, persistence of bridge state.
 - [Integration Testing](integration-testing.md) — Docker SDK-boundary tier
   documentation.
+- [Event Tracing](event-tracing.md) — operator guide for tracing events through
+  pipeline lifecycle, timeline reports, SQL queries.
+- [Replay Operation](replay-operation.md) — replay modes, command shape, receipt
+  interpretation, duplicate risk assessment.
+- [Bridge Recovery](bridge-recovery.md) — crash recovery procedures, orphan
+  detection, recovery decision tree.

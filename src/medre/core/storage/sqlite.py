@@ -284,6 +284,12 @@ WHERE event_id = ?
 ORDER BY sequence ASC
 """
 
+_SELECT_NREFS_FOR_EVENT = """
+SELECT * FROM native_message_refs
+WHERE event_id = ?
+ORDER BY created_at ASC
+"""
+
 
 # ---------------------------------------------------------------------------
 # Serialisation helpers
@@ -389,6 +395,22 @@ def _row_to_receipt(row: dict[str, Any]) -> DeliveryReceipt:
         parent_receipt_id=row.get("parent_receipt_id"),
         source=row.get("source", "live"),
         replay_run_id=row.get("replay_run_id"),
+        created_at=datetime.fromisoformat(row["created_at"]),
+    )
+
+
+def _row_to_native_ref(row: dict[str, Any]) -> NativeMessageRef:
+    """Map a ``native_message_refs`` row to a :class:`NativeMessageRef`."""
+    return NativeMessageRef(
+        id=row["id"],
+        event_id=row["event_id"],
+        adapter=row["adapter"],
+        native_channel_id=row["native_channel_id"],
+        native_message_id=row["native_message_id"],
+        native_thread_id=row.get("native_thread_id"),
+        native_relation_id=row.get("native_relation_id"),
+        direction=row["direction"],
+        metadata=_decode_json(row["metadata"]) if row.get("metadata") else {},
         created_at=datetime.fromisoformat(row["created_at"]),
     )
 
@@ -1082,3 +1104,19 @@ class SQLiteStorage:
             (event_id,),
         )
         return [_row_to_receipt(r) for r in rows]
+
+    async def list_native_refs_for_event(
+        self,
+        event_id: str,
+    ) -> list[NativeMessageRef]:
+        """Return all native message refs for a specific event.
+
+        Native refs are ordered by ``created_at`` ascending, which reflects
+        the chronological order in which adapters materialised the event
+        into their native namespaces.
+        """
+        rows = await self._read_all(
+            _SELECT_NREFS_FOR_EVENT,
+            (event_id,),
+        )
+        return [_row_to_native_ref(r) for r in rows]

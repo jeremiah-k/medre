@@ -466,11 +466,16 @@ assert stats["per_route"]["route-id"]["delivered"] >= 1
 | Live external Matrix (beyond Docker localhost) | Not proven | Docker tests use loopback Synapse only |
 | Real radio hardware (Meshtastic/MeshCore/LXMF) | Not proven | No live hardware smoke test recorded |
 | Final delivery ACK / remote receipt | Not proven | Radio is fire-and-forget; Matrix is server-level only |
-| Replay deduplication | Not proven | Replay produces duplicates by design |
-| Active restart / supervision | Not proven | No per-adapter restart, no auto-remediation |
+| Replay deduplication | Not proven | Replay produces duplicates by design. See [Replay Operation](replay-operation.md). |
+| Active restart / supervision | Not proven | No per-adapter restart, no auto-remediation. See [Bridge Recovery](bridge-recovery.md). |
 | Background health polling | Not proven | Manual `--refresh-health` only; no scheduler |
 | Sustained throughput | Not proven | All tests are smoke tests, not load tests |
 | Network resilience / reconnection | Not proven | No live failure/reconnect test |
 | Cross-instance loop prevention | Not proven | Loop prevention is local-process only |
 | Third-party Matrix inbound | Not proven | Bridge smoke uses HTTP API sender, not a second Matrix client |
 | Full cross-transport relay | Not proven | Bridge smoke routes real Matrix to fake outbound, not to a second real adapter |
+
+For event tracing after test runs, see
+[Event Tracing](event-tracing.md). For replay workflows, see
+[Replay Operation](replay-operation.md). For crash recovery procedures, see
+[Bridge Recovery](bridge-recovery.md).

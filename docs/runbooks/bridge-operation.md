@@ -361,6 +361,11 @@ After a hard crash during active Matrix-to-Meshtastic bridging:
 3. Decide whether to replay the orphaned events. Use `DRY_RUN` first to verify route matching, then `BEST_EFFORT` if re-delivery is warranted.
 4. Expect possible duplicate deliveries — replay does not deduplicate.
 
+For the full crash recovery workflow and decision tree, see
+[Bridge Recovery](bridge-recovery.md). For tracing events through the pipeline,
+see [Event Tracing](event-tracing.md). For the replay workflow, see
+[Replay Operation](replay-operation.md).
+
 ### Smoke Command Does Not Persist
 
 The ``medre smoke`` command uses in-memory storage by default. Receipts,

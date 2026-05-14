@@ -376,6 +376,10 @@ async def _collect_storage_section(
     """
     from medre.config.paths import MedrePathsError as _MPE
     from medre.core.storage.sqlite import SQLiteStorage
+    from medre.runtime.trace import (
+        assemble_event_timeline,
+        assemble_replay_timeline,
+    )
 
     storage_config = config.storage
 
@@ -403,6 +407,8 @@ async def _collect_storage_section(
         "native_refs_for_event": None,
         "receipt_count": None,
         "replay_run_receipts": None,
+        "timeline": None,
+        "replay_timeline": None,
     }
 
     if not db_exists:
@@ -423,23 +429,39 @@ async def _collect_storage_section(
         # Optional event lookup.
         if event_id is not None:
             import msgspec
+            import json as _json
 
             event = await storage.get(event_id)
             if event is not None:
-                raw = msgspec.json.encode(event)
-                import json
-                data["event"] = json.loads(raw)
+                data["event"] = _json.loads(msgspec.json.encode(event))
+
+                # Fetch native refs and relations for timeline assembly.
+                native_refs = await storage.list_native_refs_for_event(event_id)
+                relations = await storage.list_relations(event_id)
+                receipts = await storage.list_receipts_for_event(event_id)
+                data["native_refs_for_event"] = [
+                    _json.loads(msgspec.json.encode(r)) for r in native_refs
+                ]
+
+                data["timeline"] = assemble_event_timeline(
+                    event, receipts, native_refs, relations,
+                )
             # else: event not found — keep None, not an error for the section.
 
         # Optional replay-run receipts.
         if replay_run_id is not None:
             import msgspec
-            import json
+            import json as _json
 
             receipts = await storage.list_receipts_by_replay_run(replay_run_id)
             data["replay_run_receipts"] = [
-                json.loads(msgspec.json.encode(r)) for r in receipts
+                _json.loads(msgspec.json.encode(r)) for r in receipts
             ]
+
+            if receipts:
+                data["replay_timeline"] = assemble_replay_timeline(
+                    replay_run_id, receipts, {},
+                )
 
         # If event was requested but not found, report partial.
         if event_id is not None and data["event"] is None:

@@ -610,9 +610,10 @@ In-flight deliveries when shutdown begins are rejected, not drained.
 3. If these deliveries are important, replay the corresponding events after
    restart.
 
-**Caveat:** In-flight deliveries cancelled on shutdown are lost. There is no
+    **Caveat:** In-flight deliveries cancelled on shutdown are lost. There is no
 persistent in-flight recovery. See
-[Runtime Operation > Shutdown](runtime-operation.md#shutdown-behavior).
+[Runtime Operation > Shutdown](runtime-operation.md#shutdown-behavior)
+and [Bridge Recovery](bridge-recovery.md) for crash recovery procedures.
 
 ### 7.2 Replay Rejected During Shutdown
 
@@ -659,7 +660,9 @@ outbound messages to understand the duplication scope.
 **Caveat:** Replay deduplication is explicitly not provided. Each BEST_EFFORT
 replay produces new outbound messages on all matched targets — including radio
 transports where duplicates are normal. Use `DRY_RUN` first to preview route
-matching without side effects.
+matching without side effects. See [Replay Operation](replay-operation.md) for
+the full replay workflow and [Event Tracing](event-tracing.md) for tracing
+replay runs.
 
 ### 8.2 Replay Capacity Exceeded
 
@@ -894,9 +897,14 @@ medre inspect receipts --event <event_id> --config my-bridge.toml
     ``medre diagnostics --refresh-health`` start and stop the runtime. They do
     not provide ongoing monitoring.
 
-    11. **Pre-beta.** Exit codes, receipt schemas, and diagnostic shapes may change
-     before beta. Always verify against the current code.
+     11. **Pre-beta.** Exit codes, receipt schemas, and diagnostic shapes may change
+      before beta. Always verify against the current code.
 
-12. **Evidence bundle workflow.** For a structured approach to collecting
-    smoke output, drill reports, and inspect results as a pre-runtime
-    evidence package, see [Bridge Evidence Bundle](bridge-evidence-bundle.md).
+    12. **Evidence bundle workflow.** For a structured approach to collecting
+     smoke output, drill reports, and inspect results as a pre-runtime
+     evidence package, see [Bridge Evidence Bundle](bridge-evidence-bundle.md).
+
+    13. **Recovery and tracing.** For crash recovery procedures and orphan
+    detection, see [Bridge Recovery](bridge-recovery.md). For event tracing
+    through the pipeline lifecycle, see [Event Tracing](event-tracing.md).
+    For the full replay workflow, see [Replay Operation](replay-operation.md).

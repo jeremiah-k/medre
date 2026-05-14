@@ -361,6 +361,33 @@ class TestAdapterTransientFailureDrill:
         assert retry_step["is_retryable"] is True
 
     @pytest.mark.asyncio
+    async def test_recovery_path_in_report(self) -> None:
+        """Recovery simulation produces recovery_path evidence."""
+        report = await run_drill(
+            "adapter_transient_failure", config_path=_smoke_config_path(),
+        )
+        assert "recovery_path" in report
+        rp = report["recovery_path"]
+        assert rp["failure_kind"] == "ADAPTER_TRANSIENT"
+        assert rp["is_retryable"] is True
+        assert rp["recovery_simulated"] is True
+        assert rp["receipt_before_recovery"]["status"] == "transient_failure"
+        assert rp["receipt_after_recovery"]["status"] == "success"
+
+    @pytest.mark.asyncio
+    async def test_recovery_step_in_drill_steps(self) -> None:
+        """Recovery step appears in drill_steps."""
+        report = await run_drill(
+            "adapter_transient_failure", config_path=_smoke_config_path(),
+        )
+        steps = report["drill_steps"]
+        recovery_step = next(
+            (s for s in steps if s["step"] == "simulate_manual_recovery"), None,
+        )
+        assert recovery_step is not None
+        assert recovery_step["result"] == "ok"
+
+    @pytest.mark.asyncio
     async def test_json_safe(self) -> None:
         report = await run_drill(
             "adapter_transient_failure", config_path=_smoke_config_path(),
@@ -423,6 +450,20 @@ class TestShutdownRejectionDrill:
         assert no_rcpt["result"] == "ok"
 
     @pytest.mark.asyncio
+    async def test_rejection_timeline_in_report(self) -> None:
+        """Rejection timeline shows stop/inject timestamps."""
+        report = await run_drill(
+            "shutdown_rejection", config_path=_smoke_config_path(),
+        )
+        assert "rejection_timeline" in report
+        tl = report["rejection_timeline"]
+        assert tl["accepting_work_at_rejection"] is False
+        assert tl["receipts_created_for_rejected"] == 0
+        assert tl["shutdown_rejections"] >= 1
+        assert "stop_accepting_at" in tl
+        assert "inject_at" in tl
+
+    @pytest.mark.asyncio
     async def test_json_safe(self) -> None:
         report = await run_drill(
             "shutdown_rejection", config_path=_smoke_config_path(),
@@ -454,6 +495,20 @@ class TestReplayDuplicateRiskDrill:
         assert dup_step["new_receipts"] > 0
 
     @pytest.mark.asyncio
+    async def test_receipt_timeline_in_report(self) -> None:
+        """Receipt timeline shows live vs replay counts."""
+        report = await run_drill(
+            "replay_duplicate_risk", config_path=_smoke_config_path(),
+        )
+        assert "receipt_timeline" in report
+        tl = report["receipt_timeline"]
+        assert tl["live_receipt_count"] > 0
+        assert tl["replay_receipt_count"] > 0
+        assert tl["total_receipt_count"] > tl["live_receipt_count"]
+        assert tl["replay_run_id"] is not None
+        assert tl["timeline_verified"] is True
+
+    @pytest.mark.asyncio
     async def test_json_safe(self) -> None:
         report = await run_drill(
             "replay_duplicate_risk", config_path=_smoke_config_path(),
@@ -483,6 +538,22 @@ class TestDegradedLiveHealthDrill:
         )
         assert verify_step is not None
         assert verify_step["observed_health"] == "degraded"
+
+    @pytest.mark.asyncio
+    async def test_health_timeline_in_report(self) -> None:
+        """Health timeline shows before/after and correlation."""
+        report = await run_drill(
+            "degraded_live_health", config_path=_smoke_config_path(),
+        )
+        assert "health_timeline" in report
+        tl = report["health_timeline"]
+        assert tl["health_after"] == "degraded"
+        assert tl["health_before"] in ("healthy", "unknown")
+        assert tl["correlation_verified"] is True
+        assert "patched_at" in tl
+        assert "refresh_at" in tl
+        assert "snapshot_at" in tl
+        assert tl["target_adapter"] is not None
 
     @pytest.mark.asyncio
     async def test_json_safe(self) -> None:
@@ -817,3 +888,20 @@ class TestDrillCrossCutting:
         )
         assert report["storage_backend"] == "sqlite"
         assert report.get("storage_path") == db_path
+
+    _TIMELINE_DRILLS = (
+        "replay_duplicate_risk",
+        "adapter_transient_failure",
+        "shutdown_rejection",
+        "degraded_live_health",
+    )
+
+    @pytest.mark.parametrize("drill_name", _TIMELINE_DRILLS)
+    @pytest.mark.asyncio
+    async def test_timeline_drills_have_timestamps(self, drill_name: str) -> None:
+        """Timeline-expanded drills have timestamps on every step."""
+        report = await run_drill(drill_name, config_path=_smoke_config_path())
+        for step in report["drill_steps"]:
+            assert "timestamp" in step, (
+                f"Step {step['step']} in {drill_name} missing timestamp"
+            )
