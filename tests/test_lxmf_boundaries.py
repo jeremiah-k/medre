@@ -772,3 +772,128 @@ class TestFakeLxmfStillWorks:
         delivery = await adapter.deliver(result)
         assert delivery is not None
         assert len(adapter.delivered_payloads) == 1
+
+
+# ===================================================================
+# Error classification at adapter boundary
+# ===================================================================
+
+
+class TestLxmfErrorClassification:
+    """LXMF adapter maps session errors to AdapterSendError/AdapterPermanentError."""
+
+    @pytest.mark.asyncio
+    async def test_not_connected_maps_to_permanent(self) -> None:
+        """LxmfSendError(transient=False) maps to AdapterPermanentError."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        config = LxmfConfig(adapter_id="lxmf-ec")
+        adapter = LxmfAdapter(config)
+        adapter._started = True
+
+        session = MagicMock()
+        session.send_text = AsyncMock(
+            side_effect=LxmfSendError("Session is not connected", transient=False)
+        )
+        adapter._session = session
+
+        result = RenderingResult(
+            event_id="evt-1",
+            target_adapter="lxmf-ec",
+            target_channel="abc123",
+            payload={"content": "hello", "title": "", "destination_hash": "abc123"},
+        )
+        with pytest.raises(AdapterPermanentError, match="not connected"):
+            await adapter.deliver(result)
+
+    @pytest.mark.asyncio
+    async def test_invalid_destination_maps_to_permanent(self) -> None:
+        """LxmfSendError for invalid destination maps to AdapterPermanentError."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        config = LxmfConfig(adapter_id="lxmf-ec")
+        adapter = LxmfAdapter(config)
+        adapter._started = True
+
+        session = MagicMock()
+        session.send_text = AsyncMock(
+            side_effect=LxmfSendError(
+                "Invalid destination hash: 'bad'", transient=False
+            )
+        )
+        adapter._session = session
+
+        result = RenderingResult(
+            event_id="evt-2",
+            target_adapter="lxmf-ec",
+            target_channel="bad",
+            payload={"content": "hello", "title": "", "destination_hash": "bad"},
+        )
+        with pytest.raises(AdapterPermanentError, match="Invalid destination"):
+            await adapter.deliver(result)
+
+    @pytest.mark.asyncio
+    async def test_transient_session_error_maps_to_send_error(self) -> None:
+        """LxmfSendError(transient=True) maps to AdapterSendError."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        config = LxmfConfig(adapter_id="lxmf-ec")
+        adapter = LxmfAdapter(config)
+        adapter._started = True
+
+        session = MagicMock()
+        session.send_text = AsyncMock(
+            side_effect=LxmfSendError(
+                "Send failed after 3 attempts", transient=True
+            )
+        )
+        adapter._session = session
+
+        result = RenderingResult(
+            event_id="evt-3",
+            target_adapter="lxmf-ec",
+            target_channel="abc123",
+            payload={"content": "hello", "title": "", "destination_hash": "abc123"},
+        )
+        with pytest.raises(AdapterSendError) as exc_info:
+            await adapter.deliver(result)
+        assert exc_info.value.transient is True
+
+    @pytest.mark.asyncio
+    async def test_oserror_maps_to_transient(self) -> None:
+        """OSError from session maps to AdapterSendError(transient=True)."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        config = LxmfConfig(adapter_id="lxmf-ec")
+        adapter = LxmfAdapter(config)
+        adapter._started = True
+
+        session = MagicMock()
+        session.send_text = AsyncMock(side_effect=OSError("transport error"))
+        adapter._session = session
+
+        result = RenderingResult(
+            event_id="evt-4",
+            target_adapter="lxmf-ec",
+            target_channel="abc123",
+            payload={"content": "hello", "title": "", "destination_hash": "abc123"},
+        )
+        with pytest.raises(AdapterSendError) as exc_info:
+            await adapter.deliver(result)
+        assert exc_info.value.transient is True
+
+    @pytest.mark.asyncio
+    async def test_adapter_not_started_is_permanent(self) -> None:
+        """Adapter not started raises AdapterPermanentError."""
+        config = LxmfConfig(adapter_id="lxmf-ec")
+        adapter = LxmfAdapter(config)
+        # NOT started
+
+        result = RenderingResult(
+            event_id="evt-5",
+            target_adapter="lxmf-ec",
+            target_channel="abc123",
+            payload={"content": "hello", "title": "", "destination_hash": "abc123"},
+        )
+        with pytest.raises(AdapterPermanentError, match="not started"):
+            await adapter.deliver(result)

@@ -259,10 +259,14 @@ class MeshCoreAdapter(BaseAdapter):
 
         Raises
         ------
-        TypeError
-            If *result* is not a :class:`RenderingResult`.
-        MeshCoreSendError
-            If the session send fails after retries.
+        AdapterPermanentError
+            If the session raises a non-transient error (not initialised,
+            SDK rejection, invalid input type).
+        AdapterSendError
+            If a transient error occurs (timeout, connection, transport).
+            ``transient`` is ``True``.
+        asyncio.CancelledError
+            Propagates without swallowing task cancellation.
         """
         if not isinstance(result, RenderingResult):
             raise AdapterPermanentError(
@@ -293,8 +297,13 @@ class MeshCoreAdapter(BaseAdapter):
                 text=str(text),
                 channel_index=channel_index if isinstance(channel_index, int) else None,
             )
+        except asyncio.CancelledError:
+            raise
         except MeshCoreSendError as exc:
-            raise AdapterSendError(str(exc), transient=True) from exc
+            if exc.transient:
+                raise AdapterSendError(str(exc), transient=True) from exc
+            else:
+                raise AdapterPermanentError(str(exc)) from exc
         except (TimeoutError, ConnectionError, OSError) as exc:
             raise AdapterSendError(str(exc), transient=True) from exc
 

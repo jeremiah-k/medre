@@ -24,13 +24,14 @@ from datetime import datetime, timezone
 
 import pytest
 
-from medre.adapters.base import AdapterPermanentError
+from medre.adapters.base import AdapterPermanentError, AdapterSendError
 from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
 from medre.adapters.meshcore.config import MeshCoreConfig
 from medre.adapters.meshcore.codec import MeshCoreCodec
 from medre.adapters.meshcore.compat import HAS_MESHCORE
 from medre.adapters.meshcore.renderer import MeshCoreRenderer
 from medre.adapters.meshcore.adapter import MeshCoreAdapter
+from medre.adapters.meshcore.errors import MeshCoreSendError
 from medre.adapters.meshcore.packet_classifier import MeshCorePacketClassifier
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.rendering.renderer import RenderingResult
@@ -650,3 +651,116 @@ class TestMeshCoreCompatIsolation:
             assert "compat" not in line, (
                 f"classifier must not import compat; found: {line!r}"
             )
+
+
+# ===================================================================
+# Error classification at adapter boundary
+# ===================================================================
+
+
+class TestMeshCoreErrorClassification:
+    """MeshCore adapter maps session errors to AdapterSendError/AdapterPermanentError."""
+
+    @pytest.mark.asyncio
+    async def test_not_connected_maps_to_permanent(self) -> None:
+        """MeshCoreSendError(transient=False) maps to AdapterPermanentError."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        config = MeshCoreConfig(
+            adapter_id="mesh-ec", connection_type="tcp", host="localhost", port=5000
+        )
+        adapter = MeshCoreAdapter(config)
+        adapter._started = True
+
+        session = MagicMock()
+        session.send_text = AsyncMock(
+            side_effect=MeshCoreSendError("Session is not connected", transient=False)
+        )
+        adapter._session = session
+
+        result = RenderingResult(
+            event_id="evt-1",
+            target_adapter="mesh-ec",
+            target_channel="0",
+            payload={"text": "hello", "contact_id": "abc123", "channel_index": 0},
+        )
+        with pytest.raises(AdapterPermanentError, match="not connected"):
+            await adapter.deliver(result)
+
+    @pytest.mark.asyncio
+    async def test_transient_session_error_maps_to_send_error(self) -> None:
+        """MeshCoreSendError(transient=True) maps to AdapterSendError."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        config = MeshCoreConfig(
+            adapter_id="mesh-ec", connection_type="tcp", host="localhost", port=5000
+        )
+        adapter = MeshCoreAdapter(config)
+        adapter._started = True
+
+        session = MagicMock()
+        session.send_text = AsyncMock(
+            side_effect=MeshCoreSendError("timeout", transient=True)
+        )
+        adapter._session = session
+
+        result = RenderingResult(
+            event_id="evt-2",
+            target_adapter="mesh-ec",
+            target_channel="0",
+            payload={"text": "hello", "contact_id": "abc123", "channel_index": 0},
+        )
+        with pytest.raises(AdapterSendError) as exc_info:
+            await adapter.deliver(result)
+        assert exc_info.value.transient is True
+
+    @pytest.mark.asyncio
+    async def test_oserror_maps_to_transient(self) -> None:
+        """OSError from session maps to AdapterSendError(transient=True)."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        config = MeshCoreConfig(
+            adapter_id="mesh-ec", connection_type="tcp", host="localhost", port=5000
+        )
+        adapter = MeshCoreAdapter(config)
+        adapter._started = True
+
+        session = MagicMock()
+        session.send_text = AsyncMock(side_effect=OSError("serial error"))
+        adapter._session = session
+
+        result = RenderingResult(
+            event_id="evt-3",
+            target_adapter="mesh-ec",
+            target_channel="0",
+            payload={"text": "hello", "contact_id": "abc123", "channel_index": 0},
+        )
+        with pytest.raises(AdapterSendError) as exc_info:
+            await adapter.deliver(result)
+        assert exc_info.value.transient is True
+
+    @pytest.mark.asyncio
+    async def test_sdk_error_maps_to_permanent(self) -> None:
+        """SDK-level rejection maps to AdapterPermanentError."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        config = MeshCoreConfig(
+            adapter_id="mesh-ec", connection_type="tcp", host="localhost", port=5000
+        )
+        adapter = MeshCoreAdapter(config)
+        adapter._started = True
+
+        session = MagicMock()
+        session.send_text = AsyncMock(
+            side_effect=MeshCoreSendError("SDK send error: invalid", transient=False)
+        )
+        adapter._session = session
+
+        result = RenderingResult(
+            event_id="evt-4",
+            target_adapter="mesh-ec",
+            target_channel="0",
+            payload={"text": "hello", "contact_id": "abc123", "channel_index": 0},
+        )
+        with pytest.raises(AdapterPermanentError, match="SDK send error"):
+            await adapter.deliver(result)

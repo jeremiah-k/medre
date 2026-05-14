@@ -655,7 +655,7 @@ class LxmfSession:
             On permanent failure or after exhausting retries.
         """
         if not self._diag.connected:
-            raise LxmfSendError("Session is not connected")
+            raise LxmfSendError("Session is not connected", transient=False)
 
         if self._config.connection_type == "fake":
             # Fake mode — no real send.  Return honest pending semantics.
@@ -1076,7 +1076,7 @@ class LxmfSession:
         RNS, lxmf = _require_lxmf()
 
         if self._router is None:
-            raise LxmfSendError("LXMRouter is not initialised")
+            raise LxmfSendError("LXMRouter is not initialised", transient=False)
 
         # Determine delivery method.
         method_str = delivery_method or self._config.default_delivery_method
@@ -1087,7 +1087,8 @@ class LxmfSession:
             dest_bytes = bytes.fromhex(destination_hash)
         except (ValueError, TypeError) as exc:
             raise LxmfSendError(
-                f"Invalid destination hash: {destination_hash!r}"
+                f"Invalid destination hash: {destination_hash!r}",
+                transient=False,
             ) from exc
 
         last_exc: Exception | None = None
@@ -1156,7 +1157,8 @@ class LxmfSession:
                 self._diag.permanent_delivery_failures += 1
                 self._diag.last_error = f"Permanent send failure: {exc}"
                 raise LxmfSendError(
-                    f"Permanent send failure: {exc}"
+                    f"Permanent send failure: {exc}",
+                    transient=False,
                 ) from exc
             except Exception as exc:
                 last_exc = exc

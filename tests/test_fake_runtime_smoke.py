@@ -1234,28 +1234,26 @@ class TestFailureKindIntegration:
             await _clean_stop(app)
 
     @pytest.mark.asyncio
-    async def test_target_not_found_classification(self) -> None:
-        """TARGET_NOT_FOUND: classify_failure when adapter_registered=True but channel missing.
+    async def test_target_not_found_reserved(self) -> None:
+        """TARGET_NOT_FOUND: reserved enum member (not emitted by any adapter).
 
-        In the live pipeline TARGET_NOT_FOUND is not currently emitted as a
-        distinct code path (ADAPTER_MISSING fires first).  Verify the
-        classification logic is reachable via RetryExecutor.classify_failure
-        with an explicit target-not-found scenario.
+        No adapter currently emits TARGET_NOT_FOUND at runtime.  All permanent
+        adapter errors — including channel-not-found conditions — are classified
+        as ADAPTER_PERMANENT.  This test verifies:
+          1. The enum member exists and is non-retryable (taxonomy integrity).
+          2. A permanent AdapterSendError is classified as ADAPTER_PERMANENT,
+             confirming TARGET_NOT_FOUND remains unused in the live pipeline.
         """
         from medre.adapters.base import AdapterSendError
         from medre.core.planning.delivery_plan import RetryExecutor
 
-        # Simulate: adapter is registered, but the error is a permanent
-        # AdapterSendError — the classify_failure logic maps permanent
-        # AdapterSendError to ADAPTER_PERMANENT, not TARGET_NOT_FOUND.
-        # TARGET_NOT_FOUND is reserved for a future channel-not-found path.
-        # For now, verify the enum taxonomy and that classify_failure
-        # produces the expected result for a permanent send error.
+        # A permanent adapter error (even one mentioning "channel not found")
+        # is classified as ADAPTER_PERMANENT, not TARGET_NOT_FOUND.
         err = AdapterSendError("target channel not found", transient=False)
         kind = RetryExecutor.classify_failure(err, adapter_registered=True)
         assert kind == DeliveryFailureKind.ADAPTER_PERMANENT
 
-        # Verify the TARGET_NOT_FOUND enum member exists and is not retryable.
+        # Verify the TARGET_NOT_FOUND enum member exists and is non-retryable.
         assert DeliveryFailureKind.TARGET_NOT_FOUND.value == "target_not_found"
         assert not DeliveryFailureKind.TARGET_NOT_FOUND.is_retryable
 

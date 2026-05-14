@@ -319,7 +319,8 @@ class MatrixAdapter(BaseAdapter):
         if room_state == "encrypted":
             raise MatrixSendError(
                 f"Room {room_id} is encrypted but E2EE crypto is not active; "
-                f"cannot send encrypted message"
+                f"cannot send encrypted message",
+                transient=False,
             )
         if room_state == "plaintext":
             # Room is known plaintext — allow send
@@ -332,7 +333,8 @@ class MatrixAdapter(BaseAdapter):
             if room_obj is not None and getattr(room_obj, "encrypted", False):
                 raise MatrixSendError(
                     f"Room {room_id} is encrypted but E2EE crypto is not active; "
-                    f"cannot send encrypted message"
+                    f"cannot send encrypted message",
+                    transient=False,
                 )
 
     async def deliver(self, result: RenderingResult) -> AdapterDeliveryResult | None:
@@ -366,9 +368,15 @@ class MatrixAdapter(BaseAdapter):
 
         Raises
         ------
-        MatrixSendError
-            If the homeserver rejects the message, the client is not
-            connected, or all retries are exhausted.
+        AdapterSendError
+            If a transient error occurs (network, timeout) after
+            exhausting retries.  ``transient`` is ``True``.
+        AdapterPermanentError
+            If a permanent error occurs (encrypted-room rejection,
+            missing client, invalid room, non-transient session error).
+            ``transient`` is ``False``.
+        asyncio.CancelledError
+            Propagates without swallowing task cancellation.
         """
         client = self._client
         if client is None:
@@ -382,7 +390,13 @@ class MatrixAdapter(BaseAdapter):
         if not room_id:
             raise AdapterPermanentError("no room_id in result")
 
-        self._check_encrypted_room_safety(room_id, client)
+        try:
+            self._check_encrypted_room_safety(room_id, client)
+        except MatrixSendError as exc:
+            if exc.transient:
+                raise AdapterSendError(str(exc), transient=True) from exc
+            else:
+                raise AdapterPermanentError(str(exc)) from exc
 
         # Create a clean copy and strip routing metadata so room_id
         # does not leak into the Matrix event content.
@@ -419,7 +433,11 @@ class MatrixAdapter(BaseAdapter):
             except MatrixSendError as exc:
                 # Session-layer error → convert to runtime boundary error.
                 self._transient_delivery_failures += 1
-                raise AdapterSendError(str(exc), transient=True) from exc
+                if exc.transient:
+                    raise AdapterSendError(str(exc), transient=True) from exc
+                else:
+                    self._permanent_delivery_failures += 1
+                    raise AdapterPermanentError(str(exc)) from exc
             except AdapterPermanentError:
                 # Non-transient — raise immediately
                 self._permanent_delivery_failures += 1

@@ -307,10 +307,14 @@ class LxmfAdapter(BaseAdapter):
 
         Raises
         ------
-        TypeError
-            If *result* is not a :class:`RenderingResult`.
-        LxmfSendError
-            If the send fails permanently.
+        AdapterPermanentError
+            If a permanent error occurs (invalid input type, adapter not
+            started, invalid destination, not initialised).
+        AdapterSendError
+            If a transient error occurs (timeout, connection, transport).
+            ``transient`` is ``True``.
+        asyncio.CancelledError
+            Propagates without swallowing task cancellation.
         """
         if not isinstance(result, RenderingResult):
             raise AdapterPermanentError(
@@ -346,8 +350,13 @@ class LxmfAdapter(BaseAdapter):
                 ),
                 fields=fields if isinstance(fields, dict) else None,
             )
+        except asyncio.CancelledError:
+            raise
         except LxmfSendError as exc:
-            raise AdapterSendError(str(exc), transient=True) from exc
+            if exc.transient:
+                raise AdapterSendError(str(exc), transient=True) from exc
+            else:
+                raise AdapterPermanentError(str(exc)) from exc
         except (TimeoutError, ConnectionError, OSError) as exc:
             raise AdapterSendError(str(exc), transient=True) from exc
 

@@ -626,7 +626,7 @@ class DeliveryFailureKind(Enum):
     ADAPTER_TRANSIENT = "adapter_transient"   # Timeout, connection error (retryable)
     ADAPTER_PERMANENT = "adapter_permanent"   # Business logic rejection (permanent)
     ADAPTER_MISSING = "adapter_missing"       # No runtime adapter instance for target ID (permanent)
-    TARGET_NOT_FOUND = "target_not_found"     # Adapter exists but transport destination unavailable (permanent)
+    TARGET_NOT_FOUND = "target_not_found"     # Reserved. Not currently emitted by any adapter. ADAPTER_PERMANENT covers all permanent adapter errors including channel-not-found conditions.
     DEADLINE_EXCEEDED = "deadline_exceeded"   # Delivery plan deadline passed (permanent)
     CAPACITY_REJECTION = "capacity_rejection" # Capacity controller exhausted or timed out (permanent)
     SHUTDOWN_REJECTION = "shutdown_rejection" # Runtime shutdown cancelled delivery (permanent)
@@ -641,7 +641,7 @@ Classification rules:
 | `ADAPTER_TRANSIENT` | Adapter delivery | **Yes** | `TimeoutError`, `ConnectionError`, `OSError` hierarchy |
 | `ADAPTER_PERMANENT` | Adapter delivery | No | All other adapter exceptions |
 | `ADAPTER_MISSING` | Adapter lookup | No | Target adapter ID has no runtime adapter instance |
-| `TARGET_NOT_FOUND` | Adapter delivery | No | Adapter exists but transport/native destination unavailable, rejected, or not found |
+| `TARGET_NOT_FOUND` | Adapter delivery | No | **Reserved — not currently emitted.** No adapter produces this at runtime. `ADAPTER_PERMANENT` is used for all permanent adapter errors including channel-not-found conditions. |
 | `DEADLINE_EXCEEDED` | Deadline check | No | `plan.deadline < now` |
 | `CAPACITY_REJECTION` | Capacity gate | No | Capacity controller semaphore exhausted or timed out |
 | `SHUTDOWN_REJECTION` | Capacity gate | No | Runtime shutdown cancelled delivery before capacity acquire |

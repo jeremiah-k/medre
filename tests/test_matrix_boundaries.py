@@ -449,8 +449,8 @@ class TestMatrixDeliveryNioResponseHardening:
         assert delivery.native_message_id == "$good-evt-001"
         assert delivery.native_channel_id == "!room:server"
 
-    async def test_error_response_raises_matrix_send_error(self) -> None:
-        """nio error response raises MatrixSendError."""
+    async def test_error_response_raises_permanent(self) -> None:
+        """nio error response raises AdapterPermanentError."""
         config = _make_matrix_config()
         adapter = MatrixAdapter(config)
 
@@ -466,11 +466,11 @@ class TestMatrixDeliveryNioResponseHardening:
             target_channel="!room:server",
             payload={"msgtype": "m.text", "body": "hello"},
         )
-        with pytest.raises((MatrixSendError, AdapterPermanentError), match="M_FORBIDDEN"):
+        with pytest.raises(AdapterPermanentError, match="M_FORBIDDEN"):
             await adapter.deliver(result)
 
-    async def test_none_event_id_raises_matrix_send_error(self) -> None:
-        """event_id=None is treated as a failed delivery."""
+    async def test_none_event_id_raises_permanent(self) -> None:
+        """event_id=None is treated as a permanent delivery failure."""
         config = _make_matrix_config()
         adapter = MatrixAdapter(config)
 
@@ -486,11 +486,11 @@ class TestMatrixDeliveryNioResponseHardening:
             target_channel="!room:server",
             payload={"msgtype": "m.text", "body": "hello"},
         )
-        with pytest.raises((MatrixSendError, AdapterPermanentError), match="empty/missing event_id"):
+        with pytest.raises(AdapterPermanentError, match="empty/missing event_id"):
             await adapter.deliver(result)
 
-    async def test_empty_event_id_raises_matrix_send_error(self) -> None:
-        """event_id='' is treated as a failed delivery."""
+    async def test_empty_event_id_raises_permanent(self) -> None:
+        """event_id='' is treated as a permanent delivery failure."""
         config = _make_matrix_config()
         adapter = MatrixAdapter(config)
 
@@ -506,7 +506,7 @@ class TestMatrixDeliveryNioResponseHardening:
             target_channel="!room:server",
             payload={"msgtype": "m.text", "body": "hello"},
         )
-        with pytest.raises((MatrixSendError, AdapterPermanentError), match="empty/missing event_id"):
+        with pytest.raises(AdapterPermanentError, match="empty/missing event_id"):
             await adapter.deliver(result)
 
     async def test_client_not_connected_raises(self) -> None:
@@ -526,7 +526,7 @@ class TestMatrixDeliveryNioResponseHardening:
             await adapter.deliver(result)
 
     async def test_delivery_without_target_room_fails(self) -> None:
-        """Missing target room raises MatrixSendError."""
+        """Missing target room raises AdapterPermanentError."""
         config = _make_matrix_config()
         adapter = MatrixAdapter(config)
 
@@ -539,11 +539,11 @@ class TestMatrixDeliveryNioResponseHardening:
             target_channel=None,
             payload={"msgtype": "m.text", "body": "hello"},
         )
-        with pytest.raises((MatrixSendError, AdapterPermanentError), match="no room_id"):
+        with pytest.raises(AdapterPermanentError, match="no room_id"):
             await adapter.deliver(result)
 
     async def test_failed_delivery_does_not_persist_native_ref(self) -> None:
-        """When deliver() raises MatrixSendError, no native ref is returned."""
+        """When deliver() raises AdapterPermanentError, no native ref is returned."""
         config = _make_matrix_config()
         adapter = MatrixAdapter(config)
 
@@ -560,7 +560,7 @@ class TestMatrixDeliveryNioResponseHardening:
             payload={"msgtype": "m.text", "body": "hello"},
         )
         # Must raise, not silently return a bad native ref
-        with pytest.raises((MatrixSendError, AdapterPermanentError)):
+        with pytest.raises(AdapterPermanentError):
             await adapter.deliver(result)
 
 
@@ -674,19 +674,19 @@ class TestMatrixCancelledErrorPropagation:
         with pytest.raises(AdapterPermanentError, match="not connected"):
             await adapter.deliver(result)
 
-    async def test_matrix_send_error_converted_to_transient(self) -> None:
-        """MatrixSendError is converted to AdapterSendError(transient=True) at boundary."""
+    async def test_matrix_send_error_transient_converted_to_adapter_send_error(self) -> None:
+        """MatrixSendError(transient=True) is converted to AdapterSendError at boundary."""
         config = _make_matrix_config()
         adapter = MatrixAdapter(config)
 
         mock_client = MagicMock()
         mock_client.room_send = AsyncMock(
-            side_effect=MatrixSendError("forbidden: rejected")
+            side_effect=MatrixSendError("timeout: network", transient=True)
         )
         adapter._client = mock_client
 
         result = RenderingResult(
-            event_id="evt-send-err",
+            event_id="evt-send-transient",
             target_adapter="matrix-1",
             target_channel="!room:server",
             payload={"msgtype": "m.text", "body": "hello"},
@@ -694,3 +694,23 @@ class TestMatrixCancelledErrorPropagation:
         with pytest.raises(AdapterSendError) as exc_info:
             await adapter.deliver(result)
         assert exc_info.value.transient is True
+
+    async def test_matrix_send_error_permanent_converted_to_adapter_permanent(self) -> None:
+        """MatrixSendError(transient=False) is converted to AdapterPermanentError at boundary."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+
+        mock_client = MagicMock()
+        mock_client.room_send = AsyncMock(
+            side_effect=MatrixSendError("forbidden: rejected", transient=False)
+        )
+        adapter._client = mock_client
+
+        result = RenderingResult(
+            event_id="evt-send-permanent",
+            target_adapter="matrix-1",
+            target_channel="!room:server",
+            payload={"msgtype": "m.text", "body": "hello"},
+        )
+        with pytest.raises(AdapterPermanentError):
+            await adapter.deliver(result)

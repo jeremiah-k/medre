@@ -354,7 +354,8 @@ class MeshtasticSession:
                 self._permanent_delivery_failures += 1
                 self._last_error = f"Permanent send failure: {exc}"
                 raise MeshtasticSendError(
-                    f"Permanent send failure: {exc}"
+                    f"Permanent send failure: {exc}",
+                    transient=False,
                 ) from exc
             except Exception as exc:
                 last_exc = exc

@@ -25,7 +25,21 @@ class MeshCoreConnectionError(MeshCoreError):
 
 
 class MeshCoreSendError(MeshCoreError):
-    """Raised when a message send operation fails."""
+    """Raised when a message send operation fails.
+
+    Parameters
+    ----------
+    transient:
+        ``True`` (default) if the error may succeed on retry;
+        ``False`` for permanent failures (e.g. not initialised,
+        invalid address, SDK-level rejection).
+    """
+
+    transient: bool
+
+    def __init__(self, *args: object, transient: bool = True) -> None:
+        self.transient = transient
+        super().__init__(*args)
 
 
 class MeshCoreConfigError(MeshCoreError, ValueError):

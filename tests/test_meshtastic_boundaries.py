@@ -23,12 +23,13 @@ from datetime import datetime, timezone
 
 import pytest
 
-from medre.adapters.base import AdapterPermanentError
+from medre.adapters.base import AdapterPermanentError, AdapterSendError
 from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
 from medre.adapters.meshtastic.config import MeshtasticConfig
 from medre.adapters.meshtastic.codec import MeshtasticCodec
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+from medre.adapters.meshtastic.errors import MeshtasticSendError
 from medre.adapters.meshtastic.packet_classifier import MeshtasticPacketClassifier
 from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
 from medre.core.events import CanonicalEvent, EventMetadata
@@ -616,3 +617,104 @@ class TestMeshtasticCallbackBoundary:
         # All tasks should have completed and been discarded
         await adapter.stop()
         assert len(adapter._background_tasks) == 0
+
+
+# ===================================================================
+# Error classification at adapter boundary
+# ===================================================================
+
+
+class TestMeshtasticErrorClassification:
+    """Meshtastic adapter maps session/queue errors to
+    AdapterSendError/AdapterPermanentError."""
+
+    @pytest.mark.asyncio
+    async def test_permanent_session_error_maps_to_permanent(self) -> None:
+        """MeshtasticSendError(transient=False) maps to AdapterPermanentError."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        config = MeshtasticConfig(adapter_id="mesh-ec")
+        adapter = MeshtasticAdapter(config)
+
+        queue = MagicMock()
+        queue.enqueue = AsyncMock(
+            side_effect=MeshtasticSendError(
+                "Permanent send failure: encoding", transient=False
+            )
+        )
+        adapter._queue = queue
+
+        result = RenderingResult(
+            event_id="evt-1",
+            target_adapter="mesh-ec",
+            target_channel="0",
+            payload={"text": "hello", "channel_index": 0},
+        )
+        with pytest.raises(AdapterPermanentError, match="Permanent send failure"):
+            await adapter.deliver(result)
+
+    @pytest.mark.asyncio
+    async def test_transient_session_error_maps_to_send_error(self) -> None:
+        """MeshtasticSendError(transient=True) maps to AdapterSendError."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        config = MeshtasticConfig(adapter_id="mesh-ec")
+        adapter = MeshtasticAdapter(config)
+
+        queue = MagicMock()
+        queue.enqueue = AsyncMock(
+            side_effect=MeshtasticSendError(
+                "Send failed after 3 attempts", transient=True
+            )
+        )
+        adapter._queue = queue
+
+        result = RenderingResult(
+            event_id="evt-2",
+            target_adapter="mesh-ec",
+            target_channel="0",
+            payload={"text": "hello", "channel_index": 0},
+        )
+        with pytest.raises(AdapterSendError) as exc_info:
+            await adapter.deliver(result)
+        assert exc_info.value.transient is True
+
+    @pytest.mark.asyncio
+    async def test_oserror_maps_to_transient(self) -> None:
+        """OSError from queue maps to AdapterSendError(transient=True)."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        config = MeshtasticConfig(adapter_id="mesh-ec")
+        adapter = MeshtasticAdapter(config)
+
+        queue = MagicMock()
+        queue.enqueue = AsyncMock(side_effect=OSError("serial error"))
+        adapter._queue = queue
+
+        result = RenderingResult(
+            event_id="evt-3",
+            target_adapter="mesh-ec",
+            target_channel="0",
+            payload={"text": "hello", "channel_index": 0},
+        )
+        with pytest.raises(AdapterSendError) as exc_info:
+            await adapter.deliver(result)
+        assert exc_info.value.transient is True
+
+    @pytest.mark.asyncio
+    async def test_adapter_not_started_is_permanent(self) -> None:
+        """Adapter not started raises AdapterPermanentError."""
+        config = MeshtasticConfig(
+            adapter_id="mesh-ec", connection_type="tcp", host="localhost"
+        )
+        adapter = MeshtasticAdapter(config)
+        # NOT started
+
+        result = RenderingResult(
+            event_id="evt-4",
+            target_adapter="mesh-ec",
+            target_channel="0",
+            payload={"text": "hello", "channel_index": 0},
+        )
+        with pytest.raises(AdapterPermanentError, match="not started"):
+            await adapter.deliver(result)

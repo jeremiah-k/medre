@@ -25,7 +25,21 @@ class MatrixConnectionError(MatrixError):
 
 
 class MatrixSendError(MatrixError):
-    """Raised when a message send operation fails."""
+    """Raised when a message send operation fails.
+
+    Parameters
+    ----------
+    transient:
+        ``True`` (default) if the error may succeed on retry;
+        ``False`` for permanent failures (e.g. encrypted-room rejection,
+        startup state missing).
+    """
+
+    transient: bool
+
+    def __init__(self, *args: object, transient: bool = True) -> None:
+        self.transient = transient
+        super().__init__(*args)
 
 
 class MatrixConfigError(MatrixError, ValueError):

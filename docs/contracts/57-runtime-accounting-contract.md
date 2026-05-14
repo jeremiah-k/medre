@@ -136,7 +136,7 @@ The pipeline classifies delivery failures using `DeliveryFailureKind`:
 | `ADAPTER_TRANSIENT` | Timeout, connection reset | Yes |
 | `ADAPTER_PERMANENT` | Business-logic rejection | No |
 | `ADAPTER_MISSING` | Adapter ID not registered | No |
-| `TARGET_NOT_FOUND` | Channel not found | No |
+| `TARGET_NOT_FOUND` | Channel not found *(reserved — not currently emitted)* | No |
 | `DEADLINE_EXCEEDED` | Plan deadline passed | No |
 | `CAPACITY_REJECTION` | Capacity controller exhausted or timed out while accepting work | No |
 | `SHUTDOWN_REJECTION` | Runtime shutdown cancelled delivery before capacity acquire | No |

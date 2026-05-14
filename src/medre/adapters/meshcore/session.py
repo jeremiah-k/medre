@@ -349,7 +349,7 @@ class MeshCoreSession:
             On permanent failure or after exhausting retries.
         """
         if not self._diag.connected:
-            raise MeshCoreSendError("Session is not connected")
+            raise MeshCoreSendError("Session is not connected", transient=False)
 
         if self._config.connection_type == "fake":
             # Fake mode — no real send.
@@ -631,7 +631,7 @@ class MeshCoreSession:
            the ACK was lost.
         """
         if self._meshcore is None:
-            raise MeshCoreSendError("SDK client not initialised")
+            raise MeshCoreSendError("SDK client not initialised", transient=False)
 
         last_exc: Exception | None = None
         for attempt in range(1, _SEND_MAX_RETRIES + 1):
@@ -654,7 +654,8 @@ class MeshCoreSession:
                     )
                     self._diag.permanent_delivery_failures += 1
                     raise MeshCoreSendError(
-                        f"SDK send error: {reason}"
+                        f"SDK send error: {reason}",
+                        transient=False,
                     )
 
                 # Extract native message ID if available.

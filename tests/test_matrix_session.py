@@ -1007,7 +1007,7 @@ class TestEncryptedRoomSafety:
                 payload={"msgtype": "m.text", "body": "hello"},
                 target_channel=room_id,
             )
-            with pytest.raises(MatrixSendError, match="encrypted but E2EE crypto is not active"):
+            with pytest.raises(AdapterPermanentError, match="encrypted but E2EE crypto is not active"):
                 await adapter.deliver(result)
         finally:
             await adapter.stop()
@@ -1927,7 +1927,7 @@ class TestRoomStateTracking:
                 payload={"msgtype": "m.text", "body": "hello"},
                 target_channel="!tracked_enc:example.com",
             )
-            with pytest.raises(MatrixSendError, match="encrypted but E2EE"):
+            with pytest.raises(AdapterPermanentError, match="encrypted but E2EE"):
                 await adapter.deliver(result)
         finally:
             await adapter.stop()
@@ -1985,7 +1985,7 @@ class TestRoomStateTracking:
                 payload={"msgtype": "m.text", "body": "hello"},
                 target_channel=room_id,
             )
-            with pytest.raises(MatrixSendError, match="encrypted but E2EE"):
+            with pytest.raises(AdapterPermanentError, match="encrypted but E2EE"):
                 await adapter.deliver(result)
         finally:
             await adapter.stop()
@@ -2062,7 +2062,7 @@ class TestDeliveryRetry:
             )
 
             with patch("asyncio.sleep", new_callable=AsyncMock):
-                with pytest.raises((MatrixSendError, AdapterSendError), match="transient retries"):
+                with pytest.raises(AdapterSendError, match="transient retries"):
                     await adapter.deliver(result)
 
             assert call_count == 3
@@ -2098,7 +2098,7 @@ class TestDeliveryRetry:
                 target_channel="!room:example.com",
             )
 
-            with pytest.raises((MatrixSendError, AdapterPermanentError)):
+            with pytest.raises(AdapterPermanentError):
                 await adapter.deliver(result)
 
             assert call_count == 1

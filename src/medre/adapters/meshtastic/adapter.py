@@ -269,8 +269,14 @@ class MeshtasticAdapter(BaseAdapter):
 
         Raises
         ------
-        TypeError
-            If *result* is not a :class:`RenderingResult`.
+        AdapterPermanentError
+            If a permanent error occurs (invalid input type, adapter not
+            started, payload encoding failure).
+        AdapterSendError
+            If a transient error occurs (timeout, connection, transport).
+            ``transient`` is ``True``.
+        asyncio.CancelledError
+            Propagates without swallowing task cancellation.
         """
         if not isinstance(result, RenderingResult):
             raise AdapterPermanentError(
@@ -291,8 +297,13 @@ class MeshtasticAdapter(BaseAdapter):
 
         try:
             await self._queue.enqueue(payload, channel_index)
+        except asyncio.CancelledError:
+            raise
         except MeshtasticSendError as exc:
-            raise AdapterSendError(str(exc), transient=True) from exc
+            if exc.transient:
+                raise AdapterSendError(str(exc), transient=True) from exc
+            else:
+                raise AdapterPermanentError(str(exc)) from exc
         except (TimeoutError, ConnectionError, OSError) as exc:
             raise AdapterSendError(str(exc), transient=True) from exc
 
