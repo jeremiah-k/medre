@@ -319,6 +319,10 @@ class LxmfAdapter(BaseAdapter):
                 f"the inbound path."
             )
 
+        # Lifecycle/startup state missing — cannot be repaired by retry.
+        if not self._started:
+            raise AdapterPermanentError("Adapter not started")
+
         payload = result.payload
         if not isinstance(payload, dict):
             return None

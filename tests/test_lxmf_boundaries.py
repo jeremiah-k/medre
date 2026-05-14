@@ -482,19 +482,19 @@ class TestLxmfOutboundNativeRefs:
         """Real LxmfAdapter.deliver() now returns AdapterDeliveryResult via session.
 
         With session integration, deliver() delegates to LxmfSession.send_text()
-        which requires the session to be started first.  In fake mode, the
-        adapter must be started to deliver.
+        which requires the adapter to be started first.  Without start,
+        deliver raises AdapterPermanentError.
         """
         config = LxmfConfig(adapter_id="lxmf-1", connection_type="fake")
         adapter = LxmfAdapter(config)
-        # Without start, deliver raises because session is not connected.
+        # Without start, deliver raises because adapter not started — lifecycle state.
         result = RenderingResult(
             event_id="evt-1",
             target_adapter="lxmf-1",
             target_channel=None,
             payload={"content": "test", "title": "", "fields": {}},
         )
-        with pytest.raises(AdapterSendError, match="not connected"):
+        with pytest.raises(AdapterPermanentError, match="not started"):
             await adapter.deliver(result)
 
 

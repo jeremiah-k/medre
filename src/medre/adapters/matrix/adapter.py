@@ -372,7 +372,8 @@ class MatrixAdapter(BaseAdapter):
         """
         client = self._client
         if client is None:
-            raise AdapterSendError("client is not connected", transient=True)
+            # Lifecycle/startup state missing — cannot be repaired by retry.
+            raise AdapterPermanentError("client is not connected")
 
         payload_room_id = result.payload.get("room_id")
         room_id = result.target_channel or (
@@ -415,7 +416,11 @@ class MatrixAdapter(BaseAdapter):
                     # Error response (nio ErrorResponse or similar)
                     raise AdapterPermanentError(str(response))
 
-            except (MatrixSendError, AdapterPermanentError):
+            except MatrixSendError as exc:
+                # Session-layer error → convert to runtime boundary error.
+                self._transient_delivery_failures += 1
+                raise AdapterSendError(str(exc), transient=True) from exc
+            except AdapterPermanentError:
                 # Non-transient — raise immediately
                 self._permanent_delivery_failures += 1
                 raise

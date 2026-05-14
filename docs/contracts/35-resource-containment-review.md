@@ -55,7 +55,7 @@ This is a review document. No runtime redesign is proposed.
 
 - **Reconnect attempts:** Max 10 (`_MAX_RECONNECT_ATTEMPTS`). After exhaustion, `_sync_failure` is set and the sync loop exits.
 - **Backoff:** Exponential, base 1s, cap 60s, ±25% jitter. No retry after budget exhaustion.
-- **No send retry.** `deliver()` calls `room_send` once. On failure, raises `MatrixSendError`. No retry loop.
+- **No send retry.** `deliver()` calls `room_send` once. On failure, adapter normalizes internal `MatrixSendError` and raises `AdapterSendError`/`AdapterPermanentError`. No retry loop.
 
 **Risk assessment:** Low. The retry budget is finite and the session does not retry sends. The backoff prevents thundering-herd reconnection attempts.
 
@@ -118,7 +118,7 @@ Existing tests in `tests/test_matrix_session.py` cover:
 ### 4.2 Retry Budget
 
 - **Reconnect attempts:** Max 10 (`_MAX_RECONNECT_ATTEMPTS`). Same pattern as Matrix.
-- **Send retry:** Max 3 (`_MAX_SEND_RETRIES`). On exhaustion, raises `MeshtasticSendError`.
+- **Send retry:** Max 3 (`_MAX_SEND_RETRIES`). On exhaustion, adapter normalizes internal `MeshtasticSendError` and raises `AdapterSendError(transient=True)`/`AdapterPermanentError`.
 - **Backoff:** Exponential, base 1s, cap 30s, ±25% jitter.
 
 **Risk assessment:** Low. Both reconnect and send budgets are bounded.

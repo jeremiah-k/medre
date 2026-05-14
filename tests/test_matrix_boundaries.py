@@ -510,7 +510,8 @@ class TestMatrixDeliveryNioResponseHardening:
             await adapter.deliver(result)
 
     async def test_client_not_connected_raises(self) -> None:
-        """deliver raises AdapterSendError (transient) when client is None."""
+        """deliver raises AdapterPermanentError when client is None —
+        lifecycle state missing is permanent."""
         config = _make_matrix_config()
         adapter = MatrixAdapter(config)
         adapter._client = None
@@ -521,9 +522,8 @@ class TestMatrixDeliveryNioResponseHardening:
             target_channel="!room:server",
             payload={"msgtype": "m.text", "body": "hello"},
         )
-        with pytest.raises(AdapterSendError, match="not connected") as exc_info:
+        with pytest.raises(AdapterPermanentError, match="not connected"):
             await adapter.deliver(result)
-        assert exc_info.value.transient is True
 
     async def test_delivery_without_target_room_fails(self) -> None:
         """Missing target room raises MatrixSendError."""
@@ -659,24 +659,23 @@ class TestMatrixCancelledErrorPropagation:
         # bypasses the transient/permanent counters entirely.
         assert adapter._permanent_delivery_failures == 0
 
-    async def test_not_connected_is_transient(self) -> None:
-        """Client-not-connected raises AdapterSendError with transient=True."""
+    async def test_not_connected_is_permanent(self) -> None:
+        """Client-not-connected raises AdapterPermanentError — lifecycle state."""
         config = _make_matrix_config()
         adapter = MatrixAdapter(config)
         adapter._client = None
 
         result = RenderingResult(
-            event_id="evt-transient-nc",
+            event_id="evt-permanent-nc",
             target_adapter="matrix-1",
             target_channel="!room:server",
             payload={"msgtype": "m.text", "body": "hello"},
         )
-        with pytest.raises(AdapterSendError) as exc_info:
+        with pytest.raises(AdapterPermanentError, match="not connected"):
             await adapter.deliver(result)
-        assert exc_info.value.transient is True
 
-    async def test_permanent_rejection_classified(self) -> None:
-        """MatrixSendError (auth/business rejection) raises immediately as permanent."""
+    async def test_matrix_send_error_converted_to_transient(self) -> None:
+        """MatrixSendError is converted to AdapterSendError(transient=True) at boundary."""
         config = _make_matrix_config()
         adapter = MatrixAdapter(config)
 
@@ -687,11 +686,11 @@ class TestMatrixCancelledErrorPropagation:
         adapter._client = mock_client
 
         result = RenderingResult(
-            event_id="evt-perm-reject",
+            event_id="evt-send-err",
             target_adapter="matrix-1",
             target_channel="!room:server",
             payload={"msgtype": "m.text", "body": "hello"},
         )
-        with pytest.raises(MatrixSendError, match="forbidden"):
+        with pytest.raises(AdapterSendError) as exc_info:
             await adapter.deliver(result)
-        assert adapter._permanent_delivery_failures == 1
+        assert exc_info.value.transient is True

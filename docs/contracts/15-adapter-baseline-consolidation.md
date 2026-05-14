@@ -239,14 +239,14 @@ class AdapterPermanentError(Exception):
     transient: bool = False
 ```
 
-Each adapter's `SendError` inherits from the appropriate base so that `classify_failure` can use `error.transient` to decide `ADAPTER_TRANSIENT` vs `ADAPTER_PERMANENT`:
+Transport-specific `*SendError` classes (`MatrixSendError`, `MeshtasticSendError`, `MeshCoreSendError`, `LxmfSendError`) are **session/internal-layer** errors. They do **not** subclass `AdapterSendError` or `AdapterPermanentError`. Adapters normalize session/internal transport errors into `AdapterSendError(transient=True)` or `AdapterPermanentError` at the runtime boundary. The pipeline's `classify_failure` relies only on `AdapterSendError.transient` to decide `ADAPTER_TRANSIENT` vs `ADAPTER_PERMANENT`:
 
-| Adapter | Transient base | Permanent base | Notes |
-|---|---|---|---|
-| Matrix | `MatrixSendError(AdapterSendError)` | `MatrixSendError(AdapterPermanentError)` (raised for auth/house-rule failures) | Single `MatrixSendError` class; transient flag set per-instance based on failure cause. `CancelledError` propagates (re-raised before broad catch). Broad catch is `Exception`, not `BaseException`. |
-| Meshtastic | `MeshtasticSendError(AdapterSendError)` | `MeshtasticSendError(AdapterPermanentError)` (payload encoding failures) | Session retries transient up to 3×. Queue-full is transient. |
-| MeshCore | `MeshCoreSendError(AdapterSendError)` | `MeshCoreSendError(AdapterPermanentError)` (invalid address) | Session retries transient up to 3×. |
-| LXMF | `LxmfSendError(AdapterSendError)` | `LxmfSendError(AdapterPermanentError)` (invalid destination) | Session retries transient up to 3×. |
+| Adapter | Session/internal `*SendError` (stays internal) | Runtime boundary: transient → raises | Runtime boundary: permanent → raises | Notes |
+|---|---|---|---|---|
+| Matrix | `MatrixSendError` | `AdapterSendError(transient=True)` | `AdapterPermanentError` (auth/house-rule failures) | Adapter normalizes session errors. `CancelledError` propagates (re-raised before broad catch). Broad catch is `Exception`, not `BaseException`. |
+| Meshtastic | `MeshtasticSendError` | `AdapterSendError(transient=True)` | `AdapterPermanentError` (payload encoding failures) | Adapter normalizes session errors. Session retries transient up to 3×. Queue-full is transient. |
+| MeshCore | `MeshCoreSendError` | `AdapterSendError(transient=True)` | `AdapterPermanentError` (invalid address) | Adapter normalizes session errors. Session retries transient up to 3×. |
+| LXMF | `LxmfSendError` | `AdapterSendError(transient=True)` | `AdapterPermanentError` (invalid destination) | Adapter normalizes session errors. Session retries transient up to 3×. |
 
 **Per-adapter error classification decisions:**
 
@@ -264,7 +264,7 @@ Each adapter's `SendError` inherits from the appropriate base so that `classify_
 
 All four adapters treat not-connected and SDK-not-initialized as **permanent** errors. An adapter that cannot reach its transport SDK should not be retried without operator intervention. Queue-full (where applicable) is transient because the queue may drain.
 
-**Verdict: Consistent hierarchy.** All four adapters share the same transient/permanent split at the base level. The pipeline's `RetryExecutor.classify_failure` uses `getattr(error, 'transient', True)` to map to `DeliveryFailureKind.ADAPTER_TRANSIENT` (retryable) or `DeliveryFailureKind.ADAPTER_PERMANENT` (dead-letter). Exceptions without a `transient` attribute fall back to the standard Python type check (`TimeoutError`, `ConnectionError`, `OSError` → transient; everything else → permanent). The Matrix adapter catches `Exception` (not `BaseException`) with explicit `CancelledError` re-raise to preserve asyncio cancellation semantics. No adapter may swallow `CancelledError`.
+**Verdict: Consistent normalization.** All four adapters share the same transient/permanent split at the runtime boundary. Transport-specific `*SendError` classes remain internal; adapters normalize them into `AdapterSendError`/`AdapterPermanentError` before the pipeline sees them. The pipeline's `RetryExecutor.classify_failure` uses `getattr(error, 'transient', True)` to map to `DeliveryFailureKind.ADAPTER_TRANSIENT` (retryable) or `DeliveryFailureKind.ADAPTER_PERMANENT` (dead-letter). Exceptions without a `transient` attribute fall back to the standard Python type check (`TimeoutError`, `ConnectionError`, `OSError` → transient; everything else → permanent). The Matrix adapter catches `Exception` (not `BaseException`) with explicit `CancelledError` re-raise to preserve asyncio cancellation semantics. No adapter may swallow `CancelledError`.
 
 
 ## 14. Delivery Result Semantics

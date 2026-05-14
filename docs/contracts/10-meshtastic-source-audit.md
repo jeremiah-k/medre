@@ -436,7 +436,7 @@ Future real send implementation should:
    mtjk interface
 2. Capture the returned `MeshPacket.id` (int)
 3. Return `AdapterDeliveryResult(native_message_id=str(packet_id), ...)`
-4. If send raises, catch and translate to `MeshtasticSendError`
+4. If send raises, catch and translate to `MeshtasticSendError` (session/internal-layer), then normalize to `AdapterSendError`/`AdapterPermanentError` at the runtime boundary
 5. Do NOT reimplement MMRelay's protobuf construction approach — use the
    public `sendText` API unless replyId requires protobuf construction
 

@@ -517,9 +517,9 @@ class TestPerAdapterErrorClassification:
     """
 
     @pytest.mark.asyncio
-    async def test_matrix_not_connected_transient(self) -> None:
-        """MatrixAdapter raises AdapterSendError(transient=True) when
-        client is not connected."""
+    async def test_matrix_not_connected_permanent(self) -> None:
+        """MatrixAdapter raises AdapterPermanentError when
+        client is not connected — lifecycle state missing is permanent."""
         from medre.adapters.matrix.adapter import MatrixAdapter
         from medre.adapters.matrix.config import MatrixConfig
 
@@ -528,9 +528,8 @@ class TestPerAdapterErrorClassification:
         adapter._client = None
 
         result = _make_rendering_result()
-        with pytest.raises(AdapterSendError) as exc_info:
+        with pytest.raises(AdapterPermanentError, match="not connected"):
             await adapter.deliver(result)
-        assert exc_info.value.transient is True
 
     @pytest.mark.asyncio
     async def test_matrix_no_room_id_permanent(self) -> None:
@@ -552,8 +551,8 @@ class TestPerAdapterErrorClassification:
             await adapter.deliver(result)
 
     @pytest.mark.asyncio
-    async def test_matrix_send_error_permanent(self) -> None:
-        """MatrixAdapter re-raises MatrixSendError as permanent."""
+    async def test_matrix_send_error_converted_to_transient(self) -> None:
+        """MatrixAdapter converts MatrixSendError to AdapterSendError(transient=True)."""
         from medre.adapters.matrix.adapter import MatrixAdapter
         from medre.adapters.matrix.config import MatrixConfig
         from medre.adapters.matrix.errors import MatrixSendError
@@ -566,9 +565,9 @@ class TestPerAdapterErrorClassification:
         adapter._client = mock_client
 
         result = _make_rendering_result()
-        with pytest.raises(MatrixSendError):
+        with pytest.raises(AdapterSendError) as exc_info:
             await adapter.deliver(result)
-        assert adapter._permanent_delivery_failures == 1
+        assert exc_info.value.transient is True
 
     @pytest.mark.asyncio
     async def test_meshcore_session_not_initialised_permanent(self) -> None:
@@ -616,6 +615,7 @@ class TestPerAdapterErrorClassification:
 
         config = MeshtasticConfig(adapter_id="test")
         adapter = MeshtasticAdapter(config)
+        adapter._started = True
 
         # Mock the queue to raise TimeoutError
         adapter._queue = MagicMock()
@@ -635,6 +635,7 @@ class TestPerAdapterErrorClassification:
 
         config = LxmfConfig(adapter_id="test")
         adapter = LxmfAdapter(config)
+        adapter._started = True
 
         mock_session = MagicMock()
         mock_session.send_text = AsyncMock(side_effect=TimeoutError("timed out"))
@@ -656,6 +657,7 @@ class TestPerAdapterErrorClassification:
 
         config = LxmfConfig(adapter_id="test")
         adapter = LxmfAdapter(config)
+        adapter._started = True
 
         mock_session = MagicMock()
         mock_session.send_text = AsyncMock(side_effect=LxmfSendError("propagation failed"))
@@ -667,3 +669,133 @@ class TestPerAdapterErrorClassification:
         with pytest.raises(AdapterSendError) as exc_info:
             await adapter.deliver(result)
         assert exc_info.value.transient is True
+
+    @pytest.mark.asyncio
+    async def test_meshtastic_not_started_permanent(self) -> None:
+        """MeshtasticAdapter raises AdapterPermanentError when not started in real mode."""
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+        from medre.adapters.meshtastic.config import MeshtasticConfig
+
+        config = MeshtasticConfig(adapter_id="test", connection_type="tcp", host="localhost", port=4403)
+        adapter = MeshtasticAdapter(config)
+        # _started is False by default, tcp mode requires start
+
+        result = _make_rendering_result()
+        result.payload["channel_index"] = 0
+        with pytest.raises(AdapterPermanentError, match="not started"):
+            await adapter.deliver(result)
+
+    @pytest.mark.asyncio
+    async def test_meshtastic_send_error_converted_to_transient(self) -> None:
+        """MeshtasticAdapter converts MeshtasticSendError to AdapterSendError(transient=True)."""
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+        from medre.adapters.meshtastic.config import MeshtasticConfig
+        from medre.adapters.meshtastic.errors import MeshtasticSendError
+
+        config = MeshtasticConfig(adapter_id="test")
+        adapter = MeshtasticAdapter(config)
+        adapter._started = True
+
+        adapter._queue = MagicMock()
+        adapter._queue.enqueue = AsyncMock(side_effect=MeshtasticSendError("send failed"))
+
+        result = _make_rendering_result()
+        result.payload["channel_index"] = 0
+        with pytest.raises(AdapterSendError) as exc_info:
+            await adapter.deliver(result)
+        assert exc_info.value.transient is True
+
+    @pytest.mark.asyncio
+    async def test_lxmf_not_started_permanent(self) -> None:
+        """LxmfAdapter raises AdapterPermanentError when not started."""
+        from medre.adapters.lxmf.adapter import LxmfAdapter
+        from medre.adapters.lxmf.config import LxmfConfig
+
+        config = LxmfConfig(adapter_id="test")
+        adapter = LxmfAdapter(config)
+        # _started is False by default
+
+        result = _make_rendering_result()
+        result.payload["content"] = "hello"
+        result.payload["destination_hash"] = "ab" * 16
+        with pytest.raises(AdapterPermanentError, match="not started"):
+            await adapter.deliver(result)
+
+    @pytest.mark.asyncio
+    async def test_meshcore_send_error_converted_to_transient(self) -> None:
+        """MeshCoreAdapter converts MeshCoreSendError to AdapterSendError(transient=True)."""
+        from medre.adapters.meshcore.adapter import MeshCoreAdapter
+        from medre.adapters.meshcore.config import MeshCoreConfig
+        from medre.adapters.meshcore.errors import MeshCoreSendError
+
+        config = MeshCoreConfig(adapter_id="test")
+        adapter = MeshCoreAdapter(config)
+        adapter._config = MagicMock()
+        adapter._config.connection_type = "tcp"
+
+        mock_session = MagicMock()
+        mock_session.send_text = AsyncMock(side_effect=MeshCoreSendError("send failed"))
+        adapter._session = mock_session
+
+        result = _make_rendering_result()
+        result.payload["channel_index"] = 0
+        with pytest.raises(AdapterSendError) as exc_info:
+            await adapter.deliver(result)
+        assert exc_info.value.transient is True
+
+
+class TestErrorClassificationPipeline:
+    """Tests proving classify_failure works via AdapterSendError.transient,
+    not via transport-specific *SendError inheritance.
+    """
+
+    def test_classify_adapter_transient_via_transient_flag(self) -> None:
+        """AdapterSendError(transient=True) classifies as ADAPTER_TRANSIENT."""
+        from medre.core.planning.delivery_plan import DeliveryFailureKind, RetryExecutor
+
+        error = AdapterSendError("timeout", transient=True)
+        kind = RetryExecutor.classify_failure(error)
+        assert kind is DeliveryFailureKind.ADAPTER_TRANSIENT
+
+    def test_classify_adapter_permanent_via_transient_flag(self) -> None:
+        """AdapterSendError(transient=False) classifies as ADAPTER_PERMANENT."""
+        from medre.core.planning.delivery_plan import DeliveryFailureKind, RetryExecutor
+
+        error = AdapterSendError("config error", transient=False)
+        kind = RetryExecutor.classify_failure(error)
+        assert kind is DeliveryFailureKind.ADAPTER_PERMANENT
+
+    def test_classify_permanent_error_subclass(self) -> None:
+        """AdapterPermanentError classifies as ADAPTER_PERMANENT."""
+        from medre.core.planning.delivery_plan import DeliveryFailureKind, RetryExecutor
+
+        error = AdapterPermanentError("not started")
+        kind = RetryExecutor.classify_failure(error)
+        assert kind is DeliveryFailureKind.ADAPTER_PERMANENT
+
+    def test_transport_send_errors_not_in_classify(self) -> None:
+        """Transport-specific *SendError classes are NOT AdapterSendError subclasses."""
+        from medre.adapters.matrix.errors import MatrixSendError
+        from medre.adapters.meshcore.errors import MeshCoreSendError
+        from medre.adapters.meshtastic.errors import MeshtasticSendError
+        from medre.adapters.lxmf.errors import LxmfSendError
+
+        for error_cls in (MatrixSendError, MeshCoreSendError, MeshtasticSendError, LxmfSendError):
+            assert not issubclass(error_cls, AdapterSendError), (
+                f"{error_cls.__name__} must NOT inherit from AdapterSendError"
+            )
+
+    def test_transport_send_errors_classify_as_permanent_fallback(self) -> None:
+        """If a raw transport *SendError escaped to classify_failure,
+        it would fall through to ADAPTER_PERMANENT (default)."""
+        from medre.core.planning.delivery_plan import DeliveryFailureKind, RetryExecutor
+        from medre.adapters.matrix.errors import MatrixSendError
+
+        error = MatrixSendError("leaked")
+        kind = RetryExecutor.classify_failure(error)
+        assert kind is DeliveryFailureKind.ADAPTER_PERMANENT
+
+    def test_cancelled_error_not_adapter_error(self) -> None:
+        """CancelledError is not an AdapterSendError and does not match."""
+        import asyncio
+        assert not isinstance(asyncio.CancelledError(), AdapterSendError)

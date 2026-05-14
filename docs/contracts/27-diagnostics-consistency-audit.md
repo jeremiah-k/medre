@@ -277,12 +277,12 @@ All transport metadata flows through the `EventMetadata` model (defined in `core
 
 | Transport | On Transient Failure | On Permanent Failure |
 |-----------|---------------------|---------------------|
-| Matrix | Retry up to 3x with exponential backoff (500ms, 1s, 2s +-25% jitter). On exhaustion: raise `MatrixSendError`. | Raise `MatrixSendError` immediately. |
-| Meshtastic | Session retries send up to 3x. On exhaustion: increment `transient_delivery_failures`, raise `MeshtasticSendError`. Queue marks as failed. | Increment `permanent_delivery_failures`, raise `MeshtasticSendError`. |
-| MeshCore | Session retries send up to 3x. On exhaustion: increment counters, raise `MeshCoreSendError`. | Increment counters, raise `MeshCoreSendError`. |
-| LXMF | Session retries send up to 3x. On exhaustion: increment counters, raise `LxmfSendError`. | Increment counters, raise `LxmfSendError`. |
+| Matrix | Retry up to 3x with exponential backoff (500ms, 1s, 2s +-25% jitter). On exhaustion: adapter normalizes internal error and raises `AdapterSendError(transient=True)`. | Adapter normalizes internal error and raises `AdapterPermanentError` immediately. |
+| Meshtastic | Session retries send up to 3x. On exhaustion: increment `transient_delivery_failures`, adapter normalizes internal error and raises `AdapterSendError(transient=True)`. Queue marks as failed. | Increment `permanent_delivery_failures`, adapter normalizes internal error and raises `AdapterPermanentError`. |
+| MeshCore | Session retries send up to 3x. On exhaustion: increment counters, adapter normalizes internal error and raises `AdapterSendError(transient=True)`. | Increment counters, adapter normalizes internal error and raises `AdapterPermanentError`. |
+| LXMF | Session retries send up to 3x. On exhaustion: increment counters, adapter normalizes internal error and raises `AdapterSendError(transient=True)`. | Increment counters, adapter normalizes internal error and raises `AdapterPermanentError`. |
 
-All four adapters let exceptions propagate to the pipeline, which records delivery receipts via the retry/dead-letter system (contract 21, `phase-1-limitations.md` Track 3).
+All four adapters normalize session/internal transport errors into `AdapterSendError`/`AdapterPermanentError` at the runtime boundary before letting exceptions propagate to the pipeline, which records delivery receipts via the retry/dead-letter system (contract 21, `phase-1-limitations.md` Track 3). The pipeline's `classify_failure` relies only on `AdapterSendError.transient`, not on the transport-specific `*SendError` hierarchy.
 
 ### 6.5 Duplicate-Send Risk Where Retries Exist
 

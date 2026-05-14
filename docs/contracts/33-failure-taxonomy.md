@@ -117,7 +117,7 @@ cross-transport orchestration.
 
 Matrix has **no outbound queue** in MEDRE. `deliver()` calls `room_send`
 directly. There is no buffering, ordering, or drain behavior. Failed sends
-raise `MatrixSendError` to the caller.
+raise `AdapterSendError` to the caller (normalizing the internal `MatrixSendError`).
 
 ### 4.6 Delivery Uncertainty Window: Matrix
 
@@ -138,7 +138,7 @@ raise `MatrixSendError` to the caller.
 | Device not verified | Permanent per message | Verify device via interactive verification. |
 | Megolm session not received | Transient | Wait for session key from other device. Undecryptable events are counted and logged, not forwarded. |
 | Crypto store corruption | Permanent | Delete store, re-verify device, accept key loss. |
-| `encryption_mode="e2ee_required"` + plaintext room | Permanent | Adapter raises `MatrixSendError` on deliver to unencrypted room. |
+| `encryption_mode="e2ee_required"` + plaintext room | Permanent | Adapter raises `AdapterPermanentError` on deliver to unencrypted room (normalizing internal `MatrixSendError`). |
 | `encryption_mode="e2ee_optional"` + no deps | Graceful degradation | Falls back to plaintext operation. |
 | Cross-signing not set up | Warning, not fatal | Messages decrypt if session keys are available. |
 

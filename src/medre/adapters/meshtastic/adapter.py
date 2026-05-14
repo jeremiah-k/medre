@@ -279,6 +279,11 @@ class MeshtasticAdapter(BaseAdapter):
                 f"the inbound path."
             )
 
+        # Lifecycle/startup state missing — cannot be repaired by retry.
+        # Fake mode does not require start (queue is always available).
+        if not self._started and self._config.connection_type != "fake":
+            raise AdapterPermanentError("Adapter not started")
+
         payload = dict(result.payload)
         channel_index = payload.get("channel_index", self._config.default_channel)
         if not isinstance(channel_index, int):
@@ -286,6 +291,8 @@ class MeshtasticAdapter(BaseAdapter):
 
         try:
             await self._queue.enqueue(payload, channel_index)
+        except MeshtasticSendError as exc:
+            raise AdapterSendError(str(exc), transient=True) from exc
         except (TimeoutError, ConnectionError, OSError) as exc:
             raise AdapterSendError(str(exc), transient=True) from exc
 
