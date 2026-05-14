@@ -555,6 +555,233 @@ INFO  medre.runtime: Shutdown complete in 70ms
 ```
 
 
+## Long-Running Run: Operator Observability
+
+This section covers what operators see when running `medre run` in a terminal for an extended period — startup evidence, shutdown evidence, signal handling, and post-run inspection. For short-lived commands (`medre smoke`, `medre diagnostics`, `medre evidence`), see the respective sections above.
+
+### Long-Running Run: Startup Evidence
+
+When `medre run` starts, the console prints a structured summary of the runtime state. Operators should check these elements to confirm the runtime is healthy before walking away:
+
+**What you see on a successful startup:**
+
+```
+Runtime starting with 2 adapter(s): bridge, radio
+  Routes: 1 enabled, 0 disabled (1 total)
+  Storage: sqlite
+  Limits: max_inflight_deliveries=100, max_inflight_replay_events=100, drain_timeout=10s
+INFO  medre.cli: MEDRE starting — config source: cli_arg
+INFO  medre.cli: Config path: /opt/medre/config.toml
+INFO  medre.cli: State dir:   /opt/medre/state
+INFO  medre.runtime: Starting 2 adapters
+INFO  medre.adapters.matrix.bridge: adapter_starting transport=matrix adapter_id=bridge
+INFO  medre.adapters.matrix.bridge: adapter_started transport=matrix adapter_id=bridge duration_ms=312
+INFO  medre.adapters.meshtastic.radio: adapter_starting transport=meshtastic adapter_id=radio
+INFO  medre.adapters.meshtastic.radio: adapter_started transport=meshtastic adapter_id=radio duration_ms=145
+INFO  medre.runtime: Assembly complete: 2/2 adapters started in 457ms
+Runtime started — 2 adapter(s) in 457ms
+```
+
+**Startup checklist for operators:**
+
+| Element | Where to look | Healthy sign | Problem sign |
+|---------|--------------|--------------|--------------|
+| Adapter count | Console first line | `N adapter(s)` matches config | Fewer than expected (build failures) |
+| Build failures | Console `Build failures (N)` block | No block printed | Block present with `✗` entries |
+| Routes | Console `Routes:` line | Expected count enabled | Zero enabled or validation errors |
+| Storage backend | Console `Storage:` line | `sqlite` for production | `memory` (no persistence) |
+| Limits | Console `Limits:` line | As configured | Unexpected defaults |
+| Per-adapter logs | `adapter_started` lines | All adapters logged `started` | Any `adapter_failed` entries |
+| Assembly summary | `Assembly complete` line | `N/N adapters started` | `N/M adapters started, K failed` |
+
+**Degraded startup indicators:**
+
+```
+Runtime starting with 3 adapter(s): bot1, bot2, radio
+  Build failures (1):
+    ✗ matrix.bot2: authentication failed
+  Routes: 1 enabled, 0 disabled (1 total)
+  Storage: sqlite
+  Limits: max_inflight_deliveries=100, max_inflight_replay_events=100, drain_timeout=10s
+INFO  medre.runtime: Starting 2 adapters
+INFO  medre.adapters.matrix.bot1: adapter_started transport=matrix adapter_id=bot1 duration_ms=210
+INFO  medre.adapters.meshtastic.radio: adapter_started transport=meshtastic adapter_id=radio duration_ms=98
+WARNING medre.runtime: Assembly complete: 2/3 adapters started, 1 failed in 308ms
+  ⚠ Runtime is DEGRADED: 2/3 adapter(s) started
+    Failed adapters: bot2
+Runtime started — 2 adapter(s) in 308ms
+```
+
+The runtime does **not** exit on degraded startup. It continues operating with the adapters that started successfully. Routes referencing failed adapters are skipped or degraded. See [Diagnosing Degraded Startup](#diagnosing-degraded-startup) for diagnostic surfaces.
+
+### Long-Running Run: Shutdown Evidence
+
+On shutdown (triggered by Ctrl-C, SIGTERM, or programmatic stop), the runtime prints a summary of the shutdown sequence. Operators should verify these elements to confirm clean termination:
+
+**What you see on a clean shutdown:**
+
+```
+Runtime shutting down
+INFO  medre.runtime: Shutting down 2 adapters (timeout=10s drain=5.0s)
+INFO  medre.adapters.meshtastic.radio: adapter_stopping transport=meshtastic adapter_id=radio
+INFO  medre.adapters.meshtastic.radio: adapter_stopped transport=meshtastic adapter_id=radio duration_ms=42
+INFO  medre.adapters.matrix.bridge: adapter_stopping transport=matrix adapter_id=bridge
+INFO  medre.adapters.matrix.bridge: adapter_stopped transport=matrix adapter_id=bridge duration_ms=28
+  stopped radio
+  stopped bridge
+  Drain completed (timeout=10s)
+Shutdown complete — 2 adapter(s) stopped in 70ms, 0 error(s)
+INFO  medre.runtime: Shutdown complete in 70ms
+```
+
+**Shutdown checklist for operators:**
+
+| Element | Where to look | Clean sign | Problem sign |
+|---------|--------------|------------|--------------|
+| Adapter stop order | Log lines | Reverse of startup order | Missing adapter stop lines |
+| Drain outcome | Console `Drain completed/timed out` | `completed` | `timed out` with abandoned count |
+| Error count | Console `Shutdown complete` line | `0 error(s)` | Non-zero error count |
+| Per-adapter duration | `adapter_stopped` log lines | Milliseconds | Timeout or missing |
+
+**Shutdown accounting counters:**
+
+The shutdown summary reports the number of adapters stopped and any errors encountered. Runtime accounting counters (`delivery_timeouts`, `delivery_rejections`, `replay_timeouts`, `replay_rejections`) are **not printed at shutdown** — they are process-local in-memory values that are lost when the process exits. To capture these values before shutdown, use `--snapshot-on-shutdown` (see below).
+
+### Shutdown Snapshot (`--snapshot-on-shutdown`)
+
+The `--snapshot-on-shutdown` flag writes a runtime snapshot JSON file to disk immediately before the shutdown sequence begins. This captures the final state of the runtime, including accounting counters, capacity gauges, and adapter lifecycle state.
+
+**Usage:**
+
+```bash
+medre run --config config.toml --snapshot-on-shutdown
+```
+
+**Output artifact:**
+
+The snapshot is written to `{state_dir}/shutdown-snapshot.json` (resolved according to the active path mode — see [MEDRE_HOME Layout](#medre_home-layout)). The file is a standard runtime snapshot with the same schema as `medre diagnostics` output, plus live lifecycle state captured at shutdown time.
+
+**What the shutdown snapshot contains:**
+
+| Section | Content |
+|---------|---------|
+| `lifecycle.runtime_state` | `"stopping"` (captured before full stop) |
+| `lifecycle.adapters.{id}` | Per-adapter lifecycle state at shutdown time |
+| `accounting` | Final `RuntimeAccounting` counters (inbound/outbound counts) |
+| `capacity` | Final `CapacityController` gauges (delivery_current, timeouts, rejections) |
+| `startup.boot_summary` | Frozen startup classification (unchanged from startup) |
+| `diagnostics.runtime_events` | Bounded event buffer accumulated during the run |
+| `routes.stats` | Per-route delivery statistics accumulated during the run |
+
+**Important caveats:**
+
+- The snapshot is captured **before** adapters are stopped. Adapter health reflects the last-known state, not the stopped state.
+- Counters and stats in the snapshot are **process-local and non-durable**. They represent the in-memory state at the moment of capture. The same counters reset to zero on the next startup.
+- Runtime events (`diagnostics.runtime_events`) are **process-local**. They are not persisted to SQLite and do not survive the process exiting. The shutdown snapshot is the only way to capture them.
+- There is **no automatic retry scheduler** and **no final ACK guarantee** for any transport. The snapshot records what the runtime observed, not what the remote side confirmed.
+
+### Signal Handling (Ctrl-C / SIGTERM)
+
+`medre run` installs signal handlers for `SIGINT` and `SIGTERM` that initiate a graceful shutdown sequence.
+
+**First interrupt (Ctrl-C or SIGTERM):**
+
+1. The signal handler sets an internal flag requesting shutdown.
+2. The main event loop detects the flag on its next poll cycle (1-second interval).
+3. The runtime transitions to the shutdown sequence:
+   - Stop accepting new delivery and replay work.
+   - Drain in-flight work up to `shutdown_drain_timeout_seconds`.
+   - Stop adapters in reverse start order.
+   - Close storage.
+4. The process exits with code 0 if shutdown completes cleanly.
+
+**What is preserved on clean shutdown:**
+
+| Data | Preserved? | Why |
+|------|-----------|-----|
+| Events in SQLite | Yes | Written before delivery begins |
+| Delivery receipts | Yes | Written after each delivery attempt |
+| Route attribution on receipts | Yes | Persisted with the receipt |
+| E2EE crypto stores | Yes | On disk, managed by SDK |
+| Log history | Yes | Append-only file |
+
+**What is lost on shutdown:**
+
+| Data | Lost? | Why |
+|------|-------|-----|
+| In-flight deliveries (not yet completed) | Yes | In-memory only; cancelled during drain |
+| Runtime accounting counters | Yes | Process-local; not persisted |
+| RouteStats per-route counters | Yes | Process-local; not persisted |
+| CapacityController gauges | Yes | Process-local; reset on startup |
+| Active replay runs | Yes | Must re-initiate manually |
+| Runtime events buffer | Yes | Process-local; use `--snapshot-on-shutdown` to capture |
+
+**Hard kill (SIGKILL / `kill -9`):**
+
+No graceful shutdown occurs. No shutdown logs are emitted. No shutdown snapshot is written. SQLite data on disk is preserved (WAL mode). In-flight deliveries are lost without receipts. See [Crash Recovery](#crash-recovery) for the full recovery procedure.
+
+**No active restart.** After shutdown (graceful or hard), the runtime does not restart automatically. Operators must re-run `medre run` manually or use an external process supervisor (systemd, Docker restart policy, etc.). MEDRE does not provide its own supervision.
+
+### Post-Run Evidence Inspection
+
+After a `medre run` session ends (clean shutdown or crash), operators can inspect persisted evidence using CLI commands. These commands read from the SQLite database — they do not start adapters or make network connections.
+
+**Collect a full evidence bundle:**
+
+```bash
+medre evidence --config config.toml --json > post-run-bundle.json
+```
+
+This produces a structured JSON bundle containing config summary, route validation, diagnostics snapshot, and storage inspection (event counts, receipt counts). See [Bridge Evidence Bundle](bridge-evidence-bundle.md) for the full report shape.
+
+**Trace a specific event through the pipeline:**
+
+```bash
+medre trace event <event_id> --config config.toml
+```
+
+This produces an enriched timeline showing ingestion, delivery attempts, receipt statuses, native message refs, and any replay deliveries for the event. See [Event Tracing](event-tracing.md) for the full trace report shape.
+
+**Inspect specific data:**
+
+```bash
+# View a stored event
+medre inspect event <event_id> --config config.toml
+
+# View delivery receipts for an event
+medre inspect receipts --event <event_id> --config config.toml
+
+# View receipts from a specific replay run
+medre inspect receipts --replay-run <run_id> --config config.toml
+
+# Resolve a native message reference
+medre inspect native-ref --adapter <name> --message <native_id> --config config.toml
+```
+
+**Find events without receipts (orphaned by a crash):**
+
+```bash
+medre inspect receipts --event <event_id> --config config.toml
+```
+
+If the event exists but has no receipts, it was stored but delivery was never completed (crash during delivery). Use SQL for bulk detection:
+
+```sql
+SELECT e.event_id, e.source_adapter, e.created_at
+FROM canonical_events e
+LEFT JOIN delivery_receipts r ON e.event_id = r.event_id
+WHERE r.event_id IS NULL
+ORDER BY e.created_at DESC;
+```
+
+**Caveats for post-run evidence:**
+
+- `medre inspect` and `medre trace` require `[storage] backend = "sqlite"` in the config. They exit with code 2 if the config uses `backend = "memory"` or the database file does not exist.
+- Receipts record what the adapter reported, not what the remote side confirmed. Radio transport receipts show `sent` (local node acceptance), not delivered. See [Per-Transport Delivery Semantics](bridge-operation.md#2-per-transport-delivery-semantics).
+- Replay is manual and duplicate-risky. `BEST_EFFORT` replay produces real outbound messages without deduplication. Use `DRY_RUN` first to preview.
+- Runtime events and counters are process-local. They are not in SQLite and cannot be inspected post-run unless captured via `--snapshot-on-shutdown`.
+
+
 ## Restart Expectations
 
 ### State Persists Across Restarts

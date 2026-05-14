@@ -47,6 +47,12 @@ def _build_parser() -> argparse.ArgumentParser:
     # run
     run_p = sub.add_parser("run", help="Start the MEDRE runtime")
     run_p.add_argument("--config", default=None, help="Path to config file")
+    run_p.add_argument(
+        "--snapshot-on-shutdown",
+        default=None,
+        metavar="PATH",
+        help="Write final runtime snapshot JSON to PATH on graceful shutdown",
+    )
 
     # config (with sub-subcommands)
     config_p = sub.add_parser("config", help="Config management commands")
@@ -195,7 +201,7 @@ def main(argv: list[str] | None = None) -> None:
         import asyncio
 
         try:
-            asyncio.run(_run(args.config))
+            asyncio.run(_run(args.config, snapshot_path=getattr(args, "snapshot_on_shutdown", None)))
         except KeyboardInterrupt:
             pass
     elif args.command == "config":

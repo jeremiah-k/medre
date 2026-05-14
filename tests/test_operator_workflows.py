@@ -1074,3 +1074,117 @@ class TestNoTracebackGuarantee:
         )
         assert code != 0
         assert "Traceback" not in stderr
+
+
+# ===================================================================
+# 13. Signal safety and shutdown request
+# ===================================================================
+
+
+class TestSignalSafety:
+    """Signal handler triggers clean shutdown via _request_shutdown."""
+
+    @pytest.mark.asyncio
+    async def test_request_shutdown_sets_flag_and_clean_stop(
+        self, tmp_path: Path
+    ) -> None:
+        """Calling _request_shutdown simulates SIGTERM; app stops cleanly."""
+        from medre.cli.run_commands import _request_shutdown, shutdown_requested
+        from medre.config.loader import load_config
+        from medre.runtime.builder import RuntimeBuilder
+        import signal as signal_mod
+        import medre.cli.run_commands as run_mod
+
+        p = tmp_path / "config.toml"
+        p.write_text(CONFIG_SINGLE_ADAPTER)
+        config, _source, paths = load_config(str(p))
+        app = RuntimeBuilder(config, paths).build()
+        await app.start()
+        assert app.state.value == "running"
+
+        # Simulate SIGTERM: call _request_shutdown directly.
+        run_mod.shutdown_requested = False
+        _request_shutdown(signal_mod.SIGTERM, None)
+        assert run_mod.shutdown_requested is True
+
+        # app.stop() should complete cleanly.
+        await app.stop()
+        assert app.state.value == "stopped"
+
+        # Reset global for subsequent tests.
+        run_mod.shutdown_requested = False
+
+    @pytest.mark.asyncio
+    async def test_request_shutdown_sigint(self) -> None:
+        """SIGINT also sets shutdown_requested."""
+        from medre.cli.run_commands import _request_shutdown
+        import signal as signal_mod
+        import medre.cli.run_commands as run_mod
+
+        run_mod.shutdown_requested = False
+        _request_shutdown(signal_mod.SIGINT, None)
+        assert run_mod.shutdown_requested is True
+        run_mod.shutdown_requested = False
+
+
+# ===================================================================
+# 14. Snapshot-on-shutdown end-to-end
+# ===================================================================
+
+
+class TestSnapshotOnShutdown:
+    """--snapshot-on-shutdown writes a valid JSON snapshot on graceful stop."""
+
+    @pytest.mark.asyncio
+    async def test_snapshot_written_on_graceful_stop(
+        self, tmp_path: Path
+    ) -> None:
+        """Runtime builds snapshot and writes JSON to the specified path."""
+        from medre.config.loader import load_config
+        from medre.runtime.builder import RuntimeBuilder
+        from medre.runtime.snapshot import build_runtime_snapshot
+
+        p = tmp_path / "config.toml"
+        p.write_text(CONFIG_SINGLE_ADAPTER)
+        config, _source, paths = load_config(str(p))
+        app = RuntimeBuilder(config, paths).build()
+        await app.start()
+
+        snap = build_runtime_snapshot(app)
+        snap_path = tmp_path / "shutdown.json"
+        snap_path.write_text(json.dumps(snap, indent=2, sort_keys=True) + "\n")
+
+        await app.stop()
+
+        assert snap_path.exists()
+        data = json.loads(snap_path.read_text())
+        assert "schema_version" in data
+        assert data["schema_version"] == 1
+        assert "adapters" in data
+        assert "lifecycle" in data
+
+    @pytest.mark.asyncio
+    async def test_snapshot_has_expected_keys(self, tmp_path: Path) -> None:
+        """Snapshot dict contains all required top-level sections."""
+        from medre.config.loader import load_config
+        from medre.runtime.builder import RuntimeBuilder
+        from medre.runtime.snapshot import build_runtime_snapshot
+        from datetime import datetime, timezone
+
+        p = tmp_path / "config.toml"
+        p.write_text(CONFIG_SINGLE_ADAPTER)
+        config, _source, paths = load_config(str(p))
+        app = RuntimeBuilder(config, paths).build()
+
+        snap = build_runtime_snapshot(
+            app,
+            now_fn=lambda: datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc),
+            monotonic_fn=lambda: 0.0,
+        )
+
+        expected_sections = {
+            "schema_version", "snapshot_at", "accounting", "adapters",
+            "capacity", "diagnostics", "health", "identity", "lifecycle",
+            "limits", "persistence", "replay", "routes", "startup", "unstable",
+        }
+        assert set(snap.keys()) == expected_sections

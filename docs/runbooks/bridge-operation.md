@@ -406,3 +406,60 @@ The bridge operation layer explicitly does **not** provide:
 7. **Queue-bound delivery completeness.** Capacity semaphores and adapter-level queue bounds prevent unbounded memory accumulation but do not guarantee that every message is delivered. Under extreme pressure, messages are dropped or rejected to protect process stability.
 
 8. **Persistent in-flight recovery.** No in-flight delivery state survives shutdown. No replay resume after restart. Cancelled deliveries are lost.
+
+
+## 14. Shutdown Snapshot and Bridge Evidence
+
+### Capturing Bridge State at Shutdown
+
+For long-running bridge deployments, operators can capture the final runtime state before shutdown using the `--snapshot-on-shutdown` flag:
+
+```bash
+medre run --config bridge.toml --snapshot-on-shutdown
+```
+
+This writes a snapshot JSON file to `{state_dir}/shutdown-snapshot.json` containing the runtime's final accounting counters, capacity gauges, adapter lifecycle state, route delivery statistics, and the bounded runtime events buffer. The snapshot is captured **before** adapters are stopped.
+
+The shutdown snapshot is particularly valuable for bridge operators because it preserves:
+
+- **Route delivery statistics** (`routes.stats`) — per-route delivery/failure/skip counts accumulated during the run.
+- **Accounting counters** (`accounting`) — total inbound accepted, outbound attempts, outbound delivered, outbound failed.
+- **Capacity gauges** (`capacity`) — delivery timeouts, rejections, and current concurrency at shutdown time.
+- **Runtime events** (`diagnostics.runtime_events`) — process-local events (adapter failures, route skips, startup classifications) that are otherwise lost on process exit.
+
+These values are process-local and non-durable. Without `--snapshot-on-shutdown`, they are lost when the process exits. With it, the snapshot file survives as a post-run artifact.
+
+**Caveats:**
+- The snapshot is a point-in-time capture, not a continuous log. It reflects the state at the moment shutdown begins.
+- There is no automatic retry scheduler. No final ACK guarantee. Runtime events are process-local.
+- Replay is manual and duplicate-risky. The snapshot may show replay receipts from earlier runs, but cannot tell you which delivery actually reached the remote side.
+
+### Run-Time Evidence vs Post-Run Evidence
+
+Bridge operators should distinguish between two categories of evidence:
+
+**Run-time evidence** (available while `medre run` is active):
+
+| Source | How to access | Lifecycle |
+|--------|--------------|-----------|
+| Log output | Console stdout/stderr, `{log_dir}/medre.log` | Written continuously during the run |
+| Runtime events buffer | `diagnostics.runtime_events` in snapshot | Bounded, process-local, lost on exit |
+| Accounting counters | `accounting` in snapshot | Process-local, reset on startup |
+| Capacity gauges | `capacity` in snapshot | Process-local, reset on startup |
+| Route delivery stats | `routes.stats` in snapshot | Process-local, reset on startup |
+
+**Post-run evidence** (available after `medre run` exits):
+
+| Source | How to access | Lifecycle |
+|--------|--------------|-----------|
+| Delivery receipts | `medre inspect receipts` | Persisted in SQLite |
+| Canonical events | `medre inspect event` | Persisted in SQLite |
+| Native message refs | `medre inspect native-ref` | Persisted in SQLite |
+| Replay receipts | `medre inspect receipts --replay-run` | Persisted in SQLite |
+| Shutdown snapshot | `{state_dir}/shutdown-snapshot.json` | File on disk (only with `--snapshot-on-shutdown`) |
+| Evidence bundle | `medre evidence --config <path> --json` | Re-generated on demand from SQLite |
+| Event trace | `medre trace event <event_id> --config <path>` | Re-generated on demand from SQLite |
+
+**Key distinction:** Run-time evidence (counters, gauges, events buffer) is process-local memory that is lost when the process exits unless captured via `--snapshot-on-shutdown`. Post-run evidence (receipts, events, refs) is persisted in SQLite and survives process termination.
+
+For the full shutdown snapshot schema, see [Runtime Operation — Shutdown Snapshot](runtime-operation.md#shutdown-snapshot---snapshot-on-shutdown). For the evidence bundle report shape, see [Bridge Evidence Bundle](bridge-evidence-bundle.md).

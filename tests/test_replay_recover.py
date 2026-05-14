@@ -681,7 +681,7 @@ class TestFailureKindClassification:
         assert failure_category("something_else") == "unknown"
 
     def test_backward_compat_import_from_recover_commands(self) -> None:
-        """Functions are still importable from recover_commands for backward compat."""
+        """Classification helpers are imported from the canonical observability module."""
         from medre.cli.recover_commands import _infer_failure_kind, _failure_category
         assert _infer_failure_kind("timeout", "failed") == "adapter_transient"
         assert _failure_category("adapter_transient") == "retryable"

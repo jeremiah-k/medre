@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import signal
 import sys
 import time
+from pathlib import Path
 
 from medre.config.loader import load_config
 from medre.config.errors import ConfigError
@@ -32,7 +34,7 @@ def _request_shutdown(signum: int, _frame: object) -> None:
     logger.info("Received signal %s — requesting shutdown", signal.Signals(signum).name)
 
 
-async def _run(config_path: str | None) -> None:
+async def _run(config_path: str | None, snapshot_path: str | None = None) -> None:
     """Load config, build the runtime, and run until interrupted."""
     from medre.runtime.builder import RuntimeBuilder
 
@@ -170,6 +172,21 @@ async def _run(config_path: str | None) -> None:
     summary = startup_summary(startup_results)
     print(summary)
 
+    # Route eligibility summary (build-time classification).
+    route_elig = getattr(app, "route_eligibility", None)
+    if route_elig is not None:
+        n_registered = len(route_elig.registered)
+        n_degraded = len(route_elig.degraded)
+        n_skipped = len(route_elig.skipped)
+        parts = [f"{n_registered} enabled"]
+        if n_degraded:
+            parts.append(f"{n_degraded} degraded")
+        if n_skipped:
+            parts.append(f"{n_skipped} skipped")
+        print(f"  Route eligibility: {', '.join(parts)}")
+
+    print("  Run `medre diagnostics --refresh-health` for live adapter health")
+
     # Print boot summary diagnostics if available.
     if app.boot_summary is not None:
         bs = app.boot_summary
@@ -203,6 +220,15 @@ async def _run(config_path: str | None) -> None:
         print("Runtime shutting down")
         logger.info("Runtime shutting down")
 
+        # Capture final accounting counters before stop.
+        final_accounting: dict[str, int] | None = None
+        accounting_obj = getattr(app, "_runtime_accounting", None)
+        if accounting_obj is not None and hasattr(accounting_obj, "snapshot"):
+            try:
+                final_accounting = accounting_obj.snapshot()
+            except Exception:
+                pass  # best-effort
+
         limits = config.limits
         drain_timeout = limits.shutdown_drain_timeout_seconds
 
@@ -235,4 +261,28 @@ async def _run(config_path: str | None) -> None:
 
         summary = shutdown_summary(list(app.adapters.keys()), shutdown_errors or None)
         print(summary)
+
+        # Print final accounting counters.
+        if final_accounting is not None:
+            print(
+                f"  Accounting: inbound={final_accounting.get('inbound_accepted', 0)} "
+                f"outbound_delivered={final_accounting.get('outbound_delivered', 0)} "
+                f"outbound_failed={final_accounting.get('outbound_failed', 0)} "
+                f"loop_prevented={final_accounting.get('loop_prevented', 0)} "
+                f"capacity_rejections={final_accounting.get('capacity_rejections', 0)}"
+            )
+
+        # Write final snapshot if requested.
+        if snapshot_path is not None:
+            try:
+                from medre.runtime.snapshot import build_runtime_snapshot
+
+                snap = build_runtime_snapshot(app)
+                snap_path = Path(snapshot_path)
+                snap_path.parent.mkdir(parents=True, exist_ok=True)
+                snap_path.write_text(json.dumps(snap, indent=2, sort_keys=True) + "\n")
+                print(f"  Final snapshot written to: {snapshot_path}")
+            except Exception as exc:
+                print(f"  Warning: failed to write snapshot: {exc}", file=sys.stderr)
+
         logger.info("MEDRE stopped")

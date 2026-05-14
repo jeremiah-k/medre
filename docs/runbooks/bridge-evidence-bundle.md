@@ -117,6 +117,7 @@ PYTHONPATH=src medre inspect receipts --replay-run <run_id> --config my-bridge.t
 | `medre inspect native-ref --adapter <name> --message <id> --config <path>` | Opens SQLite (RO) | No | Ref JSON | 0=found, 2=no SQLite |
 | `medre diagnostics --config <path>` | None | No | Build-time snapshot JSON | 0=ok, 2=config, 3=build |
 | `medre diagnostics --refresh-health --config <path>` | None | Yes (real or fake) | Live health snapshot JSON | 0=ok, 2=config, 3=build, 4=startup |
+| `medre run --config <path> --snapshot-on-shutdown` | Per config (SQLite or memory) | Yes (real or fake) | Logs + `{state_dir}/shutdown-snapshot.json` | 0=clean shutdown, 2=config, 3=build, 4=startup |
 
 
 ## 3. Report Shapes
@@ -742,15 +743,21 @@ PYTHONPATH=src medre smoke --drill <drill_name> --storage-path /tmp/medre-smoke.
    or multi-hop delivery.
 
 5. **Counters reset on restart.** `delivery_timeouts`, `delivery_rejections`,
-   `RouteStats`, `CapacityController` gauges are process-local. They reset to
-   zero on every startup.
+    `RouteStats`, `CapacityController` gauges are process-local. They reset to
+    zero on every startup. Use `medre run --snapshot-on-shutdown` to capture
+    these values to disk before the process exits.
 
 6. **`medre inspect` requires SQLite.** `medre inspect` subcommands exit with
-   code 2 if the config uses `backend = "memory"` or the database file does not
-   exist.
+    code 2 if the config uses `backend = "memory"` or the database file does not
+    exist.
 
-7. **Pre-beta.** Exit codes, receipt schemas, drill names, and report shapes
-   may change before beta. Always verify against the current code.
+7. **Shutdown snapshot is process-local.** The `--snapshot-on-shutdown` output
+    captures runtime events and counters at shutdown time, but these are
+    observations of process-local state. Runtime events do not survive the
+    process and are not in SQLite. Replay is manual and duplicate-risky.
+
+8. **Pre-beta.** Exit codes, receipt schemas, drill names, and report shapes
+    may change before beta. Always verify against the current code.
 
 
 ## 8. Cross-References
