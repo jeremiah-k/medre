@@ -225,6 +225,64 @@ Matrix is the closest to real operation. It has actual `nio` client code in `sta
 See contract 16 (`16-production-connectivity-readiness.md`) for a detailed readiness assessment per adapter.
 
 
+## 13. Adapter Delivery Error Hierarchy
+
+Base adapter delivery failure exceptions in `src/medre/adapters/base.py`:
+
+```python
+class AdapterSendError(Exception):
+    """Transient delivery failure — retryable subject to RetryPolicy."""
+    transient: bool = True
+
+class AdapterPermanentError(Exception):
+    """Permanent delivery failure — not retryable."""
+    transient: bool = False
+```
+
+Each adapter's `SendError` inherits from the appropriate base so that `classify_failure` can use `error.transient` to decide `ADAPTER_TRANSIENT` vs `ADAPTER_PERMANENT`:
+
+| Adapter | Transient base | Permanent base | Notes |
+|---|---|---|---|
+| Matrix | `MatrixSendError(AdapterSendError)` | `MatrixSendError(AdapterPermanentError)` (raised for auth/house-rule failures) | Single `MatrixSendError` class; transient flag set per-instance based on failure cause |
+| Meshtastic | `MeshtasticSendError(AdapterSendError)` | `MeshtasticSendError(AdapterPermanentError)` (payload encoding failures) | Session retries transient up to 3× |
+| MeshCore | `MeshCoreSendError(AdapterSendError)` | `MeshCoreSendError(AdapterPermanentError)` (invalid address) | Session retries transient up to 3× |
+| LXMF | `LxmfSendError(AdapterSendError)` | `LxmfSendError(AdapterPermanentError)` (invalid destination) | Session retries transient up to 3× |
+
+**Verdict: Consistent hierarchy.** All four adapters share the same transient/permanent split at the base level. The pipeline's `RetryExecutor.classify_failure` uses `getattr(error, 'transient', True)` to map to `DeliveryFailureKind.ADAPTER_TRANSIENT` (retryable) or `DeliveryFailureKind.ADAPTER_PERMANENT` (dead-letter). Exceptions without a `transient` attribute fall back to the standard Python type check (`TimeoutError`, `ConnectionError`, `OSError` → transient; everything else → permanent).
+
+
+## 14. Delivery Result Semantics
+
+### 14.1 What "sent" Means
+
+When `deliver()` returns an `AdapterDeliveryResult`, the adapter accepted the delivery — the handoff from pipeline to adapter succeeded. This is a **local acceptance** guarantee only. It does not mean the message reached any remote recipient, except for Matrix where the homeserver confirms storage.
+
+### 14.2 native_message_id
+
+Populated only when the adapter returns a platform-native message identifier from the transport SDK. Queue-based or fire-and-forget adapters may return `native_message_id=None` when no native send confirmation is available. In that case, `delivery_note` (see below) documents the local-acceptance status.
+
+### 14.3 delivery_note
+
+`AdapterDeliveryResult` gains an optional `delivery_note: str | None = None` field. This is a human-readable context string explaining the delivery outcome when the native IDs alone are insufficient. Use cases:
+
+- Queue-based adapters noting local-acceptance without platform ACK (e.g., `"no end-to-end ACK; status reflects local acceptance only"`).
+- MeshCore alpha noting the lack of end-to-end confirmation.
+- Any adapter providing diagnostic context about why `native_message_id` is `None`.
+
+`delivery_note` is informational only. Consumers must not parse it for control-flow decisions.
+
+### 14.4 Per-Adapter Result Summary
+
+| Adapter | native_message_id | delivery_note | What deliver() return means |
+|---|---|---|---|
+| Matrix | Matrix event ID (from `room_send` response) | `None` (server confirmation is authoritative) | Homeserver accepted and stored the message |
+| Meshtastic | `None` (no native send confirmation from queue) | May describe local-acceptance if adapter returns a result | Message was enqueued to outbound queue; actual radio send is async |
+| MeshCore | MeshCore message reference (from SDK send) | `"no end-to-end ACK; status reflects local acceptance only"` | SDK accepted the message for local transmission |
+| LXMF | LXMF message hash (from message creation) | `None` (hash is authoritative) | LXMF message was created and dispatched to LXMRouter |
+
+See Contract 22, Section 4.8 for the full per-adapter delivery table.
+
+
 ## Summary of Findings
 
 ### Intentional Inconsistencies (protocol-shaped)

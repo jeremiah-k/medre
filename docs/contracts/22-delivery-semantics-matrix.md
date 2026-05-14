@@ -162,7 +162,25 @@ The adapter's queueing mode (Contract 21, Section 4.1) determines how this is ha
 
 **What MEDRE cannot normalize:** MeshCore and LXMF have no native reply mechanism. MEDRE can carry reply metadata in the canonical event model, but the target transport will not render it as a threaded reply. It will appear as plain text or a quoted prefix. This is not a deficiency in MEDRE. It is a transport limitation. Code that assumes replies work identically across all transports is incorrect.
 
-### 4.7 Ordering
+### 4.7 Per-Adapter Delivery Summary
+
+Consolidated delivery behavior per adapter. This table summarizes what each adapter's `deliver()` completion means, how native IDs are sourced, and the error taxonomy for transient vs permanent failures.
+
+| Adapter | `deliver()` completion meaning | `native_message_id` source | `native_channel_id` source | `native_thread_id` source | Transient errors (types/patterns) | Permanent errors (types/patterns) | ACK / final-delivery limitation |
+|---------|-------------------------------|---------------------------|---------------------------|--------------------------|----------------------------------|----------------------------------|--------------------------------|
+| **Matrix** | SDK `room_send` returns `event_id`; homeserver accepted and stored | Matrix event ID (e.g. `$xxx`) from `RoomSendResponse` | Room ID string (e.g. `!roomid:server.tld`) | Thread root event ID via `m.relates_to` | Connection errors, rate-limit (HTTP 429), sync timeout, network unreachable | Auth failure (HTTP 401/403), room not joined, message too large | Synchronous server ACK. Server received ≠ delivered to clients. No end-to-end delivery receipt. |
+| **MeshCore** | SDK `send_text()` / `send_data()` returns; message locally accepted | MeshCore message reference (timestamp-based) from SDK send return | Channel slot index as string | `None` (no native threading) | Transport timeout, connection reset, serial link failure | Invalid address, payload encoding failure, config error | No end-to-end ACK. `delivery_note` documents local-acceptance only. |
+| **Meshtastic** | Message locally enqueued to outbound queue | `None` — no native send confirmation at enqueue time | Channel index as string | `None` (no native threading) | Serial/connection failures, timeout, queue capacity exhaustion | Payload encoding failure, config error | Local-acceptance only. Actual radio send is async via queue worker. No platform ACK returned to caller. |
+| **LXMF** | LXMF message dispatched to `LXMRouter` | LXMF message hash (hex of `LXMessage.hash`) | Destination hash (16B hex) | `None` (no native threading) | Propagation delay, transport timeout, Reticulum link failure | Invalid destination hash, config error | Store-and-forward eventual delivery. Async state progression (`outbound` → `delivered`/`failed`). Delivery receipts available but asynchronous. |
+
+**Key asymmetries preserved:**
+
+- Matrix is the only adapter where `deliver()` completion implies confirmed server-side storage.
+- Meshtastic is the only adapter where `native_message_id` is `None` at `deliver()` return time (queue-based, no synchronous send confirmation).
+- MeshCore returns a local reference but explicitly notes local-acceptance via `delivery_note` since there is no end-to-end ACK.
+- LXMF returns a content-addressed hash immediately, but actual delivery is asynchronous through the mesh.
+
+### 4.8 Ordering
 
 | Dimension | Matrix | Meshtastic | MeshCore | LXMF |
 |-----------|--------|------------|----------|------|

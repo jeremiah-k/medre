@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from medre.adapters import FakeMatrixAdapter, FakePresentationAdapter
-from medre.adapters.base import AdapterDeliveryResult
+from medre.adapters.base import AdapterDeliveryResult, AdapterPermanentError
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.codec import MatrixCodec
 from medre.adapters.matrix.compat import HAS_NIO
@@ -306,7 +306,7 @@ class TestMatrixDeliveryHygiene:
             target_channel=None,
             payload={"msgtype": "m.text", "body": "hello"},
         )
-        with pytest.raises(MatrixSendError, match="no room_id"):
+        with pytest.raises((MatrixSendError, AdapterPermanentError), match="no room_id"):
             await adapter.deliver(result)
 
     async def test_deliver_does_not_mutate_original_payload(self) -> None:
@@ -465,7 +465,7 @@ class TestMatrixDeliveryNioResponseHardening:
             target_channel="!room:server",
             payload={"msgtype": "m.text", "body": "hello"},
         )
-        with pytest.raises(MatrixSendError, match="M_FORBIDDEN"):
+        with pytest.raises((MatrixSendError, AdapterPermanentError), match="M_FORBIDDEN"):
             await adapter.deliver(result)
 
     async def test_none_event_id_raises_matrix_send_error(self) -> None:
@@ -485,7 +485,7 @@ class TestMatrixDeliveryNioResponseHardening:
             target_channel="!room:server",
             payload={"msgtype": "m.text", "body": "hello"},
         )
-        with pytest.raises(MatrixSendError, match="empty/missing event_id"):
+        with pytest.raises((MatrixSendError, AdapterPermanentError), match="empty/missing event_id"):
             await adapter.deliver(result)
 
     async def test_empty_event_id_raises_matrix_send_error(self) -> None:
@@ -505,7 +505,7 @@ class TestMatrixDeliveryNioResponseHardening:
             target_channel="!room:server",
             payload={"msgtype": "m.text", "body": "hello"},
         )
-        with pytest.raises(MatrixSendError, match="empty/missing event_id"):
+        with pytest.raises((MatrixSendError, AdapterPermanentError), match="empty/missing event_id"):
             await adapter.deliver(result)
 
     async def test_client_not_connected_raises(self) -> None:
@@ -520,7 +520,7 @@ class TestMatrixDeliveryNioResponseHardening:
             target_channel="!room:server",
             payload={"msgtype": "m.text", "body": "hello"},
         )
-        with pytest.raises(MatrixSendError, match="not connected"):
+        with pytest.raises((MatrixSendError, AdapterPermanentError), match="not connected"):
             await adapter.deliver(result)
 
     async def test_delivery_without_target_room_fails(self) -> None:
@@ -537,7 +537,7 @@ class TestMatrixDeliveryNioResponseHardening:
             target_channel=None,
             payload={"msgtype": "m.text", "body": "hello"},
         )
-        with pytest.raises(MatrixSendError, match="no room_id"):
+        with pytest.raises((MatrixSendError, AdapterPermanentError), match="no room_id"):
             await adapter.deliver(result)
 
     async def test_failed_delivery_does_not_persist_native_ref(self) -> None:
@@ -558,7 +558,7 @@ class TestMatrixDeliveryNioResponseHardening:
             payload={"msgtype": "m.text", "body": "hello"},
         )
         # Must raise, not silently return a bad native ref
-        with pytest.raises(MatrixSendError):
+        with pytest.raises((MatrixSendError, AdapterPermanentError)):
             await adapter.deliver(result)
 
 

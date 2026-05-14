@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 
 import pytest
 
+from medre.adapters.base import AdapterPermanentError
 from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
 from medre.adapters.meshcore.config import MeshCoreConfig
 from medre.adapters.meshcore.codec import MeshCoreCodec
@@ -453,7 +454,7 @@ class TestMeshCoreAdapterDeliveryBoundary:
             payload={"body": "hello"},
             metadata=EventMetadata(),
         )
-        with pytest.raises(TypeError, match="RenderingResult only"):
+        with pytest.raises((TypeError, AdapterPermanentError), match="RenderingResult only"):
             await adapter.deliver(event)
 
     async def test_real_meshcore_rejects_canonical_event(self) -> None:
@@ -473,7 +474,7 @@ class TestMeshCoreAdapterDeliveryBoundary:
             payload={"body": "hello"},
             metadata=EventMetadata(),
         )
-        with pytest.raises(TypeError, match="RenderingResult only"):
+        with pytest.raises((TypeError, AdapterPermanentError), match="RenderingResult only"):
             await adapter.deliver(event)
 
 

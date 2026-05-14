@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 import pytest
 
 from medre.adapters import AdapterRole, FakeMeshCoreAdapter
-from medre.adapters.base import AdapterContext, AdapterDeliveryResult
+from medre.adapters.base import AdapterContext, AdapterDeliveryResult, AdapterPermanentError
 from medre.adapters.meshcore.adapter import MeshCoreAdapter
 from medre.adapters.meshcore.config import MeshCoreConfig
 from medre.adapters.meshcore.errors import MeshCoreConnectionError, MeshCoreSendError
@@ -331,7 +331,7 @@ class TestFakeMeshCoreAdapterDeliver:
             payload={"body": "hello"},
             metadata=EventMetadata(),
         )
-        with pytest.raises(TypeError, match="RenderingResult only"):
+        with pytest.raises((TypeError, AdapterPermanentError), match="RenderingResult only"):
             await adapter.deliver(event)
 
     async def test_deliver_failure_raises_send_error(self) -> None:
@@ -526,7 +526,7 @@ class TestMeshCoreAdapterDelivery:
             payload={"body": "hello"},
             metadata=EventMetadata(),
         )
-        with pytest.raises(TypeError, match="RenderingResult only"):
+        with pytest.raises((TypeError, AdapterPermanentError), match="RenderingResult only"):
             await adapter.deliver(event)
 
     async def test_simulate_inbound(
@@ -880,12 +880,12 @@ class TestMalformedSDKResponse:
         await session.stop()
 
     async def test_real_adapter_handles_session_not_initialised(self) -> None:
-        """When session is None, adapter raises MeshCoreSendError."""
+        """When session is None, adapter raises AdapterPermanentError."""
         config = _make_config(connection_type="tcp", host="1.2.3.4")
         adapter = MeshCoreAdapter(config)
         # Don't start — session remains None.
         result = _make_rendering_result()
-        with pytest.raises(MeshCoreSendError, match="Session not initialised"):
+        with pytest.raises(AdapterPermanentError, match="Session not initialised"):
             await adapter.deliver(result)
 
 

@@ -59,7 +59,9 @@ from medre.adapters.base import (
     AdapterContext,
     AdapterDeliveryResult,
     AdapterInfo,
+    AdapterPermanentError,
     AdapterRole,
+    AdapterSendError,
     BaseAdapter,
 )
 from medre.adapters.meshtastic.codec import MeshtasticCodec
@@ -271,7 +273,7 @@ class MeshtasticAdapter(BaseAdapter):
             If *result* is not a :class:`RenderingResult`.
         """
         if not isinstance(result, RenderingResult):
-            raise TypeError(
+            raise AdapterPermanentError(
                 f"MeshtasticAdapter.deliver() accepts RenderingResult only, "
                 f"got {type(result).__name__}. Use simulate_inbound() for "
                 f"the inbound path."
@@ -282,11 +284,18 @@ class MeshtasticAdapter(BaseAdapter):
         if not isinstance(channel_index, int):
             channel_index = self._config.default_channel
 
-        await self._queue.enqueue(payload, channel_index)
+        try:
+            await self._queue.enqueue(payload, channel_index)
+        except (TimeoutError, ConnectionError, OSError) as exc:
+            raise AdapterSendError(str(exc), transient=True) from exc
 
-        # Scaffold: enqueue only; actual send is async via queue.process_one.
-        # Returns None — no overclaim of delivery completion.
-        return None
+        # Queue-based enqueue accepted locally.  Actual send is async via
+        # queue.process_one.  No native message ID is available yet.
+        return AdapterDeliveryResult(
+            native_message_id=None,
+            native_channel_id=str(channel_index),
+            delivery_note="locally enqueued",
+        )
 
     # -- Inbound callback ---------------------------------------------------
 

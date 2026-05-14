@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 
 import pytest
 
+from medre.adapters.base import AdapterPermanentError
 from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
 from medre.adapters.meshtastic.config import MeshtasticConfig
 from medre.adapters.meshtastic.codec import MeshtasticCodec
@@ -314,7 +315,7 @@ class TestMeshtasticAdapterDeliveryBoundary:
             payload={"body": "hello"},
             metadata=EventMetadata(),
         )
-        with pytest.raises(TypeError, match="RenderingResult only"):
+        with pytest.raises((TypeError, AdapterPermanentError), match="RenderingResult only"):
             await adapter.deliver(event)
 
 
@@ -374,7 +375,8 @@ class TestMeshtasticOutboundNativeRefs:
         assert delivery.native_channel_id == "0"
 
     async def test_real_adapter_returns_none_in_tranche1(self) -> None:
-        """Real MeshtasticAdapter.deliver() returns None (scaffolded)."""
+        """Real MeshtasticAdapter.deliver() returns AdapterDeliveryResult with
+        delivery_note='locally enqueued' and native_message_id=None (queue-based)."""
         config = MeshtasticConfig(adapter_id="mesh-1")
         adapter = MeshtasticAdapter(config)
         result = RenderingResult(
@@ -384,8 +386,10 @@ class TestMeshtasticOutboundNativeRefs:
             payload={"text": "test", "channel_index": 0},
         )
         delivery = await adapter.deliver(result)
-        # Real adapter is scaffolded — returns None (no outbound native refs)
-        assert delivery is None
+        # Queue-based adapter: returns result with no native_message_id
+        assert delivery is not None
+        assert delivery.native_message_id is None
+        assert delivery.delivery_note == "locally enqueued"
 
 
 # ===================================================================
@@ -478,7 +482,7 @@ class TestMeshtasticAdapterLifecycleBoundaries:
         await adapter.stop()
 
     async def test_real_adapter_deliver_does_not_send(self) -> None:
-        """Real adapter deliver() only enqueues — never sends directly."""
+        """Real adapter deliver() only enqueues — returns delivery_note, no native ID."""
         config = MeshtasticConfig(adapter_id="mesh-1")
         adapter = MeshtasticAdapter(config)
         result = RenderingResult(
@@ -488,8 +492,10 @@ class TestMeshtasticAdapterLifecycleBoundaries:
             payload={"text": "test", "channel_index": 0},
         )
         delivery = await adapter.deliver(result)
-        # deliver() returns None — no overclaim of send
-        assert delivery is None
+        # Queue-based: returns result with no native_message_id
+        assert delivery is not None
+        assert delivery.native_message_id is None
+        assert delivery.delivery_note == "locally enqueued"
         # But the payload is in the queue
         assert adapter.queue.pending_count == 1
 

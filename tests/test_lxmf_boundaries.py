@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 
 import pytest
 
+from medre.adapters.base import AdapterPermanentError, AdapterSendError
 from medre.adapters.fake_lxmf import FakeLxmfAdapter
 from medre.adapters.lxmf.config import LxmfConfig
 from medre.adapters.lxmf.codec import LxmfCodec
@@ -395,7 +396,7 @@ class TestLxmfAdapterDeliveryBoundary:
             payload={"body": "hello"},
             metadata=EventMetadata(),
         )
-        with pytest.raises(TypeError, match="RenderingResult only"):
+        with pytest.raises((TypeError, AdapterPermanentError), match="RenderingResult only"):
             await adapter.deliver(event)
 
     async def test_real_lxmf_rejects_canonical_event(self) -> None:
@@ -415,7 +416,7 @@ class TestLxmfAdapterDeliveryBoundary:
             payload={"body": "hello"},
             metadata=EventMetadata(),
         )
-        with pytest.raises(TypeError, match="RenderingResult only"):
+        with pytest.raises((TypeError, AdapterPermanentError), match="RenderingResult only"):
             await adapter.deliver(event)
 
 
@@ -493,7 +494,7 @@ class TestLxmfOutboundNativeRefs:
             target_channel=None,
             payload={"content": "test", "title": "", "fields": {}},
         )
-        with pytest.raises(LxmfSendError, match="not connected"):
+        with pytest.raises(AdapterSendError, match="not connected"):
             await adapter.deliver(result)
 
 

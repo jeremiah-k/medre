@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from medre.adapters import AdapterRole, FakeMeshtasticAdapter
-from medre.adapters.base import AdapterContext, AdapterDeliveryResult
+from medre.adapters.base import AdapterContext, AdapterDeliveryResult, AdapterPermanentError
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.adapters.meshtastic.config import MeshtasticConfig
 from medre.adapters.meshtastic.session import MeshtasticSession
@@ -231,7 +231,7 @@ class TestFakeMeshtasticAdapterDeliver:
             payload={"body": "hello"},
             metadata=EventMetadata(),
         )
-        with pytest.raises(TypeError, match="RenderingResult only"):
+        with pytest.raises((TypeError, AdapterPermanentError), match="RenderingResult only"):
             await adapter.deliver(event)
 
     async def test_deliver_failure_raises_send_error(self) -> None:
@@ -455,12 +455,15 @@ class TestMeshtasticAdapterLifecycle:
         assert info.health == "unknown"
 
     async def test_deliver_returns_none_scaffold(self) -> None:
-        """Real adapter deliver() enqueues and returns None (scaffold)."""
+        """Real adapter deliver() enqueues and returns AdapterDeliveryResult with
+        delivery_note='locally enqueued' and native_message_id=None."""
         config = _make_config(connection_type="fake")
         adapter = MeshtasticAdapter(config)
         result = _make_rendering_result()
         delivery = await adapter.deliver(result)
-        assert delivery is None
+        assert delivery is not None
+        assert delivery.native_message_id is None
+        assert delivery.delivery_note == "locally enqueued"
 
     async def test_deliver_enqueues_to_queue(self) -> None:
         """deliver() puts the payload into the adapter-owned queue."""
@@ -487,7 +490,7 @@ class TestMeshtasticAdapterLifecycle:
             payload={"body": "hello"},
             metadata=EventMetadata(),
         )
-        with pytest.raises(TypeError, match="RenderingResult only"):
+        with pytest.raises((TypeError, AdapterPermanentError), match="RenderingResult only"):
             await adapter.deliver(event)
 
     async def test_simulate_inbound(
@@ -1120,13 +1123,16 @@ class TestMeshtasticAdapterSendSemantics:
     """Audit: deliver() enqueues/returns None; send semantics documented."""
 
     async def test_deliver_return_none_documented(self) -> None:
-        """Real adapter deliver() returns None — no overclaim of delivery."""
+        """Real adapter deliver() returns AdapterDeliveryResult with
+        delivery_note='locally enqueued' and native_message_id=None."""
         config = _make_config(connection_type="fake")
         adapter = MeshtasticAdapter(config)
         result = _make_rendering_result()
         delivery = await adapter.deliver(result)
-        # Scaffold: enqueue only, returns None
-        assert delivery is None
+        # Queue-based: returns result with no native_message_id
+        assert delivery is not None
+        assert delivery.native_message_id is None
+        assert delivery.delivery_note == "locally enqueued"
 
     async def test_queue_process_one_without_send_fn_returns_none(self) -> None:
         """process_one without send_fn returns None (scaffold mode)."""

@@ -13,7 +13,7 @@ This is a contract document. No runtime redesign, adapter abstraction, or new de
 
 ## 1. Scope
 
-- `AdapterDeliveryResult` field semantics: `native_message_id`, `native_channel_id`, `metadata`, and delivery state.
+- `AdapterDeliveryResult` field semantics: `native_message_id`, `native_channel_id`, `delivery_note`, `metadata`, and delivery state.
 - Per-transport delivery models: pending vs sent vs delivered.
 - The meaning of immediate return vs final delivery.
 - Failed send behavior.
@@ -39,6 +39,7 @@ class AdapterDeliveryResult:
     native_channel_id: str | None = None
     native_thread_id: str | None = None
     native_relation_id: str | None = None
+    delivery_note: str | None = None
     metadata: MappingProxyType[str, object] = field(
         default_factory=lambda: MappingProxyType({})
     )
@@ -81,12 +82,22 @@ Immutable, namespaced delivery metadata. Empty `MappingProxyType` by default. On
 
 Populated when the platform supports reply threading or message relations. Currently used for Matrix reply threading via `m.relates_to`. Other transports do not have native threading support, so these remain `None`.
 
+### 4.5 delivery_note
+
+Optional human-readable context string (`str | None`, default `None`). Explains the delivery outcome when native IDs alone are insufficient. Use cases:
+
+- Queue-based adapters noting local-acceptance without platform ACK (e.g., Meshtastic: message enqueued but no radio confirmation).
+- MeshCore noting the absence of end-to-end ACK: `"no end-to-end ACK; status reflects local acceptance only"`.
+- Any adapter providing diagnostic context about why `native_message_id` is `None`.
+
+`delivery_note` is informational only. Consumers must not parse it for control-flow decisions. It is not structured metadata — use `metadata` for machine-readable fields.
+
 
 ## 5. Delivery State Semantics
 
 ### 5.1 Immediate Return Does Not Imply Final Delivery
 
-`deliver()` returning `AdapterDeliveryResult` means the transport accepted the message. It does **not** mean the message reached its destination, except for Matrix where the homeserver confirms storage.
+`deliver()` returning `AdapterDeliveryResult` means the adapter accepted the delivery — the handoff from pipeline to adapter succeeded. It does **not** mean the message reached its destination, except for Matrix where the homeserver confirms storage. When `native_message_id` is `None`, the `delivery_note` field documents the local-acceptance status.
 
 | Transport | What `deliver()` return means |
 |-----------|------------------------------|
@@ -102,7 +113,7 @@ Transports with asynchronous delivery models report initial states that are not 
 | Transport | Initial Reported State | Final State |
 |-----------|----------------------|-------------|
 | Matrix | Sent (synchronous confirmation) | Sent (server-stored, effectively final) |
-| Meshtastic | Queued (returns `None` from `deliver()`) | Unknown (fire-and-forget) |
+| Meshtastic | Queued (returns `None` from `deliver()`) or `AdapterDeliveryResult` with `delivery_note` documenting local-acceptance | Unknown (fire-and-forget) |
 | MeshCore | Sent (SDK accepted) | Unknown (fire-and-forget) |
 | LXMF | Typically `"outbound"` | May progress to `"delivered"`, `"failed"`, `"rejected"`, or `"cancelled"` |
 
@@ -135,7 +146,7 @@ metadata=MappingProxyType({
 
 ### 6.1 Failed Sends Avoid Native Refs
 
-When a send fails (transient exhaustion or permanent error), the adapter raises a transport-specific exception. No `AdapterDeliveryResult` is returned. This means:
+When a send fails (transient exhaustion or permanent error), the adapter raises an exception inheriting from `AdapterSendError` (transient, `transient=True`) or `AdapterPermanentError` (permanent, `transient=False`). No `AdapterDeliveryResult` is returned. This means:
 
 - No `native_message_id` is generated for failed sends.
 - The pipeline records the failure via the delivery receipt system (contract 21).
@@ -145,12 +156,12 @@ When a send fails (transient exhaustion or permanent error), the adapter raises 
 
 | Transport | Transient Failure | Permanent Failure |
 |-----------|-------------------|-------------------|
-| Matrix | Retry up to 3x with exponential backoff (500ms, 1s, 2s +-25% jitter). On exhaustion: raise `MatrixSendError`. | Raise `MatrixSendError` immediately. |
-| Meshtastic | Session retries send up to 3x. On exhaustion: increment `transient_delivery_failures`, raise `MeshtasticSendError`. | Increment `permanent_delivery_failures`, raise `MeshtasticSendError`. |
-| MeshCore | Session retries send up to 3x. On exhaustion: increment counters, raise `MeshCoreSendError`. | Increment counters, raise `MeshCoreSendError`. |
-| LXMF | Session retries send up to 3x. On exhaustion: increment counters, raise `LxmfSendError`. | Increment counters, raise `LxmfSendError`. |
+| Matrix | Retry up to 3x with exponential backoff (500ms, 1s, 2s +-25% jitter). On exhaustion: raise `MatrixSendError(AdapterSendError)` with `transient=True`. | Raise `MatrixSendError(AdapterPermanentError)` immediately with `transient=False`. |
+| Meshtastic | Session retries send up to 3x. On exhaustion: increment `transient_delivery_failures`, raise `MeshtasticSendError(AdapterSendError)` with `transient=True`. | Increment `permanent_delivery_failures`, raise `MeshtasticSendError(AdapterPermanentError)` with `transient=False`. |
+| MeshCore | Session retries send up to 3x. On exhaustion: increment counters, raise `MeshCoreSendError(AdapterSendError)` with `transient=True`. | Increment counters, raise `MeshCoreSendError(AdapterPermanentError)` with `transient=False`. |
+| LXMF | Session retries send up to 3x. On exhaustion: increment counters, raise `LxmfSendError(AdapterSendError)` with `transient=True`. | Increment counters, raise `LxmfSendError(AdapterPermanentError)` with `transient=False`. |
 
-All four adapters let exceptions propagate to the pipeline, which records delivery receipts. See `phase-1-limitations.md` Track 3 for the retry/dead-letter system.
+All four adapters let exceptions propagate to the pipeline, which records delivery receipts. The pipeline's `classify_failure` uses `error.transient` to map to `DeliveryFailureKind.ADAPTER_TRANSIENT` (retryable) or `DeliveryFailureKind.ADAPTER_PERMANENT` (dead-letter). See Contract 33 for the full failure taxonomy.
 
 ### 6.3 Meshtastic: `deliver()` Returns `None` When Queued
 

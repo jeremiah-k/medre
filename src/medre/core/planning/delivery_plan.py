@@ -22,6 +22,7 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import TYPE_CHECKING, Literal
 
+from medre.adapters.base import AdapterSendError
 from medre.core.events.canonical import DeliveryReceipt
 
 if TYPE_CHECKING:
@@ -433,6 +434,13 @@ class RetryExecutor:
             return DeliveryFailureKind.ADAPTER_MISSING
         if deadline is not None and datetime.now(tz=timezone.utc) > deadline:
             return DeliveryFailureKind.DEADLINE_EXCEEDED
+        # AdapterSendError carries an explicit transient flag — trust it.
+        if isinstance(error, AdapterSendError):
+            return (
+                DeliveryFailureKind.ADAPTER_TRANSIENT
+                if error.transient
+                else DeliveryFailureKind.ADAPTER_PERMANENT
+            )
         transient_types = (
             TimeoutError,
             ConnectionError,

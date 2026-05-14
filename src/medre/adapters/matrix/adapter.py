@@ -20,7 +20,9 @@ from medre.adapters.base import (
     AdapterContext,
     AdapterDeliveryResult,
     AdapterInfo,
+    AdapterPermanentError,
     AdapterRole,
+    AdapterSendError,
     BaseAdapter,
 )
 from medre.adapters.matrix.codec import MatrixCodec
@@ -370,14 +372,14 @@ class MatrixAdapter(BaseAdapter):
         """
         client = self._client
         if client is None:
-            raise MatrixSendError("client is not connected")
+            raise AdapterPermanentError("client is not connected")
 
         payload_room_id = result.payload.get("room_id")
         room_id = result.target_channel or (
             payload_room_id if isinstance(payload_room_id, str) else ""
         )
         if not room_id:
-            raise MatrixSendError("no room_id in result")
+            raise AdapterPermanentError("no room_id in result")
 
         self._check_encrypted_room_safety(room_id, client)
 
@@ -401,7 +403,7 @@ class MatrixAdapter(BaseAdapter):
                 if hasattr(response, "event_id"):
                     event_id = response.event_id
                     if not event_id:
-                        raise MatrixSendError(
+                        raise AdapterPermanentError(
                             "homeserver returned empty/missing event_id; "
                             "delivery may not have been recorded"
                         )
@@ -411,9 +413,9 @@ class MatrixAdapter(BaseAdapter):
                     )
                 else:
                     # Error response (nio ErrorResponse or similar)
-                    raise MatrixSendError(str(response))
+                    raise AdapterPermanentError(str(response))
 
-            except MatrixSendError:
+            except (MatrixSendError, AdapterPermanentError):
                 # Non-transient — raise immediately
                 self._permanent_delivery_failures += 1
                 raise
@@ -427,19 +429,21 @@ class MatrixAdapter(BaseAdapter):
                         actual_delay = max(0.0, delay + random.uniform(-jitter, jitter))
                         await asyncio.sleep(actual_delay)
                         continue
-                    # Exhausted retries
+                    # Exhausted retries — still transient so pipeline may
+                    # retry at its own level.
                     self._permanent_delivery_failures += 1
-                    raise MatrixSendError(
+                    raise AdapterSendError(
                         f"Delivery failed after {_MAX_DELIVERY_RETRIES} "
-                        f"transient retries: {exc}"
+                        f"transient retries: {exc}",
+                        transient=True,
                     ) from exc
                 else:
                     # Non-transient unexpected error
                     self._permanent_delivery_failures += 1
-                    raise MatrixSendError(str(exc)) from exc
+                    raise AdapterPermanentError(str(exc)) from exc
 
         # Should not reach here, but safety net
-        raise MatrixSendError(
+        raise AdapterPermanentError(
             f"Delivery failed: {last_exc}"
         ) from last_exc
 

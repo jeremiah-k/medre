@@ -25,7 +25,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from medre.adapters.base import AdapterContext
+from medre.adapters.base import AdapterContext, AdapterPermanentError, AdapterSendError
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.compat import HAS_E2EE, HAS_NIO
 from medre.adapters.matrix.config import MatrixConfig
@@ -2062,7 +2062,7 @@ class TestDeliveryRetry:
             )
 
             with patch("asyncio.sleep", new_callable=AsyncMock):
-                with pytest.raises(MatrixSendError, match="transient retries"):
+                with pytest.raises((MatrixSendError, AdapterSendError), match="transient retries"):
                     await adapter.deliver(result)
 
             assert call_count == 3
@@ -2098,7 +2098,7 @@ class TestDeliveryRetry:
                 target_channel="!room:example.com",
             )
 
-            with pytest.raises(MatrixSendError):
+            with pytest.raises((MatrixSendError, AdapterPermanentError)):
                 await adapter.deliver(result)
 
             assert call_count == 1

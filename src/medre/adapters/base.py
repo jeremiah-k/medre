@@ -34,6 +34,47 @@ from medre.core.rendering.renderer import RenderingResult
 
 
 # ---------------------------------------------------------------------------
+# Adapter error hierarchy
+# ---------------------------------------------------------------------------
+
+
+class AdapterSendError(Exception):
+    """Base error raised by adapters when delivery fails.
+
+    Carries a ``transient`` flag so that the delivery planning layer can
+    classify the failure without inspecting exception type names.
+
+    Subclasses and adapters should set ``transient=True`` (the default)
+    for network / transport / timeout errors that may succeed on retry,
+    and ``transient=False`` (or use :class:`AdapterPermanentError`) for
+    config / auth / malformed-payload errors that will not self-correct.
+
+    Attributes
+    ----------
+    transient:
+        ``True`` if the error is retryable; ``False`` if permanent.
+    """
+
+    transient: bool
+
+    def __init__(self, *args: object, transient: bool = True) -> None:
+        self.transient = transient
+        super().__init__(*args)
+
+
+class AdapterPermanentError(AdapterSendError):
+    """Permanent delivery error — retrying will not help.
+
+    Use for config errors, authentication failures, malformed payloads,
+    business-logic rejections, and any condition that requires human
+    intervention to resolve.
+    """
+
+    def __init__(self, *args: object) -> None:
+        super().__init__(*args, transient=False)
+
+
+# ---------------------------------------------------------------------------
 # Adapter delivery result
 # ---------------------------------------------------------------------------
 
@@ -48,11 +89,17 @@ class AdapterDeliveryResult:
     The pipeline owns receipts and storage; adapters only report what
     the platform returned.
 
+    ``sent`` (status ``"sent"``) means the adapter accepted / handoff
+    succeeded.  For queue-based transports (e.g. Meshtastic) the message
+    may still be in-flight; check ``delivery_note`` for context.
+
     Attributes
     ----------
     native_message_id:
         Platform-native message ID (e.g. a Matrix ``event_id``).
-        ``None`` when the platform did not return one.
+        ``None`` when the platform did not return one, or for queue-based
+        sends where the adapter accepted locally but a native ID is not
+        yet available.
     native_channel_id:
         Platform-native channel / room / conversation ID.
     native_thread_id:
@@ -61,6 +108,9 @@ class AdapterDeliveryResult:
         Platform-native ID of the related entity (e.g. the message
         being replied to), if applicable.  **Reserved** — no adapter
         currently populates this field.
+    delivery_note:
+        Human-readable context about the delivery.  Used by queue-based
+        adapters to explain local-acceptance without a native ACK.
     metadata:
         Adapter-specific immutable metadata about the delivery.
     """
@@ -69,6 +119,7 @@ class AdapterDeliveryResult:
     native_channel_id: str | None = None
     native_thread_id: str | None = None
     native_relation_id: str | None = None
+    delivery_note: str = ""
     metadata: MappingProxyType[str, object] = field(
         default_factory=lambda: MappingProxyType({})
     )

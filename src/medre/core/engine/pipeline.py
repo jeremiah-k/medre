@@ -31,7 +31,12 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Callable, Awaitable, Literal
 
-from medre.adapters.base import AdapterCapabilities, AdapterDeliveryResult, BaseAdapter
+from medre.adapters.base import (
+    AdapterCapabilities,
+    AdapterDeliveryResult,
+    AdapterSendError,
+    BaseAdapter,
+)
 from medre.core.events.canonical import (
     CanonicalEvent,
     DeliveryReceipt,
@@ -1066,6 +1071,10 @@ class PipelineRunner:
                 plan.plan_id,
                 attempt_number,
             )
+        except asyncio.CancelledError:
+            # CancelledError must propagate directly — never caught and
+            # classified as a delivery failure.
+            raise
         except Exception as exc:
             status = "failed"
             error = f"{type(exc).__name__}: {exc}"

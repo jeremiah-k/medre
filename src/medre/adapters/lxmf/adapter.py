@@ -50,7 +50,9 @@ from medre.adapters.base import (
     AdapterContext,
     AdapterDeliveryResult,
     AdapterInfo,
+    AdapterPermanentError,
     AdapterRole,
+    AdapterSendError,
     BaseAdapter,
 )
 from medre.adapters.lxmf.codec import LxmfCodec
@@ -311,7 +313,7 @@ class LxmfAdapter(BaseAdapter):
             If the send fails permanently.
         """
         if not isinstance(result, RenderingResult):
-            raise TypeError(
+            raise AdapterPermanentError(
                 f"LxmfAdapter.deliver() accepts RenderingResult only, "
                 f"got {type(result).__name__}. Use simulate_inbound() for "
                 f"the inbound path."
@@ -330,19 +332,24 @@ class LxmfAdapter(BaseAdapter):
         if not content and not title:
             return None
 
-        native_id, delivery_state = await self._session.send_text(
-            destination_hash=str(destination_hash),
-            content=str(content),
-            title=str(title),
-            delivery_method=(
-                str(delivery_method) if delivery_method else None
-            ),
-            fields=fields if isinstance(fields, dict) else None,
-        )
+        try:
+            native_id, delivery_state = await self._session.send_text(
+                destination_hash=str(destination_hash),
+                content=str(content),
+                title=str(title),
+                delivery_method=(
+                    str(delivery_method) if delivery_method else None
+                ),
+                fields=fields if isinstance(fields, dict) else None,
+            )
+        except LxmfSendError as exc:
+            raise AdapterSendError(str(exc), transient=True) from exc
+        except (TimeoutError, ConnectionError, OSError) as exc:
+            raise AdapterSendError(str(exc), transient=True) from exc
 
         return AdapterDeliveryResult(
             native_message_id=native_id,
-            native_channel_id=None,
+            native_channel_id=str(destination_hash) if destination_hash else None,
             metadata=MappingProxyType({
                 "lxmf": {
                     "delivery_state": delivery_state.value,

@@ -34,7 +34,9 @@ from medre.adapters.base import (
     AdapterContext,
     AdapterDeliveryResult,
     AdapterInfo,
+    AdapterPermanentError,
     AdapterRole,
+    AdapterSendError,
     BaseAdapter,
 )
 from medre.adapters.fake_lxmf import FakeLxmfAdapter
@@ -54,7 +56,9 @@ __all__ = [
     "AdapterContext",
     "AdapterDeliveryResult",
     "AdapterInfo",
+    "AdapterPermanentError",
     "AdapterRole",
+    "AdapterSendError",
     "BaseAdapter",
     # fake adapters
     "FakeLxmfAdapter",

@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 import pytest
 
 from medre.adapters import AdapterRole, FakeLxmfAdapter
-from medre.adapters.base import AdapterContext, AdapterDeliveryResult
+from medre.adapters.base import AdapterContext, AdapterDeliveryResult, AdapterPermanentError
 from medre.adapters.lxmf.adapter import LxmfAdapter
 from medre.adapters.lxmf.config import LxmfConfig
 from medre.adapters.lxmf.compat import HAS_LXMF
@@ -280,7 +280,7 @@ class TestLxmfAdapterLifecycle:
             payload={"body": "hello"},
             metadata=EventMetadata(),
         )
-        with pytest.raises(TypeError, match="RenderingResult only"):
+        with pytest.raises((TypeError, AdapterPermanentError), match="RenderingResult only"):
             await adapter.deliver(event)
 
     async def test_simulate_inbound(
@@ -466,7 +466,7 @@ class TestFakeLxmfAdapterDeliver:
             payload={"body": "hello"},
             metadata=EventMetadata(),
         )
-        with pytest.raises(TypeError, match="RenderingResult only"):
+        with pytest.raises((TypeError, AdapterPermanentError), match="RenderingResult only"):
             await adapter.deliver(event)
 
     async def test_deliver_failure_raises_send_error(self) -> None:

@@ -34,6 +34,7 @@ The routing layer adds attribution (`route_id`, `source_adapter`, `dest_adapter`
 | `native_channel_id` | `str` or `None` | Platform-native channel / room / conversation ID. |
 | `native_thread_id` | `str` or `None` | Platform-native thread or parent message ID. |
 | `native_relation_id` | `str` or `None` | Platform-native ID of the related entity (e.g., the message being replied to). |
+| `delivery_note` | `str` or `None` | Optional human-readable context string explaining the delivery outcome (e.g., local-acceptance without platform ACK). Informational only; not for control-flow. |
 | `metadata` | `MappingProxyType[str, object]` | Adapter-specific immutable metadata about the delivery. |
 
 ### 2.2 Flow Through Routing

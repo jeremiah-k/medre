@@ -53,7 +53,9 @@ from medre.adapters.base import (
     AdapterContext,
     AdapterDeliveryResult,
     AdapterInfo,
+    AdapterPermanentError,
     AdapterRole,
+    AdapterSendError,
     BaseAdapter,
 )
 from medre.adapters.meshcore.codec import MeshCoreCodec
@@ -263,7 +265,7 @@ class MeshCoreAdapter(BaseAdapter):
             If the session send fails after retries.
         """
         if not isinstance(result, RenderingResult):
-            raise TypeError(
+            raise AdapterPermanentError(
                 f"MeshCoreAdapter.deliver() accepts RenderingResult only, "
                 f"got {type(result).__name__}. Use simulate_inbound() for "
                 f"the inbound path."
@@ -275,7 +277,7 @@ class MeshCoreAdapter(BaseAdapter):
 
         # Real mode: delegate to session.
         if self._session is None:
-            raise MeshCoreSendError("Session not initialised")
+            raise AdapterPermanentError("Session not initialised")
 
         payload = result.payload
         if not isinstance(payload, dict):
@@ -285,11 +287,16 @@ class MeshCoreAdapter(BaseAdapter):
         channel_index = payload.get("channel_index")
         contact_id = str(payload.get("contact_id", ""))
 
-        native_id = await self._session.send_text(
-            contact_id=contact_id,
-            text=str(text),
-            channel_index=channel_index if isinstance(channel_index, int) else None,
-        )
+        try:
+            native_id = await self._session.send_text(
+                contact_id=contact_id,
+                text=str(text),
+                channel_index=channel_index if isinstance(channel_index, int) else None,
+            )
+        except MeshCoreSendError as exc:
+            raise AdapterSendError(str(exc), transient=True) from exc
+        except (TimeoutError, ConnectionError, OSError) as exc:
+            raise AdapterSendError(str(exc), transient=True) from exc
 
         if native_id is None:
             return None
@@ -297,12 +304,12 @@ class MeshCoreAdapter(BaseAdapter):
         return AdapterDeliveryResult(
             native_message_id=native_id,
             native_channel_id=str(channel_index) if channel_index is not None else None,
+            delivery_note=(
+                "MeshCore alpha — no end-to-end ACK; "
+                "status reflects local acceptance only"
+            ),
             metadata=MappingProxyType({
                 "delivery_status": "local_accepted",
-                "delivery_note": (
-                    "MeshCore alpha — no end-to-end ACK; "
-                    "status reflects local acceptance only"
-                ),
             }),
         )
 
