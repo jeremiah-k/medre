@@ -338,7 +338,6 @@ class TestCleanEnvironmentImportBoundaries:
         "medre.logging",
         "medre.plugins",
         "medre.cli",
-        "medre.runner",
     ]
 
     @pytest.mark.parametrize("module_name", _SUBPACKAGES)
@@ -617,9 +616,10 @@ class TestPackageLayout:
                 "setup.cfg contains metadata/options that should be in pyproject.toml"
             )
 
-    def test_cli_module_at_expected_path(self) -> None:
-        """CLI module should be at ``src/medre/cli.py``."""
-        assert (_SRC_DIR / "medre" / "cli.py").is_file()
+    def test_cli_package_at_expected_path(self) -> None:
+        """CLI package should be at ``src/medre/cli/``."""
+        assert (_SRC_DIR / "medre" / "cli").is_dir()
+        assert (_SRC_DIR / "medre" / "cli" / "__init__.py").is_file()
 
 
 # ===================================================================

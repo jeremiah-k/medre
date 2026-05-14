@@ -12,38 +12,18 @@ observability:
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
-
-# ---------------------------------------------------------------------------
-# Error sanitization (prevent secrets / raw SDK objects from leaking into
-# diagnostics snapshots)
-# ---------------------------------------------------------------------------
-
-_TOKEN_PATTERNS = re.compile(
-    r'(syt_[A-Za-z0-9]+)'           # Matrix access token prefix
-    r'|(MDAx[A-Za-z0-9+/=]{20,})'   # Matrix device / session IDs
-    r'|(?!(.)\3{39,})[A-Za-z0-9+/=]{40,}'  # long base64-like strings (tokens/keys), not repeated chars
-    r'|(sk-[A-Za-z0-9]{20,})'       # OpenAI-style API keys
-    r'|(api[_-]?key[=:]\s*\S+)'     # api_key=xxx patterns
-    r'|(access_token[=:]\s*\S+)'    # access_token=xxx patterns
-    r'|(password[=:]\s*\S+)'        # password=xxx patterns
-    r'|(secret[=:]\s*\S+)'          # secret=xxx patterns
-)
-
-_SDK_REPR_PATTERN = re.compile(
-    r'<[\w.]+ object at 0x[0-9a-fA-F]+>'
-)
 
 
 def _sanitize_error(error: str) -> str:
-    """Return *error* with likely token and raw-SDK-object patterns redacted."""
-    sanitized = _TOKEN_PATTERNS.sub('[REDACTED]', error)
-    sanitized = _SDK_REPR_PATTERN.sub('[OBJECT_REPR]', sanitized)
-    # Truncate to a reasonable maximum for diagnostics.
-    if len(sanitized) > 512:
-        sanitized = sanitized[:509] + '...'
-    return sanitized
+    """Delegate to the canonical :func:`medre.runtime.snapshot.sanitize_error`.
+
+    Imported lazily to avoid a circular dependency between
+    ``medre.core.routing.stats`` and ``medre.runtime``.
+    """
+    from medre.runtime.snapshot import sanitize_error
+
+    return sanitize_error(error)
 
 
 # ---------------------------------------------------------------------------

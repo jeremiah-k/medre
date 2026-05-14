@@ -93,7 +93,6 @@ import medre.runtime
 import medre.adapters
 import medre.adapters.base
 import medre.cli
-import medre.runner
 ```
 
 ### 6.2 Adapter Config Imports
@@ -131,7 +130,6 @@ module load time:
 - `medre.adapters.__init__`
 - `medre.adapters.fake_*`
 - `medre.cli`
-- `medre.runner`
 
 ## 7. Fake Adapters
 

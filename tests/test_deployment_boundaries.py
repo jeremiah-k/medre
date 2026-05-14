@@ -336,7 +336,7 @@ class TestDeploymentHelpersNoSdkInstantiation:
     """
 
     _DEPLOYMENT_SOURCE_MODULES = [
-        "medre.runner",
+        "medre.cli.run_commands",
         "medre.config.sample",
     ]
 
@@ -415,12 +415,12 @@ class TestDeploymentHelpersNoSdkInstantiation:
             + "\n".join(violations)
         )
 
-    def test_runner_uses_builder_pattern(self) -> None:
-        """``medre.runner`` must build the runtime through
+    def test_run_commands_uses_builder_pattern(self) -> None:
+        """``medre.cli.run_commands`` must build the runtime through
         ``RuntimeBuilder`` — never through direct adapter construction."""
-        source = _source_of("medre.runner")
+        source = _source_of("medre.cli.run_commands")
         assert "RuntimeBuilder" in source, (
-            "medre.runner must use RuntimeBuilder to construct the runtime"
+            "medre.cli.run_commands must use RuntimeBuilder to construct the runtime"
         )
 
     def test_config_sample_no_sdk_references(self) -> None:
@@ -469,7 +469,7 @@ class TestCliTransportAgnostic:
 
     def test_cli_sdk_probe_is_dynamic_only(self) -> None:
         """SDK availability checks in CLI must use importlib.import_module."""
-        source = _source_of("medre.cli")
+        source = _source_of("medre.cli.config_commands")
 
         assert "importlib.import_module" in source, (
             "CLI should use importlib.import_module for SDK probing"

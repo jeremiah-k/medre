@@ -242,24 +242,14 @@ _route_logger = logging.getLogger("medre.route")
 
 
 def _sanitize_error(error: str) -> str:
-    """Return a sanitized version of *error* safe for log output.
+    """Delegate to the canonical :func:`medre.runtime.snapshot.sanitize_error`.
 
-    Strips any value that looks like a token, API key, or password from
-    the error string.  This is a best-effort, string-level guard that
-    complements the structured-field redaction in :func:`_redact_context`.
+    Imported lazily to avoid a circular dependency between
+    ``medre.core.observability.logging`` and ``medre.runtime``.
     """
-    import re as _re
+    from medre.runtime.snapshot import sanitize_error
 
-    sanitized = error
-    for pattern in (
-        r"token[=:]\s*\S+",
-        r"api_key[=:]\s*\S+",
-        r"password[=:]\s*\S+",
-        r"secret[=:]\s*\S+",
-        r"credential[=:]\s*\S+",
-    ):
-        sanitized = _re.sub(pattern, "[REDACTED]", sanitized, flags=_re.IGNORECASE)
-    return sanitized
+    return sanitize_error(error)
 
 
 def log_route_matched(*, route_id: str, event_id: str) -> None:

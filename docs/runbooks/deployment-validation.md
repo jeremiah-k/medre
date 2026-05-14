@@ -11,7 +11,7 @@ This runbook documents how MEDRE's path model, startup directory creation, and s
 
 All path behaviour described here is governed by **Contract 46** (Runtime Storage and Path Model) and **Contract 55** (Runtime Persistence Contract). If this document contradicts those contracts, the contracts win.
 
-**Boundary enforcement (Track 8):** Deployment helpers (`medre.runner`, `medre.config.sample`) are transport-agnostic and never instantiate SDKs directly. Path resolution (`medre.config.paths`) is a pure computation with no I/O. Runtime builder (`medre.runtime.builder`) uses adapter config dataclasses (pure frozen dataclasses, no SDK dependency) but does not import adapter runtime modules (adapter, session, codec) at construction time — adapters are loaded via `medre.adapters.base.BaseAdapter` abstraction and compat modules. Boundary enforcement tests: `tests/test_deployment_boundaries.py`, `tests/test_runtime_deployment_boundaries.py`.
+**Boundary enforcement (Track 8):** Deployment helpers (`medre.config.sample`) are transport-agnostic and never instantiate SDKs directly. Path resolution (`medre.config.paths`) is a pure computation with no I/O. Runtime builder (`medre.runtime.builder`) uses adapter config dataclasses (pure frozen dataclasses, no SDK dependency) but does not import adapter runtime modules (adapter, session, codec) at construction time — adapters are loaded via `medre.adapters.base.BaseAdapter` abstraction and compat modules. Boundary enforcement tests: `tests/test_deployment_boundaries.py`, `tests/test_runtime_deployment_boundaries.py`.
 
 
 ## 1. Path Resolution Modes

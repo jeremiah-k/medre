@@ -1520,7 +1520,6 @@ Events carry a trace context through the pipeline. Each stage creates a span. Di
 src/medre/
 ├── __init__.py
 ├── cli.py                        # CLI: medre run, config check, config sample, paths, version
-├── runner.py                     # Config-driven runner (python -m medre.runner)
 │
 ├── config/                       # Runtime configuration system
 │   ├── __init__.py               # Public API re-exports
@@ -2014,7 +2013,7 @@ Also supports `python -m medre.cli`.
 
 ### Runner
 
-`python -m medre.runner [--config PATH]` loads config, applies env overrides, builds runtime, and runs. No Matrix-specific code.
+`medre run [--config PATH]` loads config, applies env overrides, builds runtime, and runs. No Matrix-specific code.
 
 ### Example Configs
 

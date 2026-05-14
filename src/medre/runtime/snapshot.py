@@ -397,8 +397,10 @@ def sanitize_error(error: str) -> str:
         r'|(sk-[A-Za-z0-9]{20,})'
         r'|(api[_-]?key[=:]\s*\S+)'
         r'|(access_token[=:]\s*\S+)'
+        r'|(token[=:]\s*\S+)'
         r'|(password[=:]\s*\S+)'
         r'|(secret[=:]\s*\S+)'
+        r'|(credential[=:]\s*\S+)'
     )
     _SDK = _re.compile(r'<[\w.]+ object at 0x[0-9a-fA-F]+>')
 

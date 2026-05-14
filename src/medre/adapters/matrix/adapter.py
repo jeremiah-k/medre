@@ -266,8 +266,6 @@ class MatrixAdapter(BaseAdapter):
         it from the adapter's internal attributes and pass it as the
         ``details`` dict to
         :func:`~medre.core.runtime.health.normalize_adapter_health`.
-        See :func:`medre.runner.collect_diagnostics` for the canonical
-        extraction pattern.
         """
         # Check for sync failure — from adapter-level captured failure,
         # from live session, or from _sync_failure attribute.

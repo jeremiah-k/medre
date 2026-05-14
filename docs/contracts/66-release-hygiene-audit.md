@@ -254,7 +254,7 @@ Total live tests: ~57 (matches the "57 deselected" count from unit suite runs).
 |---|-------|--------|
 | C1 | No SDK types in public API surface | Clean. All public types are MEDRE-defined. |
 | C2 | No SDK imports in `medre.core` | Clean. Only imports from `medre.adapters.base` (MEDRE types). |
-| C3 | No SDK imports in `medre.__init__` or `medre.runner` | Clean. No third-party imports. |
+| C3 | No SDK imports in `medre.__init__` or `medre.cli` | Clean. No third-party imports. |
 | C4 | Live test exclusion guaranteed | Clean. `addopts = "-m 'not live'"` in pyproject.toml. Module-level markers on all live files. |
 | C5 | Extras definitions complete and correct | Clean. 6 extras: dev, matrix, matrix-e2e, meshtastic (includes PyPubSub), meshcore, lxmf. |
 | C6 | No contradictory operational claims | Clean. Contracts accurately distinguish recorded vs. unrecorded evidence. |

@@ -8,7 +8,7 @@ This runbook describes how to embed MEDRE inside a host application — construc
 MEDRE serves two roles:
 
 1. **Importable toolkit** — you import `RuntimeBuilder`, `RuntimeConfig`, and `MedrePaths` directly, construct a runtime in-process, and drive its lifecycle from your own async code. No TOML file is required.
-2. **Optional runtime** — the `medre run` CLI and `medre.runner` module provide a standalone process that reads TOML, applies environment overrides, handles signals, and runs the full lifecycle. This path is for operators.
+2. **Optional runtime** — the `medre run` CLI (via `medre.cli`) provides a standalone process that reads TOML, applies environment overrides, handles signals, and runs the full lifecycle. This path is for operators.
 
 Both paths produce the same `MedreApp` object via the same `RuntimeBuilder`. The difference is solely in how `RuntimeConfig` and `MedrePaths` are obtained.
 

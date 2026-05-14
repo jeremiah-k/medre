@@ -245,7 +245,7 @@ The live smoke tests use environment variables to configure the connection. The 
 
 ### 5.2 Manual adapter wiring
 
-There is no dedicated MeshCore runner (unlike Matrix which has `python -m medre.runner`). For alpha operation, wire the adapter manually:
+There is no dedicated MeshCore runner. For alpha operation, wire the adapter manually:
 
 ```python
 import asyncio
@@ -734,7 +734,7 @@ This is an honest list. Everything here is real.
 
 7. **No backlog suppression.** When the adapter starts, it may receive a burst of queued events from the node. There is a `startup_backlog_suppress_seconds` config field (default 5.0s) but it is not wired to filtering logic in the current adapter. Backlog events are processed like any other event.
 
-8. **No dedicated runner.** Unlike Matrix (`python -m medre.runner`), there is no MeshCore-specific runner. Adapter wiring is manual (see section 5.2).
+8. **No dedicated runner.** There is no MeshCore-specific runner. Adapter wiring is manual (see section 5.2).
 
 9. **No structured logging.** The adapter uses `ctx.logger.info/debug/error` with format strings. There are no structured log fields, no trace IDs, no correlation across events.
 

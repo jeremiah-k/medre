@@ -139,7 +139,7 @@ Or None to accept all rooms:
 room_allowlist=None
 ```
 
-The environment variable convention for this is `MATRIX_ROOM_ALLOWLIST`, a comma-separated list of room IDs. The runner (`python -m medre.runner`) parses this into the set automatically. If you are wiring the adapter manually, parse it yourself:
+The environment variable convention for this is `MATRIX_ROOM_ALLOWLIST`, a comma-separated list of room IDs. The runner (`medre run`) parses this into the set automatically. If you are wiring the adapter manually, parse it yourself:
 
 ```python
 import os
@@ -167,7 +167,7 @@ The runner reads all configuration from environment variables. The three require
 
 ### 7.2 Running with the runner
 
-`python -m medre.runner` is the primary alpha operation entry point. It wires the full pipeline, handles configuration from environment variables, manages signal-based shutdown, and provides structured logging.
+`medre run` is the primary alpha operation entry point. It wires the full pipeline, handles configuration from environment variables, manages signal-based shutdown, and provides structured logging.
 
 ```bash
 # Set the required environment variables
@@ -177,7 +177,7 @@ export MATRIX_ACCESS_TOKEN=syt_xxxxxxxxxxxxx
 export MATRIX_ROOM_ALLOWLIST=!abc123:localhost
 
 # Run
-python -m medre.runner
+medre run
 ```
 
 The runner does the following in order:
@@ -202,11 +202,11 @@ The old manual wiring approach (constructing `MatrixConfig` and `AdapterContext`
 **Startup.** On a successful start, you should see log lines like this (timestamps omitted):
 
 ```
-INFO  medre.runner  Matrix Operation Alpha: config loaded for @bot:localhost
-INFO  medre.runner  PipelineRunner started
-INFO  medre.runner  MatrixAdapter matrix-alpha started
-INFO  medre.runner  Initial diagnostics: {'status': 'healthy', 'details': {'connected': True, 'logged_in': True, 'sync_task_running': True, 'last_sync_error': None, 'reconnecting': False, 'reconnect_attempts': 0, 'last_successful_sync': '2026-05-09T12:00:00Z', 'rooms_tracked': 1, 'delivery_attempts': 0, 'delivery_successes': 0, 'delivery_failures': 0, 'crypto_store_loaded': None}}
-INFO  medre.runner  Matrix Operation Alpha running — awaiting shutdown signal
+INFO  medre  Matrix Operation Alpha: config loaded for @bot:localhost
+INFO  medre  PipelineRunner started
+INFO  medre  MatrixAdapter matrix-alpha started
+INFO  medre  Initial diagnostics: {'status': 'healthy', 'details': {'connected': True, 'logged_in': True, 'sync_task_running': True, 'last_sync_error': None, 'reconnecting': False, 'reconnect_attempts': 0, 'last_successful_sync': '2026-05-09T12:00:00Z', 'rooms_tracked': 1, 'delivery_attempts': 0, 'delivery_successes': 0, 'delivery_failures': 0, 'crypto_store_loaded': None}}
+INFO  medre  Matrix Operation Alpha running — awaiting shutdown signal
 ```
 
 If you see the "running" line, the runner has:
@@ -220,10 +220,10 @@ If you see the "running" line, the runner has:
 **Shutdown.** Press Ctrl+C (or send SIGTERM) to trigger a graceful shutdown:
 
 ```
-INFO  medre.runner  Shutdown requested — stopping
-INFO  medre.runner  MatrixAdapter stopped
-INFO  medre.runner  PipelineRunner stopped
-INFO  medre.runner  Matrix Operation Alpha shut down cleanly
+INFO  medre  Shutdown requested — stopping
+INFO  medre  MatrixAdapter stopped
+INFO  medre  PipelineRunner stopped
+INFO  medre  Matrix Operation Alpha shut down cleanly
 ```
 
 The runner catches SIGINT and SIGTERM, signals the adapter to stop, then stops the pipeline runner, then closes the database. Any in-flight sync operations are cancelled. See Known Limitation #2 for what this means about in-flight messages.
@@ -488,7 +488,7 @@ This is an honest list. Everything here is real.
 
 9. **No metrics.** There is no Prometheus endpoint, no counters, no histograms. Inbound diagnostics counters (`inbound_published`, `inbound_suppressed_self`, `inbound_suppressed_envelope`, `inbound_filtered_allowlist`) are available via `diagnostics()`, but there is no external metrics export. The only observability is the log output, the `health_check()` return value, and the `diagnostics()` counters.
 
-10. **Runner is in alpha.** The runner (`python -m medre.runner`) works for testing but has limited error recovery. If a subsystem fails during startup, the runner exits with a traceback rather than attempting partial recovery. There is no watchdog to restart the runner if it crashes.
+10. **Runner is in alpha.** The runner (`medre run`) works for testing but has limited error recovery. If a subsystem fails during startup, the runner exits with a traceback rather than attempting partial recovery. There is no watchdog to restart the runner if it crashes.
 
 11. **Plaintext is primary; E2EE is add-on.** Plaintext alpha is the recommended path. E2EE text alpha adds encrypted room support for text only (see section 13). Reactions, edits, media, cross-signing, key backup, and unverified device policy remain unsupported. Undecryptable event logging is now implemented (counted and logged safely, not forwarded).
 
@@ -761,7 +761,7 @@ If any is empty, set it and try again.
 The most common cause is a missing or empty required environment variable. The runner raises `EnvironmentError` before logging is configured in some code paths, so the error may go to stderr without the standard log format. Run the runner explicitly and check stderr:
 
 ```bash
-python -m medre.runner 2>&1
+medre run 2>&1
 ```
 
 ### 14.14 `ValueError` or `TypeError` from `MatrixConfig.validate()`
@@ -953,7 +953,7 @@ If `store_path` is changed or the store is deleted, the adapter creates a new cr
 
 ## Appendix A: Manual Wiring (Advanced/Developer Reference)
 
-The runner (`python -m medre.runner`) is the primary way to operate MEDRE in alpha mode. This appendix documents the manual wiring pattern for developers who need to construct the adapter and context by hand, for example when testing a specific subsystem in isolation or building a custom pipeline.
+The runner (`medre run`) is the primary way to operate MEDRE in alpha mode. This appendix documents the manual wiring pattern for developers who need to construct the adapter and context by hand, for example when testing a specific subsystem in isolation or building a custom pipeline.
 
 ```python
 import asyncio

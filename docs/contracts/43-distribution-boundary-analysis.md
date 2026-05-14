@@ -42,7 +42,7 @@ medre ships as one Python package. Everything lives under `src/medre/`:
 ```
 src/medre/
     __init__.py          (empty)
-    runner.py            (Matrix alpha runner, optional entry point)
+    cli.py               (CLI entry point: medre run, config check, config sample)
     adapters/
         __init__.py      (re-exports base types + all fake adapters)
         base.py          (BaseAdapter, AdapterContext, AdapterInfo, etc.)
@@ -246,7 +246,7 @@ These are the shared types. They are frozen dataclasses with stable shapes. They
 
 ### 8.2 What core depends on from adapters
 
-Nothing. Core has no imports from any adapter subpackage. The pipeline runner (`medre.core.engine.pipeline`) takes adapter instances through dependency injection. It does not import `MatrixAdapter` or `LxmfAdapter`. The runner (`medre/runner.py`) does import concrete adapters, but it is an optional entry point, not core.
+Nothing. Core has no imports from any adapter subpackage. The pipeline runner (`medre.core.engine.pipeline`) takes adapter instances through dependency injection. It does not import `MatrixAdapter` or `LxmfAdapter`. The CLI (`medre/cli.py`) does import concrete adapters via the runtime builder, but it is an optional entry point, not core.
 
 ### 8.3 What the coupling means
 

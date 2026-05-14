@@ -14,7 +14,7 @@ The MEDRE runtime is composed of the following layers, from top to bottom:
 
 ```
 ┌─────────────────────────────────────────┐
-│  CLI / Runner (medre.cli, medre.runner) │
+│  CLI (medre.cli, medre run)               │
 ├─────────────────────────────────────────┤
 │  Runtime (medre.runtime.*)              │
 │  ┌─ MedreApp ────────────────────────┐  │

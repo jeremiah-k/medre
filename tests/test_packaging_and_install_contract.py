@@ -216,22 +216,6 @@ class TestBaseImportBoundary:
         from medre.cli import _get_version
         assert callable(_get_version)
 
-    def test_import_medre_config_model(self) -> None:
-        """Config model imports adapter config types (not SDKs)."""
-        from medre.config.model import (
-            RuntimeConfig,
-            AdapterConfigSet,
-            MatrixRuntimeConfig,
-            MeshtasticRuntimeConfig,
-            MeshCoreRuntimeConfig,
-            LxmfRuntimeConfig,
-        )
-        assert RuntimeConfig is not None
-
-    def test_import_medre_runner(self) -> None:
-        from medre.runner import main
-        assert callable(main)
-
 
 # ===================================================================
 # 4. Fake adapters without SDKs

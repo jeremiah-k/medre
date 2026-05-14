@@ -218,10 +218,10 @@ class TestReplayDispatch:
         mock_builder = MagicMock()
         mock_builder.build.return_value = mock_app
 
-        with patch("medre.runtime.builder.RuntimeBuilder", return_value=mock_builder), \
-             patch("medre.cli.load_config") as mock_load, \
-             patch("medre.cli.apply_env_overrides", side_effect=lambda c, p: c), \
-             patch("medre.core.storage.replay.collect_replay_summary", new_callable=AsyncMock, return_value=summary):
+        with patch("medre.cli.replay_commands.RuntimeBuilder", return_value=mock_builder), \
+             patch("medre.cli.replay_commands.load_config") as mock_load, \
+             patch("medre.cli.replay_commands.apply_env_overrides", side_effect=lambda c, p: c), \
+             patch("medre.cli.replay_commands.collect_replay_summary", new_callable=AsyncMock, return_value=summary):
             mock_load.return_value = (MagicMock(), MagicMock(), MagicMock())
             output = _run_cli("replay", "--mode", "strict", "--json")
             parsed = json.loads(output)
@@ -246,10 +246,10 @@ class TestReplayDispatch:
         mock_builder = MagicMock()
         mock_builder.build.return_value = mock_app
 
-        with patch("medre.runtime.builder.RuntimeBuilder", return_value=mock_builder), \
-             patch("medre.cli.load_config") as mock_load, \
-             patch("medre.cli.apply_env_overrides", side_effect=lambda c, p: c), \
-             patch("medre.core.storage.replay.collect_replay_summary", new_callable=AsyncMock, return_value=summary):
+        with patch("medre.cli.replay_commands.RuntimeBuilder", return_value=mock_builder), \
+             patch("medre.cli.replay_commands.load_config") as mock_load, \
+             patch("medre.cli.replay_commands.apply_env_overrides", side_effect=lambda c, p: c), \
+             patch("medre.cli.replay_commands.collect_replay_summary", new_callable=AsyncMock, return_value=summary):
             mock_load.return_value = (MagicMock(), MagicMock(), MagicMock())
             _stdout, stderr = _run_cli_both(
                 "replay", "--mode", "best_effort",
@@ -264,9 +264,9 @@ class TestReplayDispatch:
         mock_builder = MagicMock()
         mock_builder.build.return_value = mock_app
 
-        with patch("medre.runtime.builder.RuntimeBuilder", return_value=mock_builder), \
-             patch("medre.cli.load_config") as mock_load, \
-             patch("medre.cli.apply_env_overrides", side_effect=lambda c, p: c):
+        with patch("medre.cli.replay_commands.RuntimeBuilder", return_value=mock_builder), \
+             patch("medre.cli.replay_commands.load_config") as mock_load, \
+             patch("medre.cli.replay_commands.apply_env_overrides", side_effect=lambda c, p: c):
             mock_load.return_value = (MagicMock(), MagicMock(), MagicMock())
             with pytest.raises(SystemExit) as exc_info:
                 _run_cli("replay", "--mode", "strict", "--json")
@@ -292,10 +292,10 @@ class TestReplayDispatch:
         mock_builder = MagicMock()
         mock_builder.build.return_value = mock_app
 
-        with patch("medre.runtime.builder.RuntimeBuilder", return_value=mock_builder), \
-             patch("medre.cli.load_config") as mock_load, \
-             patch("medre.cli.apply_env_overrides", side_effect=lambda c, p: c), \
-             patch("medre.core.storage.replay.collect_replay_summary", new_callable=AsyncMock, return_value=summary):
+        with patch("medre.cli.replay_commands.RuntimeBuilder", return_value=mock_builder), \
+             patch("medre.cli.replay_commands.load_config") as mock_load, \
+             patch("medre.cli.replay_commands.apply_env_overrides", side_effect=lambda c, p: c), \
+             patch("medre.cli.replay_commands.collect_replay_summary", new_callable=AsyncMock, return_value=summary):
             mock_load.return_value = (MagicMock(), MagicMock(), MagicMock())
             output = _run_cli("replay", "--mode", "strict")
             assert "Replay: strict" in output
@@ -323,10 +323,10 @@ class TestReplayDispatch:
         mock_builder = MagicMock()
         mock_builder.build.return_value = mock_app
 
-        with patch("medre.runtime.builder.RuntimeBuilder", return_value=mock_builder), \
-             patch("medre.cli.load_config") as mock_load, \
-             patch("medre.cli.apply_env_overrides", side_effect=lambda c, p: c), \
-             patch("medre.core.storage.replay.collect_replay_summary", new_callable=AsyncMock, return_value=summary):
+        with patch("medre.cli.replay_commands.RuntimeBuilder", return_value=mock_builder), \
+             patch("medre.cli.replay_commands.load_config") as mock_load, \
+             patch("medre.cli.replay_commands.apply_env_overrides", side_effect=lambda c, p: c), \
+             patch("medre.cli.replay_commands.collect_replay_summary", new_callable=AsyncMock, return_value=summary):
             mock_load.return_value = (MagicMock(), MagicMock(), MagicMock())
             output = _run_cli("replay", "--mode", "strict", "--json")
             parsed = json.loads(output)
@@ -338,9 +338,9 @@ class TestReplayDispatch:
         mock_builder = MagicMock()
         mock_builder.build.side_effect = RuntimeError("build broke")
 
-        with patch("medre.runtime.builder.RuntimeBuilder", return_value=mock_builder), \
-             patch("medre.cli.load_config") as mock_load, \
-             patch("medre.cli.apply_env_overrides", side_effect=lambda c, p: c):
+        with patch("medre.cli.replay_commands.RuntimeBuilder", return_value=mock_builder), \
+             patch("medre.cli.replay_commands.load_config") as mock_load, \
+             patch("medre.cli.replay_commands.apply_env_overrides", side_effect=lambda c, p: c):
             mock_load.return_value = (MagicMock(), MagicMock(), MagicMock())
             with pytest.raises(SystemExit) as exc_info:
                 _run_cli("replay", "--mode", "strict", "--json")
@@ -359,8 +359,8 @@ class TestRecoverDispatch:
         """Broad scan (no --event) returns JSON with scope=scan."""
         mock_storage = AsyncMock()
 
-        with patch("medre.cli._open_readonly_storage", return_value=mock_storage), \
-             patch("medre.cli._recover") as mock_recover:
+        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage), \
+             patch("medre.cli.recover_commands._recover") as mock_recover:
             # We'll test through the handler directly for more control.
             pass
 
@@ -370,7 +370,7 @@ class TestRecoverDispatch:
         mock_storage.get = AsyncMock(return_value=None)
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli._open_readonly_storage", return_value=mock_storage):
+        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
             with pytest.raises(SystemExit) as exc_info:
                 _run_cli(
                     "recover", "--event", "nonexistent",
@@ -389,7 +389,7 @@ class TestRecoverDispatch:
         mock_storage.list_relations = AsyncMock(return_value=[])
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli._open_readonly_storage", return_value=mock_storage):
+        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
             output = _run_cli(
                 "recover", "--event", "evt-1",
                 "--json", "--config", "/nonexistent",
@@ -417,7 +417,7 @@ class TestRecoverDispatch:
         mock_storage.list_relations = AsyncMock(return_value=[])
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli._open_readonly_storage", return_value=mock_storage):
+        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
             output = _run_cli(
                 "recover", "--event", "evt-1",
                 "--json", "--config", "/nonexistent",
@@ -440,7 +440,7 @@ class TestRecoverDispatch:
         mock_storage.list_relations = AsyncMock(return_value=[])
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli._open_readonly_storage", return_value=mock_storage):
+        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
             output = _run_cli(
                 "recover", "--event", "evt-1",
                 "--json", "--config", "/nonexistent",
@@ -460,7 +460,7 @@ class TestRecoverDispatch:
         mock_storage.list_relations = AsyncMock(return_value=[])
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli._open_readonly_storage", return_value=mock_storage):
+        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
             output = _run_cli(
                 "recover", "--event", "evt-1",
                 "--dry-run", "--json", "--config", "/nonexistent",
@@ -485,7 +485,7 @@ class TestRecoverDispatch:
         mock_storage.list_relations = AsyncMock(return_value=[])
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli._open_readonly_storage", return_value=mock_storage):
+        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
             output = _run_cli(
                 "recover", "--event", "evt-1",
                 "--config", "/nonexistent",
@@ -499,7 +499,7 @@ class TestRecoverDispatch:
         mock_storage = AsyncMock()
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli._open_readonly_storage", return_value=mock_storage):
+        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
             output = _run_cli(
                 "recover", "--config", "/nonexistent",
             )
@@ -510,7 +510,7 @@ class TestRecoverDispatch:
         mock_storage = AsyncMock()
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli._open_readonly_storage", return_value=mock_storage):
+        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
             output = _run_cli(
                 "recover", "--json", "--config", "/nonexistent",
             )
@@ -529,7 +529,7 @@ class TestRecoverDispatch:
         mock_storage.list_relations = AsyncMock(return_value=[])
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli._open_readonly_storage", return_value=mock_storage):
+        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
             output = _run_cli(
                 "recover", "--event", "evt-1",
                 "--json", "--config", "/nonexistent",
@@ -564,10 +564,10 @@ class TestReplayWithEvent:
         mock_builder = MagicMock()
         mock_builder.build.return_value = mock_app
 
-        with patch("medre.runtime.builder.RuntimeBuilder", return_value=mock_builder), \
-             patch("medre.cli.load_config") as mock_load, \
-             patch("medre.cli.apply_env_overrides", side_effect=lambda c, p: c), \
-             patch("medre.core.storage.replay.collect_replay_summary", new_callable=AsyncMock, return_value=summary) as mock_collect:
+        with patch("medre.cli.replay_commands.RuntimeBuilder", return_value=mock_builder), \
+             patch("medre.cli.replay_commands.load_config") as mock_load, \
+             patch("medre.cli.replay_commands.apply_env_overrides", side_effect=lambda c, p: c), \
+             patch("medre.cli.replay_commands.collect_replay_summary", new_callable=AsyncMock, return_value=summary) as mock_collect:
 
             mock_load.return_value = (MagicMock(), MagicMock(), MagicMock())
             _run_cli("replay", "--mode", "dry_run", "--event", "evt-42", "--json")
@@ -593,10 +593,10 @@ class TestReplayWithEvent:
         mock_builder = MagicMock()
         mock_builder.build.return_value = mock_app
 
-        with patch("medre.runtime.builder.RuntimeBuilder", return_value=mock_builder), \
-             patch("medre.cli.load_config") as mock_load, \
-             patch("medre.cli.apply_env_overrides", side_effect=lambda c, p: c), \
-             patch("medre.core.storage.replay.collect_replay_summary", new_callable=AsyncMock, return_value=summary):
+        with patch("medre.cli.replay_commands.RuntimeBuilder", return_value=mock_builder), \
+             patch("medre.cli.replay_commands.load_config") as mock_load, \
+             patch("medre.cli.replay_commands.apply_env_overrides", side_effect=lambda c, p: c), \
+             patch("medre.cli.replay_commands.collect_replay_summary", new_callable=AsyncMock, return_value=summary):
 
             mock_load.return_value = (MagicMock(), MagicMock(), MagicMock())
             output = _run_cli(
@@ -711,7 +711,7 @@ class TestRecoverClassification:
         mock_storage.list_relations = AsyncMock(return_value=[])
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli._open_readonly_storage", return_value=mock_storage):
+        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
             output = _run_cli(
                 "recover", "--event", "evt-1",
                 "--json", "--config", "/nonexistent",
@@ -745,7 +745,7 @@ class TestRecoverClassification:
         mock_storage.list_relations = AsyncMock(return_value=[])
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli._open_readonly_storage", return_value=mock_storage):
+        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
             output = _run_cli(
                 "recover", "--event", "evt-1",
                 "--json", "--config", "/nonexistent",
@@ -773,7 +773,7 @@ class TestRecoverClassification:
         mock_storage.list_relations = AsyncMock(return_value=[])
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli._open_readonly_storage", return_value=mock_storage):
+        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
             output = _run_cli(
                 "recover", "--event", "evt-1",
                 "--json", "--config", "/nonexistent",
@@ -799,7 +799,7 @@ class TestRecoverClassification:
         mock_storage.list_relations = AsyncMock(return_value=[])
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli._open_readonly_storage", return_value=mock_storage):
+        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
             output = _run_cli(
                 "recover", "--event", "evt-1",
                 "--json", "--config", "/nonexistent",
@@ -826,7 +826,7 @@ class TestRecoverClassification:
         mock_storage.list_relations = AsyncMock(return_value=[])
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli._open_readonly_storage", return_value=mock_storage):
+        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
             output = _run_cli(
                 "recover", "--event", "evt-1",
                 "--json", "--config", "/nonexistent",
@@ -853,7 +853,7 @@ class TestRecoverClassification:
         mock_storage.list_relations = AsyncMock(return_value=[])
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli._open_readonly_storage", return_value=mock_storage):
+        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
             output = _run_cli(
                 "recover", "--event", "evt-1",
                 "--json", "--config", "/nonexistent",
@@ -880,7 +880,7 @@ class TestRecoverClassification:
         mock_storage.list_relations = AsyncMock(return_value=[])
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli._open_readonly_storage", return_value=mock_storage):
+        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
             output = _run_cli(
                 "recover", "--event", "evt-1",
                 "--json", "--config", "/nonexistent",
@@ -907,7 +907,7 @@ class TestRecoverClassification:
         mock_storage.list_relations = AsyncMock(return_value=[])
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli._open_readonly_storage", return_value=mock_storage):
+        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
             output = _run_cli(
                 "recover", "--event", "evt-1",
                 "--json", "--config", "/nonexistent",
@@ -935,7 +935,7 @@ class TestRecoverClassification:
         mock_storage.list_relations = AsyncMock(return_value=[])
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli._open_readonly_storage", return_value=mock_storage):
+        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
             output = _run_cli(
                 "recover", "--event", "evt-1",
                 "--json", "--config", "/nonexistent",
@@ -960,7 +960,7 @@ class TestRecoverClassification:
         mock_storage.list_relations = AsyncMock(return_value=[])
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli._open_readonly_storage", return_value=mock_storage):
+        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
             output = _run_cli(
                 "recover", "--event", "evt-1",
                 "--json", "--config", "/nonexistent",
@@ -995,7 +995,7 @@ class TestRecoverClassification:
         mock_storage.list_relations = AsyncMock(return_value=[])
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli._open_readonly_storage", return_value=mock_storage):
+        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
             output = _run_cli(
                 "recover", "--event", "evt-1",
                 "--json", "--config", "/nonexistent",
@@ -1021,7 +1021,7 @@ class TestRecoverClassification:
         mock_storage.list_relations = AsyncMock(return_value=[])
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli._open_readonly_storage", return_value=mock_storage):
+        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
             output = _run_cli(
                 "recover", "--event", "evt-1",
                 "--config", "/nonexistent",
