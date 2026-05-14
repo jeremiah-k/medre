@@ -61,6 +61,7 @@ When the runtime starts with `DEGRADED` health, use these surfaces to understand
 |---------|:---:|:---:|:---:|
 | `medre run` | 2 | 3 | 4 |
 | `medre diagnostics` | 2 | 3 | n/a |
+| `medre diagnostics --refresh-health` | 2 | 3 | 4 |
 | `medre config check` | 2 | n/a | n/a |
 | `medre routes validate` | 2 | n/a | n/a |
 | `medre routes topology` | 2 | n/a | n/a |
@@ -691,6 +692,66 @@ The output is structured into the same sections documented in Contract 63 (Runti
 **No live connectivity state is included.** Fields like `connected`, `reconnecting`, `reconnect_attempts`, and `last_error` do not appear in the snapshot. The adapter `health` value is startup-derived, not polled from a running adapter. For current adapter lifecycle state after startup, check `lifecycle.adapters.{id}` in the running runtime's snapshot (process-local, not available via `medre diagnostics`).
 
 See Contract 63 for the complete snapshot schema, and Contract 56 for health classification semantics.
+
+### Live Health Refresh
+
+```bash
+medre diagnostics --refresh-health
+```
+
+This command builds the runtime from configuration, **starts all adapters**, polls each adapter's `health_check()` once, prints a snapshot with live health data, and stops the runtime cleanly. It is the operator-facing interface for manual health refresh — there is no background polling, scheduler, or automatic refresh.
+
+**What it does:**
+
+1. Load config, build runtime via `RuntimeBuilder` (same path as `medre run`).
+2. Start all enabled adapters (opens real connections to configured transports).
+3. Call `app.refresh_live_health()` — polls each adapter's `health_check()` in deterministic order.
+4. Build and print the runtime snapshot JSON with `health.live_health` populated.
+5. Stop the runtime cleanly (reverse adapter order, drain, storage close).
+
+**Output shape:**
+
+The snapshot has the same structure as `medre diagnostics` but with key differences:
+
+| Section | `medre diagnostics` | `medre diagnostics --refresh-health` |
+|---------|---------------------|--------------------------------------|
+| `health.live_health` | `null` | `LiveHealthSnapshot` dict with per-adapter live health, `poll_count=1`, real timestamps |
+| `health.live_refresh` | `false` | `true` |
+| `health.scope` | `"startup"` | `"live"` |
+| `startup.startup_health` | Frozen startup classification | Frozen startup classification (unchanged, separate from live) |
+| `lifecycle.runtime_state` | `"initialized"` | `"stopped"` (runtime has started and stopped) |
+| `lifecycle.adapters.{id}` | `{}` (empty — never started) | Current adapter lifecycle state at snapshot time |
+| Timestamps | Fixed (`2026-01-01T00:00:00Z`) | Real wall-clock and monotonic timestamps |
+
+**`health.live_health` fields (per adapter):**
+
+| Field | Meaning |
+|-------|---------|
+| `adapter_id` | Unique adapter identifier |
+| `health` | One of: `healthy`, `degraded`, `failed`, `unknown`, `starting`, `stopping` |
+| `adapter_state` | Lifecycle state derived from the health poll |
+| `fake_or_live` | `"fake"` for fake adapters, `"live"` for real adapters, `"unknown"` if undetermined |
+| `poll_timestamp_wall` | ISO-8601 UTC when this adapter was polled |
+| `poll_timestamp_monotonic` | Monotonic timestamp for ordering |
+| `error` | Error string if `health_check()` raised, `null` otherwise |
+
+**Key semantics:**
+
+- **Manual only.** There is no background polling, scheduler, or automatic refresh. The operator must invoke this command explicitly.
+- **Process-local, non-durable.** Live health data exists only for the duration of the command. It is not persisted. Running the command again starts fresh adapters from scratch.
+- **`startup.startup_health` remains frozen.** The live health refresh populates `health.live_health` and changes `health.scope` to `"live"`. The `startup.startup_health` value is a separate, frozen snapshot from startup time and is not affected by the refresh.
+- **No automatic restart or remediation.** If an adapter reports `failed` health, the operator must diagnose and fix the issue manually. MEDRE does not restart adapters or routes based on health state.
+- **Exits 0 on success** even if runtime health is `degraded` or `failed` — operators read the JSON output. Exits nonzero only for command-level failures (config, build, startup).
+- **Starts real adapters.** Real Matrix adapters connect to homeservers, real Meshtastic adapters open serial/TCP ports. This is intentional — the purpose is to verify real connectivity.
+
+**Exit codes for `--refresh-health`:**
+
+| Code | Constant | Meaning |
+|------|----------|---------|
+| 0 | `EXIT_OK` | Runtime started, health refreshed, snapshot printed. Runtime may be degraded. |
+| 2 | `EXIT_CONFIG` | Config parse/validation error, or no adapters enabled. |
+| 3 | `EXIT_BUILD` | Runtime build failure — all adapters failed to construct. |
+| 4 | `EXIT_STARTUP` | Total startup failure — zero adapters started. |
 
 ### Config Validation
 

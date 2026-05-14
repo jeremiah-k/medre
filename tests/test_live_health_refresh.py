@@ -839,3 +839,113 @@ class TestSnapshotStateTransitions:
         snap = build_runtime_snapshot(app)
         assert snap["schema_version"] == 1
         assert snap["schema_version"] == SCHEMA_VERSION
+
+
+# ===================================================================
+# 14. Deterministic ordering of failed_adapters and changed_adapters
+# ===================================================================
+
+
+class TestEventDetailDeterministicOrdering:
+    """failed_adapters and changed_adapters are in deterministic sorted order."""
+
+    @pytest.mark.asyncio
+    async def test_failed_adapters_sorted_order(self) -> None:
+        """failed_adapters in event detail is sorted by adapter_id."""
+        app = _make_minimal_app(
+            adapters={
+                "zebra": _FakeAdapter(
+                    "zebra",
+                    health_check_side_effect=RuntimeError("z-fail"),
+                ),
+                "alpha": _FakeAdapter(
+                    "alpha",
+                    health_check_side_effect=RuntimeError("a-fail"),
+                ),
+                "middle": _FakeAdapter(
+                    "middle",
+                    health_check_side_effect=RuntimeError("m-fail"),
+                ),
+                "ok_adapter": _FakeAdapter("ok_adapter", health="healthy"),
+            },
+        )
+        snapshot = await app.refresh_live_health()
+        events = list(app.event_buffer)
+        refreshed = [
+            e for e in events if e.event_type == RuntimeEventType.HEALTH_REFRESHED
+        ]
+        assert len(refreshed) == 1
+        failed = refreshed[0].detail["failed_adapters"]
+        assert failed == sorted(failed)
+        # Verify all three are present and the healthy one is not.
+        assert "alpha" in failed
+        assert "middle" in failed
+        assert "zebra" in failed
+        assert "ok_adapter" not in failed
+
+    @pytest.mark.asyncio
+    async def test_changed_adapters_sorted_order(self) -> None:
+        """changed_adapters in event detail is sorted by adapter_id."""
+        app = _make_minimal_app(
+            adapters={
+                "z_ad": _FakeAdapter("z_ad", health="healthy"),
+                "a_ad": _FakeAdapter("a_ad", health="healthy"),
+                "m_ad": _FakeAdapter("m_ad", health="healthy"),
+            },
+        )
+        # First refresh — establishes baseline.
+        await app.refresh_live_health()
+
+        # Change health on all three (in non-sorted order).
+        app.adapters["z_ad"]._health = "degraded"
+        app.adapters["a_ad"]._health = "failed"
+        app.adapters["m_ad"]._health = "degraded"
+
+        # Second refresh — should detect changes.
+        await app.refresh_live_health()
+        events = list(app.event_buffer)
+        refreshed = [
+            e for e in events if e.event_type == RuntimeEventType.HEALTH_REFRESHED
+        ]
+        assert len(refreshed) == 2
+        second_detail = refreshed[1].detail
+        assert "changed_adapters" in second_detail
+        changed = second_detail["changed_adapters"]
+        assert changed == sorted(changed)
+        assert len(changed) == 3
+
+
+# ===================================================================
+# 15. Empty adapters dict refresh behavior
+# ===================================================================
+
+
+class TestEmptyAdaptersRefresh:
+    """refresh_live_health with empty adapters emits event with failed health."""
+
+    @pytest.mark.asyncio
+    async def test_empty_adapters_emits_failed_health(self) -> None:
+        """Zero adapters → runtime_health="failed" in event and snapshot."""
+        app = _make_minimal_app(adapters={})
+        snapshot = await app.refresh_live_health()
+        assert snapshot.runtime_health == "failed"
+        assert snapshot.adapter_summary["total"] == 0
+        assert snapshot.adapter_summary["healthy"] == 0
+        assert snapshot.adapter_summary["failed"] == 0
+        assert len(snapshot.adapters) == 0
+
+    @pytest.mark.asyncio
+    async def test_empty_adapters_event_detail(self) -> None:
+        """Event detail has runtime_health="failed" with zero adapters."""
+        app = _make_minimal_app(adapters={})
+        await app.refresh_live_health()
+        events = list(app.event_buffer)
+        refreshed = [
+            e for e in events if e.event_type == RuntimeEventType.HEALTH_REFRESHED
+        ]
+        assert len(refreshed) == 1
+        assert refreshed[0].detail["runtime_health"] == "failed"
+        assert refreshed[0].detail["poll_count"] == 1
+        assert refreshed[0].detail["adapter_summary"]["total"] == 0
+        # No failed_adapters key when list would be empty.
+        assert "failed_adapters" not in refreshed[0].detail

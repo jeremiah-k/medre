@@ -425,7 +425,7 @@ class MedreApp:
             "adapter_summary": snapshot.adapter_summary,
         }
         if failed_adapter_ids:
-            event_detail["failed_adapters"] = failed_adapter_ids
+            event_detail["failed_adapters"] = sorted(failed_adapter_ids)
 
         # Compute changed_adapters by comparing to previous snapshot.
         if prev_snapshot is not None:
@@ -438,7 +438,7 @@ class MedreApp:
                 if old_entry.health != new_entry.health:
                     changed.append(aid)
             if changed:
-                event_detail["changed_adapters"] = changed
+                event_detail["changed_adapters"] = sorted(changed)
 
         self._emit_event(RuntimeEventType.HEALTH_REFRESHED, event_detail)
 

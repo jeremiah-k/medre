@@ -284,6 +284,35 @@ Live health uses dual timestamps consistent with existing patterns:
 - **`poll_timestamp_wall`** (ISO-8601 UTC): human-readable for operators and external log correlation. Consistent with `snapshot_at` and `startup_timestamp`.
 - **`poll_count`** (integer): monotonically increasing counter per successful refresh cycle, for quick staleness checks.
 
+### 8.6 Event Semantics: HEALTH_REFRESHED
+
+A `HEALTH_REFRESHED` runtime event is emitted into the bounded `EventBuffer` once per **successfully completed** `refresh_live_health()` call. The event is not emitted on cancellation or failure to reach the RUNNING state.
+
+**Emission timing:** The event is emitted after the snapshot is fully constructed, stored in `_live_health_state`, and the poll count incremented. If `asyncio.CancelledError` propagates from any adapter's `health_check()`, the method re-raises immediately — no event is emitted, no poll count is incremented, and `_live_health_state` remains unchanged.
+
+**Event detail shape (always present):**
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `runtime_health` | `str` | Aggregate `RuntimeHealth` value: `"healthy"`, `"degraded"`, or `"failed"`. |
+| `poll_count` | `int` | Monotonically increasing counter, matches `LiveHealthSnapshot.poll_count`. |
+| `adapter_summary` | `dict` | Counts: `healthy`, `degraded`, `failed`, `transitional`, `total`. |
+
+**Event detail shape (conditional):**
+
+| Key | Type | Condition |
+|-----|------|-----------|
+| `failed_adapters` | `list[str]` | Present when ≥1 adapter's `health_check()` raised an exception. Sorted by `adapter_id`. Contains only adapter IDs, not error strings. |
+| `changed_adapters` | `list[str]` | Present when a previous snapshot exists and ≥1 adapter's health changed. Sorted by `adapter_id`. Contains only adapter IDs. |
+
+**Determinism and boundedness:**
+
+- Both `failed_adapters` and `changed_adapters` are explicitly `sorted()` to guarantee deterministic order regardless of construction order.
+- Event detail passes through `sanitize_diagnostic_mapping()` (Contract 29), which strips secrets, truncates oversized strings, and replaces non-serialisable objects with type-name placeholders.
+- The event detail does **not** contain per-adapter error strings. Error text is bounded to 256 characters via `truncate_health_error()` and stored in `AdapterLiveHealth.error` within the `LiveHealthSnapshot`, which is not part of the event detail.
+
+**No background scheduling:** `refresh_live_health()` is purely caller-initiated. No background task, polling loop, timer, or scheduler invokes it automatically. The `HEALTH_REFRESHED` event is only emitted when a caller explicitly calls the method while the runtime is RUNNING.
+
 ## 9. Deferred
 
 The following are explicitly out of scope:

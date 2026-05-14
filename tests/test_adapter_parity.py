@@ -180,6 +180,36 @@ class TestSignatureParity:
         real_sig = self._sig(LxmfAdapter.deliver)
         assert fake_sig == real_sig
 
+    # -- health_check signature parity --
+
+    def test_matrix_health_check_sig(self) -> None:
+        from medre.adapters.matrix.adapter import MatrixAdapter
+
+        fake_sig = self._sig(FakeMatrixAdapter.health_check)
+        real_sig = self._sig(MatrixAdapter.health_check)
+        assert fake_sig == real_sig
+
+    def test_meshcore_health_check_sig(self) -> None:
+        from medre.adapters.meshcore.adapter import MeshCoreAdapter
+
+        fake_sig = self._sig(FakeMeshCoreAdapter.health_check)
+        real_sig = self._sig(MeshCoreAdapter.health_check)
+        assert fake_sig == real_sig
+
+    def test_meshtastic_health_check_sig(self) -> None:
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+
+        fake_sig = self._sig(FakeMeshtasticAdapter.health_check)
+        real_sig = self._sig(MeshtasticAdapter.health_check)
+        assert fake_sig == real_sig
+
+    def test_lxmf_health_check_sig(self) -> None:
+        from medre.adapters.lxmf.adapter import LxmfAdapter
+
+        fake_sig = self._sig(FakeLxmfAdapter.health_check)
+        real_sig = self._sig(LxmfAdapter.health_check)
+        assert fake_sig == real_sig
+
 
 # ---------------------------------------------------------------------------
 # 2. Fake adapter deliver() raises AdapterPermanentError for bad input
@@ -742,6 +772,76 @@ class TestRealAdapterHealthCheck:
         assert isinstance(info, AdapterInfo)
         assert info.adapter_id == "health_lx"
         assert info.platform == "lxmf"
+
+
+# ---------------------------------------------------------------------------
+# 8b. Not-started health_check parity: all adapters return "unknown"
+# ---------------------------------------------------------------------------
+
+
+class TestNotStartedHealthCheckParity:
+    """health_check() called before start() returns health="unknown" for all
+    adapters, both fake and real.  No send/delivery side effects.
+    No network access — real adapters use connection_type="fake"."""
+
+    @pytest.mark.asyncio
+    async def test_fake_matrix_not_started_returns_unknown(self) -> None:
+        adapter = FakeMatrixAdapter("not_started_mx")
+        info = await adapter.health_check()
+        assert isinstance(info, AdapterInfo)
+        assert info.health == "unknown"
+
+    @pytest.mark.asyncio
+    async def test_fake_meshtastic_not_started_returns_unknown(self) -> None:
+        adapter = FakeMeshtasticAdapter()
+        info = await adapter.health_check()
+        assert isinstance(info, AdapterInfo)
+        assert info.health == "unknown"
+
+    @pytest.mark.asyncio
+    async def test_fake_meshcore_not_started_returns_unknown(self) -> None:
+        adapter = FakeMeshCoreAdapter()
+        info = await adapter.health_check()
+        assert isinstance(info, AdapterInfo)
+        assert info.health == "unknown"
+
+    @pytest.mark.asyncio
+    async def test_fake_lxmf_not_started_returns_unknown(self) -> None:
+        adapter = FakeLxmfAdapter()
+        info = await adapter.health_check()
+        assert isinstance(info, AdapterInfo)
+        assert info.health == "unknown"
+
+    @pytest.mark.asyncio
+    async def test_real_meshcore_not_started_returns_unknown(self) -> None:
+        from medre.adapters.meshcore.adapter import MeshCoreAdapter
+
+        config = MeshCoreConfig(adapter_id="ns_mc", connection_type="fake")
+        adapter = MeshCoreAdapter(config)
+        # NOT calling start()
+        info = await adapter.health_check()
+        assert isinstance(info, AdapterInfo)
+        assert info.health == "unknown"
+
+    @pytest.mark.asyncio
+    async def test_real_meshtastic_not_started_returns_unknown(self) -> None:
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+
+        config = MeshtasticConfig(adapter_id="ns_mt", connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        info = await adapter.health_check()
+        assert isinstance(info, AdapterInfo)
+        assert info.health == "unknown"
+
+    @pytest.mark.asyncio
+    async def test_real_lxmf_not_started_returns_unknown(self) -> None:
+        from medre.adapters.lxmf.adapter import LxmfAdapter
+
+        config = LxmfConfig(adapter_id="ns_lx", connection_type="fake")
+        adapter = LxmfAdapter(config)
+        info = await adapter.health_check()
+        assert isinstance(info, AdapterInfo)
+        assert info.health == "unknown"
 
 
 # ---------------------------------------------------------------------------

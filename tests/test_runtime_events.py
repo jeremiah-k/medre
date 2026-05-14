@@ -806,3 +806,60 @@ class TestHealthRefreshedEventSemantics:
         assert len(events2) == 2
         assert events2[1].detail["poll_count"] == snapshot2.poll_count
         assert events2[1].detail["poll_count"] == 2
+
+    @pytest.mark.asyncio
+    async def test_event_detail_json_safe_with_failure(self) -> None:
+        """HEALTH_REFRESHED detail is JSON-safe even when adapters fail.
+
+        Verifies that no exception objects, stack traces, or secret values
+        leak into the event detail — only sanitized adapter IDs and
+        aggregate metadata.
+        """
+        from medre.core.lifecycle.states import AdapterState
+        from medre.runtime.app import MedreApp, RuntimeState
+
+        adapters = {
+            "a1": _FakeAdapter("a1", health="healthy"),
+            "a2": _FakeAdapter(
+                "a2",
+                health_check_side_effect=RuntimeError("sensitive: password=hunter2"),
+            ),
+        }
+        app = object.__new__(MedreApp)
+        app.adapters = adapters  # type: ignore[assignment]
+        app._state = RuntimeState.RUNNING
+        app._event_buffer = EventBuffer()
+        app._adapter_states = {aid: AdapterState.READY for aid in adapters}
+        app._live_health_state = None
+        app._live_health_poll_count = 0
+        app._health_state = {"runtime_health": "healthy"}
+        app._startup_wall = None
+        app._startup_monotonic = None
+        app._boot_summary = None
+        app._failed_adapter_ids = []
+        app.started_adapter_ids = list(adapters.keys())
+        app.adapter_start_monotonic = {}
+
+        await app.refresh_live_health()
+        events = [
+            e for e in app.event_buffer
+            if e.event_type == RuntimeEventType.HEALTH_REFRESHED
+        ]
+        assert len(events) == 1
+        detail = events[0].detail
+
+        # Must round-trip through json.dumps without error.
+        serialized = json.dumps(detail, sort_keys=True)
+        assert isinstance(serialized, str)
+
+        # Detail must NOT contain exception internals.
+        assert "hunter2" not in serialized
+        assert "password" not in serialized
+        assert "RuntimeError" not in serialized
+
+        # Detail must contain only adapter IDs, not error strings.
+        assert "failed_adapters" in detail
+        assert isinstance(detail["failed_adapters"], list)
+        assert detail["failed_adapters"] == ["a2"]
+        assert "runtime_health" in detail
+        assert "poll_count" in detail
