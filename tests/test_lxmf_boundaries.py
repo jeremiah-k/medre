@@ -507,8 +507,8 @@ class TestLxmfFailedDelivery:
     """Failed LXMF delivery does not create native refs."""
 
     async def test_fake_adapter_failure_raises_and_no_native_ref(self) -> None:
-        """Fake adapter failure raises LxmfSendError, no native ref persisted."""
-        from medre.adapters.lxmf.errors import LxmfSendError
+        """Fake adapter failure raises AdapterSendError, no native ref persisted."""
+        from medre.adapters.base import AdapterSendError
 
         adapter = FakeLxmfAdapter()
         adapter.set_deliver_failure(True)
@@ -518,7 +518,7 @@ class TestLxmfFailedDelivery:
             target_channel=None,
             payload={"content": "test", "title": "", "fields": {}},
         )
-        with pytest.raises(LxmfSendError):
+        with pytest.raises(AdapterSendError):
             await adapter.deliver(result)
         assert adapter.fake_client.sent_count == 0
 

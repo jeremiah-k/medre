@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 import pytest
 
 from medre.adapters import AdapterRole, FakeMeshCoreAdapter
-from medre.adapters.base import AdapterContext, AdapterDeliveryResult, AdapterPermanentError
+from medre.adapters.base import AdapterContext, AdapterDeliveryResult, AdapterPermanentError, AdapterSendError
 from medre.adapters.meshcore.adapter import MeshCoreAdapter
 from medre.adapters.meshcore.config import MeshCoreConfig
 from medre.adapters.meshcore.errors import MeshCoreConnectionError, MeshCoreSendError
@@ -338,7 +338,7 @@ class TestFakeMeshCoreAdapterDeliver:
         adapter = FakeMeshCoreAdapter()
         adapter.set_deliver_failure(True)
         result = _make_rendering_result()
-        with pytest.raises(MeshCoreSendError, match="simulated send failure"):
+        with pytest.raises(AdapterSendError, match="simulated send failure"):
             await adapter.deliver(result)
         assert len(adapter.delivered_payloads) == 0
 
@@ -346,7 +346,7 @@ class TestFakeMeshCoreAdapterDeliver:
         adapter = FakeMeshCoreAdapter()
         adapter.set_deliver_failure(True)
         result = _make_rendering_result()
-        with pytest.raises(MeshCoreSendError):
+        with pytest.raises(AdapterSendError):
             await adapter.deliver(result)
         assert adapter.fake_client.sent_count == 0
 
@@ -792,14 +792,14 @@ class TestChannelVsDMSend:
 
 
 class TestSendFailure:
-    """Send failures propagate MeshCoreSendError cleanly."""
+    """Send failures propagate AdapterSendError cleanly."""
 
     async def test_send_failure_no_delivery_result(self) -> None:
         """Failed sends do not produce partial delivery results."""
         adapter = FakeMeshCoreAdapter()
         adapter.set_deliver_failure(True)
         result = _make_rendering_result()
-        with pytest.raises(MeshCoreSendError, match="simulated send failure"):
+        with pytest.raises(AdapterSendError, match="simulated send failure"):
             await adapter.deliver(result)
         assert adapter.fake_client.sent_count == 0
 
@@ -808,7 +808,7 @@ class TestSendFailure:
         adapter = FakeMeshCoreAdapter()
         adapter.set_deliver_failure(True)
         result = _make_rendering_result()
-        with pytest.raises(MeshCoreSendError):
+        with pytest.raises(AdapterSendError):
             await adapter.deliver(result)
         assert len(adapter.delivered_payloads) == 0
 
@@ -817,7 +817,7 @@ class TestSendFailure:
         adapter = FakeMeshCoreAdapter()
         adapter.set_deliver_failure(True)
         result = _make_rendering_result()
-        with pytest.raises(MeshCoreSendError):
+        with pytest.raises(AdapterSendError):
             await adapter.deliver(result)
 
         adapter.set_deliver_failure(False)

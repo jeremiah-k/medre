@@ -1137,7 +1137,7 @@ class PipelineRunner:
                 id=f"nref-{uuid.uuid4()}",
                 event_id=event.event_id,
                 adapter=adapter_id or "",
-                native_channel_id=adapter_result.native_channel_id or target.channel,
+                native_channel_id=adapter_result.native_channel_id,
                 native_message_id=adapter_result.native_message_id,
                 native_thread_id=adapter_result.native_thread_id,
                 native_relation_id=adapter_result.native_relation_id,

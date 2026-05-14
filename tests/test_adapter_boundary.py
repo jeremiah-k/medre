@@ -19,6 +19,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -431,3 +432,238 @@ class TestFakeAdapterFieldShapes:
         assert out is not None
         assert out.native_message_id is None
         assert out.delivery_note == "locally enqueued"
+
+
+# ===================================================================
+# 12. Fake adapter delivery failures use base error hierarchy
+# ===================================================================
+
+
+class TestFakeAdapterErrorClassification:
+    """Fake adapters raise AdapterSendError (from base.py) for simulated
+    delivery failures, allowing RetryExecutor.classify_failure() to
+    classify them correctly.
+    """
+
+    @pytest.mark.asyncio
+    async def test_fake_meshcore_failure_classifies_transient(self) -> None:
+        """FakeMeshCoreAdapter simulated failure raises AdapterSendError
+        that classify_failure maps to ADAPTER_TRANSIENT."""
+        from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
+        from medre.core.planning.delivery_plan import (
+            DeliveryFailureKind,
+            RetryExecutor,
+        )
+
+        adapter = FakeMeshCoreAdapter()
+        adapter.set_deliver_failure(True)
+
+        with pytest.raises(AdapterSendError) as exc_info:
+            await adapter.deliver(_make_rendering_result())
+
+        assert exc_info.value.transient is True
+        kind = RetryExecutor.classify_failure(exc_info.value, adapter_registered=True)
+        assert kind is DeliveryFailureKind.ADAPTER_TRANSIENT
+
+    @pytest.mark.asyncio
+    async def test_fake_meshtastic_failure_classifies_transient(self) -> None:
+        """FakeMeshtasticAdapter simulated failure raises AdapterSendError
+        that classify_failure maps to ADAPTER_TRANSIENT."""
+        from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
+        from medre.core.planning.delivery_plan import (
+            DeliveryFailureKind,
+            RetryExecutor,
+        )
+
+        adapter = FakeMeshtasticAdapter()
+        adapter.set_deliver_failure(True)
+
+        with pytest.raises(AdapterSendError) as exc_info:
+            await adapter.deliver(_make_rendering_result())
+
+        assert exc_info.value.transient is True
+        kind = RetryExecutor.classify_failure(exc_info.value, adapter_registered=True)
+        assert kind is DeliveryFailureKind.ADAPTER_TRANSIENT
+
+    @pytest.mark.asyncio
+    async def test_fake_lxmf_failure_classifies_transient(self) -> None:
+        """FakeLxmfAdapter simulated failure raises AdapterSendError
+        that classify_failure maps to ADAPTER_TRANSIENT."""
+        from medre.adapters.fake_lxmf import FakeLxmfAdapter
+        from medre.core.planning.delivery_plan import (
+            DeliveryFailureKind,
+            RetryExecutor,
+        )
+
+        adapter = FakeLxmfAdapter()
+        adapter.set_deliver_failure(True)
+
+        with pytest.raises(AdapterSendError) as exc_info:
+            await adapter.deliver(_make_rendering_result())
+
+        assert exc_info.value.transient is True
+        kind = RetryExecutor.classify_failure(exc_info.value, adapter_registered=True)
+        assert kind is DeliveryFailureKind.ADAPTER_TRANSIENT
+
+
+# ===================================================================
+# 13. Per-adapter error classification audit
+# ===================================================================
+
+
+class TestPerAdapterErrorClassification:
+    """Focused tests proving each real adapter's transient and permanent
+    error paths are correct.
+    """
+
+    @pytest.mark.asyncio
+    async def test_matrix_not_connected_transient(self) -> None:
+        """MatrixAdapter raises AdapterSendError(transient=True) when
+        client is not connected."""
+        from medre.adapters.matrix.adapter import MatrixAdapter
+        from medre.adapters.matrix.config import MatrixConfig
+
+        config = MatrixConfig(adapter_id="test", user_id="@test:server", homeserver="https://server", access_token="tok")
+        adapter = MatrixAdapter(config)
+        adapter._client = None
+
+        result = _make_rendering_result()
+        with pytest.raises(AdapterSendError) as exc_info:
+            await adapter.deliver(result)
+        assert exc_info.value.transient is True
+
+    @pytest.mark.asyncio
+    async def test_matrix_no_room_id_permanent(self) -> None:
+        """MatrixAdapter raises AdapterPermanentError when room_id is missing."""
+        from medre.adapters.matrix.adapter import MatrixAdapter
+        from medre.adapters.matrix.config import MatrixConfig
+
+        config = MatrixConfig(adapter_id="test", user_id="@test:server", homeserver="https://server", access_token="tok")
+        adapter = MatrixAdapter(config)
+        adapter._client = MagicMock()
+
+        result = RenderingResult(
+            event_id="evt-no-room",
+            target_adapter="test",
+            target_channel=None,
+            payload={"msgtype": "m.text", "body": "hello"},
+        )
+        with pytest.raises(AdapterPermanentError, match="no room_id"):
+            await adapter.deliver(result)
+
+    @pytest.mark.asyncio
+    async def test_matrix_send_error_permanent(self) -> None:
+        """MatrixAdapter re-raises MatrixSendError as permanent."""
+        from medre.adapters.matrix.adapter import MatrixAdapter
+        from medre.adapters.matrix.config import MatrixConfig
+        from medre.adapters.matrix.errors import MatrixSendError
+
+        config = MatrixConfig(adapter_id="test", user_id="@test:server", homeserver="https://server", access_token="tok")
+        adapter = MatrixAdapter(config)
+
+        mock_client = MagicMock()
+        mock_client.room_send = AsyncMock(side_effect=MatrixSendError("forbidden"))
+        adapter._client = mock_client
+
+        result = _make_rendering_result()
+        with pytest.raises(MatrixSendError):
+            await adapter.deliver(result)
+        assert adapter._permanent_delivery_failures == 1
+
+    @pytest.mark.asyncio
+    async def test_meshcore_session_not_initialised_permanent(self) -> None:
+        """MeshCoreAdapter raises AdapterPermanentError for session not initialised."""
+        from medre.adapters.meshcore.adapter import MeshCoreAdapter
+        from medre.adapters.meshcore.config import MeshCoreConfig
+
+        config = MeshCoreConfig(adapter_id="test")
+        adapter = MeshCoreAdapter(config)
+        adapter._session = None
+        # Force non-fake mode
+        adapter._config = MagicMock()
+        adapter._config.connection_type = "tcp"
+
+        result = _make_rendering_result()
+        with pytest.raises(AdapterPermanentError, match="Session not initialised"):
+            await adapter.deliver(result)
+
+    @pytest.mark.asyncio
+    async def test_meshcore_timeout_transient(self) -> None:
+        """MeshCoreAdapter raises AdapterSendError(transient=True) for timeout."""
+        from medre.adapters.meshcore.adapter import MeshCoreAdapter
+        from medre.adapters.meshcore.config import MeshCoreConfig
+
+        config = MeshCoreConfig(adapter_id="test")
+        adapter = MeshCoreAdapter(config)
+        adapter._config = MagicMock()
+        adapter._config.connection_type = "tcp"
+
+        mock_session = MagicMock()
+        mock_session.send_text = AsyncMock(side_effect=TimeoutError("timed out"))
+        adapter._session = mock_session
+
+        result = _make_rendering_result()
+        result.payload["channel_index"] = 0
+        with pytest.raises(AdapterSendError) as exc_info:
+            await adapter.deliver(result)
+        assert exc_info.value.transient is True
+
+    @pytest.mark.asyncio
+    async def test_meshtastic_timeout_transient(self) -> None:
+        """MeshtasticAdapter raises AdapterSendError(transient=True) for timeout."""
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+        from medre.adapters.meshtastic.config import MeshtasticConfig
+
+        config = MeshtasticConfig(adapter_id="test")
+        adapter = MeshtasticAdapter(config)
+
+        # Mock the queue to raise TimeoutError
+        adapter._queue = MagicMock()
+        adapter._queue.enqueue = AsyncMock(side_effect=TimeoutError("timed out"))
+
+        result = _make_rendering_result()
+        result.payload["channel_index"] = 0
+        with pytest.raises(AdapterSendError) as exc_info:
+            await adapter.deliver(result)
+        assert exc_info.value.transient is True
+
+    @pytest.mark.asyncio
+    async def test_lxmf_timeout_transient(self) -> None:
+        """LxmfAdapter raises AdapterSendError(transient=True) for timeout."""
+        from medre.adapters.lxmf.adapter import LxmfAdapter
+        from medre.adapters.lxmf.config import LxmfConfig
+
+        config = LxmfConfig(adapter_id="test")
+        adapter = LxmfAdapter(config)
+
+        mock_session = MagicMock()
+        mock_session.send_text = AsyncMock(side_effect=TimeoutError("timed out"))
+        adapter._session = mock_session
+
+        result = _make_rendering_result()
+        result.payload["content"] = "hello"
+        result.payload["destination_hash"] = "ab" * 16
+        with pytest.raises(AdapterSendError) as exc_info:
+            await adapter.deliver(result)
+        assert exc_info.value.transient is True
+
+    @pytest.mark.asyncio
+    async def test_lxmf_send_error_transient(self) -> None:
+        """LxmfAdapter raises AdapterSendError(transient=True) for LxmfSendError."""
+        from medre.adapters.lxmf.adapter import LxmfAdapter
+        from medre.adapters.lxmf.config import LxmfConfig
+        from medre.adapters.lxmf.errors import LxmfSendError
+
+        config = LxmfConfig(adapter_id="test")
+        adapter = LxmfAdapter(config)
+
+        mock_session = MagicMock()
+        mock_session.send_text = AsyncMock(side_effect=LxmfSendError("propagation failed"))
+        adapter._session = mock_session
+
+        result = _make_rendering_result()
+        result.payload["content"] = "hello"
+        result.payload["destination_hash"] = "ab" * 16
+        with pytest.raises(AdapterSendError) as exc_info:
+            await adapter.deliver(result)
+        assert exc_info.value.transient is True

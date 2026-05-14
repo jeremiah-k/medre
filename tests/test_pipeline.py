@@ -2823,3 +2823,115 @@ class TestCapacityRejectionTaxonomy:
             assert accounting.counters().capacity_rejections == 1
         finally:
             await runner.stop()
+
+
+# ===================================================================
+# Pipeline native_channel_id fallback removal
+# ===================================================================
+
+
+class TestPipelineNativeChannelIdNoFallback:
+    """Pipeline must not fall back to target.channel when adapter returns
+    native_channel_id=None.
+    """
+
+    async def test_adapter_returns_null_channel_id_stores_null(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """When adapter returns native_channel_id=None, the native ref
+        stores NULL, not target.channel."""
+
+        class _NullChannelAdapter:
+            """Adapter that returns a native_message_id but native_channel_id=None."""
+
+            adapter_id = "null_ch"
+            platform = "test"
+            received_events: list[object] = []
+
+            async def deliver(self, payload: object) -> AdapterDeliveryResult | None:
+                from medre.adapters.base import AdapterDeliveryResult
+                return AdapterDeliveryResult(
+                    native_message_id="msg-001",
+                    native_channel_id=None,
+                )
+
+        adapter = _NullChannelAdapter()
+        route = Route(
+            id="null-ch-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel=None
+            ),
+            targets=[RouteTarget(adapter="null_ch", channel="fallback-channel")],
+        )
+        router = Router(routes=[route])
+        config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={"null_ch": adapter},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = _make_event(event_id="null-ch-001", source_adapter="src")
+        try:
+            await runner.handle_ingress(event)
+
+            refs = await temp_storage._read_all(
+                "SELECT * FROM native_message_refs WHERE event_id = ?",
+                ("null-ch-001",),
+            )
+            assert len(refs) == 1
+            assert refs[0]["native_channel_id"] is None
+            # Must NOT be "fallback-channel"
+        finally:
+            await runner.stop()
+
+    async def test_no_native_message_id_means_no_ref(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """When adapter returns native_message_id=None, no native ref is stored."""
+
+        class _NoMsgIdAdapter:
+            """Adapter that returns no native_message_id."""
+
+            adapter_id = "no_msg_id"
+            platform = "test"
+            received_events: list[object] = []
+
+            async def deliver(self, payload: object) -> AdapterDeliveryResult | None:
+                from medre.adapters.base import AdapterDeliveryResult
+                return AdapterDeliveryResult(
+                    native_message_id=None,
+                    native_channel_id="ch-1",
+                )
+
+        adapter = _NoMsgIdAdapter()
+        route = Route(
+            id="no-msgid-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel=None
+            ),
+            targets=[RouteTarget(adapter="no_msg_id")],
+        )
+        router = Router(routes=[route])
+        config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={"no_msg_id": adapter},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = _make_event(event_id="no-msgid-001", source_adapter="src")
+        try:
+            await runner.handle_ingress(event)
+
+            refs = await temp_storage._read_all(
+                "SELECT * FROM native_message_refs WHERE event_id = ?",
+                ("no-msgid-001",),
+            )
+            assert len(refs) == 0
+        finally:
+            await runner.stop()

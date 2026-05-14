@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from medre.adapters import AdapterRole, FakeMeshtasticAdapter
-from medre.adapters.base import AdapterContext, AdapterDeliveryResult, AdapterPermanentError
+from medre.adapters.base import AdapterContext, AdapterDeliveryResult, AdapterPermanentError, AdapterSendError
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.adapters.meshtastic.config import MeshtasticConfig
 from medre.adapters.meshtastic.session import MeshtasticSession
@@ -238,7 +238,7 @@ class TestFakeMeshtasticAdapterDeliver:
         adapter = FakeMeshtasticAdapter()
         adapter.set_deliver_failure(True)
         result = _make_rendering_result()
-        with pytest.raises(MeshtasticSendError, match="simulated send failure"):
+        with pytest.raises(AdapterSendError, match="simulated send failure"):
             await adapter.deliver(result)
         assert len(adapter.delivered_payloads) == 0
 
@@ -246,7 +246,7 @@ class TestFakeMeshtasticAdapterDeliver:
         adapter = FakeMeshtasticAdapter()
         adapter.set_deliver_failure(True)
         result = _make_rendering_result()
-        with pytest.raises(MeshtasticSendError):
+        with pytest.raises(AdapterSendError):
             await adapter.deliver(result)
         assert adapter.fake_client.sent_count == 0
 

@@ -36,11 +36,11 @@ from medre.adapters.base import (
     AdapterDeliveryResult,
     AdapterInfo,
     AdapterRole,
+    AdapterSendError,
     BaseAdapter,
 )
 from medre.adapters.meshtastic.codec import MeshtasticCodec
 from medre.adapters.meshtastic.config import MeshtasticConfig
-from medre.adapters.meshtastic.errors import MeshtasticSendError
 from medre.adapters.meshtastic.packet_classifier import MeshtasticPacketClassifier
 from medre.core.events.canonical import CanonicalEvent, EventMetadata
 from medre.core.events.kinds import EventKind
@@ -272,7 +272,7 @@ class FakeMeshtasticAdapter(BaseAdapter):
             )
 
         if self._deliver_failure:
-            raise MeshtasticSendError("FakeMeshtasticAdapter: simulated send failure")
+            raise AdapterSendError("FakeMeshtasticAdapter: simulated send failure", transient=True)
 
         self.delivered_payloads.append(result)
         _trim(self.delivered_payloads)

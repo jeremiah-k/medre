@@ -37,11 +37,11 @@ from medre.adapters.base import (
     AdapterDeliveryResult,
     AdapterInfo,
     AdapterRole,
+    AdapterSendError,
     BaseAdapter,
 )
 from medre.adapters.lxmf.codec import LxmfCodec
 from medre.adapters.lxmf.config import LxmfConfig
-from medre.adapters.lxmf.errors import LxmfSendError
 from medre.adapters.lxmf.packet_classifier import LxmfPacketClassifier
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.rendering.renderer import RenderingResult
@@ -298,7 +298,7 @@ class FakeLxmfAdapter(BaseAdapter):
             )
 
         if self._deliver_failure:
-            raise LxmfSendError("FakeLxmfAdapter: simulated send failure")
+            raise AdapterSendError("FakeLxmfAdapter: simulated send failure", transient=True)
 
         self.delivered_payloads.append(result)
         _trim(self.delivered_payloads)

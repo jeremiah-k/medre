@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 import pytest
 
 from medre.adapters import AdapterRole, FakeLxmfAdapter
-from medre.adapters.base import AdapterContext, AdapterDeliveryResult, AdapterPermanentError
+from medre.adapters.base import AdapterContext, AdapterDeliveryResult, AdapterPermanentError, AdapterSendError
 from medre.adapters.lxmf.adapter import LxmfAdapter
 from medre.adapters.lxmf.config import LxmfConfig
 from medre.adapters.lxmf.compat import HAS_LXMF
@@ -473,7 +473,7 @@ class TestFakeLxmfAdapterDeliver:
         adapter = FakeLxmfAdapter()
         adapter.set_deliver_failure(True)
         result = _make_rendering_result()
-        with pytest.raises(LxmfSendError, match="simulated send failure"):
+        with pytest.raises(AdapterSendError, match="simulated send failure"):
             await adapter.deliver(result)
         assert len(adapter.delivered_payloads) == 0
 
@@ -481,7 +481,7 @@ class TestFakeLxmfAdapterDeliver:
         adapter = FakeLxmfAdapter()
         adapter.set_deliver_failure(True)
         result = _make_rendering_result()
-        with pytest.raises(LxmfSendError):
+        with pytest.raises(AdapterSendError):
             await adapter.deliver(result)
         assert adapter.fake_client.sent_count == 0
 

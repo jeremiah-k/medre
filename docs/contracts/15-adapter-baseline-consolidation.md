@@ -243,23 +243,39 @@ Each adapter's `SendError` inherits from the appropriate base so that `classify_
 
 | Adapter | Transient base | Permanent base | Notes |
 |---|---|---|---|
-| Matrix | `MatrixSendError(AdapterSendError)` | `MatrixSendError(AdapterPermanentError)` (raised for auth/house-rule failures) | Single `MatrixSendError` class; transient flag set per-instance based on failure cause |
-| Meshtastic | `MeshtasticSendError(AdapterSendError)` | `MeshtasticSendError(AdapterPermanentError)` (payload encoding failures) | Session retries transient up to 3× |
-| MeshCore | `MeshCoreSendError(AdapterSendError)` | `MeshCoreSendError(AdapterPermanentError)` (invalid address) | Session retries transient up to 3× |
-| LXMF | `LxmfSendError(AdapterSendError)` | `LxmfSendError(AdapterPermanentError)` (invalid destination) | Session retries transient up to 3× |
+| Matrix | `MatrixSendError(AdapterSendError)` | `MatrixSendError(AdapterPermanentError)` (raised for auth/house-rule failures) | Single `MatrixSendError` class; transient flag set per-instance based on failure cause. `CancelledError` propagates (re-raised before broad catch). Broad catch is `Exception`, not `BaseException`. |
+| Meshtastic | `MeshtasticSendError(AdapterSendError)` | `MeshtasticSendError(AdapterPermanentError)` (payload encoding failures) | Session retries transient up to 3×. Queue-full is transient. |
+| MeshCore | `MeshCoreSendError(AdapterSendError)` | `MeshCoreSendError(AdapterPermanentError)` (invalid address) | Session retries transient up to 3×. |
+| LXMF | `LxmfSendError(AdapterSendError)` | `LxmfSendError(AdapterPermanentError)` (invalid destination) | Session retries transient up to 3×. |
 
-**Verdict: Consistent hierarchy.** All four adapters share the same transient/permanent split at the base level. The pipeline's `RetryExecutor.classify_failure` uses `getattr(error, 'transient', True)` to map to `DeliveryFailureKind.ADAPTER_TRANSIENT` (retryable) or `DeliveryFailureKind.ADAPTER_PERMANENT` (dead-letter). Exceptions without a `transient` attribute fall back to the standard Python type check (`TimeoutError`, `ConnectionError`, `OSError` → transient; everything else → permanent).
+**Per-adapter error classification decisions:**
+
+| Error condition | Matrix | Meshtastic | MeshCore | LXMF |
+|---|---|---|---|---|
+| not-connected / SDK not initialized | **Permanent** | **Permanent** | **Permanent** | **Permanent** |
+| queue-full (local queue) | N/A (no local queue) | **Transient** | N/A (no local queue) | N/A (no local queue) |
+| Connection / network failure | **Transient** | **Transient** | **Transient** | **Transient** |
+| Timeout | **Transient** | **Transient** | **Transient** | **Transient** |
+| Auth failure | **Permanent** | N/A | N/A | N/A |
+| Invalid address / destination | **Permanent** | N/A | **Permanent** | **Permanent** |
+| Payload encoding failure | **Permanent** | **Permanent** | **Permanent** | N/A |
+| Config error | **Permanent** | **Permanent** | **Permanent** | **Permanent** |
+| Rate limit (HTTP 429) | **Transient** | N/A | N/A | N/A |
+
+All four adapters treat not-connected and SDK-not-initialized as **permanent** errors. An adapter that cannot reach its transport SDK should not be retried without operator intervention. Queue-full (where applicable) is transient because the queue may drain.
+
+**Verdict: Consistent hierarchy.** All four adapters share the same transient/permanent split at the base level. The pipeline's `RetryExecutor.classify_failure` uses `getattr(error, 'transient', True)` to map to `DeliveryFailureKind.ADAPTER_TRANSIENT` (retryable) or `DeliveryFailureKind.ADAPTER_PERMANENT` (dead-letter). Exceptions without a `transient` attribute fall back to the standard Python type check (`TimeoutError`, `ConnectionError`, `OSError` → transient; everything else → permanent). The Matrix adapter catches `Exception` (not `BaseException`) with explicit `CancelledError` re-raise to preserve asyncio cancellation semantics. No adapter may swallow `CancelledError`.
 
 
 ## 14. Delivery Result Semantics
 
 ### 14.1 What "sent" Means
 
-When `deliver()` returns an `AdapterDeliveryResult`, the adapter accepted the delivery — the handoff from pipeline to adapter succeeded. This is a **local acceptance** guarantee only. It does not mean the message reached any remote recipient, except for Matrix where the homeserver confirms storage.
+When `deliver()` returns an `AdapterDeliveryResult`, the adapter accepted the delivery — the handoff from pipeline to adapter succeeded. This is a **local acceptance** guarantee only. "Sent" means adapter handoff/acceptance succeeded, not final native-platform delivery. It does not mean the message reached any remote recipient, except for Matrix where the homeserver confirms storage.
 
 ### 14.2 native_message_id
 
-Populated only when the adapter returns a platform-native message identifier from the transport SDK. Queue-based or fire-and-forget adapters may return `native_message_id=None` when no native send confirmation is available. In that case, `delivery_note` (see below) documents the local-acceptance status.
+Populated only when the adapter returns a platform-native message identifier from the transport SDK. This value must be platform-provided — adapters must never fabricate, synthesize, or locally-generate a `native_message_id`. Queue-based or fire-and-forget adapters may return `native_message_id=None` when no native send confirmation is available. In that case, `delivery_note` (see below) documents the local-acceptance status. Native refs are persisted only when `native_message_id` is not `None`.
 
 ### 14.3 delivery_note
 
@@ -268,17 +284,20 @@ Populated only when the adapter returns a platform-native message identifier fro
 - Queue-based adapters noting local-acceptance without platform ACK (e.g., `"no end-to-end ACK; status reflects local acceptance only"`).
 - MeshCore alpha noting the lack of end-to-end confirmation.
 - Any adapter providing diagnostic context about why `native_message_id` is `None`.
+- Explaining that "sent" means adapter handoff succeeded, not final delivery — documenting the limited ACK semantics of constrained transports.
 
 `delivery_note` is informational only. Consumers must not parse it for control-flow decisions.
 
 ### 14.4 Per-Adapter Result Summary
 
-| Adapter | native_message_id | delivery_note | What deliver() return means |
-|---|---|---|---|
-| Matrix | Matrix event ID (from `room_send` response) | `None` (server confirmation is authoritative) | Homeserver accepted and stored the message |
-| Meshtastic | `None` (no native send confirmation from queue) | May describe local-acceptance if adapter returns a result | Message was enqueued to outbound queue; actual radio send is async |
-| MeshCore | MeshCore message reference (from SDK send) | `"no end-to-end ACK; status reflects local acceptance only"` | SDK accepted the message for local transmission |
-| LXMF | LXMF message hash (from message creation) | `None` (hash is authoritative) | LXMF message was created and dispatched to LXMRouter |
+| Adapter | native_message_id | native_channel_id | delivery_note | What deliver() return means |
+|---|---|---|---|---|
+| Matrix | Matrix event ID (from `room_send` response, platform-provided) | Room ID string (platform-provided) | `None` (server confirmation is authoritative) | Homeserver accepted and stored the message. Adapter handoff succeeded. |
+| Meshtastic | `None` (no native send confirmation from queue) | Channel index as string (platform-provided) | May describe local-acceptance if adapter returns a result | Message was enqueued to outbound queue; actual radio send is async. Adapter handoff succeeded, not final delivery. |
+| MeshCore | MeshCore message reference (from SDK send, platform-provided) | Channel slot index (platform-provided, may be `None`) | `"no end-to-end ACK; status reflects local acceptance only"` | SDK accepted the message for local transmission. Adapter handoff succeeded, not final delivery. |
+| LXMF | LXMF message hash (from message creation, platform-provided) | `None` (LXMF uses destination-hash addressing) | `None` (hash is authoritative) | LXMF message was created and dispatched to LXMRouter. Adapter handoff succeeded, not final delivery. |
+
+The pipeline must not backfill `native_channel_id` or any other native ref field from route configuration. All native ref values reflect what the platform returned.
 
 See Contract 22, Section 4.8 for the full per-adapter delivery table.
 

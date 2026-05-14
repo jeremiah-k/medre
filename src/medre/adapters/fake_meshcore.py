@@ -35,11 +35,11 @@ from medre.adapters.base import (
     AdapterDeliveryResult,
     AdapterInfo,
     AdapterRole,
+    AdapterSendError,
     BaseAdapter,
 )
 from medre.adapters.meshcore.codec import MeshCoreCodec
 from medre.adapters.meshcore.config import MeshCoreConfig
-from medre.adapters.meshcore.errors import MeshCoreSendError
 from medre.adapters.meshcore.packet_classifier import MeshCorePacketClassifier
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.rendering.renderer import RenderingResult
@@ -284,7 +284,7 @@ class FakeMeshCoreAdapter(BaseAdapter):
             )
 
         if self._deliver_failure:
-            raise MeshCoreSendError("FakeMeshCoreAdapter: simulated send failure")
+            raise AdapterSendError("FakeMeshCoreAdapter: simulated send failure", transient=True)
 
         self.delivered_payloads.append(result)
         _trim(self.delivered_payloads)

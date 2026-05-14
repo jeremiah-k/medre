@@ -460,11 +460,11 @@ class TestMatrixPlatformRendererSelection:
         native_event_id = f"$fake_{result.event_id}"
 
         # Native ref was persisted in storage
-        # FakeMatrixAdapter returns native_channel_id="" which the pipeline
-        # stores as None (due to "or target.channel" fallback)
+        # FakeMatrixAdapter returns native_channel_id="" when target_channel
+        # is not set; the pipeline stores the adapter-provided value as-is.
         resolved = await temp_storage.resolve_native_ref(
             adapter="chat-service",
-            native_channel_id=None,
+            native_channel_id="",
             native_message_id=native_event_id,
         )
         assert resolved is not None
@@ -555,10 +555,11 @@ class TestMatrixNativeRefPersistence:
             await runner.handle_ingress(event)
 
             # FakeMatrixAdapter.deliver() returns native_message_id=f"$fake_{result.event_id}"
-            # With no target channel, native_channel_id resolves to None
+            # With no target channel, native_channel_id stores the
+            # adapter-provided value (empty string) without fallback.
             resolved = await temp_storage.resolve_native_ref(
                 adapter="matrix-out",
-                native_channel_id=None,
+                native_channel_id="",
                 native_message_id=f"$fake_{event.event_id}",
             )
             assert resolved is not None

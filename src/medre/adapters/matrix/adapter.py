@@ -372,7 +372,7 @@ class MatrixAdapter(BaseAdapter):
         """
         client = self._client
         if client is None:
-            raise AdapterPermanentError("client is not connected")
+            raise AdapterSendError("client is not connected", transient=True)
 
         payload_room_id = result.payload.get("room_id")
         room_id = result.target_channel or (
@@ -419,7 +419,10 @@ class MatrixAdapter(BaseAdapter):
                 # Non-transient — raise immediately
                 self._permanent_delivery_failures += 1
                 raise
-            except BaseException as exc:
+            except asyncio.CancelledError:
+                # CancelledError must propagate — never swallow task cancellation.
+                raise
+            except Exception as exc:
                 last_exc = exc
                 if _is_transient_error(exc):
                     self._transient_delivery_failures += 1

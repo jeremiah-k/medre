@@ -401,8 +401,8 @@ class TestMeshtasticFailedDelivery:
     """Failed Meshtastic delivery does not create native refs."""
 
     async def test_fake_adapter_failure_raises_and_no_native_ref(self) -> None:
-        """Fake adapter failure raises MeshtasticSendError, no native ref persisted."""
-        from medre.adapters.meshtastic.errors import MeshtasticSendError
+        """Fake adapter failure raises AdapterSendError, no native ref persisted."""
+        from medre.adapters.base import AdapterSendError
 
         adapter = FakeMeshtasticAdapter()
         adapter.set_deliver_failure(True)
@@ -412,7 +412,7 @@ class TestMeshtasticFailedDelivery:
             target_channel="0",
             payload={"text": "test", "channel_index": 0},
         )
-        with pytest.raises(MeshtasticSendError):
+        with pytest.raises(AdapterSendError):
             await adapter.deliver(result)
         # No packets sent through fake client
         assert adapter.fake_client.sent_count == 0

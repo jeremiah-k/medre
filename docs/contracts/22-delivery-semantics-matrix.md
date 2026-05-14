@@ -101,7 +101,7 @@ Nothing here claims production connectivity. These are protocol-level capabiliti
 | ACK timing | Synchronous (milliseconds) | Asynchronous (seconds, variable) | Asynchronous (seconds, timeout-based) | Asynchronous (seconds to hours depending on network) |
 | NAK available | HTTP error codes | Implicit (no ACK = possible failure) | Yes (explicit NAK possible) | Yes (delivery failure indication) |
 
-**What MEDRE normalizes:** `AdapterDeliveryResult` carries `native_message_id` and `native_channel_id`. Success or failure is reported through the `deliver()` return/exception contract (Contract 21, Section 3.4).
+**What MEDRE normalizes:** `AdapterDeliveryResult` carries `native_message_id` and `native_channel_id`. Both must be platform-provided values — never fabricated or backfilled from route configuration. Success or failure is reported through the `deliver()` return/exception contract (Contract 21, Section 3.4). Native refs are persisted only when `native_message_id` is not `None`.
 
 **What MEDRE cannot normalize:** Matrix's synchronous confirmation is fundamentally different from Meshtastic's asynchronous implicit-ACK model. An adapter that returns successfully from `deliver()` on Matrix has server confirmation. An adapter that returns successfully from `deliver()` on Meshtastic with a paced queue has confirmed only that the message was queued, not that any radio transmitted it. These are not the same kind of "success".
 
@@ -168,10 +168,10 @@ Consolidated delivery behavior per adapter. This table summarizes what each adap
 
 | Adapter | `deliver()` completion meaning | `native_message_id` source | `native_channel_id` source | `native_thread_id` source | Transient errors (types/patterns) | Permanent errors (types/patterns) | ACK / final-delivery limitation |
 |---------|-------------------------------|---------------------------|---------------------------|--------------------------|----------------------------------|----------------------------------|--------------------------------|
-| **Matrix** | SDK `room_send` returns `event_id`; homeserver accepted and stored | Matrix event ID (e.g. `$xxx`) from `RoomSendResponse` | Room ID string (e.g. `!roomid:server.tld`) | Thread root event ID via `m.relates_to` | Connection errors, rate-limit (HTTP 429), sync timeout, network unreachable | Auth failure (HTTP 401/403), room not joined, message too large | Synchronous server ACK. Server received ≠ delivered to clients. No end-to-end delivery receipt. |
-| **MeshCore** | SDK `send_text()` / `send_data()` returns; message locally accepted | MeshCore message reference (timestamp-based) from SDK send return | Channel slot index as string | `None` (no native threading) | Transport timeout, connection reset, serial link failure | Invalid address, payload encoding failure, config error | No end-to-end ACK. `delivery_note` documents local-acceptance only. |
-| **Meshtastic** | Message locally enqueued to outbound queue | `None` — no native send confirmation at enqueue time | Channel index as string | `None` (no native threading) | Serial/connection failures, timeout, queue capacity exhaustion | Payload encoding failure, config error | Local-acceptance only. Actual radio send is async via queue worker. No platform ACK returned to caller. |
-| **LXMF** | LXMF message dispatched to `LXMRouter` | LXMF message hash (hex of `LXMessage.hash`) | Destination hash (16B hex) | `None` (no native threading) | Propagation delay, transport timeout, Reticulum link failure | Invalid destination hash, config error | Store-and-forward eventual delivery. Async state progression (`outbound` → `delivered`/`failed`). Delivery receipts available but asynchronous. |
+| **Matrix** | SDK `room_send` returns `event_id`; homeserver accepted and stored | Matrix event ID (e.g. `$xxx`) from `RoomSendResponse` (platform-provided only) | Room ID string (e.g. `!roomid:server.tld`) (platform-provided only) | Thread root event ID via `m.relates_to` | Connection errors, rate-limit (HTTP 429), sync timeout, network unreachable | Auth failure (HTTP 401/403), room not joined, message too large, not-connected, SDK not initialized | Synchronous server ACK. Server received ≠ delivered to clients. No end-to-end delivery receipt. `CancelledError` propagates (not swallowed). Broad catch is `Exception`, not `BaseException`. |
+| **MeshCore** | SDK `send_text()` / `send_data()` returns; message locally accepted | MeshCore message reference (timestamp-based) from SDK send return (platform-provided only) | Channel slot index as string (platform-provided, may be `None`) | `None` (no native threading) | Transport timeout, connection reset, serial link failure, queue-full | Invalid address, payload encoding failure, config error, not-connected, SDK not initialized | No end-to-end ACK. `delivery_note` documents local-acceptance only. |
+| **Meshtastic** | Message locally enqueued to outbound queue | `None` — no native send confirmation at enqueue time | Channel index as string (platform-provided only) | `None` (no native threading) | Serial/connection failures, timeout, queue capacity exhaustion | Payload encoding failure, config error, not-connected, SDK not initialized | Local-acceptance only. Actual radio send is async via queue worker. No platform ACK returned to caller. |
+| **LXMF** | LXMF message dispatched to `LXMRouter` | LXMF message hash (hex of `LXMessage.hash`) (platform-provided only) | `None` (LXMF uses destination-hash addressing, no channel concept) | `None` (no native threading) | Propagation delay, transport timeout, Reticulum link failure | Invalid destination hash, config error, not-connected, SDK not initialized | Store-and-forward eventual delivery. Async state progression (`outbound` → `delivered`/`failed`). Delivery receipts available but asynchronous. |
 
 **Key asymmetries preserved:**
 
@@ -179,6 +179,10 @@ Consolidated delivery behavior per adapter. This table summarizes what each adap
 - Meshtastic is the only adapter where `native_message_id` is `None` at `deliver()` return time (queue-based, no synchronous send confirmation).
 - MeshCore returns a local reference but explicitly notes local-acceptance via `delivery_note` since there is no end-to-end ACK.
 - LXMF returns a content-addressed hash immediately, but actual delivery is asynchronous through the mesh.
+- All four adapters treat not-connected and SDK-not-initialized as **permanent** errors (not retryable). An adapter that cannot reach its transport should not be retried without intervention.
+- `native_message_id` and `native_channel_id` are always platform-provided. Adapters must never fabricate these values. The pipeline must not backfill `native_channel_id` or any other native ref field from route configuration.
+
+**Exception handling in Matrix `deliver()`:** The Matrix adapter catches `Exception` (not `BaseException`) in its `deliver()` error path. `CancelledError` is explicitly re-raised before the broad catch, ensuring asyncio task cancellation propagates correctly to the caller. This is a contract-level requirement: no adapter may swallow `CancelledError`.
 
 ### 4.8 Ordering
 
@@ -232,7 +236,7 @@ This is acceptable for Phase 1 because MEDRE is not an encryption boundary. It t
 
 | Aspect | Normalizable? | How |
 |--------|--------------|-----|
-| Message existence (was it sent?) | Yes | `AdapterDeliveryResult` records native_message_id on success |
+| Message existence (was it sent?) | Yes | `AdapterDeliveryResult` records `native_message_id` on success (platform-provided only) |
 | Delivery failure (did it fail?) | Yes | Exception taxonomy → `DeliveryFailureKind` (CAPACITY_REJECTION for full semaphore, SHUTDOWN_REJECTION for stopped controller) |
 | Reply relationships | Partially | `EventRelation` with `target_native_ref`; degraded on transports without native reply |
 | Sender identity (as string) | Yes | `source_transport_id` carries whatever the transport provides |

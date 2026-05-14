@@ -54,6 +54,8 @@ This is an immutable, frozen dataclass. The pipeline uses it to store `NativeMes
 
 Platform-native message ID assigned by the external system. `None` when the platform did not return one.
 
+**Fabrication prohibition:** `native_message_id` must be a platform-provided identifier. Adapters must never fabricate, synthesize, or locally-generate a `native_message_id`. If the platform did not return an ID, the field must be `None`. The fake adapters in test mode are the sole exception and are clearly bounded by their test-only scope.
+
 | Transport | Source | Type | When Available | Uniqueness |
 |-----------|--------|------|----------------|------------|
 | Matrix | Homeserver-assigned `event_id` | String (e.g. `$xxx`) | Immediately on `RoomSendResponse` | Globally unique, persistent, queryable |
@@ -61,11 +63,13 @@ Platform-native message ID assigned by the external system. `None` when the plat
 | MeshCore | SDK-assigned message ID | String | On send return | Unique within session context |
 | LXMF | `LXMessage.hash` (hex) | String (hex of message hash) | On message creation | Cryptographically unique, tied to content |
 
-**Matrix is the only transport where `native_message_id` implies confirmed delivery.** On Meshtastic, MeshCore, and LXMF, a `native_message_id` indicates the message was submitted to the transport layer, not that it was received by the destination.
+**Matrix is the only transport where `native_message_id` implies confirmed delivery.** On Meshtastic, MeshCore, and LXMF, a `native_message_id` indicates the message was submitted to the transport layer, not that it was received by the destination. In all cases, `native_message_id` is a platform-provided value — never fabricated or locally generated.
 
 ### 4.2 native_channel_id
 
-Platform-native channel, room, or conversation identifier.
+Platform-native channel, room, or conversation identifier. Always platform-provided — never fabricated or backfilled from route configuration.
+
+**Pipeline backfill prohibition:** The pipeline must not backfill `native_channel_id` (or any other native ref field) from route configuration (e.g., `target.channel`). Native refs reflect what the platform returned, not what the route expected. If the platform did not return a channel ID, the field must be `None`.
 
 | Transport | Value | Example |
 |-----------|-------|---------|
@@ -89,15 +93,23 @@ Optional human-readable context string (`str | None`, default `None`). Explains 
 - Queue-based adapters noting local-acceptance without platform ACK (e.g., Meshtastic: message enqueued but no radio confirmation).
 - MeshCore noting the absence of end-to-end ACK: `"no end-to-end ACK; status reflects local acceptance only"`.
 - Any adapter providing diagnostic context about why `native_message_id` is `None`.
+- Explaining that "sent" means adapter handoff/acceptance succeeded, not final native-platform delivery.
 
-`delivery_note` is informational only. Consumers must not parse it for control-flow decisions. It is not structured metadata — use `metadata` for machine-readable fields.
+`delivery_note` is informational only. Consumers must not parse it for control-flow decisions. It is not structured metadata — use `metadata` for machine-readable fields. Its primary purpose is to document the limited ACK semantics and local-acceptance nature of delivery for constrained transports.
+
+
+### 4.6 Native Ref Persistence Rule
+
+Native refs (`native_message_id`, `native_channel_id`, `native_thread_id`, `native_relation_id`) are persisted in delivery receipts only when `native_message_id` is not `None`. When `native_message_id` is `None` (e.g., Meshtastic queue-based delivery returns synchronously before the platform assigns an ID), no native ref record is created.
+
+The pipeline must not fabricate native refs or backfill them from route configuration. This applies to all native ref fields without exception.
 
 
 ## 5. Delivery State Semantics
 
 ### 5.1 Immediate Return Does Not Imply Final Delivery
 
-`deliver()` returning `AdapterDeliveryResult` means the adapter accepted the delivery — the handoff from pipeline to adapter succeeded. It does **not** mean the message reached its destination, except for Matrix where the homeserver confirms storage. When `native_message_id` is `None`, the `delivery_note` field documents the local-acceptance status.
+**The delivery state "sent" means the adapter handoff/acceptance succeeded.** When `deliver()` returns an `AdapterDeliveryResult`, it means the adapter accepted the delivery — the handoff from pipeline to adapter succeeded at the local level. It does **not** mean the message reached its final destination on the native platform, except for Matrix where the homeserver confirms storage. "Sent" is a local-acceptance guarantee, not a final-delivery guarantee. When `native_message_id` is `None`, the `delivery_note` field documents the local-acceptance status.
 
 | Transport | What `deliver()` return means |
 |-----------|------------------------------|
@@ -156,12 +168,14 @@ When a send fails (transient exhaustion or permanent error), the adapter raises 
 
 | Transport | Transient Failure | Permanent Failure |
 |-----------|-------------------|-------------------|
-| Matrix | Retry up to 3x with exponential backoff (500ms, 1s, 2s +-25% jitter). On exhaustion: raise `MatrixSendError(AdapterSendError)` with `transient=True`. | Raise `MatrixSendError(AdapterPermanentError)` immediately with `transient=False`. |
-| Meshtastic | Session retries send up to 3x. On exhaustion: increment `transient_delivery_failures`, raise `MeshtasticSendError(AdapterSendError)` with `transient=True`. | Increment `permanent_delivery_failures`, raise `MeshtasticSendError(AdapterPermanentError)` with `transient=False`. |
-| MeshCore | Session retries send up to 3x. On exhaustion: increment counters, raise `MeshCoreSendError(AdapterSendError)` with `transient=True`. | Increment counters, raise `MeshCoreSendError(AdapterPermanentError)` with `transient=False`. |
-| LXMF | Session retries send up to 3x. On exhaustion: increment counters, raise `LxmfSendError(AdapterSendError)` with `transient=True`. | Increment counters, raise `LxmfSendError(AdapterPermanentError)` with `transient=False`. |
+| Matrix | Retry up to 3x with exponential backoff (500ms, 1s, 2s +-25% jitter). On exhaustion: raise `MatrixSendError(AdapterSendError)` with `transient=True`. | Raise `MatrixSendError(AdapterPermanentError)` immediately with `transient=False`. Includes: auth failure (HTTP 401/403), room not joined, message too large, not-connected, SDK not initialized. |
+| Meshtastic | Session retries send up to 3x. On exhaustion: increment `transient_delivery_failures`, raise `MeshtasticSendError(AdapterSendError)` with `transient=True`. Includes: serial/connection failures, timeout, queue capacity exhaustion. | Increment `permanent_delivery_failures`, raise `MeshtasticSendError(AdapterPermanentError)` with `transient=False`. Includes: payload encoding failure, config error, not-connected, SDK not initialized. |
+| MeshCore | Session retries send up to 3x. On exhaustion: increment counters, raise `MeshCoreSendError(AdapterSendError)` with `transient=True`. Includes: transport timeout, connection reset, serial link failure. | Increment counters, raise `MeshCoreSendError(AdapterPermanentError)` with `transient=False`. Includes: invalid address, payload encoding failure, config error, not-connected, SDK not initialized. |
+| LXMF | Session retries send up to 3x. On exhaustion: increment counters, raise `LxmfSendError(AdapterSendError)` with `transient=True`. Includes: propagation delay, transport timeout, Reticulum link failure. | Increment counters, raise `LxmfSendError(AdapterPermanentError)` with `transient=False`. Includes: invalid destination hash, config error, not-connected, SDK not initialized. |
 
 All four adapters let exceptions propagate to the pipeline, which records delivery receipts. The pipeline's `classify_failure` uses `error.transient` to map to `DeliveryFailureKind.ADAPTER_TRANSIENT` (retryable) or `DeliveryFailureKind.ADAPTER_PERMANENT` (dead-letter). See Contract 33 for the full failure taxonomy.
+
+**Matrix `deliver()` exception handling:** The Matrix adapter catches `Exception` (not `BaseException`) in its broad error path. `CancelledError` is explicitly re-raised before this catch, ensuring asyncio task cancellation propagates correctly. This is a contract-level requirement: no adapter may swallow `CancelledError`.
 
 ### 6.3 Meshtastic: `deliver()` Returns `None` When Queued
 
@@ -222,10 +236,13 @@ The Meshtastic outbound queue (`MeshtasticOutboundQueue`) adds an additional dup
 ## 9. Contractual Guarantees for Beta
 
 1. **`AdapterDeliveryResult` is frozen and immutable.** No fields can be mutated after construction.
-2. **`native_message_id` is `str | None`.** Callers must handle `None`, especially for Meshtastic where `deliver()` returns `None` synchronously.
-3. **Metadata is namespaced.** Transport-specific metadata lives under `metadata[<transport>]`. No loose ad-hoc fields.
-4. **Failed sends raise exceptions, not delivery results.** No `AdapterDeliveryResult` is returned on failure.
-5. **Immediate return is not final delivery**, except for Matrix. All other transports may lose, delay, or fail to deliver the message after `deliver()` returns.
-6. **Duplicate-send risk is universal.** All adapters implement at-least-once delivery with bounded retry. Consumers must be duplicate-tolerant.
-7. **LXMF delivery state progression is the only async delivery tracking model.** No other transport provides post-return delivery state updates.
-8. **No delivery metadata will be removed or retyped** without a contract version bump. New metadata keys may be added under existing namespaces.
+2. **`native_message_id` is `str | None` and always platform-provided.** Adapters must never fabricate or locally-generate a native message ID. Callers must handle `None`, especially for Meshtastic where `deliver()` returns `None` synchronously.
+3. **`native_channel_id` is platform-provided and may be `None`.** The pipeline must not backfill `native_channel_id` or any other native ref field from route configuration.
+4. **Metadata is namespaced.** Transport-specific metadata lives under `metadata[<transport>]`. No loose ad-hoc fields.
+5. **Failed sends raise exceptions, not delivery results.** No `AdapterDeliveryResult` is returned on failure.
+6. **"Sent" means adapter handoff/acceptance succeeded, not final delivery.** Immediate return is not final delivery except for Matrix. All other transports may lose, delay, or fail to deliver the message after `deliver()` returns.
+7. **Native refs are persisted only when `native_message_id` exists.** No native ref record is created when `native_message_id` is `None`.
+8. **Duplicate-send risk is universal.** All adapters implement at-least-once delivery with bounded retry. Consumers must be duplicate-tolerant.
+9. **LXMF delivery state progression is the only async delivery tracking model.** No other transport provides post-return delivery state updates.
+10. **No delivery metadata will be removed or retyped** without a contract version bump. New metadata keys may be added under existing namespaces.
+11. **`CancelledError` must propagate.** No adapter may swallow `CancelledError`. Adapters catch `Exception`, not `BaseException`.

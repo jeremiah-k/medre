@@ -5,6 +5,7 @@ reply resolution; delivery contract; and nio response hardening.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import sys
 from datetime import datetime, timezone
@@ -14,7 +15,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from medre.adapters import FakeMatrixAdapter, FakePresentationAdapter
-from medre.adapters.base import AdapterDeliveryResult, AdapterPermanentError
+from medre.adapters.base import AdapterDeliveryResult, AdapterPermanentError, AdapterSendError
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.codec import MatrixCodec
 from medre.adapters.matrix.compat import HAS_NIO
@@ -509,7 +510,7 @@ class TestMatrixDeliveryNioResponseHardening:
             await adapter.deliver(result)
 
     async def test_client_not_connected_raises(self) -> None:
-        """deliver raises MatrixSendError when client is None."""
+        """deliver raises AdapterSendError (transient) when client is None."""
         config = _make_matrix_config()
         adapter = MatrixAdapter(config)
         adapter._client = None
@@ -520,8 +521,9 @@ class TestMatrixDeliveryNioResponseHardening:
             target_channel="!room:server",
             payload={"msgtype": "m.text", "body": "hello"},
         )
-        with pytest.raises((MatrixSendError, AdapterPermanentError), match="not connected"):
+        with pytest.raises(AdapterSendError, match="not connected") as exc_info:
             await adapter.deliver(result)
+        assert exc_info.value.transient is True
 
     async def test_delivery_without_target_room_fails(self) -> None:
         """Missing target room raises MatrixSendError."""
@@ -612,3 +614,84 @@ class TestMatrixDeliveryIgnoreUnverifiedDevices:
 
         call_kwargs = mock_client.room_send.call_args
         assert call_kwargs.kwargs.get("ignore_unverified_devices") is True
+
+
+class TestMatrixCancelledErrorPropagation:
+    """CancelledError must propagate through MatrixAdapter.deliver()."""
+
+    async def test_cancelled_error_propagates(self) -> None:
+        """CancelledError raised during room_send propagates, not swallowed."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+
+        mock_client = MagicMock()
+        mock_client.room_send = AsyncMock(side_effect=asyncio.CancelledError())
+        adapter._client = mock_client
+
+        result = RenderingResult(
+            event_id="evt-cancel",
+            target_adapter="matrix-1",
+            target_channel="!room:server",
+            payload={"msgtype": "m.text", "body": "hello"},
+        )
+        with pytest.raises(asyncio.CancelledError):
+            await adapter.deliver(result)
+
+    async def test_cancelled_error_not_converted_to_permanent(self) -> None:
+        """CancelledError must not be caught by the broad handler and
+        converted to AdapterPermanentError."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+
+        mock_client = MagicMock()
+        mock_client.room_send = AsyncMock(side_effect=asyncio.CancelledError())
+        adapter._client = mock_client
+
+        result = RenderingResult(
+            event_id="evt-cancel-not-perm",
+            target_adapter="matrix-1",
+            target_channel="!room:server",
+            payload={"msgtype": "m.text", "body": "hello"},
+        )
+        with pytest.raises(asyncio.CancelledError):
+            await adapter.deliver(result)
+        # Verify no permanent failure was recorded — CancelledError
+        # bypasses the transient/permanent counters entirely.
+        assert adapter._permanent_delivery_failures == 0
+
+    async def test_not_connected_is_transient(self) -> None:
+        """Client-not-connected raises AdapterSendError with transient=True."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+        adapter._client = None
+
+        result = RenderingResult(
+            event_id="evt-transient-nc",
+            target_adapter="matrix-1",
+            target_channel="!room:server",
+            payload={"msgtype": "m.text", "body": "hello"},
+        )
+        with pytest.raises(AdapterSendError) as exc_info:
+            await adapter.deliver(result)
+        assert exc_info.value.transient is True
+
+    async def test_permanent_rejection_classified(self) -> None:
+        """MatrixSendError (auth/business rejection) raises immediately as permanent."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+
+        mock_client = MagicMock()
+        mock_client.room_send = AsyncMock(
+            side_effect=MatrixSendError("forbidden: rejected")
+        )
+        adapter._client = mock_client
+
+        result = RenderingResult(
+            event_id="evt-perm-reject",
+            target_adapter="matrix-1",
+            target_channel="!room:server",
+            payload={"msgtype": "m.text", "body": "hello"},
+        )
+        with pytest.raises(MatrixSendError, match="forbidden"):
+            await adapter.deliver(result)
+        assert adapter._permanent_delivery_failures == 1

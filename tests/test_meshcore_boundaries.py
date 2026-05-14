@@ -558,8 +558,8 @@ class TestMeshCoreFailedDelivery:
     """Failed MeshCore delivery does not create native refs."""
 
     async def test_fake_adapter_failure_raises_and_no_native_ref(self) -> None:
-        """Fake adapter failure raises MeshCoreSendError, no native ref persisted."""
-        from medre.adapters.meshcore.errors import MeshCoreSendError
+        """Fake adapter failure raises AdapterSendError, no native ref persisted."""
+        from medre.adapters.base import AdapterSendError
 
         adapter = FakeMeshCoreAdapter()
         adapter.set_deliver_failure(True)
@@ -569,7 +569,7 @@ class TestMeshCoreFailedDelivery:
             target_channel="0",
             payload={"text": "test", "channel_index": 0},
         )
-        with pytest.raises(MeshCoreSendError):
+        with pytest.raises(AdapterSendError):
             await adapter.deliver(result)
         # No packets sent through fake client
         assert adapter.fake_client.sent_count == 0
