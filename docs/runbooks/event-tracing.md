@@ -32,12 +32,36 @@ that only existed in memory.
 ### 1.1 Trace a Single Event
 
 ```bash
+# Human-readable output (default):
 medre trace event <event_id> --config my-bridge.toml
+
+# JSON for programmatic inspection:
+medre trace event <event_id> --config my-bridge.toml --json
 ```
 
 This command queries the SQLite database for the canonical event, all delivery
-receipts, and any native message refs associated with `<event_id>`. It prints a
-timeline report to stdout.
+receipts, and any native message refs associated with `<event_id>`.
+
+**Human-readable output (default, no `--json`):**
+
+Without `--json`, the command prints a compact timeline summary to stdout:
+
+```
+Event timeline: evt_abc123
+  Kind:    message.text
+  Source:  bot
+  Entries: 5
+
+  2026-05-14T10:30:00Z  [event] message.text from bot
+  2026-05-14T10:30:00.010Z  [native_ref] outbound via radio: fake_123
+  2026-05-14T10:30:00.050Z  [receipt] sent -> radio (attempt 1)
+  2026-05-14T10:35:00Z  [receipt] failed -> radio (attempt 2)
+  2026-05-14T10:35:10Z  [receipt] sent -> radio (attempt 3)
+```
+
+Entry types: `[event]`, `[receipt]`, `[native_ref]`, `[relation]`. For
+receipts, the status and target adapter are shown alongside the attempt number.
+For native refs, the direction, adapter, and native message ID are shown.
 
 **Output shape (JSON with `--json`):**
 
@@ -145,11 +169,34 @@ guarantee.
 ### 1.3 Trace a Replay Run
 
 ```bash
+# Human-readable output (default):
 medre trace replay <run_id> --config my-bridge.toml
+
+# JSON for programmatic inspection:
+medre trace replay <run_id> --config my-bridge.toml --json
 ```
 
 This command queries all delivery receipts with `replay_run_id == <run_id>` and
 reconstructs the replay timeline.
+
+**Human-readable output (default, no `--json`):**
+
+Without `--json`, the command prints a compact replay summary:
+
+```
+Replay timeline: replay_xyz789
+  Status:  complete
+  Receipts: 3
+  Events:  2
+
+  2026-05-14T11:00:00Z  [receipt] sent -> radio (event: evt_abc123)
+  2026-05-14T11:00:00Z  [event_summary] message.text from bot
+  2026-05-14T11:00:01Z  [receipt] failed -> matrix (event: evt_def456)
+  2026-05-14T11:00:01Z  [event_summary] message.text from radio
+```
+
+Entry types: `[receipt]` (status, target, event ID) and `[event_summary]`
+(event kind, source adapter).
 
 **Output shape (JSON with `--json`):**
 
@@ -213,6 +260,44 @@ must be re-replayed manually.
 | 0 | Event/run found, report printed |
 | 2 | Config error, no SQLite backend, or database not found |
 | 1 | Event/run ID not found in the database |
+
+
+### 1.5 Classification Vocabulary
+
+The `trace`, `recover`, and `evidence` commands share a consistent set of
+failure-kind values for classifying delivery outcomes. This vocabulary is used
+in receipt `failure_kind` fields, recovery runbook classification, and
+incident summaries within evidence bundles.
+
+**Failure-kind values:**
+
+| Value | Category | Meaning |
+|-------|----------|---------|
+| `adapter_transient` | retryable | Temporary failure (timeout, connection reset); eligible for retry |
+| `adapter_permanent` | permanent | Non-recoverable adapter error; no retry |
+| `adapter_missing` | permanent | Target adapter not registered at delivery time |
+| `renderer_failure` | permanent | No renderer handled the event kind |
+| `planner_failure` | permanent | Delivery planning error |
+| `capacity_rejection` | operational | Delivery rejected due to capacity limits |
+| `shutdown_rejection` | operational | Delivery rejected during runtime shutdown |
+| `deadline_exceeded` | operational | Delivery plan deadline passed |
+| `unknown` | unknown | Unclassifiable failure |
+
+**Recovery categories** (used by `medre recover --event`):
+
+| Category | Includes | Recommended next step |
+|----------|----------|----------------------|
+| `retryable` | `adapter_transient` | `medre replay --mode DRY_RUN`, then `BEST_EFFORT` |
+| `permanent` | `adapter_permanent`, `adapter_missing`, `renderer_failure`, `planner_failure` | `medre trace event` and `medre inspect receipts` for diagnosis |
+| `operational` | `capacity_rejection`, `shutdown_rejection`, `deadline_exceeded` | `medre diagnostics`, `medre config check` |
+| `unknown` | `unknown` | `medre trace event` for manual investigation |
+
+This vocabulary is the same across `medre trace event` (receipt display),
+`medre recover --event` (runbook classification and recommended commands),
+and `medre evidence --event` (incident_summary section in the storage
+section). See [Bridge Recovery](bridge-recovery.md) for the recovery workflow
+and [Bridge Evidence Bundle](bridge-evidence-bundle.md) for the incident
+summary shape.
 
 
 ## 2. Timeline Report Interpretation

@@ -440,6 +440,70 @@ async def _collect_storage_section(
                 data["timeline"] = assemble_event_timeline(
                     event, receipts, native_refs, relations,
                 )
+
+                # Compact incident summary using shared classification.
+                from medre.observability.classification import (
+                    infer_failure_kind,
+                    failure_category,
+                    recommended_commands,
+                )
+
+                receipt_dicts = [
+                    _json.loads(msgspec.json.encode(r)) for r in receipts
+                ]
+                failed_count = sum(
+                    1 for r in receipt_dicts
+                    if r.get("status") in ("failed", "dead_lettered")
+                )
+                sent_count = sum(
+                    1 for r in receipt_dicts
+                    if r.get("status") == "sent"
+                )
+
+                first_failure_kind: str | None = None
+                worst_category = "success"
+                for r in receipt_dicts:
+                    if r.get("status") in ("failed", "dead_lettered"):
+                        fk = infer_failure_kind(
+                            r.get("error"), r.get("status", ""),
+                        )
+                        if first_failure_kind is None:
+                            first_failure_kind = fk
+                        cat = failure_category(fk)
+                        if cat != "success":
+                            worst_category = cat
+                            break
+
+                has_replay = any(
+                    r.get("source") == "replay" for r in receipt_dicts
+                )
+                has_native_refs = len(native_refs) > 0
+
+                # Determine overall classification for the event.
+                if failed_count == 0:
+                    classification = "success"
+                elif worst_category != "success":
+                    classification = worst_category
+                else:
+                    classification = "unknown"
+
+                cmds = recommended_commands(classification, event_id) \
+                    if classification != "success" \
+                    else [f"medre trace event {event_id}"]
+
+                data["incident_summary"] = {
+                    "event_id": event_id,
+                    "event_kind": event.event_kind,
+                    "source_adapter": event.source_adapter,
+                    "first_failure_kind": first_failure_kind,
+                    "classification": classification,
+                    "replay_receipts_present": has_replay,
+                    "native_refs_present": has_native_refs,
+                    "receipt_count": len(receipt_dicts),
+                    "failed_count": failed_count,
+                    "sent_count": sent_count,
+                    "recommended_commands": cmds,
+                }
             # else: event not found — keep None, not an error for the section.
 
         # Optional replay-run receipts.

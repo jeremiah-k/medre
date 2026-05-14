@@ -7,88 +7,16 @@ import uuid
 from typing import Any
 
 from medre.core.storage.replay import ReplayMode, ReplayRequest
+from medre.observability.classification import (
+    infer_failure_kind as _infer_failure_kind,
+    failure_category as _failure_category,
+    recommended_commands as _recommended_commands,
+)
 from medre.runtime.trace import assemble_event_timeline
 
 from .exit_codes import EXIT_NOT_FOUND, EXIT_CONFIG, EXIT_BUILD
 from .storage_helpers import _open_readonly_storage
 from .replay_commands import _RADIO_TRANSPORTS
-
-
-# Failure-kind categories for recovery classification.
-_RETRYABLE_KINDS = frozenset({"adapter_transient"})
-_PERMANENT_KINDS = frozenset({
-    "adapter_permanent", "adapter_missing", "renderer_failure", "planner_failure",
-})
-_OPERATIONAL_KINDS = frozenset({
-    "capacity_rejection", "shutdown_rejection", "deadline_exceeded",
-})
-
-
-def _infer_failure_kind(error: str | None, status: str) -> str:
-    """Infer a failure-kind string from receipt error and status fields.
-
-    The ``DeliveryReceipt`` struct does not persist ``failure_kind`` directly;
-    this helper reconstructs a best-effort classification from the error
-    message patterns produced by the delivery pipeline.
-    """
-    err = (error or "").lower()
-    # Operational: capacity / shutdown / deadline
-    if "delivery_capacity_exceeded" in err or "capacity" in err:
-        return "capacity_rejection"
-    if "delivery_rejected_shutdown" in err or "shutdown" in err:
-        return "shutdown_rejection"
-    if "deadline_exceeded" in err or "deadline" in err:
-        return "deadline_exceeded"
-    # Permanent: renderer / adapter-missing
-    if "renderer" in err or "no renderer" in err:
-        return "renderer_failure"
-    if "adapter_missing" in err or "not registered" in err:
-        return "adapter_missing"
-    if "planner" in err:
-        return "planner_failure"
-    # Retryable: transient signals
-    if any(s in err for s in ("timeout", "connectionerror", "connection reset", "temporary")):
-        return "adapter_transient"
-    # dead_lettered implies retries exhausted — was transient
-    if status == "dead_lettered":
-        return "adapter_transient"
-    # Default: permanent for unclassifiable failures
-    if error:
-        return "adapter_permanent"
-    return "unknown"
-
-
-def _failure_category(failure_kind: str) -> str:
-    """Map a failure-kind string to a recovery category."""
-    if failure_kind in _RETRYABLE_KINDS:
-        return "retryable"
-    if failure_kind in _PERMANENT_KINDS:
-        return "permanent"
-    if failure_kind in _OPERATIONAL_KINDS:
-        return "operational"
-    return "unknown"
-
-
-def _recommended_commands(category: str, event_id: str) -> list[str]:
-    """Return recommended next commands for a failure category."""
-    if category == "retryable":
-        return [
-            f"medre trace event {event_id}",
-            f"medre replay --mode DRY_RUN --event {event_id}",
-            f"medre replay --mode BEST_EFFORT --event {event_id}",
-        ]
-    if category == "permanent":
-        return [
-            f"medre trace event {event_id}",
-            f"medre inspect receipts --event {event_id}",
-        ]
-    if category == "operational":
-        return [
-            "medre diagnostics",
-            "medre config check",
-            f"medre trace event {event_id}",
-        ]
-    return [f"medre trace event {event_id}"]
 
 
 async def _recover(

@@ -108,7 +108,7 @@ public observability surface.
 | Symbol | Module | Purpose |
 |--------|--------|---------|
 | `sanitize_error` | `.sanitization` | Redact tokens/passwords from error strings, truncate to safe length |
-| `sanitize_for_log` | `.sanitization` | Strip secret keys from dicts, coerce values for structured log output |
+| `sanitize_for_log` | `.sanitization` | Canonical dict redaction path — strip secret keys from dicts, coerce values for structured log output. `medre.core.observability.logging` delegates to this function for all dict sanitization. |
 | `adapter_logger` | `.logging` | LoggerAdapter factory injecting `adapter_id` and `transport` context |
 | `startup_summary` | `.summaries` | Multi-line startup summary string for the runtime |
 | `shutdown_summary` | `.summaries` | Multi-line shutdown summary string for the runtime |
@@ -138,7 +138,11 @@ for direct consumption by CLI or adapter code.
 
 - `medre.observability` must not import from `medre.core.observability`.
 - `medre.core.observability` may import from `medre.observability` (e.g.
-  `log_route_failed` delegates sanitization to `medre.observability.sanitize_error`).
+  `log_route_failed` delegates sanitization to `medre.observability.sanitize_error`,
+  and `core.observability.logging` delegates dict redaction to
+  `medre.observability.sanitize_for_log`).
 - CLI and adapter code import from `medre.observability`. Pipeline and routing
   internals import from `medre.core.observability`.
 - No duplicate APIs: each symbol lives in exactly one package.
+  `medre.observability.sanitization` is the single source for both
+  `sanitize_for_log` and `sanitize_error`.

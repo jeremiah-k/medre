@@ -40,19 +40,20 @@ async def _trace_event(
             print(timeline_to_json(timeline))
         else:
             # Human-readable summary.
-            print(f"Event timeline: {event_id}")
-            print(f"  Kind:    {event.event_kind}")
-            print(f"  Source:  {event.source_adapter}")
-            print(f"  Entries: {len(timeline)}")
+            print(f"Event: {event_id} ({event.event_kind}) from {event.source_adapter}")
+            print(f"Timeline ({len(timeline)} entries):")
             print()
             for entry in timeline:
                 ts = entry["timestamp"]
                 etype = entry["entry_type"]
                 data = entry["data"]
                 if etype == "relation":
-                    print(f"  {ts}  [{etype}] {data.get('relation_type', '')}")
+                    rtype = data.get("relation_type", "")
+                    print(f"  {ts}  [{etype}] {rtype}")
                 elif etype == "event":
-                    print(f"  {ts}  [{etype}] {data.get('event_kind', '')} from {data.get('source_adapter', '')}")
+                    kind = data.get("event_kind", "")
+                    src = data.get("source_adapter", "")
+                    print(f"  {ts}  [{etype}] {kind} from {src}")
                 elif etype == "native_ref":
                     direction = data.get("direction", "")
                     adapter = data.get("adapter", "")
@@ -62,9 +63,31 @@ async def _trace_event(
                     status = data.get("status", "")
                     target = data.get("target_adapter", "")
                     attempt = data.get("attempt_number", 1)
-                    print(f"  {ts}  [{etype}] {status} -> {target} (attempt {attempt})")
+                    line = f"  {ts}  [{etype}] {status} -> {target} (attempt {attempt})"
+                    error = data.get("error")
+                    if error:
+                        truncated = error if len(error) <= 80 else error[:77] + "..."
+                        line += f" error={truncated}"
+                    print(line)
                 else:
                     print(f"  {ts}  [{etype}] {data}")
+
+            # Summary: receipt counts by status, native ref count, relations count.
+            receipt_entries = [e for e in timeline if e["entry_type"] == "receipt"]
+            status_counts: dict[str, int] = {}
+            for re in receipt_entries:
+                s = re["data"].get("status", "unknown")
+                status_counts[s] = status_counts.get(s, 0) + 1
+            nref_count = sum(1 for e in timeline if e["entry_type"] == "native_ref")
+            rel_count = sum(1 for e in timeline if e["entry_type"] == "relation")
+            print()
+            print("Summary:")
+            status_parts = ", ".join(
+                f"{status}: {count}" for status, count in sorted(status_counts.items())
+            )
+            print(f"  Receipts: {status_parts or 'none'}")
+            print(f"  Native refs: {nref_count}")
+            print(f"  Relations: {rel_count}")
     finally:
         await storage.close()
 

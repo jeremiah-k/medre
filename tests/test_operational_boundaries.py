@@ -750,3 +750,67 @@ class TestDeploymentHelpersNoSdkInstantiation:
         assert banned == [], (
             f"medre.config.sample imports transport SDKs: {banned}"
         )
+
+
+# ===================================================================
+# 7. Core logging imports canonical sanitizer
+# ===================================================================
+
+
+class TestCoreLoggingImportsCanonicalSanitizer:
+    """``medre.core.observability.logging`` must not define its own
+    redaction logic — it must import and use the canonical
+    ``sanitize_for_log`` from ``medre.observability.sanitization``.
+    """
+
+    _LOGGING_MODULE = "medre.core.observability.logging"
+
+    def test_no_sensitive_keys_definition(self) -> None:
+        """``_SENSITIVE_KEYS`` must not be defined in the logging module."""
+        source = _source_of(self._LOGGING_MODULE)
+        assert "_SENSITIVE_KEYS" not in source, (
+            f"{self._LOGGING_MODULE} still defines _SENSITIVE_KEYS — "
+            "remove it and use canonical sanitize_for_log"
+        )
+
+    def test_no_redact_value_definition(self) -> None:
+        """``_redact_value`` must not be defined in the logging module."""
+        source = _source_of(self._LOGGING_MODULE)
+        assert "_redact_value" not in source, (
+            f"{self._LOGGING_MODULE} still defines _redact_value — "
+            "remove it and use canonical sanitize_for_log"
+        )
+
+    def test_no_redact_context_definition(self) -> None:
+        """``_redact_context`` must not be defined in the logging module."""
+        source = _source_of(self._LOGGING_MODULE)
+        assert "_redact_context" not in source, (
+            f"{self._LOGGING_MODULE} still defines _redact_context — "
+            "remove it and use canonical sanitize_for_log"
+        )
+
+    def test_no_redacted_constant(self) -> None:
+        """``_REDACTED`` must not be defined in the logging module."""
+        source = _source_of(self._LOGGING_MODULE)
+        assert "_REDACTED" not in source, (
+            f"{self._LOGGING_MODULE} still defines _REDACTED — "
+            "remove it and use canonical sanitize_for_log"
+        )
+
+    def test_imports_canonical_sanitize_for_log(self) -> None:
+        """``sanitize_for_log`` must be imported from the canonical location."""
+        source = _source_of(self._LOGGING_MODULE)
+        assert (
+            "from medre.observability.sanitization import" in source
+            and "sanitize_for_log" in source
+        ), (
+            f"{self._LOGGING_MODULE} must import sanitize_for_log "
+            "from medre.observability.sanitization"
+        )
+
+    def test_uses_canonical_sanitize_for_log(self) -> None:
+        """The module must call ``sanitize_for_log`` (not a local helper)."""
+        source = _source_of(self._LOGGING_MODULE)
+        assert "sanitize_for_log(" in source, (
+            f"{self._LOGGING_MODULE} must use sanitize_for_log()"
+        )

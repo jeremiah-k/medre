@@ -756,9 +756,12 @@ class TestTraceEvent:
             "trace", "event", "evt-trace-1",
             "--config", str(config_trace_sqlite),
         )
-        assert "Event timeline: evt-trace-1" in output
-        assert "message.created" in output
-        assert "Entries:" in output
+        assert "Event: evt-trace-1 (message.created) from test_adapter" in output
+        assert "Timeline (4 entries):" in output
+        assert "Summary:" in output
+        assert "Receipts:" in output
+        assert "Native refs:" in output
+        assert "Relations:" in output
 
     def test_event_json_deterministic(
         self, config_trace_sqlite: Path,

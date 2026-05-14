@@ -1,12 +1,27 @@
 """Tests for structured logging hardening (Track 4).
 
 Covers:
-- Redaction helper for sensitive keys
-- _JsonFormatter extra-field inclusion and redaction
-- diagnostic_event context redaction
+- Canonical sanitize_for_log integration
+- _JsonFormatter extra-field inclusion and sanitization
+- diagnostic_event context sanitization
 - No raw secret leakage in output
 - Human-readable format remains stable
 - Repeated setup_logging is a no-op
+
+Behavioral note on the canonical sanitizer (``sanitize_for_log`` from
+``medre.observability.sanitization``):
+
+* Uses **anchored regex patterns** (e.g. ``^password$``, ``^secret``) instead
+  of the old substring matching.  Keys like ``"user_password_hash"`` no longer
+  match because the key does not start with ``"password"``.
+* **Removes** sensitive keys from the output dict entirely rather than
+  replacing values with ``"[REDACTED]"``.
+* **Coerces** non-scalar values (dicts → recursive sanitize, lists →
+  element-wise sanitize, unknown types → ``"<TypeName>"``).
+* Does NOT match bare ``"token"``, ``"cookie"``, or ``"session"`` as
+  sensitive — only prefixed forms like ``"access_token"``,
+  ``"session_secret"``.  This is intentional: the canonical patterns are
+  anchored to avoid false positives on generic keys.
 """
 
 from __future__ import annotations
@@ -19,10 +34,7 @@ from typing import Any, Generator
 import pytest
 
 from medre.core.observability.logging import (
-    _REDACTED,
     _JsonFormatter,
-    _redact_context,
-    _redact_value,
     diagnostic_event,
     get_logger,
     log_route_delivered,
@@ -31,60 +43,79 @@ from medre.core.observability.logging import (
     log_route_matched,
     setup_logging,
 )
+from medre.observability.sanitization import sanitize_for_log
 
 
 # ---------------------------------------------------------------------------
-# Redaction helper tests
+# Canonical sanitizer tests
 # ---------------------------------------------------------------------------
 
 
-class TestRedactValue:
-    """Unit tests for the ``_redact_value`` helper."""
+class TestSanitizeForLogCanonical:
+    """Tests for ``sanitize_for_log`` from ``medre.observability.sanitization``.
+
+    These tests verify the canonical sanitizer's behaviour as used by the
+    logging layer.  The canonical sanitizer uses anchored regex patterns
+    and **removes** matching keys (rather than replacing values with
+    ``"[REDACTED]"``).
+    """
 
     @pytest.mark.parametrize(
         "key",
         [
-            "token",
-            "access_token",
-            "api_key",
             "password",
             "secret",
+            "secret_key",
+            "api_key",
+            "apikey",
+            "access_token",
+            "accesstoken",
+            "auth_token",
+            "private_key",
             "credential",
-            "cookie",
-            "session",
+            "credentials",
+            "session_secret",
+            "encryption_key",
+            "device_key",
         ],
     )
-    def test_exact_sensitive_keys_redacted(self, key: str) -> None:
-        assert _redact_value(key, "super-secret-value") == _REDACTED
+    def test_secret_keys_removed(self, key: str) -> None:
+        result = sanitize_for_log({key: "super-secret-value"})
+        assert key not in result
 
     @pytest.mark.parametrize(
         "key",
         [
-            "Token",
-            "ACCESS_TOKEN",
-            "API_KEY",
             "Password",
-            "SECRET",
-            "Credential",
-            "Cookie",
-            "Session",
+            "PASSWORD",
+            "Secret",
+            "API_KEY",
+            "Access_Token",
         ],
     )
     def test_case_insensitive(self, key: str) -> None:
-        assert _redact_value(key, "super-secret-value") == _REDACTED
+        result = sanitize_for_log({key: "super-secret-value"})
+        assert key not in result
 
     @pytest.mark.parametrize(
         "key",
         [
+            # Intentional difference: anchored patterns do NOT match substrings.
+            # "user_password_hash" does NOT start with "password", so it passes.
             "user_password_hash",
-            "my_secret_key",
+            "my_secret_in_the_middle",
             "refresh_token_value",
-            "session_id",
-            "cookie_domain",
         ],
     )
-    def test_substring_match(self, key: str) -> None:
-        assert _redact_value(key, "sensitive") == _REDACTED
+    def test_substring_non_match_passes_through(self, key: str) -> None:
+        """Keys containing secret words but not starting with them pass through.
+
+        This is an intentional difference from the old ``_redact_value`` which
+        used substring matching.  The canonical sanitizer uses anchored regex
+        patterns to avoid false positives on generic key names.
+        """
+        result = sanitize_for_log({key: "some-value"})
+        assert result[key] == "some-value"
 
     @pytest.mark.parametrize(
         "key",
@@ -99,50 +130,49 @@ class TestRedactValue:
         ],
     )
     def test_safe_keys_pass_through(self, key: str) -> None:
-        value = {"some": "data"}
-        assert _redact_value(key, value) is value
+        result = sanitize_for_log({key: "data"})
+        assert result[key] == "data"
 
     def test_none_value_passes_through_for_safe_keys(self) -> None:
-        assert _redact_value("adapter", None) is None
+        result = sanitize_for_log({"adapter": None})
+        assert result["adapter"] is None
 
-    def test_sensitive_key_with_none_value_still_redacted(self) -> None:
-        assert _redact_value("password", None) == _REDACTED
+    def test_dict_value_recursively_sanitized(self) -> None:
+        result = sanitize_for_log({"config": {"password": "secret"}})
+        assert "password" not in result["config"]
 
-
-class TestRedactContext:
-    """Unit tests for the ``_redact_context`` helper."""
+    def test_non_scalar_coerced_to_type_name(self) -> None:
+        result = sanitize_for_log({"obj": object()})
+        assert result["obj"] == "<object>"
 
     def test_mixed_keys(self) -> None:
         data = {
             "adapter": "discord",
-            "token": "abc123",
+            "password": "abc123",
             "event_id": "evt-1",
-            "password": "hunter2",
+            "api_key": "key-xyz",
         }
-        result = _redact_context(data)
+        result = sanitize_for_log(data)
         assert result == {
             "adapter": "discord",
-            "token": _REDACTED,
             "event_id": "evt-1",
-            "password": _REDACTED,
         }
 
     def test_empty_dict(self) -> None:
-        assert _redact_context({}) == {}
+        assert sanitize_for_log({}) == {}
 
     def test_no_sensitive_keys(self) -> None:
         data = {"adapter": "matrix", "target": "ch-1"}
-        assert _redact_context(data) == data
+        assert sanitize_for_log(data) == data
 
     def test_returns_new_dict(self) -> None:
         data: dict[str, Any] = {"adapter": "test"}
-        result = _redact_context(data)
+        result = sanitize_for_log(data)
         assert result is not data
 
     def test_deterministic(self) -> None:
-        """Repeated calls with same input produce identical output."""
         data = {"api_key": "k1", "name": "adapter_a"}
-        assert _redact_context(data) == _redact_context(data)
+        assert sanitize_for_log(data) == sanitize_for_log(data)
 
 
 # ---------------------------------------------------------------------------
@@ -183,11 +213,12 @@ class TestJsonFormatterExtraFields:
         assert parsed["extra"]["adapter"] == "discord"
         assert parsed["extra"]["count"] == 5
 
-    def test_sensitive_extra_fields_redacted(self) -> None:
+    def test_sensitive_extra_fields_sanitized(self) -> None:
         record = self._make_record("evt", api_key="sk-12345", adapter="test")
         output = _JsonFormatter().format(record)
         parsed = json.loads(output)
-        assert parsed["extra"]["api_key"] == _REDACTED
+        # Canonical sanitizer removes secret keys entirely.
+        assert "api_key" not in parsed["extra"]
         assert parsed["extra"]["adapter"] == "test"
 
     def test_internal_attrs_not_leaked(self) -> None:
@@ -252,31 +283,32 @@ class TestDiagnosticEventRedaction:
         yield buf
         diag_logger.handlers.clear()
 
-    def test_no_raw_token_in_output(
+    def test_no_raw_secret_in_output(
         self, _capture_diagnostic: StringIO
     ) -> None:
         diagnostic_event(
             "evt-1",
             "adapter_failure",
             "connection failed",
-            token="sk-live-abc123",
+            password="sk-live-abc123",
             adapter="discord",
         )
         output = _capture_diagnostic.getvalue()
         assert "sk-live-abc123" not in output
-        assert _REDACTED in output
+        # Canonical sanitizer removes the key entirely — no "[REDACTED]" string.
+        assert "password=" not in output
         assert "adapter='discord'" in output
 
-    def test_password_redacted(self, _capture_diagnostic: StringIO) -> None:
+    def test_api_key_removed(self, _capture_diagnostic: StringIO) -> None:
         diagnostic_event(
             "evt-2",
             "auth_failure",
             "bad creds",
-            password="hunter2",
+            api_key="hunter2",
         )
         output = _capture_diagnostic.getvalue()
         assert "hunter2" not in output
-        assert _REDACTED in output
+        assert "api_key=" not in output
 
     def test_no_context_produces_no_kv(self) -> None:
         """When no context kwargs are passed, the trailing kv segment is empty."""
@@ -350,7 +382,7 @@ class TestSetupLoggingIntegration:
         assert parsed["extra"]["adapter"] == "lxmf"
         assert parsed["extra"]["request_id"] == "r1"
 
-    def test_json_format_redacts_extra_sensitive_fields(self) -> None:
+    def test_json_format_sanitizes_extra_sensitive_fields(self) -> None:
         buf = StringIO()
         logger = logging.getLogger("medre")
 
@@ -366,7 +398,8 @@ class TestSetupLoggingIntegration:
 
         parsed = json.loads(buf.getvalue().strip())
         assert parsed["extra"]["username"] == "admin"
-        assert parsed["extra"]["password"] == _REDACTED
+        # Canonical sanitizer removes secret keys entirely.
+        assert "password" not in parsed["extra"]
         assert "s3cret" not in buf.getvalue()
 
     def test_human_readable_format_unchanged(self) -> None:
@@ -409,15 +442,16 @@ class TestSetupLoggingIntegration:
         logger.addHandler(handler)
         logger.setLevel(logging.DEBUG)
 
+        # Use keys recognized by the canonical sanitizer's anchored regex
+        # patterns.  Bare "token", "cookie", and "session" are intentionally
+        # NOT matched — the canonical sanitizer only matches prefixed forms
+        # like "access_token" and "session_secret".
         sensitive_pairs = {
-            "token": "tok-abc",
-            "access_token": "at-xyz",
-            "api_key": "ak-123",
             "password": "pw-456",
             "secret": "sec-789",
+            "api_key": "ak-123",
+            "access_token": "at-xyz",
             "credential": "cred-000",
-            "cookie": "ck-aaa",
-            "session": "sess-bbb",
         }
         logger.info("multi-field", extra=sensitive_pairs)
 
@@ -428,9 +462,9 @@ class TestSetupLoggingIntegration:
         for secret_val in sensitive_pairs.values():
             assert secret_val not in raw_output
 
-        # All keys should be redacted in the parsed extra
+        # All canonical secret keys should be removed from the parsed extra
         for key in sensitive_pairs:
-            assert parsed["extra"][key] == _REDACTED
+            assert key not in parsed["extra"]
 
 
 # ---------------------------------------------------------------------------

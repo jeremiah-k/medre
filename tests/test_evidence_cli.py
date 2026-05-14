@@ -247,6 +247,57 @@ async def _make_populated_db(
     return event.event_id, receipt.receipt_id
 
 
+async def _make_populated_db_with_failure(
+    db_path: str,
+    event_id: str = "ev-evidence-fail-001",
+    receipt_status: str = "failed",
+    receipt_error: str | None = "TimeoutError: connection timed out",
+    receipt_source: str = "live",
+) -> str:
+    """Create and populate a SQLite DB with a receipt in given status.
+
+    Returns the event_id.
+    """
+    from medre.core.events.canonical import CanonicalEvent, DeliveryReceipt
+    from medre.core.events.kinds import EventKind
+    from medre.core.events.metadata import EventMetadata
+    from medre.core.storage.sqlite import SQLiteStorage
+
+    storage = SQLiteStorage(db_path)
+    await storage.initialize()
+
+    event = CanonicalEvent(
+        event_id=event_id,
+        event_kind=EventKind.MESSAGE_TEXT,
+        schema_version=1,
+        timestamp=datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc),
+        source_adapter="main",
+        source_transport_id="matrix",
+        source_channel_id="!room:test",
+        parent_event_id=None,
+        lineage=(),
+        relations=(),
+        payload={"text": "evidence failure test"},
+        metadata=EventMetadata(),
+    )
+    await storage.append(event)
+
+    receipt = DeliveryReceipt(
+        receipt_id="rcpt-fail-001",
+        event_id=event_id,
+        delivery_plan_id="dp-fail-001",
+        target_adapter="radio",
+        status=receipt_status,
+        source=receipt_source,
+        error=receipt_error,
+        created_at=datetime(2026, 1, 1, 0, 0, 1, tzinfo=timezone.utc),
+    )
+    await storage.append_receipt(receipt)
+
+    await storage.close()
+    return event_id
+
+
 # ---------------------------------------------------------------------------
 # Tests: collect_evidence_bundle — core behaviour
 # ---------------------------------------------------------------------------
@@ -601,3 +652,171 @@ class TestEvidenceCli:
         storage = result["sections"]["storage"]
         # Missing DB so partial, but replay_run_id was passed.
         assert storage["status"] in ("partial", "ok")
+
+
+# ---------------------------------------------------------------------------
+# Tests: incident_summary in storage section
+# ---------------------------------------------------------------------------
+
+
+class TestIncidentSummary:
+    """Compact incident summary in evidence bundles when --event is used."""
+
+    @pytest.mark.asyncio
+    async def test_incident_summary_success(self, config_fake: Path) -> None:
+        """All-sent receipts produce classification='success'."""
+        db_path = str(config_fake.parent / "state" / "test_evidence.db")
+        event_id, _ = await _make_populated_db(db_path)
+
+        report = await collect_evidence_bundle(
+            str(config_fake), event_id=event_id,
+        )
+        summary = report["sections"]["storage"]["data"]["incident_summary"]
+        assert summary["event_id"] == event_id
+        assert summary["event_kind"] == "message.text"
+        assert summary["source_adapter"] == "main"
+        assert summary["classification"] == "success"
+        assert summary["first_failure_kind"] is None
+        assert summary["receipt_count"] == 1
+        assert summary["failed_count"] == 0
+        assert summary["sent_count"] == 1
+        assert summary["replay_receipts_present"] is False
+        assert summary["native_refs_present"] is False
+        assert isinstance(summary["recommended_commands"], list)
+
+    @pytest.mark.asyncio
+    async def test_incident_summary_retryable(self, config_fake: Path) -> None:
+        """Failed receipt with timeout error produces retryable classification."""
+        db_path = str(config_fake.parent / "state" / "test_evidence.db")
+        event_id = await _make_populated_db_with_failure(
+            db_path,
+            event_id="ev-evidence-retry-001",
+            receipt_status="failed",
+            receipt_error="TimeoutError: connection timed out",
+        )
+
+        report = await collect_evidence_bundle(
+            str(config_fake), event_id=event_id,
+        )
+        summary = report["sections"]["storage"]["data"]["incident_summary"]
+        assert summary["classification"] == "retryable"
+        assert summary["first_failure_kind"] == "adapter_transient"
+        assert summary["failed_count"] == 1
+        assert summary["sent_count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_incident_summary_permanent(self, config_fake: Path) -> None:
+        """Failed receipt with permission error produces permanent classification."""
+        db_path = str(config_fake.parent / "state" / "test_evidence.db")
+        event_id = await _make_populated_db_with_failure(
+            db_path,
+            event_id="ev-evidence-perm-001",
+            receipt_status="failed",
+            receipt_error="permission denied",
+        )
+
+        report = await collect_evidence_bundle(
+            str(config_fake), event_id=event_id,
+        )
+        summary = report["sections"]["storage"]["data"]["incident_summary"]
+        assert summary["classification"] == "permanent"
+        assert summary["first_failure_kind"] == "adapter_permanent"
+
+    @pytest.mark.asyncio
+    async def test_incident_summary_operational(self, config_fake: Path) -> None:
+        """Failed receipt with capacity error produces operational classification."""
+        db_path = str(config_fake.parent / "state" / "test_evidence.db")
+        event_id = await _make_populated_db_with_failure(
+            db_path,
+            event_id="ev-evidence-op-001",
+            receipt_status="failed",
+            receipt_error="delivery_capacity_exceeded",
+        )
+
+        report = await collect_evidence_bundle(
+            str(config_fake), event_id=event_id,
+        )
+        summary = report["sections"]["storage"]["data"]["incident_summary"]
+        assert summary["classification"] == "operational"
+        assert summary["first_failure_kind"] == "capacity_rejection"
+
+    @pytest.mark.asyncio
+    async def test_incident_summary_replay_receipts(self, config_fake: Path) -> None:
+        """Replay receipts are detected in incident summary."""
+        db_path = str(config_fake.parent / "state" / "test_evidence.db")
+        event_id = await _make_populated_db_with_failure(
+            db_path,
+            event_id="ev-evidence-replay-001",
+            receipt_status="failed",
+            receipt_error="TimeoutError: connection timed out",
+            receipt_source="replay",
+        )
+
+        report = await collect_evidence_bundle(
+            str(config_fake), event_id=event_id,
+        )
+        summary = report["sections"]["storage"]["data"]["incident_summary"]
+        assert summary["replay_receipts_present"] is True
+
+    @pytest.mark.asyncio
+    async def test_incident_summary_recommended_commands(self, config_fake: Path) -> None:
+        """Recommended commands are populated based on classification."""
+        db_path = str(config_fake.parent / "state" / "test_evidence.db")
+        event_id = await _make_populated_db_with_failure(
+            db_path,
+            event_id="ev-evidence-cmds-001",
+            receipt_status="failed",
+            receipt_error="TimeoutError: connection timed out",
+        )
+
+        report = await collect_evidence_bundle(
+            str(config_fake), event_id=event_id,
+        )
+        summary = report["sections"]["storage"]["data"]["incident_summary"]
+        cmds = summary["recommended_commands"]
+        assert len(cmds) > 0
+        cmd_text = " ".join(cmds)
+        assert "trace event" in cmd_text
+
+    @pytest.mark.asyncio
+    async def test_incident_summary_absent_without_event(self, config_fake: Path) -> None:
+        """incident_summary is not present when --event is not provided."""
+        db_path = str(config_fake.parent / "state" / "test_evidence.db")
+        await _make_populated_db(db_path)
+
+        report = await collect_evidence_bundle(str(config_fake))
+        data = report["sections"]["storage"]["data"]
+        assert "incident_summary" not in data or data.get("incident_summary") is None
+
+    @pytest.mark.asyncio
+    async def test_incident_summary_fields_complete(self, config_fake: Path) -> None:
+        """All required incident_summary fields are present."""
+        db_path = str(config_fake.parent / "state" / "test_evidence.db")
+        event_id, _ = await _make_populated_db(db_path)
+
+        report = await collect_evidence_bundle(
+            str(config_fake), event_id=event_id,
+        )
+        summary = report["sections"]["storage"]["data"]["incident_summary"]
+        required_fields = [
+            "event_id", "event_kind", "source_adapter",
+            "first_failure_kind", "classification",
+            "replay_receipts_present", "native_refs_present",
+            "receipt_count", "failed_count", "sent_count",
+            "recommended_commands",
+        ]
+        for field in required_fields:
+            assert field in summary, f"Missing field: {field}"
+
+    @pytest.mark.asyncio
+    async def test_incident_summary_json_safe(self, config_fake: Path) -> None:
+        """incident_summary is fully JSON-serialisable."""
+        db_path = str(config_fake.parent / "state" / "test_evidence.db")
+        event_id, _ = await _make_populated_db(db_path)
+
+        report = await collect_evidence_bundle(
+            str(config_fake), event_id=event_id,
+        )
+        summary = report["sections"]["storage"]["data"]["incident_summary"]
+        raw = json.dumps(summary, sort_keys=True)
+        assert isinstance(raw, str)

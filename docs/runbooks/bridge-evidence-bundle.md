@@ -256,7 +256,26 @@ status. Each section has its own `status` (`"ok"`, `"partial"`, `"error"`,
 | `route_validation` | Always (if config loads) | `route_count`, `route_enabled`, `valid`, `route_errors` |
 | `diagnostics_snapshot` | Always (if config loads) | Full `build_runtime_snapshot` output (no adapter start, no I/O) |
 | `live_health` | Only with `--include-refresh-health` | Full runtime snapshot with `health.live_health` populated; otherwise `status: "skipped"` |
-| `storage` | When config uses `sqlite` backend and DB exists | `db_exists`, `db_path`, `event_count`, `receipt_count`, `event` (if `--event`), `replay_run_receipts` (if `--replay-run`) |
+| `storage` | When config uses `sqlite` backend and DB exists | `db_exists`, `db_path`, `event_count`, `receipt_count`, `event` (if `--event`), `replay_run_receipts` (if `--replay-run`), `incident_summary` (if `--event` and event has failed receipts) |
+
+**incident_summary (within storage section):**
+
+When `--event <event_id>` is provided and the event has failed delivery
+receipts, the `storage` section includes an `incident_summary` object. This is
+a compact incident classification derived from the event's receipt history,
+using the same failure-kind vocabulary as `medre recover` and `medre trace`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `classification` | `dict[str, list]` | Failed targets grouped by recovery category: `"retryable"`, `"permanent"`, `"operational"`, `"unknown"` |
+| `recommended_commands` | `list[str]` | Suggested `medre` commands for next steps, keyed to the present failure categories |
+| `first_failure_kind` | `str or null` | The failure-kind of the earliest failed receipt (e.g. `"adapter_transient"`, `"renderer_failure"`); `null` if no failures |
+
+Failure-kind values are the same set used by `medre trace event` and
+`medre recover`: `"adapter_transient"`, `"adapter_permanent"`,
+`"adapter_missing"`, `"renderer_failure"`, `"planner_failure"`,
+`"capacity_rejection"`, `"shutdown_rejection"`, `"deadline_exceeded"`,
+`"unknown"`. See [Event Tracing](event-tracing.md) for the full vocabulary.
 
 **Minimal bundle (no `--include-refresh-health`, memory storage):**
 

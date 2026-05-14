@@ -22,26 +22,11 @@ import sys
 from datetime import datetime, timezone
 from typing import Any
 
-from medre.observability.sanitization import sanitize_error
+from medre.observability.sanitization import sanitize_error, sanitize_for_log
 
 # ---------------------------------------------------------------------------
-# Redaction
+# Log-record internals filter
 # ---------------------------------------------------------------------------
-
-_SENSITIVE_KEYS: frozenset[str] = frozenset(
-    {
-        "token",
-        "access_token",
-        "api_key",
-        "password",
-        "secret",
-        "credential",
-        "cookie",
-        "session",
-    }
-)
-
-_REDACTED: str = "[REDACTED]"
 
 # Attributes injected by the logging module itself — never include these as
 # extra fields in structured JSON output.
@@ -71,25 +56,6 @@ _LOG_RECORD_INTERNALS: frozenset[str] = frozenset(
         "taskName",
     }
 )
-
-
-def _redact_value(key: str, value: Any) -> Any:
-    """Return ``[REDACTED]`` when *key* matches a sensitive key pattern.
-
-    Comparison is case-insensitive and matches both exact names and names
-    that **contain** a sensitive token (e.g. ``"user_password_hash"``
-    matches because it contains ``"password"``).
-    """
-    lower = key.lower()
-    for sensitive in _SENSITIVE_KEYS:
-        if sensitive in lower:
-            return _REDACTED
-    return value
-
-
-def _redact_context(data: dict[str, Any]) -> dict[str, Any]:
-    """Return a shallow copy of *data* with sensitive values redacted."""
-    return {k: _redact_value(k, v) for k, v in data.items()}
 
 
 # ---------------------------------------------------------------------------
@@ -126,7 +92,7 @@ class _JsonFormatter(logging.Formatter):
                 continue
             extra_fields[key] = value
         if extra_fields:
-            entry["extra"] = _redact_context(extra_fields)
+            entry["extra"] = sanitize_for_log(extra_fields)
 
         return json.dumps(entry, default=str)
 
@@ -223,7 +189,7 @@ def diagnostic_event(
     **context:
         Arbitrary key–value pairs appended to the log entry.
     """
-    safe_context = _redact_context(context) if context else {}
+    safe_context = sanitize_for_log(context) if context else {}
     _diagnostic_logger.warning(
         "diagnostic event_id=%s category=%s message=%s %s",
         event_id,
