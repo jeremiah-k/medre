@@ -456,7 +456,7 @@ class TestRouteStatsUsefulness:
         snap = build_runtime_snapshot(
             app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
         )
-        general = snap["routes"]["stats"]["matrix-to-mesh-general"]
+        general = snap["routes"]["stats"]["per_route"]["matrix-to-mesh-general"]
         assert general["delivered"] == 150
         assert general["failed"] == 3
         assert general["skipped"] == 0
@@ -469,7 +469,7 @@ class TestRouteStatsUsefulness:
         snap = build_runtime_snapshot(
             app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
         )
-        failing = snap["routes"]["stats"]["matrix-2-to-lxmf-alerts"]
+        failing = snap["routes"]["stats"]["per_route"]["matrix-2-to-lxmf-alerts"]
         assert failing["failed"] == 7
         assert "last_error" in failing
         assert "connection refused" in failing["last_error"]
@@ -482,7 +482,7 @@ class TestRouteStatsUsefulness:
         snap = build_runtime_snapshot(
             app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
         )
-        status_route = snap["routes"]["stats"]["mesh-to-matrix-status"]
+        status_route = snap["routes"]["stats"]["per_route"]["mesh-to-matrix-status"]
         assert status_route["loop_prevented"] == 4
         assert status_route["delivered"] == 12
 
@@ -740,7 +740,7 @@ class TestCapacityMetricsUsefulness:
         snap = build_runtime_snapshot(
             app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
         )
-        cap = snap["capacity"]
+        cap = snap["capacity"]["state"]
         assert cap is not None
         # Operator can compute utilization
         delivery_util = cap["delivery_current"] / cap["delivery_limit"]
@@ -766,7 +766,7 @@ class TestCapacityMetricsUsefulness:
         snap = build_runtime_snapshot(
             app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
         )
-        assert snap["capacity"]["accepting_work"] is False
+        assert snap["capacity"]["state"]["accepting_work"] is False
 
 
 # =====================================================================
@@ -895,7 +895,7 @@ class TestDegradedAttribution:
         )
         # Operator can find the failing route
         failing_routes = {
-            rid: r for rid, r in snap["routes"]["stats"].items() if r.get("failed", 0) > 0
+            rid: r for rid, r in snap["routes"]["stats"]["per_route"].items() if r.get("failed", 0) > 0
         }
         assert "matrix-2-to-lxmf-alerts" in failing_routes
         assert "last_error" in failing_routes["matrix-2-to-lxmf-alerts"]

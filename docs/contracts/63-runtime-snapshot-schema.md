@@ -41,21 +41,21 @@ Keys appear in **alphabetical order** (deterministic serialisation).
 
 | Key | Type | Stability | Audience | Contents |
 |-----|------|-----------|----------|----------|
-| `accounting` | `dict \| null` | stable | operator | `RuntimeAccounting.snapshot()` |
+| `accounting` | `dict` | stable | operator | §5.9 |
 | `adapters` | `dict` | stable | operator | `_snapshot_adapter()` per adapter |
-| `capacity` | `dict \| null` | stable | operator | `CapacityController.snapshot()` |
-| `diagnostics` | `dict` | unstable | debug/internal | §5.5 |
+| `capacity` | `dict` | stable | operator | §5.10 |
+| `diagnostics` | `dict` | unstable | debug/internal | §5.6 |
 | `health` | `dict` | stable/reserved | operator | §5.1 |
-| `identity` | `dict` | reserved | operator | Reserved for future runtime identity metadata (see §5.6) |
+| `identity` | `dict` | reserved | operator | Reserved for future runtime identity metadata (see §5.7) |
 | `lifecycle` | `dict` | stable | operator | §5.3 |
 | `limits` | `dict` | stable | operator | `RuntimeLimits` dataclass fields |
-| `persistence` | `dict` | reserved | operator | Reserved for future durable-storage status (see §5.7) |
+| `persistence` | `dict` | reserved | operator | Reserved for future durable-storage status (see §5.8) |
 | `replay` | `dict` | stable | operator | `{"available": bool, "counters": dict|null}` |
 | `routes` | `dict` | stable | operator | §5.4 |
 | `schema_version` | `int` | stable | programmatic | Constant `SCHEMA_VERSION` (currently `1`) |
 | `snapshot_at` | `str` | stable | operator | ISO-8601 UTC, injectable clock |
 | `startup` | `dict` | stable | operator | §5.2 |
-| `unstable` | `dict` | unstable/reserved | debug/internal | Reserved for debug/internal data (see §5.8) |
+| `unstable` | `dict` | unstable/reserved | debug/internal | Reserved for debug/internal data (see §5.11) |
 
 Stability labels:
 - **stable** — shape and semantics are locked for the current version. Changes require a version bump (post-release) or test/doc updates (pre-release).
@@ -86,6 +86,8 @@ Stability labels:
 
 ### 5.1 `health`
 
+Current shape (no live health polling):
+
 ```
 {
   "live_health": null,
@@ -94,11 +96,47 @@ Stability labels:
 }
 ```
 
-- `live_health`: Reserved for a future `RuntimeHealth` aggregate that would be populated by active health polling. Until that integration exists, the field is always `null`.
-- `live_refresh`: Always `false`. The health assessment is computed once during startup and not refreshed.
-- `scope`: Always `"startup"`. The health assessment is a startup-derived snapshot, not live runtime health.
+Future shape when live health polling is implemented:
 
-**Operators must not assume `startup.startup_health` represents real-time adapter health.** The `scope` field makes this explicit: this value was computed during startup and does not reflect post-startup adapter state changes.
+```
+{
+  "live_health": {
+    "runtime_health": str,                    # RuntimeHealth enum value
+    "adapter_summary": {
+      "healthy": int,
+      "degraded": int,
+      "failed": int,
+      "transitional": int,
+      "total": int
+    },
+    "adapters": {
+      adapter_id: {
+        "adapter_id": str,
+        "adapter_state": str,                 # AdapterState enum value
+        "error": str | null,
+        "fake_or_live": str,                  # "fake" | "live" | "unknown"
+        "health": str,                        # VALID_HEALTH_STRINGS
+        "poll_timestamp_monotonic": float,    # time.monotonic(), seconds
+        "poll_timestamp_wall": str            # ISO-8601 UTC
+      }
+    },
+    "poll_count": int,                        # monotonic poll counter
+    "poll_timestamp_monotonic": float,         # time.monotonic(), seconds
+    "poll_timestamp_wall": str                 # ISO-8601 UTC
+  },
+  "live_refresh": true,
+  "scope": "live"
+}
+```
+
+- `live_health`: Currently always `null`. Reserved for a future `LiveHealthSnapshot` aggregate (see `src/medre/core/runtime/health.py`) populated by active health polling. The transition from `null` to `dict` is a **non-breaking additive change** per §4.2 (`null` → `dict` where the type was already documented as `T | null`). **No `schema_version` bump is required.**
+- `live_refresh`: Always `false`. Will transition to `true` when live health polling is active, indicating that `live_health` is recomputed on each poll cycle.
+- `scope`: Always `"startup"`. Will transition to `"live"` when live health polling is active, indicating that the health assessment reflects live adapter state rather than a startup-derived snapshot.
+- `poll_timestamp_monotonic`: Primary timestamp for ordering and deduplication. Uses `time.monotonic()` — not wall-clock — consistent with `RuntimeEvent.timestamp` and `uptime_seconds` semantics.
+- `poll_timestamp_wall`: ISO-8601 UTC string for operator readability and external log correlation.
+- `poll_count`: Monotonically increasing integer counter per successful poll cycle. Used for quick staleness checks without float comparison.
+
+**Operators must not assume `startup.startup_health` represents current adapter health.** The `scope` field makes this explicit: this value was computed once during startup and does not reflect post-startup adapter state changes.
 
 
 ### 5.2 `startup`
@@ -154,7 +192,11 @@ Route delivery statistics, eligibility, per-route build readiness, and startup-d
   "build_readiness": {...} | null,
   "eligibility": {...} | null,
   "startup_readiness": {...} | null,
-  "stats": {route_id: {...}},
+  "stats": {
+    "live_refresh": false,
+    "per_route": {route_id: {...}},
+    "scope": "process_local",
+  },
 }
 ```
 
@@ -162,10 +204,10 @@ Route delivery statistics, eligibility, per-route build readiness, and startup-d
 
 Every route sub-section that represents a point-in-time observation carries two metadata fields:
 
-- `scope`: `"build"` or `"startup"`. Indicates *when* the data was captured.
+- `scope`: one of `"build"`, `"startup"`, `"process_local"`, or `"live"`. Indicates *when* the data was captured or how it is refreshed.
   - `"build"`: Computed during `MedreApp.build()`. Does not change after build. Represents build-time route registration outcomes.
   - `"startup"`: Computed after `MedreApp.start()` completes. Does not change after startup. Reflects adapter lifecycle states at startup time.
-- `live_refresh`: Always `false` in the current schema. Reserved for future use when live health polling or dynamic routing is implemented. When `true`, the data would be refreshed from live runtime state rather than a point-in-time snapshot.
+- `live_refresh`: `true` if MEDRE actively calls `adapter.health_check()` or a transport API to get current state; `false` if data evolves only from local runtime state transitions or was frozen at build/startup. Currently always `false` — reserved for future use when live health polling or dynamic routing is implemented.
 
 Operators **must not** assume that data with `live_refresh=false` reflects current runtime state after shutdown or post-startup adapter failures.
 
@@ -327,13 +369,13 @@ Internal debug/diagnostic surfaces. Shape may change without a schema version bu
 
 ```
 {
-  "live_refresh": true,
+  "live_refresh": false,
   "runtime_events": {...} | null,
   "scope": "process_local",
 }
 ```
 
-- `live_refresh`: `true`. The runtime event buffer grows as events are emitted during the process lifetime. Each snapshot call returns the current buffer contents.
+- `live_refresh`: `false`. The runtime event buffer grows as events are emitted during the process lifetime, but these events derive from local runtime state transitions — not from external adapter/transport polling. Each snapshot call returns the current buffer contents.
 - `runtime_events` exposes the bounded, in-memory event buffer:
 - `scope`: Always `"process_local"`. Events are in-memory only and not persisted across restarts.
 
@@ -379,7 +421,41 @@ Purpose: future durable-storage status — last-persisted event ID, storage heal
 The shape will be documented when the persistence subsystem is implemented. Until then, consumers must treat this section as opaque and ignore its contents.
 
 
-### 5.9 `unstable`
+### 5.9 `accounting`
+
+Bounded runtime event counters.
+
+```
+{
+  "counters": {...} | null,
+  "live_refresh": false,
+  "scope": "process_local",
+}
+```
+
+- `counters`: From `RuntimeAccounting.snapshot()`. Null when no accounting subsystem is wired.
+- `live_refresh`: Always `false`. Counters evolve via local runtime state transitions — not from external adapter/transport polling.
+- `scope`: Always `"process_local"`. Counters reflect in-process runtime state at snapshot time.
+
+
+### 5.10 `capacity`
+
+In-flight delivery and replay capacity state.
+
+```
+{
+  "live_refresh": false,
+  "scope": "process_local",
+  "state": {...} | null,
+}
+```
+
+- `state`: From `CapacityController.snapshot()`. Null when no capacity controller is wired.
+- `live_refresh`: Always `false`. State evolves via local runtime state transitions — not from external polling.
+- `scope`: Always `"process_local"`. State reflects in-process capacity at snapshot time.
+
+
+### 5.11 `unstable`
 
 Reserved section for debug/internal data. Currently always an empty dict `{}`.
 
@@ -393,7 +469,7 @@ Guidelines for unstable data:
 - No stability guarantee: shape may change at any time.
 
 
-### 5.10 Provenance Summary
+### 5.12 Provenance Summary
 
 Operators must understand whether each diagnostic value is a one-time startup snapshot, a process-local value, or live-refreshed. The following table summarizes the provenance of each section:
 
@@ -410,13 +486,13 @@ Operators must understand whether each diagnostic value is a one-time startup sn
 | `lifecycle.uptime_seconds` | `"process_local"` | `false` | Computed from monotonic clock on each snapshot call. |
 | `adapters.{id}.health` | `"startup"` (per-entry `provenance`) | — | Static `_last_health` from build/startup. Not refreshed. |
 | `adapters.{id}.provenance` | — | — | Always `"startup"`. Indicates adapter metadata is startup-derived. |
-| `diagnostics` | `"process_local"` | `true` | Event buffer grows during runtime. |
+| `diagnostics` | `"process_local"` | `false` | Event buffer grows from local runtime state transitions, not external polling. |
 | `routes.build_readiness` | `"build"` | `false` | Frozen at build time. |
 | `routes.eligibility` | `"build"` | `false` | Frozen at build time. |
 | `routes.startup_readiness` | `"startup"` | `false` | Frozen after startup. |
-| `routes.stats` | (none) | (none) | Live counters from `RouteStats.snapshot()`. |
-| `accounting` | (none) | (none) | Live counters from `RuntimeAccounting.snapshot()`. |
-| `capacity` | (none) | (none) | Live gauges from `CapacityController.snapshot()`. |
+| `routes.stats` | `"process_local"` | `false` | Per-route delivery counters from `RouteStats.snapshot()`. Evolves via local runtime state. |
+| `accounting` | `"process_local"` | `false` | Counters from `RuntimeAccounting.snapshot()`. Evolves via local runtime state transitions. |
+| `capacity` | `"process_local"` | `false` | Gauges from `CapacityController.snapshot()`. Evolves via local runtime state. |
 
 **Operator guidance:**
 - Values with `scope="startup"` and `live_refresh=false` **do not reflect post-startup state changes**. If an adapter crashes after startup, `adapters.{id}.health` and `startup.startup_health` will still show the startup-time values.

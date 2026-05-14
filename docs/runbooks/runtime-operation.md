@@ -51,7 +51,7 @@ When the runtime starts with `DEGRADED` health, use these surfaces to understand
 
 4. **`routes.startup_readiness`** (snapshot path: `snapshot.routes.startup_readiness`) — shows routes that were **degraded** (some target adapters failed to start) or **skipped** (source adapter or all targets failed). Each entry carries `failed_adapter_ids`. Provenance: `scope="startup"`, `live_refresh=false`.
 
-5. **`diagnostics.runtime_events`** (snapshot path: `snapshot.diagnostics.runtime_events`) — event buffer recording `adapter_start_failed`, `route_skipped`, and `startup_classified` events. Provenance: `scope="process_local"`, `live_refresh=true`.
+5. **`diagnostics.runtime_events`** (snapshot path: `snapshot.diagnostics.runtime_events`) — event buffer recording `adapter_start_failed`, `route_skipped`, and `startup_classified` events. Provenance: `scope="process_local"`, `live_refresh=false` (events grow from local runtime state transitions, not external polling).
 
 **Provenance note:** All startup diagnostic surfaces carry `scope="startup"` and `live_refresh=false`. These values do not change after startup completes. For post-startup adapter state, check `lifecycle.adapters.{id}` (process-local).
 
@@ -672,19 +672,25 @@ If the entire runtime process crashes (OOM, kill -9, power loss):
 
 ## Diagnostics
 
-### Checking Runtime Health
+### Inspecting Build-Time Runtime State
 
 ```bash
 medre diagnostics
 ```
 
-This outputs a snapshot of all running adapters, their health states, and key metrics. Each adapter reports:
+This command builds the runtime from configuration but **does not start adapters, storage, or any I/O**. It produces a pre-flight JSON snapshot showing what the runtime *would* look like at build time. All values are build-time snapshots — no adapter startup occurs, no connections are made.
 
-- `health`: `healthy`, `degraded`, `failed`, or `stopped`
-- `connected`: whether the transport is connected
-- `reconnecting`: whether the adapter is in a reconnect loop
-- `reconnect_attempts`: current reconnect attempt count
-- `last_error`: summary of the last error (sanitized — no secrets)
+The output is structured into the same sections documented in Contract 63 (Runtime Snapshot Schema). Key adapter-level fields per entry:
+
+- `adapter_id`: Unique adapter identifier.
+- `health`: Startup-derived health from `_last_health` (typically `"unknown"` at build time — set during startup, not during build).
+- `capabilities`: Adapter capabilities from build-time construction.
+- `platform`, `role`, `version`: Static adapter metadata.
+- `provenance`: Always `"startup"` — indicates the metadata source is build/startup, not actively refreshed.
+
+**No live connectivity state is included.** Fields like `connected`, `reconnecting`, `reconnect_attempts`, and `last_error` do not appear in the snapshot. The adapter `health` value is startup-derived, not polled from a running adapter. For current adapter lifecycle state after startup, check `lifecycle.adapters.{id}` in the running runtime's snapshot (process-local, not available via `medre diagnostics`).
+
+See Contract 63 for the complete snapshot schema, and Contract 56 for health classification semantics.
 
 ### Config Validation
 
@@ -794,7 +800,9 @@ When capacity is exhausted:
 
 ### Monitoring Queue Pressure
 
-Use `medre diagnostics` to inspect capacity counters:
+Capacity counters are available in the `capacity` section of the runtime snapshot from a **running** runtime. The `medre diagnostics` command produces a build-time snapshot where these counters are zero/default — it does not start adapters and cannot show live capacity state. To inspect live capacity, consume the snapshot from a running `MedreApp` instance (e.g., via a future admin endpoint).
+
+Snapshot capacity fields (process-local, actively refreshed, bounded, non-durable):
 
 | Counter | What it tells you |
 |---------|-------------------|

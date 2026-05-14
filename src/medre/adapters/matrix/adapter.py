@@ -203,7 +203,7 @@ class MatrixAdapter(BaseAdapter):
         # Stop previous session if still active (idempotent double-start guard).
         # Without this, calling start() twice orphans the old MatrixSession,
         # leaking its nio AsyncClient and the internal aiohttp.ClientSession.
-        if self._session is not None and not self._session._closed:
+        if self._session is not None and not self._session.closed:
             await self._session.stop()
 
         session_logger = ctx.logger.getChild("session")

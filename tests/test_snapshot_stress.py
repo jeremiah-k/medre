@@ -222,7 +222,7 @@ class TestLargeRouteTables:
         routes = {f"route-{i:06d}": {"delivered": i} for i in range(_MAX_ROUTES)}
         app = _make_fake_app(route_stats=_FakeRouteStats(routes))
         snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
-        assert len(snap["routes"]["stats"]) == _MAX_ROUTES
+        assert len(snap["routes"]["stats"]["per_route"]) == _MAX_ROUTES
 
     def test_routes_beyond_max_are_truncated(self) -> None:
         """Beyond _MAX_ROUTES — only first _MAX_ROUTES (sorted) kept."""
@@ -231,11 +231,11 @@ class TestLargeRouteTables:
         routes = {f"route-{i:06d}": {"delivered": i} for i in range(total)}
         app = _make_fake_app(route_stats=_FakeRouteStats(routes))
         snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
-        assert len(snap["routes"]["stats"]) == _MAX_ROUTES
+        assert len(snap["routes"]["stats"]["per_route"]) == _MAX_ROUTES
         # The kept routes must be the first _MAX_ROUTES in sorted order.
         sorted_ids = sorted(routes.keys())
         expected_ids = sorted_ids[:_MAX_ROUTES]
-        assert list(snap["routes"]["stats"].keys()) == expected_ids
+        assert list(snap["routes"]["stats"]["per_route"].keys()) == expected_ids
 
     def test_routes_sorted_deterministically_large(self) -> None:
         """Routes are sorted alphabetically even with 2000+ routes."""
@@ -244,7 +244,7 @@ class TestLargeRouteTables:
         routes["m-middle"] = {"delivered": 2}
         app = _make_fake_app(route_stats=_FakeRouteStats(routes))
         snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
-        route_keys = list(snap["routes"]["stats"].keys())
+        route_keys = list(snap["routes"]["stats"]["per_route"].keys())
         assert route_keys == sorted(route_keys)
 
     def test_real_routestats_unbounded_growth(self) -> None:
@@ -257,7 +257,7 @@ class TestLargeRouteTables:
 
         app = _make_fake_app(route_stats=rs)
         snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
-        assert len(snap["routes"]["stats"]) <= _MAX_ROUTES
+        assert len(snap["routes"]["stats"]["per_route"]) <= _MAX_ROUTES
 
 
 # =====================================================================
@@ -643,9 +643,9 @@ class TestCapacityExhaustion:
         }
         app = _make_fake_app(capacity_controller=_FakeCapacityController(cap_data))
         snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
-        assert snap["capacity"]["accepting_work"] is False
-        assert snap["capacity"]["delivery_current"] == snap["capacity"]["delivery_limit"]
-        assert snap["capacity"]["replay_current"] == snap["capacity"]["replay_limit"]
+        assert snap["capacity"]["state"]["accepting_work"] is False
+        assert snap["capacity"]["state"]["delivery_current"] == snap["capacity"]["state"]["delivery_limit"]
+        assert snap["capacity"]["state"]["replay_current"] == snap["capacity"]["state"]["replay_limit"]
 
     def test_capacity_snapshot_raises(self) -> None:
         """Capacity controller snapshot() raising doesn't crash."""
@@ -674,8 +674,8 @@ class TestCapacityExhaustion:
         }
         app = _make_fake_app(capacity_controller=_FakeCapacityController(cap_data))
         snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
-        assert snap["capacity"]["delivery_limit"] == 2**31 - 1
-        assert snap["capacity"]["delivery_rejections"] == 2**63 - 1
+        assert snap["capacity"]["state"]["delivery_limit"] == 2**31 - 1
+        assert snap["capacity"]["state"]["delivery_rejections"] == 2**63 - 1
         # JSON-safe
         json.dumps(snap)
 
@@ -810,7 +810,7 @@ class TestBoundednessAndTruncation:
         )
         snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
         assert len(snap["adapters"]) <= _MAX_ADAPTERS
-        assert len(snap["routes"]["stats"]) <= _MAX_ROUTES
+        assert len(snap["routes"]["stats"]["per_route"]) <= _MAX_ROUTES
         assert len(snap["startup"]["build_failures"]) <= _MAX_BUILD_FAILURES
         for bf in snap["startup"]["build_failures"]:
             assert len(bf["error"]) <= _MAX_ERROR_DETAIL_LEN
@@ -1035,12 +1035,12 @@ class TestFullyLoadedSnapshotAtScale:
         # Verify structure.
         assert snap["schema_version"] == SCHEMA_VERSION
         assert len(snap["adapters"]) == 200
-        assert len(snap["routes"]["stats"]) == 500
+        assert len(snap["routes"]["stats"]["per_route"]) == 500
         assert len(snap["startup"]["build_failures"]) == 30
         assert snap["replay"]["available"] is True
-        assert snap["capacity"]["delivery_current"] == 10
+        assert snap["capacity"]["state"]["delivery_current"] == 10
         assert snap["startup"]["startup_health"]["overall"] == "degraded"
-        assert snap["accounting"]["events_processed"] == 50000
+        assert snap["accounting"]["counters"]["events_processed"] == 50000
         assert snap["lifecycle"]["uptime_seconds"] == 800.0
         assert snap["lifecycle"]["startup_timestamp"] == "2026-05-11T08:00:00+00:00"
 
@@ -1056,7 +1056,7 @@ class TestFullyLoadedSnapshotAtScale:
         snap = build_runtime_snapshot(object(), now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
         assert snap["schema_version"] == SCHEMA_VERSION
         assert snap["adapters"] == {}
-        assert snap["routes"]["stats"] == {}
+        assert snap["routes"]["stats"]["per_route"] == {}
         assert snap["startup"]["build_failures"] == []
         assert snap["lifecycle"]["runtime_state"] == "unknown"
         json.dumps(snap)
@@ -1086,7 +1086,7 @@ class TestPerformanceSanity:
         elapsed = time.monotonic() - start
 
         assert len(snap["adapters"]) == _MAX_ADAPTERS
-        assert len(snap["routes"]["stats"]) == _MAX_ROUTES
+        assert len(snap["routes"]["stats"]["per_route"]) == _MAX_ROUTES
         # No strict timing assertion — just ensure it completes.
         # If it takes > 10s something is very wrong.
         assert elapsed < 10.0, f"Snapshot took {elapsed:.2f}s — possible performance regression"

@@ -1187,6 +1187,51 @@ class TestRunExitCodes:
                 _run_cli("diagnostics", "--config", str(config_with_routes))
         assert exc_info.value.code == EXIT_BUILD
 
+    def test_diagnostics_no_adapters_exits_config(
+        self, config_no_adapters: Path
+    ) -> None:
+        """Diagnostics with zero enabled adapters exits EXIT_CONFIG (2), not EXIT_BUILD."""
+        from medre.cli import EXIT_CONFIG
+
+        with pytest.raises(SystemExit) as exc_info:
+            _run_cli("diagnostics", "--config", str(config_no_adapters))
+        assert exc_info.value.code == EXIT_CONFIG
+
+    def test_diagnostics_no_adapters_clear_message(
+        self, config_no_adapters: Path
+    ) -> None:
+        """Zero enabled adapters mentions 'no adapters enabled', not build failure."""
+        _, stderr = _run_cli_both(
+            "diagnostics", "--config", str(config_no_adapters)
+        )
+        assert "no adapters enabled" in stderr.lower()
+        assert "failed to construct" not in stderr.lower()
+
+    def test_diagnostics_partial_build_succeeds(
+        self, config_with_routes: Path
+    ) -> None:
+        """Diagnostics with some adapters built, some failed, exits EXIT_OK (0)."""
+        from unittest.mock import patch, MagicMock
+
+        fake_app = MagicMock()
+        fake_app.adapters = {"matrix.main": MagicMock()}
+        fake_app.build_failures = [MagicMock(
+            transport="matrix",
+            adapter_id="backup",
+            error=RuntimeError("missing SDK"),
+        )]
+
+        with patch(
+            "medre.runtime.builder.RuntimeBuilder.build",
+            return_value=fake_app,
+        ), patch(
+            "medre.runtime.snapshot.build_runtime_snapshot",
+            return_value={"status": "degraded"},
+        ):
+            output = _run_cli("diagnostics", "--config", str(config_with_routes))
+        parsed = json.loads(output)
+        assert isinstance(parsed, dict)
+
 
 # ---------------------------------------------------------------------------
 # Secret redaction — config commands must not leak secrets

@@ -155,6 +155,11 @@ class MatrixSession:
         return self._client
 
     @property
+    def closed(self) -> bool:
+        """``True`` after :meth:`stop` has completed."""
+        return self._closed
+
+    @property
     def connected(self) -> bool:
         """``True`` if the client has been created and is still open."""
         return self._client is not None and not self._closed

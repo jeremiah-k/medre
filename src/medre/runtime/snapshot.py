@@ -13,11 +13,19 @@ stable operator-facing data from unstable/debug internals::
     {
       "schema_version": 1,
       "snapshot_at": str,
-      "accounting": {...} | null,
+      "accounting": {
+        "counters": {...} | null,
+        "live_refresh": false,
+        "scope": "process_local",
+      },
       "adapters": {adapter_id: {..., "provenance": "startup"}},
-      "capacity": {...} | null,
+      "capacity": {
+        "live_refresh": false,
+        "scope": "process_local",
+        "state": {...} | null,
+      },
       "diagnostics": {
-        "live_refresh": true,
+        "live_refresh": false,
         "runtime_events": {...} | null,
         "scope": "process_local",
       },
@@ -42,7 +50,11 @@ stable operator-facing data from unstable/debug internals::
         "build_readiness": {...} | null,
         "eligibility": {...} | null,
         "startup_readiness": {...} | null,
-        "stats": {route_id: {...}},
+        "stats": {
+          "live_refresh": false,
+          "per_route": {route_id: {...}},
+          "scope": "process_local",
+        },
       },
       "startup": {
         "boot_summary": {...} | null,
@@ -76,6 +88,41 @@ startup:
 health:
     Current and reserved health surfaces. ``live_health`` is always
     ``null`` until active health polling is implemented.
+
+    **Future live health shape** (when ``live_health`` transitions from
+    ``null`` to a dict)::
+
+        {
+          "runtime_health": str,                    # RuntimeHealth value
+          "adapter_summary": {                      # counts by category
+            "healthy": int, "degraded": int,
+            "failed": int, "transitional": int, "total": int,
+          },
+          "adapters": {                             # per-adapter live health
+            adapter_id: {
+              "adapter_id": str,
+              "adapter_state": str,
+              "error": str | null,
+              "fake_or_live": str,
+              "health": str,                        # VALID_HEALTH_STRINGS
+              "poll_timestamp_monotonic": float,
+              "poll_timestamp_wall": str,            # ISO-8601 UTC
+            },
+          },
+          "poll_count": int,                        # monotonic counter
+          "poll_timestamp_monotonic": float,
+          "poll_timestamp_wall": str,                # ISO-8601 UTC
+        }
+
+    When populated, ``health.scope`` changes from ``"startup"`` to
+    ``"live"`` and ``health.live_refresh`` changes from ``false`` to
+    ``true``.  This is an additive change per Contract 63 §4.2
+    (``null`` → ``dict`` is non-breaking).  No ``schema_version``
+    bump is required.
+
+    The types backing this shape are defined in
+    :class:`~medre.core.runtime.health.AdapterLiveHealth` and
+    :class:`~medre.core.runtime.health.LiveHealthSnapshot`.
 adapters:
     Per-adapter static metadata (capabilities, role, version, health).
 routes:
@@ -87,11 +134,15 @@ persistence:
     Reserved for future durable-storage status (last-persisted event
     ID, storage health, queue depths).  Currently always ``{}``.
 accounting:
-    Bounded runtime event counters.
+    Bounded runtime event counters.  Carries ``scope="process_local"``
+    and ``live_refresh=false`` (counters evolve via local runtime state
+    transitions).
 replay:
     Replay engine availability and counters.
 capacity:
-    In-flight delivery and replay capacity state.
+    In-flight delivery and replay capacity state.  Carries
+    ``scope="process_local"`` and ``live_refresh=false`` (state evolves
+    via local runtime transitions).
 diagnostics:
     Internal debug/diagnostic surfaces (runtime events buffer).
     Shape may change without a schema version bump.
@@ -105,11 +156,15 @@ Each section carries ``scope`` and ``live_refresh`` metadata (except
 reserved/identity/persistence sections).  Operators can determine whether
 a value is startup-derived, process-local, or live:
 
-* ``scope``: one of ``"startup"``, ``"process_local"``, ``"build"``.
-  Indicates *when* the data was captured or computed.
-* ``live_refresh``: ``true`` if the value is recomputed on every snapshot
-  call from live runtime state; ``false`` if it reflects a point-in-time
-  snapshot that does not change after initial computation.
+* ``scope``: one of ``"build"``, ``"startup"``, ``"process_local"``,
+  ``"live"``.  Indicates *when* the data was captured or computed.
+  ``"build"`` = computed once during build (pre-startup); ``"startup"`` =
+  computed once during start; ``"process_local"`` = in-memory state at
+  snapshot time; ``"live"`` = actively polled from external adapters.
+* ``live_refresh``: ``true`` if MEDRE actively calls
+  ``adapter.health_check()`` or a transport API to get current state;
+  ``false`` if data evolves only from local runtime state transitions
+  or was frozen at build/startup.
 
 Section-level provenance:
 
@@ -117,14 +172,17 @@ Section-level provenance:
   during ``MedreApp.start()`` and frozen.
 * ``health``: ``scope="startup"``, ``live_refresh=false``.  The
   ``startup_health`` value is a startup-derived snapshot;
-  ``live_health`` is always ``null``.
+  ``live_health`` is always ``null``.  When a future polling
+  integration populates ``live_health``, ``scope`` transitions to
+  ``"live"`` and ``live_refresh`` transitions to ``true``.
 * ``lifecycle``: ``scope="process_local"``, ``live_refresh=false``.  State
   values reflect the runtime's current in-process state at snapshot time.
   ``uptime_seconds`` is computed from the monotonic clock on each call.
   Per-adapter lifecycle states in ``lifecycle.adapters`` track the runtime's
   in-memory adapter state registry.
-* ``diagnostics``: ``scope="process_local"``, ``live_refresh=true``.  The
-  runtime event buffer grows as events are emitted.
+* ``diagnostics``: ``scope="process_local"``, ``live_refresh=false``.  The
+  runtime event buffer grows as events are emitted from local runtime
+  state transitions — not from external adapter polling.
 * ``routes.*``: each sub-section has its own ``scope`` and ``live_refresh``
   (see Contract 63 §5.4).
 * Per-adapter entries in ``adapters`` carry ``provenance: "startup"``,
@@ -481,6 +539,13 @@ def build_runtime_snapshot(
     else:
         routes_snapshot = {}
 
+    # Wrap routes.stats with provenance metadata.
+    routes_stats_with_provenance: dict[str, Any] = {
+        "live_refresh": False,
+        "per_route": routes_snapshot,
+        "scope": "process_local",
+    }
+
     # -- Replay availability & counters --------------------------------------
     replay_engine: Any = getattr(app, "_replay_engine", None)
     replay_available = replay_engine is not None
@@ -639,11 +704,19 @@ def build_runtime_snapshot(
     snap: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "snapshot_at": snapshot_at,
-        "accounting": accounting_snapshot,
+        "accounting": {
+            "counters": accounting_snapshot,
+            "live_refresh": False,
+            "scope": "process_local",
+        },
         "adapters": adapters,
-        "capacity": capacity_snapshot,
+        "capacity": {
+            "live_refresh": False,
+            "scope": "process_local",
+            "state": capacity_snapshot,
+        },
         "diagnostics": {
-            "live_refresh": True,
+            "live_refresh": False,
             "runtime_events": runtime_events_snapshot,
             "scope": "process_local",
         },
@@ -664,7 +737,7 @@ def build_runtime_snapshot(
             "build_readiness": route_build_readiness_snapshot,
             "eligibility": route_eligibility_snapshot,
             "startup_readiness": startup_readiness_snapshot,
-            "stats": routes_snapshot,
+            "stats": routes_stats_with_provenance,
         },
         "startup": {
             "boot_summary": boot_summary_snapshot,

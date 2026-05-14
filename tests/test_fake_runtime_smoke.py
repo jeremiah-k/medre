@@ -914,7 +914,7 @@ class TestFullFakeRuntimeHappyPath:
             assert snap["lifecycle"]["runtime_state"] == "running"
             assert snap["startup"]["startup_health"] is not None
             assert snap["routes"] is not None
-            assert snap["accounting"] is not None
+            assert snap["accounting"]["counters"] is not None
 
             # -- Clean stop --
         finally:
@@ -1459,7 +1459,7 @@ class TestSnapshotIntegration:
         app = await _build_and_start(config, tmp_paths)
         try:
             snap = build_runtime_snapshot(app)
-            acc = snap["accounting"]
+            acc = snap["accounting"]["counters"]
             assert acc is not None
             for key in (
                 "inbound_accepted", "outbound_attempts", "outbound_delivered",
@@ -1494,7 +1494,7 @@ class TestSnapshotIntegration:
         app = await _build_and_start(config, tmp_paths)
         try:
             snap = build_runtime_snapshot(app)
-            cap = snap["capacity"]
+            cap = snap["capacity"]["state"]
             assert cap is not None
             assert "delivery_current" in cap
             assert "delivery_limit" in cap

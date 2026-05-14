@@ -405,7 +405,7 @@ class TestBoundedSize:
         }
         app = _make_fake_app(route_stats=_FakeRouteStats(routes))
         snap = build_runtime_snapshot(app)
-        assert len(snap["routes"]["stats"]) <= _MAX_ROUTES
+        assert len(snap["routes"]["stats"]["per_route"]) <= _MAX_ROUTES
 
     def test_build_failures_capped(self) -> None:
         """Build failure count is capped at _MAX_BUILD_FAILURES."""
@@ -499,8 +499,8 @@ class TestSnapshotContents:
         app = _make_fake_app(route_stats=_FakeRouteStats(route_data))
         snap = build_runtime_snapshot(app)
 
-        assert snap["routes"]["stats"]["bridge-a"]["delivered"] == 10
-        assert snap["routes"]["stats"]["bridge-b"]["loop_prevented"] == 1
+        assert snap["routes"]["stats"]["per_route"]["bridge-a"]["delivered"] == 10
+        assert snap["routes"]["stats"]["per_route"]["bridge-b"]["loop_prevented"] == 1
 
     def test_capacity_state_present(self) -> None:
         """Capacity section contains controller snapshot."""
@@ -517,9 +517,9 @@ class TestSnapshotContents:
         }
         app = _make_fake_app(capacity_controller=_FakeCapacityController(cap_data))
         snap = build_runtime_snapshot(app)
-        assert snap["capacity"]["delivery_current"] == 3
-        assert snap["capacity"]["delivery_limit"] == 50
-        assert snap["capacity"]["accepting_work"] is True
+        assert snap["capacity"]["state"]["delivery_current"] == 3
+        assert snap["capacity"]["state"]["delivery_limit"] == 50
+        assert snap["capacity"]["state"]["accepting_work"] is True
 
     def test_limits_reflected(self) -> None:
         """Limits section matches the config's RuntimeLimits."""
@@ -627,12 +627,12 @@ class TestGracefulAbsence:
         """When route_stats is None, routes stats is empty dict."""
         app = _make_fake_app(route_stats=None)
         snap = build_runtime_snapshot(app)
-        assert snap["routes"]["stats"] == {}
+        assert snap["routes"]["stats"]["per_route"] == {}
 
-    def test_no_capacity_gives_null(self) -> None:
+    def test_no_capacity_gives_null_state(self) -> None:
         app = _make_fake_app(capacity_controller=None)
         snap = build_runtime_snapshot(app)
-        assert snap["capacity"] is None
+        assert snap["capacity"]["state"] is None
 
     def test_no_replay_engine_gives_false_availability(self) -> None:
         app = _make_fake_app(replay_engine=None)
@@ -774,7 +774,7 @@ class TestRouteStatsIntegration:
         }
         app = _make_fake_app(route_stats=_FakeRouteStats(route_data))
         snap = build_runtime_snapshot(app)
-        assert snap["routes"]["stats"]["r1"]["last_error"] == "connection refused"
+        assert snap["routes"]["stats"]["per_route"]["r1"]["last_error"] == "connection refused"
 
     def test_route_stats_sorted_by_route_id(self) -> None:
         route_data = {
@@ -783,7 +783,7 @@ class TestRouteStatsIntegration:
         }
         app = _make_fake_app(route_stats=_FakeRouteStats(route_data))
         snap = build_runtime_snapshot(app)
-        route_keys = list(snap["routes"]["stats"].keys())
+        route_keys = list(snap["routes"]["stats"]["per_route"].keys())
         assert route_keys == ["alpha-route", "zebra-route"]
 
 
@@ -809,14 +809,14 @@ class TestCapacityIntegration:
         })
         app = _make_fake_app(capacity_controller=cap)
         snap = build_runtime_snapshot(app)
-        assert snap["capacity"]["accepting_work"] is False
-        assert snap["capacity"]["delivery_current"] == 10
-        assert snap["capacity"]["replay_current"] == 3
+        assert snap["capacity"]["state"]["accepting_work"] is False
+        assert snap["capacity"]["state"]["delivery_current"] == 10
+        assert snap["capacity"]["state"]["replay_current"] == 3
 
-    def test_capacity_null_when_absent(self) -> None:
+    def test_capacity_state_null_when_absent(self) -> None:
         app = _make_fake_app(capacity_controller=None)
         snap = build_runtime_snapshot(app)
-        assert snap["capacity"] is None
+        assert snap["capacity"]["state"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -890,10 +890,10 @@ class TestAccountingInSnapshot:
     """Runtime accounting counters appear in the snapshot when wired."""
 
     def test_accounting_absent_when_not_wired(self) -> None:
-        """No _runtime_accounting on app → accounting is null."""
+        """No _runtime_accounting on app → accounting.counters is null."""
         app = _make_fake_app()
         snap = build_runtime_snapshot(app)
-        assert snap["accounting"] is None
+        assert snap["accounting"]["counters"] is None
 
     def test_accounting_present_when_wired(self) -> None:
         """RuntimeAccounting wired → snapshot includes counters."""
@@ -909,10 +909,10 @@ class TestAccountingInSnapshot:
         app._runtime_accounting = acc  # type: ignore[attr-defined]
 
         snap = build_runtime_snapshot(app)
-        assert snap["accounting"] is not None
-        assert snap["accounting"]["inbound_accepted"] == 2
-        assert snap["accounting"]["outbound_attempts"] == 1
-        assert snap["accounting"]["outbound_delivered"] == 0
+        assert snap["accounting"]["counters"] is not None
+        assert snap["accounting"]["counters"]["inbound_accepted"] == 2
+        assert snap["accounting"]["counters"]["outbound_attempts"] == 1
+        assert snap["accounting"]["counters"]["outbound_delivered"] == 0
 
     def test_accounting_keys_sorted(self) -> None:
         """Accounting dict keys are sorted."""
@@ -923,7 +923,7 @@ class TestAccountingInSnapshot:
         app._runtime_accounting = acc  # type: ignore[attr-defined]
 
         snap = build_runtime_snapshot(app)
-        keys = list(snap["accounting"].keys())
+        keys = list(snap["accounting"]["counters"].keys())
         assert keys == sorted(keys)
 
 
@@ -1086,10 +1086,11 @@ class TestProvenanceMetadata:
         snap = build_runtime_snapshot(_make_fake_app())
         assert snap["diagnostics"]["scope"] == "process_local"
 
-    def test_diagnostics_has_live_refresh_true(self) -> None:
-        """diagnostics.live_refresh is True — event buffer grows over time."""
+    def test_diagnostics_has_live_refresh_false(self) -> None:
+        """diagnostics.live_refresh is False — event buffer grows from local
+        runtime state transitions, not external adapter polling."""
         snap = build_runtime_snapshot(_make_fake_app())
-        assert snap["diagnostics"]["live_refresh"] is True
+        assert snap["diagnostics"]["live_refresh"] is False
 
     # -- per-adapter provenance ------------------------------------------------
 
@@ -1115,6 +1116,57 @@ class TestProvenanceMetadata:
         snap = build_runtime_snapshot(app)
         serialized = json.dumps(snap, sort_keys=True)
         assert '"provenance"' in serialized
+
+    # -- accounting section ----------------------------------------------------
+
+    def test_accounting_has_scope_process_local(self) -> None:
+        """accounting.scope is 'process_local'."""
+        snap = build_runtime_snapshot(_make_fake_app())
+        assert snap["accounting"]["scope"] == "process_local"
+
+    def test_accounting_has_live_refresh_false(self) -> None:
+        """accounting.live_refresh is False — counters evolve locally."""
+        snap = build_runtime_snapshot(_make_fake_app())
+        assert snap["accounting"]["live_refresh"] is False
+
+    def test_accounting_counters_key(self) -> None:
+        """accounting.counters holds the accounting snapshot (or null)."""
+        snap = build_runtime_snapshot(_make_fake_app())
+        assert "counters" in snap["accounting"]
+
+    # -- capacity section -----------------------------------------------------
+
+    def test_capacity_has_scope_process_local(self) -> None:
+        """capacity.scope is 'process_local'."""
+        snap = build_runtime_snapshot(_make_fake_app())
+        assert snap["capacity"]["scope"] == "process_local"
+
+    def test_capacity_has_live_refresh_false(self) -> None:
+        """capacity.live_refresh is False — state evolves locally."""
+        snap = build_runtime_snapshot(_make_fake_app())
+        assert snap["capacity"]["live_refresh"] is False
+
+    def test_capacity_state_key(self) -> None:
+        """capacity.state holds the capacity snapshot (or null)."""
+        snap = build_runtime_snapshot(_make_fake_app())
+        assert "state" in snap["capacity"]
+
+    # -- routes.stats section -------------------------------------------------
+
+    def test_routes_stats_has_scope_process_local(self) -> None:
+        """routes.stats.scope is 'process_local'."""
+        snap = build_runtime_snapshot(_make_fake_app())
+        assert snap["routes"]["stats"]["scope"] == "process_local"
+
+    def test_routes_stats_has_live_refresh_false(self) -> None:
+        """routes.stats.live_refresh is False — counters evolve locally."""
+        snap = build_runtime_snapshot(_make_fake_app())
+        assert snap["routes"]["stats"]["live_refresh"] is False
+
+    def test_routes_stats_per_route_key(self) -> None:
+        """routes.stats.per_route holds the per-route delivery stats."""
+        snap = build_runtime_snapshot(_make_fake_app())
+        assert "per_route" in snap["routes"]["stats"]
 
     # -- routes section unchanged ----------------------------------------------
 
@@ -1153,3 +1205,124 @@ class TestProvenanceMetadata:
         assert '"scope"' in serialized
         assert '"live_refresh"' in serialized
         assert '"provenance"' in serialized
+
+
+# ---------------------------------------------------------------------------
+# Live health extension-point type tests
+# ---------------------------------------------------------------------------
+
+
+class TestLiveHealthTypes:
+    """Tests for AdapterLiveHealth and LiveHealthSnapshot extension points.
+
+    These types are frozen dataclasses that define the future shape of
+    ``health.live_health`` in the runtime snapshot.  They do not implement
+    polling — they are pure value types for future integration.
+    """
+
+    def test_adapter_live_health_is_frozen(self) -> None:
+        """AdapterLiveHealth is frozen (immutable)."""
+        from medre.core.runtime.health import AdapterLiveHealth
+        from medre.core.lifecycle.states import AdapterState
+
+        entry = AdapterLiveHealth(
+            adapter_id="test-adapter",
+            health="healthy",
+            adapter_state=AdapterState.READY,
+            fake_or_live="live",
+            poll_timestamp_monotonic=100.0,
+            poll_timestamp_wall="2026-05-14T10:00:00+00:00",
+        )
+        with pytest.raises(AttributeError):
+            entry.health = "failed"  # type: ignore[misc]
+
+    def test_adapter_live_health_to_dict_json_safe(self) -> None:
+        """AdapterLiveHealth.to_dict() produces JSON-safe output."""
+        from medre.core.runtime.health import AdapterLiveHealth
+        from medre.core.lifecycle.states import AdapterState
+
+        entry = AdapterLiveHealth(
+            adapter_id="a1",
+            health="degraded",
+            adapter_state=AdapterState.DEGRADED,
+            fake_or_live="live",
+            poll_timestamp_monotonic=42.5,
+            poll_timestamp_wall="2026-05-14T10:00:00+00:00",
+            error="connection timeout",
+        )
+        d = entry.to_dict()
+        # Must be JSON-safe.
+        serialized = json.dumps(d, sort_keys=True)
+        assert '"adapter_id"' in serialized
+        assert '"degraded"' in serialized
+        # Keys must be sorted in the dict output.
+        assert list(d.keys()) == sorted(d.keys())
+        assert d["adapter_state"] == "degraded"
+        assert d["error"] == "connection timeout"
+
+    def test_adapter_live_health_error_defaults_none(self) -> None:
+        """AdapterLiveHealth.error defaults to None when omitted."""
+        from medre.core.runtime.health import AdapterLiveHealth
+        from medre.core.lifecycle.states import AdapterState
+
+        entry = AdapterLiveHealth(
+            adapter_id="a1",
+            health="healthy",
+            adapter_state=AdapterState.READY,
+            fake_or_live="unknown",
+            poll_timestamp_monotonic=1.0,
+            poll_timestamp_wall="2026-01-01T00:00:00+00:00",
+        )
+        assert entry.error is None
+        assert entry.to_dict()["error"] is None
+
+    def test_live_health_snapshot_is_frozen(self) -> None:
+        """LiveHealthSnapshot is frozen (immutable)."""
+        from medre.core.runtime.health import LiveHealthSnapshot
+
+        snap = LiveHealthSnapshot(
+            runtime_health="healthy",
+            adapter_summary={"healthy": 1, "degraded": 0, "failed": 0, "transitional": 0, "total": 1},
+            adapters={},
+            poll_timestamp_monotonic=100.0,
+            poll_timestamp_wall="2026-05-14T10:00:00+00:00",
+            poll_count=1,
+        )
+        with pytest.raises(AttributeError):
+            snap.runtime_health = "failed"  # type: ignore[misc]
+
+    def test_live_health_snapshot_to_dict_json_safe(self) -> None:
+        """LiveHealthSnapshot.to_dict() produces JSON-safe output with sorted keys."""
+        from medre.core.runtime.health import AdapterLiveHealth, LiveHealthSnapshot
+        from medre.core.lifecycle.states import AdapterState
+
+        adapter_health = AdapterLiveHealth(
+            adapter_id="a1",
+            health="healthy",
+            adapter_state=AdapterState.READY,
+            fake_or_live="live",
+            poll_timestamp_monotonic=50.0,
+            poll_timestamp_wall="2026-05-14T10:00:00+00:00",
+        )
+        snap = LiveHealthSnapshot(
+            runtime_health="healthy",
+            adapter_summary={"healthy": 1, "degraded": 0, "failed": 0, "transitional": 0, "total": 1},
+            adapters={"a1": adapter_health},
+            poll_timestamp_monotonic=50.0,
+            poll_timestamp_wall="2026-05-14T10:00:00+00:00",
+            poll_count=5,
+        )
+        d = snap.to_dict()
+        serialized = json.dumps(d, sort_keys=True)
+        assert '"runtime_health"' in serialized
+        assert '"poll_count"' in serialized
+        assert d["poll_count"] == 5
+        assert "a1" in d["adapters"]
+        assert d["adapters"]["a1"]["health"] == "healthy"
+
+    def test_snapshot_live_health_section_still_null(self) -> None:
+        """Snapshot health.live_health is still None — types defined but not wired."""
+        snap = build_runtime_snapshot(_make_fake_app())
+        assert snap["health"]["live_health"] is None
+        assert snap["health"]["live_refresh"] is False
+        assert snap["health"]["scope"] == "startup"

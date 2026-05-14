@@ -289,13 +289,13 @@ class TestSnapshotRouteCap:
         }
         app = _make_fake_app(route_stats=_FakeRouteStats(data=route_data))
         snap = build_runtime_snapshot(app)
-        assert len(snap["routes"]["stats"]) == _MAX_ROUTES
+        assert len(snap["routes"]["stats"]["per_route"]) == _MAX_ROUTES
 
     def test_routes_below_cap_unchanged(self) -> None:
         route_data = {f"r-{i}": {"delivered": i} for i in range(5)}
         app = _make_fake_app(route_stats=_FakeRouteStats(data=route_data))
         snap = build_runtime_snapshot(app)
-        assert len(snap["routes"]["stats"]) == 5
+        assert len(snap["routes"]["stats"]["per_route"]) == 5
 
 
 class TestSnapshotBuildFailureCap:
@@ -873,14 +873,14 @@ class TestSnapshotAccountingIntegration:
         acc.record_outbound_delivered()
         app = _make_fake_app(runtime_accounting=acc)
         snap = build_runtime_snapshot(app)
-        assert snap["accounting"] is not None
-        assert snap["accounting"]["inbound_accepted"] == 1
-        assert snap["accounting"]["outbound_delivered"] == 1
+        assert snap["accounting"]["counters"] is not None
+        assert snap["accounting"]["counters"]["inbound_accepted"] == 1
+        assert snap["accounting"]["counters"]["outbound_delivered"] == 1
 
     def test_accounting_null_when_absent(self) -> None:
         app = _make_fake_app(runtime_accounting=None)
         snap = build_runtime_snapshot(app)
-        assert snap["accounting"] is None
+        assert snap["accounting"]["counters"] is None
 
 
 class TestSnapshotBootSummaryIntegration:

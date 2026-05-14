@@ -671,6 +671,15 @@ def _diagnostics(config_path: str | None) -> None:
 
     config = apply_env_overrides(config, paths)
 
+    # Check for enabled adapters *before* building runtime.
+    enabled_adapters = config.adapters.all_enabled()
+    if not enabled_adapters:
+        print(
+            "Error: no adapters enabled. Set at least one adapter enabled = true in config.",
+            file=sys.stderr,
+        )
+        sys.exit(EXIT_CONFIG)
+
     from medre.runtime.builder import RuntimeBuilder
     builder = RuntimeBuilder(config, paths)
     try:

@@ -1736,7 +1736,7 @@ class TestSyncStateResilience:
         await session.stop()
         await session.stop()  # no raise
         assert session.client is None
-        assert session._closed is True
+        assert session.closed is True
 
     async def test_start_stop_start_cycles(self, mock_nio) -> None:
         """Repeated start/stop/start cycles are safe."""

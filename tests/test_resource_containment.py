@@ -98,7 +98,7 @@ class TestMatrixSessionResourceContainment:
         await session.stop()
 
         assert session._client is None
-        assert session._closed is True
+        assert session.closed is True
 
     async def test_stop_clears_sync_task(self) -> None:
         """After stop, _sync_task is None."""
@@ -128,7 +128,7 @@ class TestMatrixSessionResourceContainment:
         await session.stop()
         await session.stop()  # Should not raise.
 
-        assert session._closed is True
+        assert session.closed is True
         assert session._client is None
 
     async def test_room_states_cleared_on_start(self) -> None:

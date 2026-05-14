@@ -35,7 +35,10 @@ class BootSummary:
     startup_outcome:
         One of ``"success"``, ``"partial"``, ``"total_failure"``.
     runtime_health:
-        One of ``"healthy"``, ``"degraded"``, ``"failed"``.
+        Startup-derived health classification: one of ``"healthy"``,
+        ``"degraded"``, ``"failed"``.  Computed once during startup via
+        :func:`~medre.core.runtime.supervision.classify_runtime_health`
+        and frozen — this is not actively refreshed at runtime.
     adapters_started:
         Number of adapters that started successfully.
     adapters_failed:

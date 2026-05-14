@@ -13,12 +13,20 @@ The six valid health strings are defined in :data:`VALID_HEALTH_STRINGS`:
 * ``"starting"`` – adapter is being set up (lifecycle transitional).
 * ``"stopping"`` – adapter is shutting down (lifecycle transitional).
 
+This module also defines :class:`AdapterLiveHealth` and
+:class:`LiveHealthSnapshot` — lightweight, frozen dataclasses that
+represent per-adapter and aggregate live health from a single poll
+cycle.  These types are extension points for future live health
+polling; they do not implement polling, background tasks, or
+scheduling.
+
 This module does **not** add health polling, circuit breakers, or
 auto-degrade logic.  It is a read-only projection for diagnostics.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from medre.adapters.base import AdapterInfo
@@ -190,3 +198,121 @@ def normalize_adapter_health(
         "capabilities": serialize_adapter_capabilities(info.capabilities),
         "details": out_details,
     }
+
+
+# ---------------------------------------------------------------------------
+# Live health extension-point types
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class AdapterLiveHealth:
+    """Per-adapter live health result from a single ``health_check()`` poll.
+
+    Lightweight, JSON-safe, frozen dataclass.  No SDK objects, no secrets.
+    Constructed by the runtime during ``refresh_live_health()`` (future)
+    by calling :meth:`~medre.adapters.base.BaseAdapter.health_check` and
+    normalizing through :func:`normalize_adapter_health`.
+
+    This is an **extension point** — it is not wired into any polling loop,
+    background task, or scheduled refresh.  It exists so that future
+    tranches can populate :data:`LiveHealthSnapshot.adapters` entries
+    without introducing new types.
+
+    Attributes
+    ----------
+    adapter_id:
+        Unique adapter identifier.
+    health:
+        One of :data:`VALID_HEALTH_STRINGS`.
+    adapter_state:
+        Lifecycle state inferred from the poll result.
+    fake_or_live:
+        ``"fake"``, ``"live"``, or ``"unknown"``.
+    poll_timestamp_monotonic:
+        ``time.monotonic()`` value at poll completion (seconds).
+        Primary timestamp for ordering and deduplication.
+    poll_timestamp_wall:
+        ISO-8601 UTC string at poll completion.
+        Human-readable timestamp for operators and log correlation.
+    error:
+        Non-``None`` when ``health_check()`` raised an exception.
+        Contains the stringified error; never contains secrets.
+    """
+
+    adapter_id: str
+    health: str
+    adapter_state: AdapterState
+    fake_or_live: str
+    poll_timestamp_monotonic: float
+    poll_timestamp_wall: str
+    error: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-safe dict representation."""
+        return {
+            "adapter_id": self.adapter_id,
+            "adapter_state": self.adapter_state.value,
+            "error": self.error,
+            "fake_or_live": self.fake_or_live,
+            "health": self.health,
+            "poll_timestamp_monotonic": self.poll_timestamp_monotonic,
+            "poll_timestamp_wall": self.poll_timestamp_wall,
+        }
+
+
+@dataclass(frozen=True)
+class LiveHealthSnapshot:
+    """Aggregate runtime live health from a single poll cycle.
+
+    Frozen, JSON-safe, deterministic.  Populated by a future
+    ``MedreApp.refresh_live_health()`` method that iterates adapters,
+    calls ``health_check()``, reclassifies runtime health, and builds
+    this snapshot.
+
+    The snapshot is stored as ``MedreApp._live_health_state`` and
+    read by :func:`~medre.runtime.snapshot.build_runtime_snapshot` to
+    populate the ``health.live_health`` section (currently always
+    ``None``).
+
+    This is an **extension point** — no polling loop, background task,
+    or scheduling code uses this type yet.
+
+    Attributes
+    ----------
+    runtime_health:
+        Classified :class:`~medre.core.runtime.supervision.RuntimeHealth`.
+    adapter_summary:
+        Counts by state category (``healthy``, ``degraded``, ``failed``,
+        ``transitional``, ``total``).
+    adapters:
+        Per-adapter live health entries, keyed by adapter ID (sorted).
+    poll_timestamp_monotonic:
+        ``time.monotonic()`` at poll-cycle completion.
+    poll_timestamp_wall:
+        ISO-8601 UTC string at poll-cycle completion.
+    poll_count:
+        Monotonically increasing counter — one increment per successful
+        poll cycle.  Used for quick staleness checks without float
+        comparison.
+    """
+
+    runtime_health: str
+    adapter_summary: dict[str, int]
+    adapters: dict[str, AdapterLiveHealth]
+    poll_timestamp_monotonic: float
+    poll_timestamp_wall: str
+    poll_count: int
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-safe dict representation with sorted keys."""
+        return {
+            "adapter_summary": dict(sorted(self.adapter_summary.items())),
+            "adapters": {
+                k: v.to_dict() for k, v in sorted(self.adapters.items())
+            },
+            "poll_count": self.poll_count,
+            "poll_timestamp_monotonic": self.poll_timestamp_monotonic,
+            "poll_timestamp_wall": self.poll_timestamp_wall,
+            "runtime_health": self.runtime_health,
+        }

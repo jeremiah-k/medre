@@ -218,7 +218,52 @@ The following boundaries are enforced by tests:
 4. **Boundary tests:** Import-line analysis ensuring no transport SDK or concrete adapter package leakage.
 5. **Fake adapters only:** No live transport dependencies in any supervision test.
 
-## 8. Deferred
+## 8. Future Live Health Extension Path
+
+This section documents the **extension points** prepared for a future live health polling integration. None of this is implemented; it defines where future code would plug in without modifying existing interfaces.
+
+### 8.1 Types
+
+Two frozen dataclasses are defined in `src/medre/core/runtime/health.py`:
+
+- **`AdapterLiveHealth`** — per-adapter live health result from a single `health_check()` poll. Fields: `adapter_id`, `health` (VALID_HEALTH_STRINGS), `adapter_state`, `fake_or_live`, `poll_timestamp_monotonic`, `poll_timestamp_wall`, `error`. JSON-safe via `to_dict()`.
+- **`LiveHealthSnapshot`** — aggregate runtime live health from a single poll cycle. Fields: `runtime_health`, `adapter_summary`, `adapters` (dict of `AdapterLiveHealth`), `poll_timestamp_monotonic`, `poll_timestamp_wall`, `poll_count`. JSON-safe via `to_dict()`.
+
+### 8.2 Runtime Method
+
+A future `MedreApp.refresh_live_health()` async method would:
+
+1. Guard on `RuntimeState.RUNNING`.
+2. Iterate `self.adapters`, calling `await adapter.health_check()` on each.
+3. Normalize results via `normalize_adapter_health()`.
+4. Map health strings to `AdapterState` values and update `self._adapter_states`.
+5. Re-classify via `classify_runtime_health()`.
+6. Build a `LiveHealthSnapshot` and store it in `self._live_health_state`.
+7. Increment `self._live_poll_count`.
+8. Emit a `RuntimeEventType.HEALTH_REFRESHED` event.
+9. Return the snapshot.
+
+This method performs async I/O but does **not** schedule itself. Callers (polling loops, operator API, CLI) are responsible for invocation timing.
+
+### 8.3 Snapshot Integration
+
+The snapshot slot is `health.live_health` (Contract 63 §5.1), currently always `null`. When `refresh_live_health()` has been called at least once, `build_runtime_snapshot()` would read `app._live_health_state` and populate the slot. Provenance tags would transition: `scope` → `"live"`, `live_refresh` → `true`.
+
+The `null` → `dict` transition is non-breaking per Contract 63 §4.2. No `schema_version` bump is required.
+
+### 8.4 Event Type
+
+A future `RuntimeEventType.HEALTH_REFRESHED` value would be added to the enum in `src/medre/runtime/events.py`. Event detail would include: `runtime_health`, `poll_count`, `changed_adapters` (list of adapter IDs whose state changed), and `adapter_summary` counts.
+
+### 8.5 Timestamp Semantics
+
+Live health uses dual timestamps consistent with existing patterns:
+
+- **`poll_timestamp_monotonic`** (`time.monotonic()`, seconds): primary timestamp for ordering, deduplication, and delta computation. Consistent with `RuntimeEvent.timestamp` and `uptime_seconds`.
+- **`poll_timestamp_wall`** (ISO-8601 UTC): human-readable for operators and external log correlation. Consistent with `snapshot_at` and `startup_timestamp`.
+- **`poll_count`** (integer): monotonically increasing counter per successful poll cycle, for quick staleness checks.
+
+## 9. Deferred
 
 The following are explicitly out of scope:
 

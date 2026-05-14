@@ -606,7 +606,7 @@ class TestBoundedExports:
         rs = self._make_large_route_stats(n)
         app = _make_fake_app(route_stats=rs)
         snap = build_runtime_snapshot(app)
-        assert len(snap["routes"]["stats"]) <= _MAX_ROUTES
+        assert len(snap["routes"]["stats"]["per_route"]) <= _MAX_ROUTES
 
     def test_adapters_capped_at_max(self) -> None:
         adapters = {
@@ -726,9 +726,9 @@ class TestMalformedAdapterResilience:
         )
         snap = build_runtime_snapshot(app)
         assert snap["adapters"] == {}
-        assert snap["routes"]["stats"] == {}
-        assert snap["capacity"] is None
-        assert snap["accounting"] is None
+        assert snap["routes"]["stats"]["per_route"] == {}
+        assert snap["capacity"]["state"] is None
+        assert snap["accounting"]["counters"] is None
 
 
 # ===================================================================
