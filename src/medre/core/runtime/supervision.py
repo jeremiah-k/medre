@@ -43,6 +43,7 @@ __all__ = [
     "classify_runtime_health",
     "classify_adapter_failure_severity",
     "classify_startup_outcome",
+    "count_adapter_state_categories",
     "runtime_supervision_snapshot",
 ]
 
@@ -127,10 +128,13 @@ _DEAD_STATES: frozenset[AdapterState] = frozenset(
 )
 
 
-def _count_by_category(
+def count_adapter_state_categories(
     states: Sequence[AdapterState],
 ) -> tuple[int, int, int, int]:
     """Count adapter states by operational / partial / failed / transitional.
+
+    Public helper used by the runtime and live-health refresh to build
+    aggregate adapter summary counts.
 
     Returns
     -------
@@ -189,7 +193,7 @@ def classify_runtime_health(
     if not adapter_states:
         return RuntimeHealth.FAILED
 
-    operational, partial, failed, transitional = _count_by_category(
+    operational, partial, failed, transitional = count_adapter_state_categories(
         adapter_states,
     )
     total = len(adapter_states)
@@ -305,7 +309,7 @@ def runtime_supervision_snapshot(
         - ``startup_fingerprint``: deterministic state distribution string.
     """
     health = classify_runtime_health(adapter_states)
-    operational, partial, failed, transitional = _count_by_category(
+    operational, partial, failed, transitional = count_adapter_state_categories(
         adapter_states,
     )
 

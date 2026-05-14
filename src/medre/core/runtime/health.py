@@ -15,13 +15,14 @@ The six valid health strings are defined in :data:`VALID_HEALTH_STRINGS`:
 
 This module also defines :class:`AdapterLiveHealth` and
 :class:`LiveHealthSnapshot` — lightweight, frozen dataclasses that
-represent per-adapter and aggregate live health from a single poll
-cycle.  These types are extension points for future live health
-polling; they do not implement polling, background tasks, or
-scheduling.
+represent per-adapter and aggregate live health from a single manual
+refresh cycle.  These types are populated by
+:meth:`~medre.runtime.app.MedreApp.refresh_live_health`; they do not
+implement background polling, scheduling, or automatic refresh.
 
-This module does **not** add health polling, circuit breakers, or
-auto-degrade logic.  It is a read-only projection for diagnostics.
+This module does **not** add background health polling, circuit breakers,
+or auto-degrade logic.  Live health refresh is explicitly manual and
+caller-initiated.
 """
 
 from __future__ import annotations
@@ -111,8 +112,12 @@ def health_to_adapter_state(health: str) -> AdapterState:
     return _HEALTH_TO_ADAPTER_STATE.get(health, AdapterState.FAILED)
 
 
-def _truncate_error(error: str) -> str:
-    """Truncate an error string for safe storage in live-health records."""
+def truncate_health_error(error: str) -> str:
+    """Truncate an error string for safe storage in live-health records.
+
+    Public helper used by the runtime to bound error strings before
+    storing them in :class:`AdapterLiveHealth` entries.
+    """
     if len(error) <= _MAX_LIVE_HEALTH_ERROR_LEN:
         return error
     return error[: _MAX_LIVE_HEALTH_ERROR_LEN - 3] + "..."
@@ -248,23 +253,22 @@ def normalize_adapter_health(
 
 
 # ---------------------------------------------------------------------------
-# Live health extension-point types
+# Live health types
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
 class AdapterLiveHealth:
-    """Per-adapter live health result from a single ``health_check()`` poll.
+    """Per-adapter live health result from a single ``health_check()`` call.
 
     Lightweight, JSON-safe, frozen dataclass.  No SDK objects, no secrets.
-    Constructed by the runtime during ``refresh_live_health()`` (future)
-    by calling :meth:`~medre.adapters.base.BaseAdapter.health_check` and
-    normalizing through :func:`normalize_adapter_health`.
+    Constructed by the runtime during ``refresh_live_health()`` by calling
+    :meth:`~medre.adapters.base.BaseAdapter.health_check` and normalizing
+    through :func:`normalize_adapter_health`.
 
-    This is an **extension point** — it is not wired into any polling loop,
-    background task, or scheduled refresh.  It exists so that future
-    tranches can populate :data:`LiveHealthSnapshot.adapters` entries
-    without introducing new types.
+    Per-adapter failures during refresh are isolated — a failure on one
+    adapter is recorded in ``error`` and does not prevent other adapters
+    from being polled.
 
     Attributes
     ----------
@@ -310,20 +314,20 @@ class AdapterLiveHealth:
 
 @dataclass(frozen=True)
 class LiveHealthSnapshot:
-    """Aggregate runtime live health from a single poll cycle.
+    """Aggregate runtime live health from a single manual refresh cycle.
 
-    Frozen, JSON-safe, deterministic.  Populated by a future
-    ``MedreApp.refresh_live_health()`` method that iterates adapters,
-    calls ``health_check()``, reclassifies runtime health, and builds
-    this snapshot.
+    Frozen, JSON-safe, deterministic.  Populated by
+    ``MedreApp.refresh_live_health()`` which iterates adapters in
+    deterministic order, calls ``health_check()``, reclassifies runtime
+    health, and builds this snapshot.
 
     The snapshot is stored as ``MedreApp._live_health_state`` and
     read by :func:`~medre.runtime.snapshot.build_runtime_snapshot` to
-    populate the ``health.live_health`` section (currently always
-    ``None``).
+    populate the ``health.live_health`` section.  Before the first
+    refresh call, ``health.live_health`` is ``None``.
 
-    This is an **extension point** — no polling loop, background task,
-    or scheduling code uses this type yet.
+    There is no background polling loop, scheduler, or automatic
+    refresh.  Refresh is explicitly manual and caller-initiated.
 
     Attributes
     ----------

@@ -86,13 +86,13 @@ lifecycle:
 startup:
     One-time boot summary, health classification, and build failures.
 health:
-    Current and reserved health surfaces. ``live_health`` is ``null``
+    Health assessment surfaces. ``live_health`` is ``null``
     until :meth:`~medre.runtime.app.MedreApp.refresh_live_health` is
-    called; after the first refresh it contains a dict with
+    called; after the first successful refresh it contains a dict with
     per-adapter live health, aggregate classification, and poll metadata.
     ``startup_health`` remains frozen from startup and is not mutated.
 
-    **Future live health shape** (populated when ``refresh_live_health()``
+    **Live health shape** (populated when ``refresh_live_health()``
     is called)::
 
         {
@@ -130,10 +130,10 @@ health:
 adapters:
     Per-adapter static metadata (capabilities, role, version, health).
 routes:
-    Route delivery stats, eligibility, per-route build readiness, and
+    route delivery stats, eligibility, per-route build readiness, and
     startup-derived readiness.  Each sub-section carries explicit
     ``scope`` and ``live_refresh`` metadata so operators can distinguish
-    build-time facts from startup-time facts from (future) live state.
+    build-time facts from startup-time facts from live state.
 persistence:
     Reserved for future durable-storage status (last-persisted event
     ID, storage health, queue depths).  Currently always ``{}``.
@@ -463,7 +463,8 @@ def build_runtime_snapshot(
     It reads only synchronous attributes and properties.  Adapter health
     is reported as ``"unknown"`` unless the adapter exposes a
     ``_last_health`` attribute; live health checks are the
-     responsibility of the caller or a future integration.
+     responsibility of the caller via
+     :meth:`~medre.runtime.app.MedreApp.refresh_live_health`.
 
     **Health freshness:** The ``startup_health`` field (inside the
     ``startup`` section) reflects the latest runtime-owned health

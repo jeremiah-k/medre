@@ -11,7 +11,7 @@ Every agent or document that references the MEDRE runtime snapshot shape, field 
 ## 1. Non-goals
 
 - Adding new snapshot fields or changing runtime behaviour.
-- Implementing live health polling, dynamic routing, event persistence, or supervisor restarts.
+- Implementing automatic health polling, dynamic routing, event persistence, or supervisor restarts.
 - Changing adapter, route, or diagnostics behaviour.
 - Replacing the diagnostics snapshot (`build_diagnostics_snapshot`) — that is a separate surface documented in Contract 29.
 - Preserving flat-schema migration from schema_version 1.
@@ -86,7 +86,7 @@ Stability labels:
 
 ### 5.1 `health`
 
-Current shape (no live health polling):
+Shape before first `refresh_live_health()` call:
 
 ```
 {
@@ -96,7 +96,7 @@ Current shape (no live health polling):
 }
 ```
 
-Future shape when live health polling is implemented:
+Shape after first successful `refresh_live_health()` call:
 
 ```
 {
@@ -129,14 +129,14 @@ Future shape when live health polling is implemented:
 }
 ```
 
-- `live_health`: Currently always `null`. Reserved for a future `LiveHealthSnapshot` aggregate (see `src/medre/core/runtime/health.py`) populated by active health polling. The transition from `null` to `dict` is a **non-breaking additive change** per §4.2 (`null` → `dict` where the type was already documented as `T | null`). **No `schema_version` bump is required.**
-- `live_refresh`: Always `false`. Will transition to `true` when live health polling is active, indicating that `live_health` is recomputed on each poll cycle.
-- `scope`: Always `"startup"`. Will transition to `"live"` when live health polling is active, indicating that the health assessment reflects live adapter state rather than a startup-derived snapshot.
+- `live_health`: `null` before the first call to `MedreApp.refresh_live_health()`. After the first successful refresh, contains a `LiveHealthSnapshot` dict (see `src/medre/core/runtime/health.py`) populated by manual live health refresh. The transition from `null` to `dict` is a **non-breaking additive change** per §4.2 (`null` → `dict` where the type was already documented as `T | null`). **No `schema_version` bump is required.** There is no background polling — refresh is caller-initiated via `MedreApp.refresh_live_health()` only. Live health is process-local and not durable (lost on process restart).
+- `live_refresh`: `false` before first refresh; transitions to `true` after the first successful `refresh_live_health()` call, indicating that `live_health` contains data from an explicit health poll rather than startup-derived data.
+- `scope`: `"startup"` before first refresh; transitions to `"live"` after the first successful `refresh_live_health()` call, indicating that the health assessment reflects live adapter state rather than a startup-derived snapshot.
 - `poll_timestamp_monotonic`: Primary timestamp for ordering and deduplication. Uses `time.monotonic()` — not wall-clock — consistent with `RuntimeEvent.timestamp` and `uptime_seconds` semantics.
 - `poll_timestamp_wall`: ISO-8601 UTC string for operator readability and external log correlation.
-- `poll_count`: Monotonically increasing integer counter per successful poll cycle. Used for quick staleness checks without float comparison.
+- `poll_count`: Monotonically increasing integer counter per successful refresh cycle. Used for quick staleness checks without float comparison.
 
-**Operators must not assume `startup.startup_health` represents current adapter health.** The `scope` field makes this explicit: this value was computed once during startup and does not reflect post-startup adapter state changes.
+**Note:** `startup.startup_health` is frozen at startup and is **not** affected by `refresh_live_health()`. Operators must not assume `startup.startup_health` represents current adapter health — use `health.live_health` for live data (after refresh) or `lifecycle.adapters.{id}` for current `AdapterState`.
 
 
 ### 5.2 `startup`
@@ -207,7 +207,7 @@ Every route sub-section that represents a point-in-time observation carries two 
 - `scope`: one of `"build"`, `"startup"`, `"process_local"`, or `"live"`. Indicates *when* the data was captured or how it is refreshed.
   - `"build"`: Computed during `MedreApp.build()`. Does not change after build. Represents build-time route registration outcomes.
   - `"startup"`: Computed after `MedreApp.start()` completes. Does not change after startup. Reflects adapter lifecycle states at startup time.
-- `live_refresh`: `true` if MEDRE actively calls `adapter.health_check()` or a transport API to get current state; `false` if data evolves only from local runtime state transitions or was frozen at build/startup. Currently always `false` — reserved for future use when live health polling or dynamic routing is implemented.
+- `live_refresh`: `true` if MEDRE actively calls `adapter.health_check()` or a transport API to get current state; `false` if data evolves only from local runtime state transitions or was frozen at build/startup. `health.live_refresh` is `false` before first `refresh_live_health()` and `true` after. Route sub-sections currently have `live_refresh=false` — reserved for future use when dynamic routing is implemented.
 
 Operators **must not** assume that data with `live_refresh=false` reflects current runtime state after shutdown or post-startup adapter failures.
 
@@ -479,8 +479,8 @@ Operators must understand whether each diagnostic value is a one-time startup sn
 | `startup.boot_summary` | `"startup"` | `false` | `BootSummary.to_dict()`. Immutable after creation. |
 | `startup.build_failures` | `"startup"` | `false` | Build failures are immutable after build. |
 | `startup.startup_health` | `"startup"` | `false` | `runtime_supervision_snapshot()` output from startup. |
-| `health` | `"startup"` | `false` | Startup-derived health assessment. `live_health` is always `null`. |
-| `health.live_health` | — | — | Always `null`. Reserved for future live health polling. |
+| `health` | `"startup"` / `"live"` | `false` / `true` | Before first refresh: startup-derived, `live_health` is `null`. After first `refresh_live_health()`: `scope="live"`, `live_refresh=true`, `live_health` contains `LiveHealthSnapshot` dict. |
+| `health.live_health` | — | — | `null` before first refresh. `LiveHealthSnapshot` dict after first successful `refresh_live_health()`. Process-local, not durable. |
 | `lifecycle` | `"process_local"` | `false` | In-process state at snapshot time. Not persisted. |
 | `lifecycle.adapters.{id}` | `"process_local"` | `false` | Current `AdapterState` from `_adapter_states` registry. |
 | `lifecycle.uptime_seconds` | `"process_local"` | `false` | Computed from monotonic clock on each snapshot call. |

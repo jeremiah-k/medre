@@ -7,7 +7,7 @@
 
 **Non-guarantees (explicit):** This contract does not provide automatic adapter restart, supervisor trees, process respawn, admin API, REST/TUI/daemon management, hot reload, distributed orchestration, or transport redesign. The supervision layer is classification and observability only.
 
-**Post-start supervision scope (explicit):** MEDRE can classify supplied adapter health states after startup — the pure classification functions (`classify_runtime_health`, `classify_adapter_failure_severity`, `runtime_supervision_snapshot`) accept arbitrary `AdapterState` sequences and return deterministic results at any time. However, active post-start failure detection, health refresh polling, and automatic runtime state transitions in response to adapter state changes are **not implemented** in this tranche. Calling these functions with different state values demonstrates classification correctness; it does not imply that the runtime actively detects or reacts to adapter failures at runtime.
+**Post-start supervision scope (explicit):** MEDRE can classify supplied adapter health states after startup — the pure classification functions (`classify_runtime_health`, `classify_adapter_failure_severity`, `runtime_supervision_snapshot`) accept arbitrary `AdapterState` sequences and return deterministic results at any time. Manual live-health refresh is available via `MedreApp.refresh_live_health()` (§8), which calls each adapter's `health_check()` in deterministic order and updates per-adapter lifecycle states. However, **automatic** health refresh polling, background scheduling, and automatic runtime state transitions in response to adapter state changes are **not implemented**. The runtime does not actively detect or react to adapter failures at runtime — refresh is caller-initiated, not scheduled.
 
 ## 0. State Layer Model
 
@@ -155,10 +155,10 @@ The runtime snapshot exposes health through two explicit top-level fields:
 
 | Field | Value | Meaning |
 |-------|-------|---------|
-| `startup_health` | `dict \| null` | Startup-derived supervision snapshot from `runtime_supervision_snapshot()`. Set once during `app.start()`. Not automatically refreshed. |
-| `live_health` | `null` | Always `null`. Active post-start health polling is not implemented. Operators must not mistake `startup_health` for current/live health. |
+| `startup_health` | `dict \| null` | Startup-derived supervision snapshot from `runtime_supervision_snapshot()`. Set once during `app.start()`. Frozen — not affected by `refresh_live_health()`. |
+| `live_health` | `dict \| null` | `null` before the first call to `MedreApp.refresh_live_health()`. After the first successful refresh, contains a `LiveHealthSnapshot` dict with per-adapter live health, aggregate classification, and poll metadata. Populated only by explicit manual refresh; no background polling exists. |
 
-The split ensures operators cannot confuse the one-time startup health assessment with live runtime health. When active health polling is implemented in a future tranche, `live_health` will carry refreshed data while `startup_health` retains its original value for comparison.
+The split ensures operators cannot confuse the one-time startup health assessment with live runtime health. `startup_health` remains frozen at its startup value regardless of live refresh activity. `live_health` transitions from `null` to `dict` on the first successful `refresh_live_health()` call; `scope` transitions from `"startup"` to `"live"` and `live_refresh` transitions from `false` to `true`.
 
 ### 5.2 Provenance Metadata in the Snapshot
 
@@ -170,7 +170,7 @@ Section-level provenance:
 |---------|---------|----------------|-----------|
 | `startup` | `"startup"` | `false` | Boot classification computed once during `MedreApp.start()`. |
 | `startup.startup_health` | `"startup"` | `false` | Health classification from `runtime_supervision_snapshot()` at startup. |
-| `health` | `"startup"` | `false` | Startup-derived health assessment. `live_health` is always `null`. |
+| `health` | `"startup"` | `false` | Before first refresh: startup-derived health assessment. `live_health` is `null`. After first `refresh_live_health()`: `scope` transitions to `"live"`, `live_refresh` to `true`, `live_health` carries live data. |
 | `lifecycle` | `"process_local"` | `false` | In-process state at snapshot time. Not persisted across restarts. |
 | `diagnostics` | `"process_local"` | `true` | Event buffer grows during process lifetime. |
 
@@ -218,42 +218,63 @@ The following boundaries are enforced by tests:
 4. **Boundary tests:** Import-line analysis ensuring no transport SDK or concrete adapter package leakage.
 5. **Fake adapters only:** No live transport dependencies in any supervision test.
 
-## 8. Future Live Health Extension Path
+## 8. Live Health Manual Refresh
 
-This section documents the **extension points** prepared for a future live health polling integration. None of this is implemented; it defines where future code would plug in without modifying existing interfaces.
+This section documents the manual live health refresh mechanism. `MedreApp.refresh_live_health()` exists and is functional. It is explicitly manual and caller-initiated — there is no background polling, no scheduler, and no automatic refresh.
 
 ### 8.1 Types
 
 Two frozen dataclasses are defined in `src/medre/core/runtime/health.py`:
 
-- **`AdapterLiveHealth`** — per-adapter live health result from a single `health_check()` poll. Fields: `adapter_id`, `health` (VALID_HEALTH_STRINGS), `adapter_state`, `fake_or_live`, `poll_timestamp_monotonic`, `poll_timestamp_wall`, `error`. JSON-safe via `to_dict()`.
-- **`LiveHealthSnapshot`** — aggregate runtime live health from a single poll cycle. Fields: `runtime_health`, `adapter_summary`, `adapters` (dict of `AdapterLiveHealth`), `poll_timestamp_monotonic`, `poll_timestamp_wall`, `poll_count`. JSON-safe via `to_dict()`.
+- **`AdapterLiveHealth`** — per-adapter live health result from a single `health_check()` call. Fields: `adapter_id`, `health` (VALID_HEALTH_STRINGS), `adapter_state`, `fake_or_live`, `poll_timestamp_monotonic`, `poll_timestamp_wall`, `error`. JSON-safe via `to_dict()`.
+- **`LiveHealthSnapshot`** — aggregate runtime live health from a single refresh cycle. Fields: `runtime_health`, `adapter_summary`, `adapters` (dict of `AdapterLiveHealth`), `poll_timestamp_monotonic`, `poll_timestamp_wall`, `poll_count`. JSON-safe via `to_dict()`.
 
 ### 8.2 Runtime Method
 
-A future `MedreApp.refresh_live_health()` async method would:
+`MedreApp.refresh_live_health()` is an async method that:
 
-1. Guard on `RuntimeState.RUNNING`.
-2. Iterate `self.adapters`, calling `await adapter.health_check()` on each.
-3. Normalize results via `normalize_adapter_health()`.
-4. Map health strings to `AdapterState` values and update `self._adapter_states`.
-5. Re-classify via `classify_runtime_health()`.
-6. Build a `LiveHealthSnapshot` and store it in `self._live_health_state`.
-7. Increment `self._live_poll_count`.
-8. Emit a `RuntimeEventType.HEALTH_REFRESHED` event.
-9. Return the snapshot.
+1. Guards on `RuntimeState.RUNNING` (raises if not running).
+2. Iterates `self.adapters` in **deterministic order** (sorted by adapter ID), calling `await adapter.health_check()` on each.
+3. Normalizes results via `normalize_adapter_health()`.
+4. Maps health strings to `AdapterState` values and updates `self._adapter_states`.
+5. Re-classifies via `classify_runtime_health()`.
+6. Builds a `LiveHealthSnapshot` and stores it in `self._live_health_state`.
+7. Increments `self._live_poll_count`.
+8. Returns the snapshot.
 
-This method performs async I/O but does **not** schedule itself. Callers (polling loops, operator API, CLI) are responsible for invocation timing.
+**Isolation:** Individual adapter failures during refresh are isolated — a failure on one adapter does not prevent other adapters from being polled. The adapter's error is recorded in its `AdapterLiveHealth.error` field.
+
+**Cancellation:** The method is caller-cancellable via `asyncio.CancelledError`. Cancellation is safe and does not corrupt runtime state.
+
+**No scheduling:** This method performs async I/O but does **not** schedule itself. Callers (operator API, CLI, test harness) are responsible for invocation timing. There is no background task, no polling loop, and no automatic refresh interval.
 
 ### 8.3 Snapshot Integration
 
-The snapshot slot is `health.live_health` (Contract 63 §5.1), currently always `null`. When `refresh_live_health()` has been called at least once, `build_runtime_snapshot()` would read `app._live_health_state` and populate the slot. Provenance tags would transition: `scope` → `"live"`, `live_refresh` → `true`.
+The snapshot slot is `health.live_health` (Contract 63 §5.1). Before `refresh_live_health()` has been called, it is `null`. After the first successful refresh, `build_runtime_snapshot()` reads `app._live_health_state` and populates the slot. Provenance tags transition: `scope` → `"live"`, `live_refresh` → `true`.
 
 The `null` → `dict` transition is non-breaking per Contract 63 §4.2. No `schema_version` bump is required.
 
-### 8.4 Event Type
+### 8.4 State Transitions
 
-A future `RuntimeEventType.HEALTH_REFRESHED` value would be added to the enum in `src/medre/runtime/events.py`. Event detail would include: `runtime_health`, `poll_count`, `changed_adapters` (list of adapter IDs whose state changed), and `adapter_summary` counts.
+Before the first call to `refresh_live_health()`:
+
+| Field | Value |
+|-------|-------|
+| `health.live_health` | `null` |
+| `health.scope` | `"startup"` |
+| `health.live_refresh` | `false` |
+| `startup.startup_health` | Frozen dict from startup |
+
+After the first successful call to `refresh_live_health()`:
+
+| Field | Value |
+|-------|-------|
+| `health.live_health` | `LiveHealthSnapshot` dict (per-adapter health, aggregate classification, poll metadata) |
+| `health.scope` | `"live"` |
+| `health.live_refresh` | `true` |
+| `startup.startup_health` | Unchanged — still frozen from startup |
+
+`startup_health` is **frozen** and is not affected by `refresh_live_health()`. Live health is **process-local** and not durable — it is lost on process restart.
 
 ### 8.5 Timestamp Semantics
 
@@ -261,7 +282,7 @@ Live health uses dual timestamps consistent with existing patterns:
 
 - **`poll_timestamp_monotonic`** (`time.monotonic()`, seconds): primary timestamp for ordering, deduplication, and delta computation. Consistent with `RuntimeEvent.timestamp` and `uptime_seconds`.
 - **`poll_timestamp_wall`** (ISO-8601 UTC): human-readable for operators and external log correlation. Consistent with `snapshot_at` and `startup_timestamp`.
-- **`poll_count`** (integer): monotonically increasing counter per successful poll cycle, for quick staleness checks.
+- **`poll_count`** (integer): monotonically increasing counter per successful refresh cycle, for quick staleness checks.
 
 ## 9. Deferred
 

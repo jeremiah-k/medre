@@ -32,16 +32,16 @@ from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.runtime.health import (
     AdapterLiveHealth,
     LiveHealthSnapshot,
-    _truncate_error,
     health_to_adapter_state,
     normalize_adapter_health,
+    truncate_health_error,
 )
 from medre.core.runtime.supervision import (
     RuntimeHealth,
     StartupOutcome,
-    _count_by_category,
     classify_runtime_health,
     classify_startup_outcome,
+    count_adapter_state_categories,
     runtime_supervision_snapshot,
 )
 from medre.core.lifecycle.states import AdapterState, require_valid_transition
@@ -333,8 +333,11 @@ class MedreApp:
                 f"current state is {self._state.value!r}"
             )
 
-        self._live_health_poll_count += 1
-        poll_count = self._live_health_poll_count
+        # Compute the next poll count upfront but only assign after
+        # the snapshot is successfully built and stored.  If a
+        # CancelledError propagates from the polling loop, the count
+        # (and _live_health_state) remain unchanged.
+        next_poll_count = self._live_health_poll_count + 1
 
         adapter_ids = sorted(self.adapters.keys())
 
@@ -371,7 +374,7 @@ class MedreApp:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                error_str = _truncate_error(str(exc))
+                error_str = truncate_health_error(str(exc))
                 live_state = AdapterState.FAILED
                 live_states.append(live_state)
                 failed_adapter_ids.append(adapter_id)
@@ -388,7 +391,7 @@ class MedreApp:
 
         # Classify aggregate runtime health from live poll results.
         runtime_health = classify_runtime_health(live_states)
-        operational, partial, failed, transitional = _count_by_category(
+        operational, partial, failed, transitional = count_adapter_state_categories(
             live_states
         )
 
@@ -407,17 +410,18 @@ class MedreApp:
             adapters=dict(sorted(adapter_entries.items())),
             poll_timestamp_monotonic=poll_mono_end,
             poll_timestamp_wall=poll_wall_end,
-            poll_count=poll_count,
+            poll_count=next_poll_count,
         )
 
-        # Save previous snapshot before overwriting for change detection.
+        # Commit: save previous snapshot before overwriting for change detection.
         prev_snapshot = self._live_health_state
         self._live_health_state = snapshot
+        self._live_health_poll_count = next_poll_count
 
         # Build event detail (cheap derived data only).
         event_detail: dict[str, Any] = {
             "runtime_health": runtime_health.value,
-            "poll_count": poll_count,
+            "poll_count": next_poll_count,
             "adapter_summary": snapshot.adapter_summary,
         }
         if failed_adapter_ids:

@@ -391,7 +391,7 @@ class TestCancelledErrorPropagation:
 
     @pytest.mark.asyncio
     async def test_cancelled_does_not_increment_poll_count(self) -> None:
-        """CancelledError does not increment poll_count."""
+        """CancelledError does not increment poll_count or store snapshot."""
         app = _make_minimal_app(
             adapters={
                 "a1": _FakeAdapter(
@@ -403,10 +403,45 @@ class TestCancelledErrorPropagation:
         assert app._live_health_poll_count == 0
         with pytest.raises(asyncio.CancelledError):
             await app.refresh_live_health()
-        # poll_count was incremented before the loop, but the snapshot
-        # was not stored — so the next successful call will have the
-        # next count
+        # poll_count remains unchanged — increment only happens after
+        # successful snapshot construction and storage.
+        assert app._live_health_poll_count == 0
+        # live_health_state remains None — no partial state stored.
+        assert app._live_health_state is None
+
+    @pytest.mark.asyncio
+    async def test_cancelled_then_success_poll_count_correct(self) -> None:
+        """After a cancelled attempt, successful refresh gets poll_count=1."""
+        app = _make_minimal_app(
+            adapters={
+                "a1": _FakeAdapter("a1"),
+            },
+        )
+        assert app._live_health_poll_count == 0
+
+        # First call succeeds → count becomes 1
+        s1 = await app.refresh_live_health()
+        assert s1.poll_count == 1
         assert app._live_health_poll_count == 1
+
+    @pytest.mark.asyncio
+    async def test_adapter_exception_does_increment_poll_count(self) -> None:
+        """Adapter health_check exception completes refresh → poll_count increments."""
+        app = _make_minimal_app(
+            adapters={
+                "a1": _FakeAdapter(
+                    "a1",
+                    health_check_side_effect=RuntimeError("adapter boom"),
+                ),
+            },
+        )
+        assert app._live_health_poll_count == 0
+        snapshot = await app.refresh_live_health()
+        # Refresh completed (snapshot built with per-adapter failure)
+        assert app._live_health_poll_count == 1
+        assert snapshot.poll_count == 1
+        assert snapshot.adapters["a1"].health == "failed"
+        assert app._live_health_state is snapshot
 
 
 # ===================================================================
@@ -671,3 +706,136 @@ class TestLiveHealthSnapshotToDict:
         snapshot = await app.refresh_live_health()
         d = snapshot.to_dict()
         assert list(d.keys()) == sorted(d.keys())
+
+
+# ===================================================================
+# 13. Snapshot state transitions (before/after refresh)
+# ===================================================================
+
+
+class TestSnapshotStateTransitions:
+    """Comprehensive before/after snapshot state transition assertions.
+
+    Before refresh: live_health null, scope startup, live_refresh false.
+    After refresh: live_health dict, scope live, live_refresh true.
+    startup_health remains unchanged. lifecycle remains process_local.
+    accounting/capacity/diagnostics remain process_local.
+    schema_version remains 1.
+    """
+
+    @pytest.mark.asyncio
+    async def test_before_refresh_live_health_null(self) -> None:
+        app = _make_minimal_app(
+            adapters={"a1": _FakeAdapter("a1", health="healthy")},
+        )
+        snap = build_runtime_snapshot(app)
+        assert snap["health"]["live_health"] is None
+
+    @pytest.mark.asyncio
+    async def test_before_refresh_scope_startup(self) -> None:
+        app = _make_minimal_app(
+            adapters={"a1": _FakeAdapter("a1", health="healthy")},
+        )
+        snap = build_runtime_snapshot(app)
+        assert snap["health"]["scope"] == "startup"
+
+    @pytest.mark.asyncio
+    async def test_before_refresh_live_refresh_false(self) -> None:
+        app = _make_minimal_app(
+            adapters={"a1": _FakeAdapter("a1", health="healthy")},
+        )
+        snap = build_runtime_snapshot(app)
+        assert snap["health"]["live_refresh"] is False
+
+    @pytest.mark.asyncio
+    async def test_after_refresh_live_health_dict(self) -> None:
+        app = _make_minimal_app(
+            adapters={"a1": _FakeAdapter("a1", health="healthy")},
+        )
+        await app.refresh_live_health()
+        snap = build_runtime_snapshot(app)
+        assert isinstance(snap["health"]["live_health"], dict)
+        assert snap["health"]["live_health"]["runtime_health"] == "healthy"
+        assert snap["health"]["live_health"]["poll_count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_after_refresh_scope_live(self) -> None:
+        app = _make_minimal_app(
+            adapters={"a1": _FakeAdapter("a1", health="healthy")},
+        )
+        await app.refresh_live_health()
+        snap = build_runtime_snapshot(app)
+        assert snap["health"]["scope"] == "live"
+
+    @pytest.mark.asyncio
+    async def test_after_refresh_live_refresh_true(self) -> None:
+        app = _make_minimal_app(
+            adapters={"a1": _FakeAdapter("a1", health="healthy")},
+        )
+        await app.refresh_live_health()
+        snap = build_runtime_snapshot(app)
+        assert snap["health"]["live_refresh"] is True
+
+    @pytest.mark.asyncio
+    async def test_startup_health_frozen_after_refresh(self) -> None:
+        """startup.startup_health is not mutated by live refresh."""
+        app = _make_minimal_app(
+            adapters={"a1": _FakeAdapter("a1", health="healthy")},
+        )
+        original_startup_health = app._health_state
+        await app.refresh_live_health()
+        snap = build_runtime_snapshot(app)
+        assert snap["startup"]["startup_health"] == original_startup_health
+        assert snap["startup"]["scope"] == "startup"
+        assert snap["startup"]["live_refresh"] is False
+
+    @pytest.mark.asyncio
+    async def test_lifecycle_remains_process_local(self) -> None:
+        app = _make_minimal_app(
+            adapters={"a1": _FakeAdapter("a1", health="healthy")},
+        )
+        await app.refresh_live_health()
+        snap = build_runtime_snapshot(app)
+        assert snap["lifecycle"]["scope"] == "process_local"
+        assert snap["lifecycle"]["live_refresh"] is False
+        assert snap["lifecycle"]["runtime_state"] == "running"
+
+    @pytest.mark.asyncio
+    async def test_accounting_remains_process_local(self) -> None:
+        app = _make_minimal_app(
+            adapters={"a1": _FakeAdapter("a1", health="healthy")},
+        )
+        await app.refresh_live_health()
+        snap = build_runtime_snapshot(app)
+        assert snap["accounting"]["scope"] == "process_local"
+        assert snap["accounting"]["live_refresh"] is False
+
+    @pytest.mark.asyncio
+    async def test_capacity_remains_process_local(self) -> None:
+        app = _make_minimal_app(
+            adapters={"a1": _FakeAdapter("a1", health="healthy")},
+        )
+        await app.refresh_live_health()
+        snap = build_runtime_snapshot(app)
+        assert snap["capacity"]["scope"] == "process_local"
+        assert snap["capacity"]["live_refresh"] is False
+
+    @pytest.mark.asyncio
+    async def test_diagnostics_remains_process_local(self) -> None:
+        app = _make_minimal_app(
+            adapters={"a1": _FakeAdapter("a1", health="healthy")},
+        )
+        await app.refresh_live_health()
+        snap = build_runtime_snapshot(app)
+        assert snap["diagnostics"]["scope"] == "process_local"
+        assert snap["diagnostics"]["live_refresh"] is False
+
+    @pytest.mark.asyncio
+    async def test_schema_version_remains_one(self) -> None:
+        app = _make_minimal_app(
+            adapters={"a1": _FakeAdapter("a1", health="healthy")},
+        )
+        await app.refresh_live_health()
+        snap = build_runtime_snapshot(app)
+        assert snap["schema_version"] == 1
+        assert snap["schema_version"] == SCHEMA_VERSION

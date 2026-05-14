@@ -18,6 +18,8 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
+import asyncio
+
 import pytest
 
 from medre.runtime.events import (
@@ -627,3 +629,180 @@ class TestNoRouteBehaviorChange:
             monotonic_fn=lambda: 0.0,
         )
         assert snap["diagnostics"]["runtime_events"] is None
+
+
+# ===================================================================
+# 6. HEALTH_REFRESHED event semantics
+# ===================================================================
+
+
+class _FakeAdapter:
+    """Minimal adapter-like object with configurable health_check."""
+
+    def __init__(
+        self,
+        adapter_id: str = "test-adapter",
+        health: str = "healthy",
+        *,
+        health_check_side_effect: BaseException | None = None,
+    ) -> None:
+        from medre.adapters.base import AdapterCapabilities, AdapterInfo, AdapterRole
+
+        self.adapter_id = adapter_id
+        self.platform = "fake_platform"
+        self.role = AdapterRole.TRANSPORT
+        self._health = health
+        self._side_effect = health_check_side_effect
+
+    async def health_check(self):
+        from medre.adapters.base import AdapterCapabilities, AdapterInfo, AdapterRole
+
+        if self._side_effect is not None:
+            raise self._side_effect
+        return AdapterInfo(
+            adapter_id=self.adapter_id,
+            platform="fake_platform",
+            role=AdapterRole.TRANSPORT,
+            version="0.1.0",
+            capabilities=AdapterCapabilities(),
+            health=self._health,
+        )
+
+
+def _make_real_app():
+    """Build a minimal MedreApp with real EventBuffer for event testing."""
+    from medre.core.lifecycle.states import AdapterState
+    from medre.runtime.app import MedreApp, RuntimeState
+
+    adapters = {
+        "a1": _FakeAdapter("a1", health="healthy"),
+        "a2": _FakeAdapter("a2", health="healthy"),
+    }
+    app = object.__new__(MedreApp)
+    app.adapters = adapters  # type: ignore[assignment]
+    app._state = RuntimeState.RUNNING
+    app._event_buffer = EventBuffer()
+    app._adapter_states = {aid: AdapterState.READY for aid in adapters}
+    app._live_health_state = None
+    app._live_health_poll_count = 0
+    app._health_state = {"runtime_health": "healthy", "adapter_summary": {"total": 2}}
+    app._startup_wall = "2026-05-14T00:00:00+00:00"
+    app._startup_monotonic = 1000.0
+    app._boot_summary = None
+    app._failed_adapter_ids = []
+    app.started_adapter_ids = list(adapters.keys())
+    app.adapter_start_monotonic = {}
+    return app
+
+
+class TestHealthRefreshedEventSemantics:
+    """HEALTH_REFRESHED is emitted only after successful completed refresh."""
+
+    @pytest.mark.asyncio
+    async def test_emitted_on_successful_refresh(self) -> None:
+        """Successful refresh emits exactly one HEALTH_REFRESHED event."""
+        app = _make_real_app()
+        await app.refresh_live_health()
+        events = [
+            e for e in app.event_buffer
+            if e.event_type == RuntimeEventType.HEALTH_REFRESHED
+        ]
+        assert len(events) == 1
+        assert events[0].detail["poll_count"] == 1
+        assert events[0].detail["runtime_health"] == "healthy"
+
+    @pytest.mark.asyncio
+    async def test_not_emitted_on_cancellation(self) -> None:
+        """CancelledError during refresh emits no HEALTH_REFRESHED event."""
+        from medre.core.lifecycle.states import AdapterState
+        from medre.runtime.app import MedreApp, RuntimeState
+
+        adapters = {
+            "a1": _FakeAdapter(
+                "a1",
+                health_check_side_effect=asyncio.CancelledError(),
+            ),
+        }
+        app = object.__new__(MedreApp)
+        app.adapters = adapters  # type: ignore[assignment]
+        app._state = RuntimeState.RUNNING
+        app._event_buffer = EventBuffer()
+        app._adapter_states = {"a1": AdapterState.READY}
+        app._live_health_state = None
+        app._live_health_poll_count = 0
+        app._health_state = {"runtime_health": "healthy"}
+        app._startup_wall = None
+        app._startup_monotonic = None
+        app._boot_summary = None
+        app._failed_adapter_ids = []
+        app.started_adapter_ids = ["a1"]
+        app.adapter_start_monotonic = {}
+
+        with pytest.raises(asyncio.CancelledError):
+            await app.refresh_live_health()
+
+        events = [
+            e for e in app.event_buffer
+            if e.event_type == RuntimeEventType.HEALTH_REFRESHED
+        ]
+        assert len(events) == 0
+
+    @pytest.mark.asyncio
+    async def test_emitted_with_adapter_failure(self) -> None:
+        """Refresh with adapter exceptions still emits HEALTH_REFRESHED."""
+        from medre.core.lifecycle.states import AdapterState
+        from medre.runtime.app import MedreApp, RuntimeState
+
+        adapters = {
+            "a1": _FakeAdapter("a1", health="healthy"),
+            "a2": _FakeAdapter(
+                "a2",
+                health_check_side_effect=RuntimeError("adapter error"),
+            ),
+        }
+        app = object.__new__(MedreApp)
+        app.adapters = adapters  # type: ignore[assignment]
+        app._state = RuntimeState.RUNNING
+        app._event_buffer = EventBuffer()
+        app._adapter_states = {aid: AdapterState.READY for aid in adapters}
+        app._live_health_state = None
+        app._live_health_poll_count = 0
+        app._health_state = {"runtime_health": "healthy"}
+        app._startup_wall = None
+        app._startup_monotonic = None
+        app._boot_summary = None
+        app._failed_adapter_ids = []
+        app.started_adapter_ids = list(adapters.keys())
+        app.adapter_start_monotonic = {}
+
+        snapshot = await app.refresh_live_health()
+        events = [
+            e for e in app.event_buffer
+            if e.event_type == RuntimeEventType.HEALTH_REFRESHED
+        ]
+        assert len(events) == 1
+        assert events[0].detail["runtime_health"] == "degraded"
+        assert "a2" in events[0].detail["failed_adapters"]
+
+    @pytest.mark.asyncio
+    async def test_event_poll_count_matches_snapshot_poll_count(self) -> None:
+        """Event poll_count matches the snapshot poll_count."""
+        app = _make_real_app()
+        snapshot = await app.refresh_live_health()
+        events = [
+            e for e in app.event_buffer
+            if e.event_type == RuntimeEventType.HEALTH_REFRESHED
+        ]
+        assert len(events) == 1
+        assert events[0].detail["poll_count"] == snapshot.poll_count
+        assert events[0].detail["poll_count"] == 1
+
+        # Second refresh
+        snapshot2 = await app.refresh_live_health()
+        events2 = [
+            e for e in app.event_buffer
+            if e.event_type == RuntimeEventType.HEALTH_REFRESHED
+        ]
+        assert len(events2) == 2
+        assert events2[1].detail["poll_count"] == snapshot2.poll_count
+        assert events2[1].detail["poll_count"] == 2
