@@ -1321,3 +1321,120 @@ class TestDeterministicBuildOrdering:
         order2 = list(adapters2.keys())
 
         assert order1 == order2
+
+
+# ---------------------------------------------------------------------------
+# All-adapters-build-failure — builder returns app with empty adapters
+# ---------------------------------------------------------------------------
+
+
+class TestAllAdaptersBuildFailure:
+    """When every enabled adapter fails construction, build() still returns
+    a MedreApp (with empty adapters + populated build_failures).
+
+    The CLI layer is responsible for checking this condition and exiting
+    with EXIT_BUILD.  The builder itself does NOT raise — it records failures.
+    """
+
+    def test_all_single_adapter_build_failure(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """Single enabled adapter fails -> build() returns app with empty adapters."""
+        rt = MatrixRuntimeConfig(
+            adapter_id="broken",
+            enabled=True,
+            adapter_kind="fake",
+            config=_make_fake_matrix_config(),
+        )
+        config = RuntimeConfig(
+            storage=StorageConfig(backend="memory"),
+            adapters=AdapterConfigSet(matrix={"brk": rt}),
+        )
+        builder = RuntimeBuilder(config, tmp_paths)
+
+        with patch.object(
+            builder,
+            "_build_single_adapter",
+            side_effect=RuntimeConfigError("simulated missing SDK"),
+        ):
+            app = builder.build()
+
+        assert len(app.adapters) == 0
+        assert len(app.build_failures) == 1
+        assert app.build_failures[0].adapter_id == "broken"
+
+    def test_all_multiple_adapters_build_failure(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """Multiple enabled adapters all fail -> empty adapters, all recorded."""
+        rt1 = MatrixRuntimeConfig(
+            adapter_id="broken_a",
+            enabled=True,
+            adapter_kind="fake",
+            config=_make_fake_matrix_config(),
+        )
+        rt2 = MeshtasticRuntimeConfig(
+            adapter_id="broken_b",
+            enabled=True,
+            adapter_kind="fake",
+            config=_make_fake_meshtastic_config(),
+        )
+        config = RuntimeConfig(
+            storage=StorageConfig(backend="memory"),
+            adapters=AdapterConfigSet(
+                matrix={"ba": rt1},
+                meshtastic={"bb": rt2},
+            ),
+        )
+        builder = RuntimeBuilder(config, tmp_paths)
+
+        with patch.object(
+            builder,
+            "_build_single_adapter",
+            side_effect=RuntimeConfigError("simulated missing SDK"),
+        ):
+            app = builder.build()
+
+        assert len(app.adapters) == 0
+        assert len(app.build_failures) == 2
+        failed_ids = {bf.adapter_id for bf in app.build_failures}
+        assert failed_ids == {"broken_a", "broken_b"}
+
+    def test_partial_failure_not_all_empty(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """One adapter builds, one fails -> adapters non-empty, one build_failure."""
+        rt1 = MatrixRuntimeConfig(
+            adapter_id="good_one",
+            enabled=True,
+            adapter_kind="fake",
+            config=_make_fake_matrix_config(),
+        )
+        rt2 = MeshtasticRuntimeConfig(
+            adapter_id="bad_one",
+            enabled=True,
+            adapter_kind="fake",
+            config=_make_fake_meshtastic_config(),
+        )
+        config = RuntimeConfig(
+            storage=StorageConfig(backend="memory"),
+            adapters=AdapterConfigSet(
+                matrix={"g": rt1},
+                meshtastic={"b": rt2},
+            ),
+        )
+        builder = RuntimeBuilder(config, tmp_paths)
+        original_build = builder._build_single_adapter
+
+        def _selective_fail(transport: str, adapter_id: str, rtc: Any) -> BaseAdapter:
+            if adapter_id == "bad_one":
+                raise RuntimeConfigError("simulated failure")
+            return original_build(transport, adapter_id, rtc)
+
+        with patch.object(builder, "_build_single_adapter", side_effect=_selective_fail):
+            app = builder.build()
+
+        assert len(app.adapters) == 1
+        assert "good_one" in app.adapters
+        assert len(app.build_failures) == 1
+        assert app.build_failures[0].adapter_id == "bad_one"

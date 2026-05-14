@@ -88,13 +88,17 @@ Stability labels:
 
 ```
 {
-  "live_health": null
+  "live_health": null,
+  "live_refresh": false,
+  "scope": "startup"
 }
 ```
 
-`live_health` is reserved for a future `RuntimeHealth` aggregate that would be populated by active health polling. Until that integration exists, the field is always `null`.
+- `live_health`: Reserved for a future `RuntimeHealth` aggregate that would be populated by active health polling. Until that integration exists, the field is always `null`.
+- `live_refresh`: Always `false`. The health assessment is computed once during startup and not refreshed.
+- `scope`: Always `"startup"`. The health assessment is a startup-derived snapshot, not live runtime health.
 
-**Operators must not assume `startup.startup_health` represents real-time adapter health.**
+**Operators must not assume `startup.startup_health` represents real-time adapter health.** The `scope` field makes this explicit: this value was computed during startup and does not reflect post-startup adapter state changes.
 
 
 ### 5.2 `startup`
@@ -105,12 +109,16 @@ One-time boot classification and build failures.
 {
   "boot_summary": {...} | null,
   "build_failures": [...],
+  "live_refresh": false,
+  "scope": "startup",
   "startup_health": {...} | null,
 }
 ```
 
 - `boot_summary`: From `BootSummary.to_dict()`. Null when no boot summary is wired.
 - `build_failures`: Bounded list of adapter build failures (capped at `_MAX_BUILD_FAILURES`). Each entry has `adapter_id` and sanitized `error`.
+- `live_refresh`: Always `false`. Startup outcome is computed once and never refreshed.
+- `scope`: Always `"startup"`. All data in this section is derived during `MedreApp.start()` and is frozen after startup completes.
 - `startup_health`: Carries the runtime health state computed during startup classification (Contract 56). Null when no health state is wired.
 
 
@@ -121,14 +129,18 @@ Runtime state transitions, per-adapter lifecycle states, and timing.
 ```
 {
   "adapters": {adapter_id: str, ...},
+  "live_refresh": false,
   "runtime_state": str,
+  "scope": "process_local",
   "startup_timestamp": str | null,
   "uptime_seconds": float | null,
 }
 ```
 
 - `adapters`: Per-adapter lifecycle state mapping. Keys are adapter IDs (sorted alphabetically); values are `AdapterState` enum strings (`"initializing"`, `"ready"`, `"degraded"`, `"backpressured"`, `"disconnected"`, `"stopping"`, `"failed"`, `"stopped"`). Empty dict before startup.
+- `live_refresh`: `false`. While `runtime_state` and `adapters` reflect the runtime's current in-process state at snapshot time, the scope is `process_local` rather than `live` because there is no periodic health polling loop refreshing these values.
 - `runtime_state`: Current `RuntimeState` enum value as lowercase string.
+- `scope`: Always `"process_local"`. Values reflect the runtime's in-memory state at the moment of the snapshot call. Not persisted across restarts.
 - `startup_timestamp`: ISO-8601 wall-clock time set during `app.start()`, or null.
 - `uptime_seconds`: Computed from monotonic clock, rounded to 6 decimal places, clamped to >= 0. Null before startup.
 
@@ -283,17 +295,47 @@ Rules:
 Per-route delivery counters from `RouteStats.snapshot()`, bounded at `_MAX_ROUTES`.
 
 
-### 5.5 `diagnostics`
+### 5.5 `adapters`
+
+Per-adapter static metadata from `_snapshot_adapter()`. Each entry is a sorted dict with:
+
+```
+{
+  "adapter_id":  str,
+  "capabilities": {...},
+  "health":       str,
+  "platform":     str,
+  "provenance":   "startup",
+  "role":         str,
+  "version":      str,
+}
+```
+
+- `provenance`: Always `"startup"`. Adapter metadata (including `health`) is captured during build/startup from the adapter's `_last_health` attribute. It is **not** refreshed by live `health_check()` calls at runtime.
+- `health`: Startup-derived. The value reflects the adapter's health state at the time of build/startup. Operators must not assume this represents current adapter health — use `lifecycle.adapters.{adapter_id}` for the current `AdapterState` lifecycle value.
+
+**Operators must distinguish between:**
+- `adapters.{id}.health` — startup-derived, static (from `_last_health`)
+- `lifecycle.adapters.{id}` — process-local, current `AdapterState` (from `_adapter_states`)
+
+These two values can diverge after startup if the adapter's lifecycle state changes but its health attribute is not refreshed.
+
+
+### 5.6 `diagnostics`
 
 Internal debug/diagnostic surfaces. Shape may change without a schema version bump.
 
 ```
 {
+  "live_refresh": true,
   "runtime_events": {...} | null,
+  "scope": "process_local",
 }
 ```
 
-`runtime_events` exposes the bounded, in-memory event buffer:
+- `live_refresh`: `true`. The runtime event buffer grows as events are emitted during the process lifetime. Each snapshot call returns the current buffer contents.
+- `runtime_events` exposes the bounded, in-memory event buffer:
+- `scope`: Always `"process_local"`. Events are in-memory only and not persisted across restarts.
 
 ```
 {
@@ -319,7 +361,7 @@ Event types (`RuntimeEventType` enum): `state_transition`, `adapter_started`, `a
 - Null when no event buffer is wired.
 
 
-### 5.6 `identity`
+### 5.7 `identity`
 
 Reserved section. Currently always an empty dict `{}`.
 
@@ -328,7 +370,7 @@ Purpose: future runtime identity metadata — node identity, signing keys, prove
 The shape will be documented when the identity subsystem is implemented. Until then, consumers must treat this section as opaque and ignore its contents.
 
 
-### 5.7 `persistence`
+### 5.8 `persistence`
 
 Reserved section. Currently always an empty dict `{}`.
 
@@ -337,7 +379,7 @@ Purpose: future durable-storage status — last-persisted event ID, storage heal
 The shape will be documented when the persistence subsystem is implemented. Until then, consumers must treat this section as opaque and ignore its contents.
 
 
-### 5.8 `unstable`
+### 5.9 `unstable`
 
 Reserved section for debug/internal data. Currently always an empty dict `{}`.
 
@@ -349,6 +391,37 @@ Guidelines for unstable data:
 - Collections must be bounded.
 - Consumers must tolerate arbitrary key additions and removals.
 - No stability guarantee: shape may change at any time.
+
+
+### 5.10 Provenance Summary
+
+Operators must understand whether each diagnostic value is a one-time startup snapshot, a process-local value, or live-refreshed. The following table summarizes the provenance of each section:
+
+| Section / Field | `scope` | `live_refresh` | Meaning |
+|-----------------|---------|----------------|---------|
+| `startup` | `"startup"` | `false` | Computed once during `MedreApp.start()`. Frozen after startup. |
+| `startup.boot_summary` | `"startup"` | `false` | `BootSummary.to_dict()`. Immutable after creation. |
+| `startup.build_failures` | `"startup"` | `false` | Build failures are immutable after build. |
+| `startup.startup_health` | `"startup"` | `false` | `runtime_supervision_snapshot()` output from startup. |
+| `health` | `"startup"` | `false` | Startup-derived health assessment. `live_health` is always `null`. |
+| `health.live_health` | — | — | Always `null`. Reserved for future live health polling. |
+| `lifecycle` | `"process_local"` | `false` | In-process state at snapshot time. Not persisted. |
+| `lifecycle.adapters.{id}` | `"process_local"` | `false` | Current `AdapterState` from `_adapter_states` registry. |
+| `lifecycle.uptime_seconds` | `"process_local"` | `false` | Computed from monotonic clock on each snapshot call. |
+| `adapters.{id}.health` | `"startup"` (per-entry `provenance`) | — | Static `_last_health` from build/startup. Not refreshed. |
+| `adapters.{id}.provenance` | — | — | Always `"startup"`. Indicates adapter metadata is startup-derived. |
+| `diagnostics` | `"process_local"` | `true` | Event buffer grows during runtime. |
+| `routes.build_readiness` | `"build"` | `false` | Frozen at build time. |
+| `routes.eligibility` | `"build"` | `false` | Frozen at build time. |
+| `routes.startup_readiness` | `"startup"` | `false` | Frozen after startup. |
+| `routes.stats` | (none) | (none) | Live counters from `RouteStats.snapshot()`. |
+| `accounting` | (none) | (none) | Live counters from `RuntimeAccounting.snapshot()`. |
+| `capacity` | (none) | (none) | Live gauges from `CapacityController.snapshot()`. |
+
+**Operator guidance:**
+- Values with `scope="startup"` and `live_refresh=false` **do not reflect post-startup state changes**. If an adapter crashes after startup, `adapters.{id}.health` and `startup.startup_health` will still show the startup-time values.
+- For current adapter lifecycle state, check `lifecycle.adapters.{id}` — this is process-local and reflects the in-memory state registry at snapshot time.
+- `diagnostics.runtime_events` carries the event history that recorded state transitions; it is the most complete record of what happened after startup.
 
 
 ## 6. Structural Requirements

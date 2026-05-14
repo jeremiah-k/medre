@@ -390,22 +390,28 @@ def _routes_validate(config_path: str | None) -> None:
         # Check source adapters exist in config
         for sa in route.source_adapters:
             if sa not in known_adapter_ids:
-                rw.append(
-                    f"source adapter {sa!r} is not defined in any "
-                    f"[adapters.<transport>.{sa}] section. "
-                    f"Known adapter IDs: {sorted(known_adapter_ids) or '(none)'}"
-                )
+                if route.enabled:
+                    # Unknown adapter in an enabled route is a config error
+                    # (matches runtime RouteValidationError semantics).
+                    re_list.append(
+                        f"source adapter {sa!r} is not defined in any "
+                        f"[adapters.<transport>.{sa}] section. "
+                        f"Known adapter IDs: {sorted(known_adapter_ids) or '(none)'}"
+                    )
+                # Disabled routes with unknown refs are not validated.
 
         # Check dest adapters exist in config
         for da in route.dest_adapters:
             if da not in known_adapter_ids:
-                rw.append(
-                    f"dest adapter {da!r} is not defined in any "
-                    f"[adapters.<transport>.{da}] section. "
-                    f"Known adapter IDs: {sorted(known_adapter_ids) or '(none)'}"
-                )
+                if route.enabled:
+                    re_list.append(
+                        f"dest adapter {da!r} is not defined in any "
+                        f"[adapters.<transport>.{da}] section. "
+                        f"Known adapter IDs: {sorted(known_adapter_ids) or '(none)'}"
+                    )
 
-        # Check enabled routes have at least one enabled source and dest
+        # Check enabled routes have at least one enabled source and dest.
+        # Known-but-disabled adapters are warnings, not errors.
         if route.enabled:
             enabled_ids = {aid for aid, rtc in config.adapters.all_enabled()}
             has_enabled_source = any(a in enabled_ids for a in route.source_adapters)
@@ -449,6 +455,11 @@ def _routes_validate(config_path: str | None) -> None:
             for w in route_warnings[rid]:
                 print(f"       \u26a0 {w}")
 
+        # Print per-route errors grouped under the route
+        if rid in route_errors:
+            for e in route_errors[rid]:
+                print(f"       \u2717 {e}")
+
     # Print cross-route errors (e.g. expansion failures)
     if errors:
         print()
@@ -457,10 +468,19 @@ def _routes_validate(config_path: str | None) -> None:
             print(f"  \u2717 {e}")
 
     all_warnings = [w for ws in route_warnings.values() for w in ws]
+    all_route_errors = [e for es in route_errors.values() for e in es]
     total_warnings = len(all_warnings)
-    total_errors = len(errors)
+    total_errors = len(errors) + len(all_route_errors)
 
     if total_errors:
+        print()
+        if total_warnings:
+            print(
+                f"Routes invalid: {total_errors} error(s), "
+                f"{total_warnings} warning(s)"
+            )
+        else:
+            print(f"Routes invalid: {total_errors} error(s)")
         sys.exit(EXIT_CONFIG)
     elif total_warnings:
         print()
@@ -659,6 +679,15 @@ def _diagnostics(config_path: str | None) -> None:
         print(f"Runtime build error: {exc}", file=sys.stderr)
         sys.exit(EXIT_BUILD)
 
+    # All enabled adapters failed construction — nothing to snapshot.
+    if not app.adapters:
+        print(
+            f"Runtime build error: all {len(app.build_failures)} enabled "
+            "adapter(s) failed to construct",
+            file=sys.stderr,
+        )
+        sys.exit(EXIT_BUILD)
+
     # Use fixed timestamps for deterministic output.
     fixed_now = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
     fixed_mono = 0.0
@@ -737,6 +766,16 @@ async def _run(config_path: str | None) -> None:
         print(f"  Build failures ({len(app.build_failures)}):")
         for bf in app.build_failures:
             print(f"    \u2717 {bf.transport}.{bf.adapter_id}: {bf.error}")
+
+    # If ALL enabled adapters failed construction there is nothing to start.
+    # Exit with EXIT_BUILD (3) — this is a build-phase failure, not startup.
+    if not app.adapters:
+        print(
+            f"\nRuntime build error: all {len(app.build_failures)} enabled "
+            "adapter(s) failed to construct",
+            file=sys.stderr,
+        )
+        sys.exit(EXIT_BUILD)
 
     # Show route inventory.
     route_list = config.routes.routes if config.routes else []

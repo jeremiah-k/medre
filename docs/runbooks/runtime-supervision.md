@@ -47,6 +47,44 @@ The operator supervises three categories of runtime state:
 
 Only persisted state survives a hard crash. Process-local state must be re-observed after restart.
 
+### 1.3 Snapshot Provenance Metadata
+
+The runtime snapshot (`medre diagnostics` output) carries explicit provenance metadata on each section. This tells you whether a value is a one-time startup snapshot, a process-local value, or live-refreshed — without needing to consult external documentation.
+
+Each section has `scope` and `live_refresh` fields:
+
+| Section | `scope` | `live_refresh` | What It Means for You |
+|---------|---------|----------------|----------------------|
+| `startup` | `"startup"` | `false` | Computed once during startup. **Does not change.** Contains boot summary, build failures, and startup health. |
+| `health` | `"startup"` | `false` | Health assessment from startup. `live_health` is always `null`. **Does not reflect post-startup failures.** |
+| `lifecycle` | `"process_local"` | `false` | Current in-process state at snapshot time. `runtime_state`, adapter lifecycle states, and uptime. |
+| `diagnostics` | `"process_local"` | `true` | Event buffer grows during runtime. Most complete record of what happened after startup. |
+| `routes.build_readiness` | `"build"` | `false` | Route states from build time. Frozen. |
+| `routes.startup_readiness` | `"startup"` | `false` | Route states from startup time. Frozen. |
+| `routes.stats` | (none) | (none) | Live delivery counters. Grows during runtime. |
+
+Per-adapter entries in `adapters` carry a `provenance` field:
+
+| Field | Provenance | Meaning |
+|-------|-----------|---------|
+| `adapters.{id}.health` | `"startup"` | Static health from build/startup. **Not refreshed.** |
+| `adapters.{id}.provenance` | Always `"startup"` | Explicit marker that this data is startup-derived. |
+| `lifecycle.adapters.{id}` | `"process_local"` | Current `AdapterState` at snapshot time. |
+
+**Key distinction:** `adapters.{id}.health` and `lifecycle.adapters.{id}` can diverge after startup. An adapter may have `health: "healthy"` (startup) but `lifecycle.adapters.{id}: "failed"` (current). Always check `lifecycle.adapters` for current state.
+
+**Where to look for what:**
+
+| Question | Snapshot Path | Provenance |
+|----------|--------------|------------|
+| Did startup succeed? | `startup.boot_summary.startup_outcome` | startup |
+| What's the overall health? | `startup.startup_health.runtime_health` | startup (not live!) |
+| Which adapters are running? | `lifecycle.adapters.{id}` | process-local |
+| Is adapter health current? | `adapters.{id}.provenance` → `"startup"` | startup (stale!) |
+| Which routes are active? | `routes.eligibility.registered` | build |
+| Which routes are degraded? | `routes.startup_readiness.degraded` | startup |
+| What happened after startup? | `diagnostics.runtime_events.events[]` | process-local |
+
 
 ## 2. What to Monitor
 

@@ -160,6 +160,43 @@ The runtime snapshot exposes health through two explicit top-level fields:
 
 The split ensures operators cannot confuse the one-time startup health assessment with live runtime health. When active health polling is implemented in a future tranche, `live_health` will carry refreshed data while `startup_health` retains its original value for comparison.
 
+### 5.2 Provenance Metadata in the Snapshot
+
+The runtime snapshot carries explicit provenance metadata (`scope` and `live_refresh`) on operator-facing sections so that operators and tooling can determine whether a value is startup-derived, process-local, or live without consulting external documentation. This follows the existing convention established for `routes.*` sub-sections (Contract 63 §5.4.1).
+
+Section-level provenance:
+
+| Section | `scope` | `live_refresh` | Rationale |
+|---------|---------|----------------|-----------|
+| `startup` | `"startup"` | `false` | Boot classification computed once during `MedreApp.start()`. |
+| `startup.startup_health` | `"startup"` | `false` | Health classification from `runtime_supervision_snapshot()` at startup. |
+| `health` | `"startup"` | `false` | Startup-derived health assessment. `live_health` is always `null`. |
+| `lifecycle` | `"process_local"` | `false` | In-process state at snapshot time. Not persisted across restarts. |
+| `diagnostics` | `"process_local"` | `true` | Event buffer grows during process lifetime. |
+
+Per-adapter provenance:
+
+| Field | Provenance | Meaning |
+|-------|-----------|---------|
+| `adapters.{id}.health` | `"startup"` (via `provenance` field) | Static `_last_health` from build/startup. Not refreshed. |
+| `adapters.{id}.provenance` | Always `"startup"` | Explicit marker that adapter metadata is startup-derived. |
+| `lifecycle.adapters.{id}` | `"process_local"` (section-level) | Current `AdapterState` from in-memory registry. |
+
+**Key distinction for operators:** `adapters.{id}.health` (startup-derived) and `lifecycle.adapters.{id}` (process-local) can diverge after startup. The `provenance` field and section-level `scope` make this distinction machine-readable.
+
+### 5.3 Where to Look: Operator Diagnostics Guide
+
+| Operator Question | Look Here | Snapshot Path | Provenance |
+|---|---|---|---|
+| Did config load? | CLI stderr (exit code 2) | N/A | build |
+| Which adapters failed to build? | `startup.build_failures` | `snapshot.startup.build_failures` | startup |
+| Did startup succeed? | CLI stdout + `startup.boot_summary` | `snapshot.startup.boot_summary.startup_outcome` | startup |
+| Is runtime healthy? | `startup.startup_health.runtime_health` | `snapshot.startup.startup_health.runtime_health` | startup (not live!) |
+| Which routes are active? | `routes.eligibility` + `routes.startup_readiness` | `snapshot.routes.eligibility.registered` / `snapshot.routes.startup_readiness.readiness` | build / startup |
+| Which adapters are running now? | `lifecycle.adapters` | `snapshot.lifecycle.adapters.{id}` | process-local |
+| Is adapter health current? | Check `adapters.{id}.provenance` | `snapshot.adapters.{id}.provenance` → `"startup"` | startup (stale!) |
+| How long up? | `lifecycle.uptime_seconds` | `snapshot.lifecycle.uptime_seconds` | process-local |
+
 ## 6. Architectural Boundaries
 
 The following boundaries are enforced by tests:

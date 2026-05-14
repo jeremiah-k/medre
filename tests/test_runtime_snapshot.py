@@ -1017,3 +1017,139 @@ class TestBootSummaryInSnapshot:
         )
         serialized = json.dumps(bs.to_dict(), sort_keys=True)
         assert isinstance(serialized, str)
+
+
+# ---------------------------------------------------------------------------
+# Tests: Provenance metadata (scope + live_refresh)
+# ---------------------------------------------------------------------------
+
+
+class TestProvenanceMetadata:
+    """Snapshot sections carry scope and live_refresh provenance metadata.
+
+    Operators use these fields to distinguish startup-derived data from
+    process-local data from live data.  The pattern mirrors the existing
+    routes.* sub-section provenance convention.
+    """
+
+    # -- startup section -------------------------------------------------------
+
+    def test_startup_has_scope_startup(self) -> None:
+        """startup.scope is 'startup'."""
+        snap = build_runtime_snapshot(_make_fake_app())
+        assert snap["startup"]["scope"] == "startup"
+
+    def test_startup_has_live_refresh_false(self) -> None:
+        """startup.live_refresh is False — computed once, not refreshed."""
+        snap = build_runtime_snapshot(_make_fake_app())
+        assert snap["startup"]["live_refresh"] is False
+
+    # -- health section --------------------------------------------------------
+
+    def test_health_has_scope_startup(self) -> None:
+        """health.scope is 'startup' — startup-derived health assessment."""
+        snap = build_runtime_snapshot(_make_fake_app())
+        assert snap["health"]["scope"] == "startup"
+
+    def test_health_has_live_refresh_false(self) -> None:
+        """health.live_refresh is False — no live health polling."""
+        snap = build_runtime_snapshot(_make_fake_app())
+        assert snap["health"]["live_refresh"] is False
+
+    def test_health_live_health_still_null(self) -> None:
+        """health.live_health remains None — no live health polling."""
+        snap = build_runtime_snapshot(_make_fake_app())
+        assert snap["health"]["live_health"] is None
+
+    # -- lifecycle section -----------------------------------------------------
+
+    def test_lifecycle_has_scope_process_local(self) -> None:
+        """lifecycle.scope is 'process_local'."""
+        snap = build_runtime_snapshot(_make_fake_app())
+        assert snap["lifecycle"]["scope"] == "process_local"
+
+    def test_lifecycle_has_live_refresh_false(self) -> None:
+        """lifecycle.live_refresh is False — state is current at snapshot time.
+
+        Note: lifecycle.runtime_state and lifecycle.adapters reflect the
+        in-process state at the moment of the snapshot call, but the scope is
+        'process_local' (not 'live') because it is not periodically refreshed
+        by a health polling loop.
+        """
+        snap = build_runtime_snapshot(_make_fake_app())
+        assert snap["lifecycle"]["live_refresh"] is False
+
+    # -- diagnostics section ---------------------------------------------------
+
+    def test_diagnostics_has_scope_process_local(self) -> None:
+        """diagnostics.scope is 'process_local'."""
+        snap = build_runtime_snapshot(_make_fake_app())
+        assert snap["diagnostics"]["scope"] == "process_local"
+
+    def test_diagnostics_has_live_refresh_true(self) -> None:
+        """diagnostics.live_refresh is True — event buffer grows over time."""
+        snap = build_runtime_snapshot(_make_fake_app())
+        assert snap["diagnostics"]["live_refresh"] is True
+
+    # -- per-adapter provenance ------------------------------------------------
+
+    def test_adapter_entry_has_provenance_startup(self) -> None:
+        """Each adapter entry carries provenance='startup'."""
+        app = _make_fake_app(
+            adapters={
+                "a1": _FakeAdapter(adapter_id="a1"),
+                "b2": _FakeAdapter(adapter_id="b2"),
+            },
+        )
+        snap = build_runtime_snapshot(app)
+        for adapter_id, entry in snap["adapters"].items():
+            assert entry["provenance"] == "startup", (
+                f"Adapter {adapter_id!r} missing provenance='startup'"
+            )
+
+    def test_adapter_provenance_json_safe(self) -> None:
+        """Snapshot with adapter provenance is JSON-serialisable."""
+        app = _make_fake_app(
+            adapters={"x": _FakeAdapter(adapter_id="x")},
+        )
+        snap = build_runtime_snapshot(app)
+        serialized = json.dumps(snap, sort_keys=True)
+        assert '"provenance"' in serialized
+
+    # -- routes section unchanged ----------------------------------------------
+
+    def test_routes_eligibility_retains_scope(self) -> None:
+        """routes.eligibility still has scope='build' (unchanged pattern)."""
+        snap = build_runtime_snapshot(_make_fake_app())
+        # When no route eligibility is wired, the section is None —
+        # provenance is at the sub-section level for routes.
+        assert snap["routes"]["eligibility"] is None
+
+    # -- provenance does not leak into reserved sections -----------------------
+
+    def test_identity_has_no_scope(self) -> None:
+        """identity section does not carry scope (reserved, always empty)."""
+        snap = build_runtime_snapshot(_make_fake_app())
+        assert "scope" not in snap["identity"]
+
+    def test_persistence_has_no_scope(self) -> None:
+        """persistence section does not carry scope (reserved, always empty)."""
+        snap = build_runtime_snapshot(_make_fake_app())
+        assert "scope" not in snap["persistence"]
+
+    # -- full round-trip with provenance ---------------------------------------
+
+    def test_full_snapshot_with_provenance_is_json_safe(self) -> None:
+        """Complete snapshot including provenance fields round-trips JSON."""
+        app = _make_fake_app(
+            adapters={"a1": _FakeAdapter(adapter_id="a1")},
+            route_stats=_FakeRouteStats({"r1": {"delivered": 5}}),
+            capacity_controller=_FakeCapacityController(),
+            replay_engine=_FakeReplayEngine(),
+            diagnostics_collector=_FakeDiagnosticsCollector({"global": {"total": 1}}),
+        )
+        snap = build_runtime_snapshot(app)
+        serialized = json.dumps(snap, sort_keys=True)
+        assert '"scope"' in serialized
+        assert '"live_refresh"' in serialized
+        assert '"provenance"' in serialized

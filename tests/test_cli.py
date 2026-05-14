@@ -185,6 +185,66 @@ backend = "sqlite"
 path = "{state}/test.db"
 """
 
+CONFIG_DISABLED_ADAPTER_IN_ROUTE = """\
+[runtime]
+name = "test-disabled-adapter-route"
+
+[logging]
+level = "INFO"
+
+[storage]
+backend = "sqlite"
+path = "{state}/test.db"
+
+[adapters.matrix.offline]
+enabled = false
+homeserver = "https://matrix.test"
+user_id = "@bot:test"
+access_token = "tok"
+room_allowlist = ["!room:test"]
+encryption_mode = "plaintext"
+
+[adapters.matrix.active]
+enabled = true
+homeserver = "https://matrix.test"
+user_id = "@bot2:test"
+access_token = "tok2"
+room_allowlist = ["!room2:test"]
+encryption_mode = "plaintext"
+
+[routes.uses_disabled]
+source_adapters = ["active"]
+dest_adapters = ["offline"]
+directionality = "source_to_dest"
+enabled = true
+"""
+
+CONFIG_DISABLED_ROUTE_UNKNOWN_REFS = """\
+[runtime]
+name = "test-disabled-unknown"
+
+[logging]
+level = "INFO"
+
+[storage]
+backend = "sqlite"
+path = "{state}/test.db"
+
+[adapters.matrix.main]
+enabled = true
+homeserver = "https://matrix.test"
+user_id = "@bot:test"
+access_token = "tok"
+room_allowlist = ["!room:test"]
+encryption_mode = "plaintext"
+
+[routes.ghost_route]
+source_adapters = ["phantom"]
+dest_adapters = ["specter"]
+directionality = "source_to_dest"
+enabled = false
+"""
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -254,6 +314,22 @@ def config_no_adapters(tmp_path: Path) -> Path:
     return p
 
 
+@pytest.fixture()
+def config_disabled_adapter_in_route(tmp_path: Path) -> Path:
+    """Write CONFIG_DISABLED_ADAPTER_IN_ROUTE to a temp file and return its path."""
+    p = tmp_path / "config.toml"
+    p.write_text(CONFIG_DISABLED_ADAPTER_IN_ROUTE)
+    return p
+
+
+@pytest.fixture()
+def config_disabled_route_unknown_refs(tmp_path: Path) -> Path:
+    """Write CONFIG_DISABLED_ROUTE_UNKNOWN_REFS to a temp file and return its path."""
+    p = tmp_path / "config.toml"
+    p.write_text(CONFIG_DISABLED_ROUTE_UNKNOWN_REFS)
+    return p
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -315,46 +391,64 @@ class TestRoutesValidate:
         assert "source_to_dest" in output
         assert "bidirectional" in output
 
-    def test_validate_unknown_adapter_warnings(
+    def test_validate_unknown_adapter_errors(
         self, config_unknown_adapters: Path
     ) -> None:
-        output = _run_cli("routes", "validate", "--config", str(config_unknown_adapters))
-        assert "Warning" in output or "\u26a0" in output
-        assert "nonexistent" in output
-        assert "also_missing" in output
-        # Improved: should mention the route and section path
-        assert "routes.orphan_route" in output or "orphan_route" in output
+        """Unknown adapter IDs in enabled routes are errors, not warnings."""
+        from medre.cli import EXIT_CONFIG
+
+        with pytest.raises(SystemExit) as exc_info:
+            _run_cli(
+                "routes", "validate", "--config", str(config_unknown_adapters)
+            )
+        assert exc_info.value.code == EXIT_CONFIG
+        # Capture output from the SystemExit path via _run_cli_both
+        stdout, _stderr = _run_cli_both(
+            "routes", "validate", "--config", str(config_unknown_adapters)
+        )
+        assert "nonexistent" in stdout
+        assert "also_missing" in stdout
+        assert "orphan_route" in stdout
+        assert "\u2717" in stdout  # ✗ error marker
 
     def test_validate_unknown_adapter_names_specific_id(
         self, config_unknown_adapters: Path
     ) -> None:
-        """Unknown adapter warnings name the specific adapter ID."""
-        output = _run_cli("routes", "validate", "--config", str(config_unknown_adapters))
+        """Unknown adapter errors name the specific adapter ID."""
+        from medre.cli import EXIT_CONFIG
+
+        stdout, _stderr = _run_cli_both(
+            "routes", "validate", "--config", str(config_unknown_adapters)
+        )
         # Should mention 'nonexistent' as a source adapter problem
-        assert "source adapter" in output or "source" in output
-        assert "'nonexistent'" in output
+        assert "source adapter" in stdout or "source" in stdout
+        assert "'nonexistent'" in stdout
         # Should mention 'also_missing' as a dest adapter problem
-        assert "dest adapter" in output or "dest" in output
-        assert "'also_missing'" in output
+        assert "dest adapter" in stdout or "dest" in stdout
+        assert "'also_missing'" in stdout
 
     def test_validate_shows_known_adapter_ids(
         self, config_unknown_adapters: Path
     ) -> None:
-        """Unknown adapter warnings mention the known adapter IDs for guidance."""
-        output = _run_cli("routes", "validate", "--config", str(config_unknown_adapters))
-        assert "Known adapter IDs" in output
-        assert "main" in output
+        """Unknown adapter errors mention the known adapter IDs for guidance."""
+        stdout, _stderr = _run_cli_both(
+            "routes", "validate", "--config", str(config_unknown_adapters)
+        )
+        assert "Known adapter IDs" in stdout
+        assert "main" in stdout
 
     def test_validate_minimal_config(self, config_minimal: Path) -> None:
         output = _run_cli("routes", "validate", "--config", str(config_minimal))
         assert "No routes configured" in output
 
-    def test_validate_groups_warnings_by_route(
+    def test_validate_groups_errors_by_route(
         self, config_unknown_adapters: Path
     ) -> None:
-        """Warnings are shown grouped under their route, not flat-listed."""
-        output = _run_cli("routes", "validate", "--config", str(config_unknown_adapters))
-        lines = output.splitlines()
+        """Errors are shown grouped under their route, not flat-listed."""
+        stdout, _stderr = _run_cli_both(
+            "routes", "validate", "--config", str(config_unknown_adapters)
+        )
+        lines = stdout.splitlines()
         # Find the orphan_route line
         orphan_line_idx = None
         for i, line in enumerate(lines):
@@ -362,7 +456,7 @@ class TestRoutesValidate:
                 orphan_line_idx = i
                 break
         assert orphan_line_idx is not None
-        # The next lines should contain the warnings for this route
+        # The next lines should contain the errors for this route
         following = "\n".join(lines[orphan_line_idx:])
         assert "nonexistent" in following
         assert "also_missing" in following
@@ -370,6 +464,70 @@ class TestRoutesValidate:
     def test_validate_missing_config_file(self, tmp_path: Path) -> None:
         with pytest.raises(SystemExit):
             _run_cli("routes", "validate", "--config", str(tmp_path / "nonexistent.toml"))
+
+    def test_validate_unknown_source_exits_config(
+        self, config_unknown_adapters: Path
+    ) -> None:
+        """Unknown source adapter in enabled route exits EXIT_CONFIG=2."""
+        from medre.cli import EXIT_CONFIG
+
+        with pytest.raises(SystemExit) as exc_info:
+            main([
+                "routes", "validate", "--config",
+                str(config_unknown_adapters),
+            ])
+        assert exc_info.value.code == EXIT_CONFIG
+
+    def test_validate_unknown_dest_exits_config(
+        self, config_unknown_adapters: Path
+    ) -> None:
+        """Unknown dest adapter in enabled route exits EXIT_CONFIG=2."""
+        from medre.cli import EXIT_CONFIG
+
+        with pytest.raises(SystemExit) as exc_info:
+            main([
+                "routes", "validate", "--config",
+                str(config_unknown_adapters),
+            ])
+        assert exc_info.value.code == EXIT_CONFIG
+        stdout, _ = _run_cli_both(
+            "routes", "validate", "--config",
+            str(config_unknown_adapters),
+        )
+        assert "'also_missing'" in stdout
+
+    def test_validate_known_disabled_adapter_is_warning(
+        self, config_disabled_adapter_in_route: Path
+    ) -> None:
+        """Route referencing a known-but-disabled adapter is a warning, not an error."""
+        output = _run_cli(
+            "routes", "validate", "--config",
+            str(config_disabled_adapter_in_route),
+        )
+        # Should NOT exit EXIT_CONFIG — known disabled is a warning
+        assert "warning" in output.lower() or "\u26a0" in output
+        assert "disabled" in output.lower()
+
+    def test_validate_disabled_route_with_unknown_refs_passes(
+        self, config_disabled_route_unknown_refs: Path
+    ) -> None:
+        """Unknown adapter refs in a disabled route do not fail validation."""
+        output = _run_cli(
+            "routes", "validate", "--config",
+            str(config_disabled_route_unknown_refs),
+        )
+        assert "ghost_route" in output
+        assert "[OFF]" in output
+        assert "Routes valid" in output
+
+    def test_validate_valid_config_exits_cleanly(
+        self, config_with_routes: Path
+    ) -> None:
+        """Valid route configuration exits 0."""
+        output = _run_cli(
+            "routes", "validate", "--config", str(config_with_routes),
+        )
+        assert "Routes valid" in output
 
 
 # ---------------------------------------------------------------------------
@@ -904,6 +1062,126 @@ class TestRunExitCodes:
         with patch(
             "medre.runtime.builder.RuntimeBuilder.build",
             side_effect=RuntimeError("simulated build failure"),
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                _run_cli("diagnostics", "--config", str(config_with_routes))
+        assert exc_info.value.code == EXIT_BUILD
+
+    def test_all_adapters_build_failure_exits_build(
+        self, config_with_routes: Path
+    ) -> None:
+        """All adapters failing construction exits EXIT_BUILD (3), not EXIT_STARTUP (4)."""
+        from medre.cli import EXIT_BUILD
+        from unittest.mock import patch, MagicMock
+
+        # Build a fake app with empty adapters and non-empty build_failures.
+        fake_app = MagicMock()
+        fake_app.adapters = {}  # all adapters failed to build
+        fake_app.build_failures = [MagicMock(
+            transport="matrix",
+            adapter_id="main",
+            error=RuntimeError("missing SDK"),
+        )]
+
+        with patch(
+            "medre.runtime.builder.RuntimeBuilder.build",
+            return_value=fake_app,
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                _run_cli("run", "--config", str(config_with_routes))
+        assert exc_info.value.code == EXIT_BUILD
+
+    def test_all_adapters_build_failure_no_traceback(
+        self, config_with_routes: Path
+    ) -> None:
+        """All adapters build failure produces clean error, no traceback."""
+        from unittest.mock import patch, MagicMock
+
+        fake_app = MagicMock()
+        fake_app.adapters = {}
+        fake_app.build_failures = [MagicMock(
+            transport="matrix",
+            adapter_id="main",
+            error=RuntimeError("missing SDK"),
+        )]
+
+        with patch(
+            "medre.runtime.builder.RuntimeBuilder.build",
+            return_value=fake_app,
+        ):
+            _, stderr = _run_cli_both("run", "--config", str(config_with_routes))
+        assert "Traceback" not in stderr
+        assert "Runtime build error:" in stderr
+
+    def test_all_adapters_start_failure_exits_startup(
+        self, config_with_routes: Path
+    ) -> None:
+        """All adapters build OK but fail start() exits EXIT_STARTUP (4)."""
+        from medre.cli import EXIT_STARTUP
+        from unittest.mock import patch, MagicMock, AsyncMock
+        from medre.runtime.errors import RuntimeStartupError
+
+        fake_app = MagicMock()
+        fake_app.adapters = {"main": MagicMock()}
+        fake_app.build_failures = []
+        fake_app.start = AsyncMock(
+            side_effect=RuntimeStartupError(
+                "Total startup failure: 0 of 1 adapter(s) started "
+                "(1 start failed, 0 build failed)"
+            )
+        )
+
+        with patch(
+            "medre.runtime.builder.RuntimeBuilder.build",
+            return_value=fake_app,
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                _run_cli("run", "--config", str(config_with_routes))
+        assert exc_info.value.code == EXIT_STARTUP
+
+    def test_startup_error_no_traceback(
+        self, config_with_routes: Path
+    ) -> None:
+        """Startup failure produces clean error message, no traceback."""
+        from unittest.mock import patch, MagicMock, AsyncMock
+        from medre.runtime.errors import RuntimeStartupError
+
+        fake_app = MagicMock()
+        fake_app.adapters = {"main": MagicMock()}
+        fake_app.build_failures = []
+        fake_app.start = AsyncMock(
+            side_effect=RuntimeStartupError(
+                "Total startup failure: 0 of 1 adapter(s) started"
+            )
+        )
+
+        with patch(
+            "medre.runtime.builder.RuntimeBuilder.build",
+            return_value=fake_app,
+        ):
+            stdout, stderr = _run_cli_both("run", "--config", str(config_with_routes))
+        assert "Traceback" not in stdout
+        assert "Traceback" not in stderr
+        assert "Runtime startup failed:" in stdout
+
+    def test_diagnostics_all_build_failure_exits_build(
+        self, config_with_routes: Path
+    ) -> None:
+        """Diagnostics with all adapters failing construction exits EXIT_BUILD (3)."""
+        from medre.cli import EXIT_BUILD
+        from unittest.mock import patch, MagicMock
+
+        fake_app = MagicMock()
+        fake_app.adapters = {}
+        fake_app.build_failures = [MagicMock(
+            transport="matrix",
+            adapter_id="main",
+            error=RuntimeError("missing SDK"),
+        )]
+
+        with patch(
+            "medre.runtime.builder.RuntimeBuilder.build",
+            return_value=fake_app,
         ):
             with pytest.raises(SystemExit) as exc_info:
                 _run_cli("diagnostics", "--config", str(config_with_routes))

@@ -14,18 +14,24 @@ stable operator-facing data from unstable/debug internals::
       "schema_version": 1,
       "snapshot_at": str,
       "accounting": {...} | null,
-      "adapters": {adapter_id: {...}},
+      "adapters": {adapter_id: {..., "provenance": "startup"}},
       "capacity": {...} | null,
       "diagnostics": {
+        "live_refresh": true,
         "runtime_events": {...} | null,
+        "scope": "process_local",
       },
       "health": {
         "live_health": null,
+        "live_refresh": false,
+        "scope": "startup",
       },
       "identity": {},
       "lifecycle": {
         "adapters": {adapter_id: str},
+        "live_refresh": false,
         "runtime_state": str,
+        "scope": "process_local",
         "startup_timestamp": str | null,
         "uptime_seconds": float | null,
       },
@@ -41,6 +47,8 @@ stable operator-facing data from unstable/debug internals::
       "startup": {
         "boot_summary": {...} | null,
         "build_failures": [...],
+        "live_refresh": false,
+        "scope": "startup",
         "startup_health": {...} | null,
       },
       "unstable": {},
@@ -91,18 +99,37 @@ unstable:
     Reserved for debug/internal data that may evolve freely.
     Content is JSON-safe and bounded.  Currently always ``{}``.
 
-Health freshness:
+Health freshness and provenance:
 
-* Adapter-level ``"health"`` values come from the adapter's
-  ``_last_health`` attribute (static, set during build/startup), not
-  from live ``health_check()`` calls.  Values are startup-derived
-  unless explicitly refreshed by an external caller.
-* The ``startup_health`` field (inside ``startup`` section) reflects the
-  runtime health state initialized at startup; it is not automatically
-  refreshed by post-start health polling.
-* The ``live_health`` field (inside ``health`` section) is always
-  ``null`` because active post-start health polling is not implemented.
-  Operators must not mistake ``startup_health`` for current/live health.
+Each section carries ``scope`` and ``live_refresh`` metadata (except
+reserved/identity/persistence sections).  Operators can determine whether
+a value is startup-derived, process-local, or live:
+
+* ``scope``: one of ``"startup"``, ``"process_local"``, ``"build"``.
+  Indicates *when* the data was captured or computed.
+* ``live_refresh``: ``true`` if the value is recomputed on every snapshot
+  call from live runtime state; ``false`` if it reflects a point-in-time
+  snapshot that does not change after initial computation.
+
+Section-level provenance:
+
+* ``startup``: ``scope="startup"``, ``live_refresh=false``.  Computed once
+  during ``MedreApp.start()`` and frozen.
+* ``health``: ``scope="startup"``, ``live_refresh=false``.  The
+  ``startup_health`` value is a startup-derived snapshot;
+  ``live_health`` is always ``null``.
+* ``lifecycle``: ``scope="process_local"``, ``live_refresh=false``.  State
+  values reflect the runtime's current in-process state at snapshot time.
+  ``uptime_seconds`` is computed from the monotonic clock on each call.
+  Per-adapter lifecycle states in ``lifecycle.adapters`` track the runtime's
+  in-memory adapter state registry.
+* ``diagnostics``: ``scope="process_local"``, ``live_refresh=true``.  The
+  runtime event buffer grows as events are emitted.
+* ``routes.*``: each sub-section has its own ``scope`` and ``live_refresh``
+  (see Contract 63 §5.4).
+* Per-adapter entries in ``adapters`` carry ``provenance: "startup"``,
+  indicating that adapter metadata (including ``health``) is captured
+  during startup and is not automatically refreshed at runtime.
 
 Public symbols
 --------------
@@ -193,6 +220,10 @@ def _snapshot_adapter(adapter: Any) -> dict[str, Any]:
 
     Reads only static attributes; does **not** call
     :meth:`~medre.adapters.base.BaseAdapter.health_check` (which is async).
+
+    Each adapter entry includes a ``provenance`` field set to ``"startup"``,
+    indicating that adapter metadata (including ``health``) is captured during
+    startup and is not automatically refreshed at runtime.
     """
     try:
         adapter_id = getattr(adapter, "adapter_id", "unknown")
@@ -261,6 +292,7 @@ def _snapshot_adapter(adapter: Any) -> dict[str, Any]:
         "capabilities": _sorted_dict(caps),
         "health": health,
         "platform": platform,
+        "provenance": "startup",
         "role": role,
         "version": version,
     }
@@ -410,6 +442,8 @@ def build_runtime_snapshot(
 
     lifecycle: dict[str, Any] = {
         "runtime_state": runtime_state,
+        "scope": "process_local",
+        "live_refresh": False,
         "startup_timestamp": startup_wall,
         "uptime_seconds": uptime_seconds,
     }
@@ -609,10 +643,14 @@ def build_runtime_snapshot(
         "adapters": adapters,
         "capacity": capacity_snapshot,
         "diagnostics": {
+            "live_refresh": True,
             "runtime_events": runtime_events_snapshot,
+            "scope": "process_local",
         },
         "health": {
             "live_health": None,
+            "live_refresh": False,
+            "scope": "startup",
         },
         "identity": {},
         "lifecycle": lifecycle,
@@ -631,6 +669,8 @@ def build_runtime_snapshot(
         "startup": {
             "boot_summary": boot_summary_snapshot,
             "build_failures": build_failures,
+            "live_refresh": False,
+            "scope": "startup",
             "startup_health": startup_health_snapshot,
         },
         "unstable": {},

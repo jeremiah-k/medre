@@ -31,6 +31,30 @@ medre config check
 
 **Degraded startup does NOT exit.** If at least one adapter starts successfully but others fail, the runtime enters `RUNNING` with `DEGRADED` health and continues operating. The boot summary and console output report which adapters failed.
 
+### Diagnosing Degraded Startup
+
+When the runtime starts with `DEGRADED` health, use these surfaces to understand what happened:
+
+1. **CLI startup output** — logs which adapters started and which failed, with adapter ID attribution.
+
+2. **`startup.boot_summary`** (snapshot path: `snapshot.startup.boot_summary`) — carries:
+   - `startup_outcome`: `"partial"` for degraded startup.
+   - `runtime_health`: `"degraded"`.
+   - `adapters_started` / `adapters_failed` / `adapters_total`: counts.
+   - `started_adapter_ids`: sorted list of adapters that started successfully.
+   - `failed_adapter_ids`: sorted list of adapters that failed to start.
+   - `build_failure_ids`: sorted list of adapters that failed during construction (before startup).
+   - `route_count`: number of routes registered at startup.
+   - Provenance: `scope="startup"`, `live_refresh=false`.
+
+3. **`startup.build_failures`** (snapshot path: `snapshot.startup.build_failures`) — bounded list of adapters that failed during construction. Each entry has `adapter_id` and sanitized `error`.
+
+4. **`routes.startup_readiness`** (snapshot path: `snapshot.routes.startup_readiness`) — shows routes that were **degraded** (some target adapters failed to start) or **skipped** (source adapter or all targets failed). Each entry carries `failed_adapter_ids`. Provenance: `scope="startup"`, `live_refresh=false`.
+
+5. **`diagnostics.runtime_events`** (snapshot path: `snapshot.diagnostics.runtime_events`) — event buffer recording `adapter_start_failed`, `route_skipped`, and `startup_classified` events. Provenance: `scope="process_local"`, `live_refresh=true`.
+
+**Provenance note:** All startup diagnostic surfaces carry `scope="startup"` and `live_refresh=false`. These values do not change after startup completes. For post-startup adapter state, check `lifecycle.adapters.{id}` (process-local).
+
 ### Exit Codes by Command
 
 | Command | Config error | Build error | Startup error |

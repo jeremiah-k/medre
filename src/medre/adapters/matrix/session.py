@@ -740,6 +740,12 @@ class MatrixSession:
                 self._logger.warning(
                     "Error closing client: %s", exc,
                 )
+            # Yield to the event loop so aiohttp can finish closing its
+            # internal connector and any in-flight responses.  Without
+            # this drain, Python may garbage-collect the aiohttp
+            # ClientSession before its __aexit__ completes, producing
+            # ``ResourceWarning: Unclosed client session``.
+            await asyncio.sleep(0)
             self._client = None
 
         self._closed = True

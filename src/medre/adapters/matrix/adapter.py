@@ -200,6 +200,12 @@ class MatrixAdapter(BaseAdapter):
         # E2EE mode guards are now handled inside MatrixSession.start().
         # The adapter simply creates the session and delegates.
 
+        # Stop previous session if still active (idempotent double-start guard).
+        # Without this, calling start() twice orphans the old MatrixSession,
+        # leaking its nio AsyncClient and the internal aiohttp.ClientSession.
+        if self._session is not None and not self._session._closed:
+            await self._session.stop()
+
         session_logger = ctx.logger.getChild("session")
         self._session = MatrixSession(
             config=self._config,
