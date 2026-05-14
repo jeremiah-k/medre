@@ -1409,12 +1409,14 @@ class TestSnapshotIntegration:
 
     @pytest.mark.asyncio
     async def test_health_section(self, tmp_paths: MedrePaths) -> None:
-        """Health section: live_health is null, startup_health present."""
+        """Health section: live_health is null before refresh, startup_health present."""
         config = _make_multi_adapter_config()
         app = await _build_and_start(config, tmp_paths)
         try:
             snap = build_runtime_snapshot(app)
             assert snap["health"]["live_health"] is None
+            assert snap["health"]["scope"] == "startup"
+            assert snap["health"]["live_refresh"] is False
             assert snap["startup"]["startup_health"] is not None
         finally:
             await _clean_stop(app)

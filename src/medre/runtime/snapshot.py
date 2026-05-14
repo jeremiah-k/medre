@@ -86,11 +86,14 @@ lifecycle:
 startup:
     One-time boot summary, health classification, and build failures.
 health:
-    Current and reserved health surfaces. ``live_health`` is always
-    ``null`` until active health polling is implemented.
+    Current and reserved health surfaces. ``live_health`` is ``null``
+    until :meth:`~medre.runtime.app.MedreApp.refresh_live_health` is
+    called; after the first refresh it contains a dict with
+    per-adapter live health, aggregate classification, and poll metadata.
+    ``startup_health`` remains frozen from startup and is not mutated.
 
-    **Future live health shape** (when ``live_health`` transitions from
-    ``null`` to a dict)::
+    **Future live health shape** (populated when ``refresh_live_health()``
+    is called)::
 
         {
           "runtime_health": str,                    # RuntimeHealth value
@@ -118,7 +121,8 @@ health:
     ``"live"`` and ``health.live_refresh`` changes from ``false`` to
     ``true``.  This is an additive change per Contract 63 §4.2
     (``null`` → ``dict`` is non-breaking).  No ``schema_version``
-    bump is required.
+    bump is required.  Calling :meth:`~medre.runtime.app.MedreApp.refresh_live_health`
+    triggers this transition.
 
     The types backing this shape are defined in
     :class:`~medre.core.runtime.health.AdapterLiveHealth` and
@@ -170,11 +174,12 @@ Section-level provenance:
 
 * ``startup``: ``scope="startup"``, ``live_refresh=false``.  Computed once
   during ``MedreApp.start()`` and frozen.
-* ``health``: ``scope="startup"``, ``live_refresh=false``.  The
-  ``startup_health`` value is a startup-derived snapshot;
-  ``live_health`` is always ``null``.  When a future polling
-  integration populates ``live_health``, ``scope`` transitions to
-  ``"live"`` and ``live_refresh`` transitions to ``true``.
+* ``health``: ``scope="startup"``, ``live_refresh=false`` before first
+  refresh; ``scope="live"``, ``live_refresh=true`` after
+  :meth:`~medre.runtime.app.MedreApp.refresh_live_health` is called.
+  The ``startup_health`` value is a startup-derived snapshot frozen at
+  startup; ``live_health`` transitions from ``null`` to a dict on first
+  refresh.
 * ``lifecycle``: ``scope="process_local"``, ``live_refresh=false``.  State
   values reflect the runtime's current in-process state at snapshot time.
   ``uptime_seconds`` is computed from the monotonic clock on each call.
@@ -466,10 +471,11 @@ def build_runtime_snapshot(
     automatically refreshed.  Adapter-level health values come from
     the adapter's ``_last_health`` attribute (static, set during build)
     rather than from live ``health_check()`` calls.  The ``live_health``
-    field (inside ``health`` section) is always ``null`` because active
-    post-start health polling is not implemented.  Callers and operators
-    must not assume ``startup_health`` represents real-time adapter
-    health.
+    field (inside ``health`` section) is ``null`` until
+    :meth:`~medre.runtime.app.MedreApp.refresh_live_health` is called;
+    after the first successful refresh it contains a dict with live
+    per-adapter health data.  The ``startup_health`` value is frozen
+    at startup and is **not** mutated by live health refresh.
     """
     _now = now_fn or _now_utc
     _mono = monotonic_fn or _monotonic_now
@@ -593,6 +599,16 @@ def build_runtime_snapshot(
             startup_health_snapshot = None
     else:
         startup_health_snapshot = None
+
+    # -- Live health state (populated by refresh_live_health) -----------------
+    live_health_obj: Any = getattr(app, "_live_health_state", None)
+    live_health_snapshot: dict[str, Any] | None
+    if live_health_obj is not None and hasattr(live_health_obj, "to_dict"):
+        live_health_snapshot = live_health_obj.to_dict()
+    else:
+        live_health_snapshot = None
+
+    has_live_health: bool = live_health_snapshot is not None
 
     # -- Runtime accounting counters -----------------------------------------
     accounting_obj: Any = getattr(app, "_runtime_accounting", None)
@@ -721,9 +737,9 @@ def build_runtime_snapshot(
             "scope": "process_local",
         },
         "health": {
-            "live_health": None,
-            "live_refresh": False,
-            "scope": "startup",
+            "live_health": live_health_snapshot,
+            "live_refresh": has_live_health,
+            "scope": "live" if has_live_health else "startup",
         },
         "identity": {},
         "lifecycle": lifecycle,

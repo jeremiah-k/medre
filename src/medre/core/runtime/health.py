@@ -71,6 +71,53 @@ _TRANSITIONAL_STATES: dict[AdapterState, str] = {
 }
 
 
+# Reverse mapping from normalised health string to AdapterState.
+# Used by live-health refresh to derive AdapterState values from
+# health_check() results for aggregate runtime health classification.
+_HEALTH_TO_ADAPTER_STATE: dict[str, AdapterState] = {
+    "healthy": AdapterState.READY,
+    "degraded": AdapterState.DEGRADED,
+    "failed": AdapterState.FAILED,
+    "unknown": AdapterState.STOPPED,
+    "starting": AdapterState.INITIALIZING,
+    "stopping": AdapterState.STOPPING,
+}
+
+# Maximum length for error strings stored in AdapterLiveHealth.
+_MAX_LIVE_HEALTH_ERROR_LEN: int = 256
+
+
+# ---------------------------------------------------------------------------
+# Public helpers
+# ---------------------------------------------------------------------------
+
+
+def health_to_adapter_state(health: str) -> AdapterState:
+    """Map a normalised health string to an :class:`AdapterState`.
+
+    Used by live-health refresh to derive per-adapter lifecycle states
+    from ``health_check()`` results.  Unrecognised health strings map
+    conservatively to ``FAILED``.
+
+    Parameters
+    ----------
+    health:
+        One of :data:`VALID_HEALTH_STRINGS` (or any string).
+
+    Returns
+    -------
+    AdapterState
+    """
+    return _HEALTH_TO_ADAPTER_STATE.get(health, AdapterState.FAILED)
+
+
+def _truncate_error(error: str) -> str:
+    """Truncate an error string for safe storage in live-health records."""
+    if len(error) <= _MAX_LIVE_HEALTH_ERROR_LEN:
+        return error
+    return error[: _MAX_LIVE_HEALTH_ERROR_LEN - 3] + "..."
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------

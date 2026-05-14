@@ -29,9 +29,17 @@ from typing import TYPE_CHECKING, Any
 from medre.runtime.errors import AdapterStartupError, RuntimeShutdownError, RuntimeStartupError
 from medre.runtime.events import EventBuffer, RuntimeEventType
 from medre.core.runtime.accounting import RuntimeAccounting
+from medre.core.runtime.health import (
+    AdapterLiveHealth,
+    LiveHealthSnapshot,
+    _truncate_error,
+    health_to_adapter_state,
+    normalize_adapter_health,
+)
 from medre.core.runtime.supervision import (
     RuntimeHealth,
     StartupOutcome,
+    _count_by_category,
     classify_runtime_health,
     classify_startup_outcome,
     runtime_supervision_snapshot,
@@ -172,6 +180,8 @@ class MedreApp:
     _startup_readiness: RouteStartupReadiness | None = field(default=None, init=False)
     _event_buffer: EventBuffer | None = field(default=None, init=False)  # set in __post_init__
     _adapter_states: dict[str, AdapterState] = field(default_factory=dict, init=False)
+    _live_health_state: LiveHealthSnapshot | None = field(default=None, init=False)
+    _live_health_poll_count: int = field(default=0, init=False)
 
     # -- Post-init --------------------------------------------------------------
 
@@ -287,6 +297,148 @@ class MedreApp:
             ),
         }
         return snap
+
+    # -- Live Health ------------------------------------------------------------
+
+    async def refresh_live_health(self) -> LiveHealthSnapshot:
+        """Manually poll adapter health and store a :class:`LiveHealthSnapshot`.
+
+        Callable only when the runtime is :attr:`RUNNING`; non-``RUNNING``
+        states raise :class:`RuntimeError`.
+
+        Iterates adapters in deterministic ``adapter_id`` order (same as
+        startup), calls each adapter's :meth:`~medre.adapters.base.BaseAdapter.health_check`,
+        builds per-adapter :class:`~medre.core.runtime.health.AdapterLiveHealth`
+        entries, classifies aggregate runtime health from the live results,
+        and stores the resulting :class:`LiveHealthSnapshot` on the app.
+
+        Per-adapter ``health_check()`` exceptions are caught and recorded
+        with a bounded error string; they do not abort the refresh.
+        :class:`asyncio.CancelledError` propagates immediately and does
+        not emit a success event.
+
+        Returns
+        -------
+        LiveHealthSnapshot
+            The newly built snapshot (also stored as ``_live_health_state``).
+
+        Raises
+        ------
+        RuntimeError
+            If the runtime is not in the ``RUNNING`` state.
+        """
+        if self._state is not RuntimeState.RUNNING:
+            raise RuntimeError(
+                f"refresh_live_health requires RUNNING state, "
+                f"current state is {self._state.value!r}"
+            )
+
+        self._live_health_poll_count += 1
+        poll_count = self._live_health_poll_count
+
+        adapter_ids = sorted(self.adapters.keys())
+
+        poll_mono_start = _time.monotonic()
+        adapter_entries: dict[str, AdapterLiveHealth] = {}
+        live_states: list[AdapterState] = []
+        failed_adapter_ids: list[str] = []
+
+        for adapter_id in adapter_ids:
+            adapter = self.adapters[adapter_id]
+            poll_mono = _time.monotonic()
+            poll_wall = _utc_now().isoformat()
+            try:
+                info = await adapter.health_check()
+                # Derive adapter state from the live health_check result.
+                live_state = health_to_adapter_state(info.health)
+                live_states.append(live_state)
+
+                # Detect fake/live mode.
+                norm = normalize_adapter_health(
+                    info,
+                    lifecycle_state=self._adapter_states.get(adapter_id),
+                    adapter=adapter,
+                )
+
+                adapter_entries[adapter_id] = AdapterLiveHealth(
+                    adapter_id=adapter_id,
+                    health=norm["health"],
+                    adapter_state=live_state,
+                    fake_or_live=norm["fake_or_live"],
+                    poll_timestamp_monotonic=poll_mono,
+                    poll_timestamp_wall=poll_wall,
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                error_str = _truncate_error(str(exc))
+                live_state = AdapterState.FAILED
+                live_states.append(live_state)
+                failed_adapter_ids.append(adapter_id)
+
+                adapter_entries[adapter_id] = AdapterLiveHealth(
+                    adapter_id=adapter_id,
+                    health="failed",
+                    adapter_state=live_state,
+                    fake_or_live="unknown",
+                    poll_timestamp_monotonic=poll_mono,
+                    poll_timestamp_wall=poll_wall,
+                    error=error_str,
+                )
+
+        # Classify aggregate runtime health from live poll results.
+        runtime_health = classify_runtime_health(live_states)
+        operational, partial, failed, transitional = _count_by_category(
+            live_states
+        )
+
+        poll_mono_end = _time.monotonic()
+        poll_wall_end = _utc_now().isoformat()
+
+        snapshot = LiveHealthSnapshot(
+            runtime_health=runtime_health.value,
+            adapter_summary={
+                "healthy": operational,
+                "degraded": partial,
+                "failed": failed,
+                "transitional": transitional,
+                "total": len(live_states),
+            },
+            adapters=dict(sorted(adapter_entries.items())),
+            poll_timestamp_monotonic=poll_mono_end,
+            poll_timestamp_wall=poll_wall_end,
+            poll_count=poll_count,
+        )
+
+        # Save previous snapshot before overwriting for change detection.
+        prev_snapshot = self._live_health_state
+        self._live_health_state = snapshot
+
+        # Build event detail (cheap derived data only).
+        event_detail: dict[str, Any] = {
+            "runtime_health": runtime_health.value,
+            "poll_count": poll_count,
+            "adapter_summary": snapshot.adapter_summary,
+        }
+        if failed_adapter_ids:
+            event_detail["failed_adapters"] = failed_adapter_ids
+
+        # Compute changed_adapters by comparing to previous snapshot.
+        if prev_snapshot is not None:
+            changed: list[str] = []
+            for aid in adapter_ids:
+                old_entry = prev_snapshot.adapters.get(aid)
+                new_entry = snapshot.adapters.get(aid)
+                if old_entry is None or new_entry is None:
+                    continue
+                if old_entry.health != new_entry.health:
+                    changed.append(aid)
+            if changed:
+                event_detail["changed_adapters"] = changed
+
+        self._emit_event(RuntimeEventType.HEALTH_REFRESHED, event_detail)
+
+        return snapshot
 
     # -- Lifecycle ---------------------------------------------------------------
 

@@ -712,9 +712,10 @@ class TestHealthStateTolerance:
 
 
 class TestLiveHealthExplicitlyUnavailable:
-    """live_health is always null — active health polling is not implemented."""
+    """live_health is null before refresh_live_health() is called."""
 
-    def test_live_health_is_null_when_health_state_present(self) -> None:
+    def test_live_health_is_null_when_no_live_health_state(self) -> None:
+        """live_health is null when _live_health_state is not set."""
         app = _make_fake_app(health_state={"overall": "healthy"})
         snap = build_runtime_snapshot(app)
         assert snap["health"]["live_health"] is None
@@ -727,6 +728,82 @@ class TestLiveHealthExplicitlyUnavailable:
     def test_live_health_is_null_for_minimal_app(self) -> None:
         snap = build_runtime_snapshot(object())
         assert snap["health"]["live_health"] is None
+
+    def test_live_health_scope_startup_before_refresh(self) -> None:
+        """Before refresh, health.scope is 'startup' and live_refresh is False."""
+        app = _make_fake_app()
+        snap = build_runtime_snapshot(app)
+        assert snap["health"]["scope"] == "startup"
+        assert snap["health"]["live_refresh"] is False
+
+
+class TestLiveHealthPopulated:
+    """live_health is populated when _live_health_state is present."""
+
+    def test_live_health_dict_when_state_present(self) -> None:
+        """When _live_health_state has to_dict(), live_health is populated."""
+        from medre.core.runtime.health import AdapterLiveHealth, LiveHealthSnapshot
+        from medre.core.lifecycle.states import AdapterState
+
+        adapter_health = AdapterLiveHealth(
+            adapter_id="a1",
+            health="healthy",
+            adapter_state=AdapterState.READY,
+            fake_or_live="fake",
+            poll_timestamp_monotonic=50.0,
+            poll_timestamp_wall="2026-05-14T10:00:00+00:00",
+        )
+        live_snap = LiveHealthSnapshot(
+            runtime_health="healthy",
+            adapter_summary={"healthy": 1, "degraded": 0, "failed": 0, "transitional": 0, "total": 1},
+            adapters={"a1": adapter_health},
+            poll_timestamp_monotonic=50.0,
+            poll_timestamp_wall="2026-05-14T10:00:00+00:00",
+            poll_count=1,
+        )
+        app = _make_fake_app()
+        app._live_health_state = live_snap  # type: ignore[attr-defined]
+
+        snap = build_runtime_snapshot(app)
+        assert snap["health"]["live_health"] is not None
+        assert snap["health"]["live_health"]["runtime_health"] == "healthy"
+        assert snap["health"]["live_health"]["poll_count"] == 1
+        assert "a1" in snap["health"]["live_health"]["adapters"]
+        assert snap["health"]["scope"] == "live"
+        assert snap["health"]["live_refresh"] is True
+
+    def test_startup_health_unchanged_after_live_refresh(self) -> None:
+        """startup.startup_health remains unchanged when live health is populated."""
+        from medre.core.runtime.health import AdapterLiveHealth, LiveHealthSnapshot
+        from medre.core.lifecycle.states import AdapterState
+
+        adapter_health = AdapterLiveHealth(
+            adapter_id="a1",
+            health="healthy",
+            adapter_state=AdapterState.READY,
+            fake_or_live="fake",
+            poll_timestamp_monotonic=50.0,
+            poll_timestamp_wall="2026-05-14T10:00:00+00:00",
+        )
+        live_snap = LiveHealthSnapshot(
+            runtime_health="healthy",
+            adapter_summary={"healthy": 1, "degraded": 0, "failed": 0, "transitional": 0, "total": 1},
+            adapters={"a1": adapter_health},
+            poll_timestamp_monotonic=50.0,
+            poll_timestamp_wall="2026-05-14T10:00:00+00:00",
+            poll_count=1,
+        )
+        startup_health_val = {"runtime_health": "healthy", "adapter_summary": {"total": 1}}
+        app = _make_fake_app(health_state=startup_health_val)
+        app._live_health_state = live_snap  # type: ignore[attr-defined]
+
+        snap = build_runtime_snapshot(app)
+        # startup_health unchanged
+        assert snap["startup"]["startup_health"] == startup_health_val
+        # live_health populated
+        assert snap["health"]["live_health"] is not None
+        # schema version unchanged
+        assert snap["schema_version"] == 1
 
 
 # ---------------------------------------------------------------------------
@@ -1046,18 +1123,18 @@ class TestProvenanceMetadata:
 
     # -- health section --------------------------------------------------------
 
-    def test_health_has_scope_startup(self) -> None:
-        """health.scope is 'startup' — startup-derived health assessment."""
+    def test_health_has_scope_startup_before_refresh(self) -> None:
+        """health.scope is 'startup' before live health refresh."""
         snap = build_runtime_snapshot(_make_fake_app())
         assert snap["health"]["scope"] == "startup"
 
-    def test_health_has_live_refresh_false(self) -> None:
-        """health.live_refresh is False — no live health polling."""
+    def test_health_has_live_refresh_false_before_refresh(self) -> None:
+        """health.live_refresh is False before live health refresh."""
         snap = build_runtime_snapshot(_make_fake_app())
         assert snap["health"]["live_refresh"] is False
 
-    def test_health_live_health_still_null(self) -> None:
-        """health.live_health remains None — no live health polling."""
+    def test_health_live_health_still_null_before_refresh(self) -> None:
+        """health.live_health is None before refresh_live_health is called."""
         snap = build_runtime_snapshot(_make_fake_app())
         assert snap["health"]["live_health"] is None
 

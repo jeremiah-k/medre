@@ -65,6 +65,7 @@ class RuntimeEventType(str, enum.Enum):
     STARTUP_CLASSIFIED = "startup_classified"
     ROUTE_SKIPPED = "route_skipped"
     ROUTE_UNAVAILABLE = "route_unavailable"
+    HEALTH_REFRESHED = "health_refreshed"
 
 
 # ---------------------------------------------------------------------------
