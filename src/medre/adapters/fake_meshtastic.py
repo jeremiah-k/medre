@@ -35,6 +35,7 @@ from medre.adapters.base import (
     AdapterContext,
     AdapterDeliveryResult,
     AdapterInfo,
+    AdapterPermanentError,
     AdapterRole,
     AdapterSendError,
     BaseAdapter,
@@ -234,13 +235,27 @@ class FakeMeshtasticAdapter(BaseAdapter):
             health="healthy" if self._started else "unknown",
         )
 
+    def diagnostics(self) -> dict[str, Any]:
+        """Return a diagnostics snapshot mirroring real adapter shape.
+
+        All values are JSON-safe primitives.  No SDK objects are exposed.
+        """
+        return {
+            "adapter_id": self.adapter_id,
+            "platform": self.platform,
+            "started": self._started,
+            "mode": "fake",
+            "delivered_count": len(self.delivered_payloads),
+            "inbound_count": len(self.inbound_events),
+        }
+
     # -- Outbound delivery --------------------------------------------------
 
     async def deliver(self, result: RenderingResult) -> AdapterDeliveryResult | None:
         """Accept an outbound rendered payload for delivery.
 
         This adapter consumes :class:`RenderingResult` only.  Passing a
-        raw :class:`CanonicalEvent` raises :class:`TypeError`, enforcing
+        raw :class:`CanonicalEvent` raises :class:`AdapterPermanentError`, enforcing
         the rendering boundary at the adapter level.
 
         Uses the internal :class:`FakeMeshtasticClient` to generate
@@ -259,13 +274,13 @@ class FakeMeshtasticAdapter(BaseAdapter):
 
         Raises
         ------
-        TypeError
+        AdapterPermanentError
             If *result* is not a :class:`RenderingResult`.
-        MeshtasticSendError
+        AdapterSendError
             If ``set_deliver_failure(True)`` was called.
         """
         if not isinstance(result, RenderingResult):
-            raise TypeError(
+            raise AdapterPermanentError(
                 f"FakeMeshtasticAdapter.deliver() accepts RenderingResult only, "
                 f"got {type(result).__name__}. Use simulate_inbound() for "
                 f"the inbound path."

@@ -94,7 +94,7 @@ class TestMatrixBoundaries:
         assert "adapters.matrix" in MatrixRenderer.__module__
 
     async def test_fake_matrix_rejects_raw_canonical_event(self) -> None:
-        """FakeMatrixAdapter.deliver raises TypeError for CanonicalEvent."""
+        """FakeMatrixAdapter.deliver raises AdapterPermanentError for CanonicalEvent."""
         adapter = FakeMatrixAdapter("m")
         event = CanonicalEvent(
             event_id="evt-raw",
@@ -113,7 +113,7 @@ class TestMatrixBoundaries:
         # Intentionally pass a CanonicalEvent to verify runtime guard.
         # Use getattr to avoid a static signature mismatch.
         deliver_fn = getattr(adapter, "deliver")
-        with pytest.raises(TypeError, match="RenderingResult only"):
+        with pytest.raises(AdapterPermanentError, match="RenderingResult only"):
             await deliver_fn(event)
 
     async def test_fake_presentation_rejects_raw_canonical_event(self) -> None:

@@ -667,7 +667,9 @@ class TestHonestDeliverySemantics:
         delivery = await adapter.deliver(result)
         assert delivery is not None
         assert delivery.metadata["delivery_status"] == "local_accepted"
-        assert "delivery_note" in delivery.metadata
+        # delivery_note is a top-level field on AdapterDeliveryResult, not in metadata
+        assert isinstance(delivery.delivery_note, str)
+        assert delivery.delivery_note != ""
 
     async def test_fake_adapter_no_false_delivery_claim(self) -> None:
         """delivery_status must not say 'delivered' or 'confirmed'."""

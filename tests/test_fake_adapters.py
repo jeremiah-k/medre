@@ -14,7 +14,7 @@ from medre.adapters import (
     FakePresentationAdapter,
     FakeTransportAdapter,
 )
-from medre.adapters.base import AdapterContext
+from medre.adapters.base import AdapterContext, AdapterPermanentError
 from medre.core.events import CanonicalEvent, EventMetadata, EventRelation, NativeRef
 from medre.core.events.kinds import EventKind
 from medre.core.rendering.renderer import RenderingResult
@@ -472,12 +472,12 @@ class TestDeliveryContract:
             await adapter.deliver(event)
 
     async def test_fake_matrix_rejects_canonical_event(self) -> None:
-        """FakeMatrixAdapter.deliver raises TypeError on CanonicalEvent."""
+        """FakeMatrixAdapter.deliver raises AdapterPermanentError on CanonicalEvent."""
         from medre.adapters import FakeMatrixAdapter
 
         adapter = FakeMatrixAdapter("test_m")
         event = _make_event()
-        with pytest.raises(TypeError, match="RenderingResult only"):
+        with pytest.raises(AdapterPermanentError, match="RenderingResult only"):
             await adapter.deliver(event)
 
     async def test_faulty_presentation_rejects_canonical_event(self) -> None:

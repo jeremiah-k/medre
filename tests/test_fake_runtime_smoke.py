@@ -11,8 +11,8 @@ Every test here:
 - Uses **fake adapters** only — no live transports or SDKs required.
 - Uses **in-memory storage** — no filesystem I/O beyond temp dirs.
 - Runs within **<10 seconds** for default iteration counts.
-- Is **deterministic** — no sleeps beyond what the event loop needs for
-  async scheduling (small ``asyncio.sleep`` to allow pipeline processing).
+- Is **deterministic** — ``wait_until`` polls until a predicate is
+  satisfied instead of relying on fixed sleeps.
 """
 
 from __future__ import annotations
@@ -25,7 +25,6 @@ from typing import Any
 
 import pytest
 
-from medre.adapters.base import AdapterContext
 from medre.adapters.fake_matrix import FakeMatrixAdapter
 from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
 from medre.config.model import (
@@ -41,13 +40,42 @@ from medre.config.model import (
     StorageConfig,
 )
 from medre.config.paths import MedrePaths, resolve
-from medre.core.events.canonical import DeliveryReceipt
 from medre.core.events.kinds import EventKind
 from medre.core.planning.delivery_plan import DeliveryFailureKind
 from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.runtime.app import MedreApp, RuntimeState
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.snapshot import SCHEMA_VERSION, build_runtime_snapshot
+
+
+# ---------------------------------------------------------------------------
+# Async helpers
+# ---------------------------------------------------------------------------
+
+
+async def wait_until(
+    predicate: Any,
+    timeout: float = 5.0,
+    interval: float = 0.05,
+) -> None:
+    """Poll *predicate* every *interval* seconds until it returns ``True``.
+
+    Raises ``AssertionError`` if *timeout* expires before the predicate
+    is satisfied.  The predicate can be any synchronous callable.
+    """
+    import time
+
+    deadline = time.monotonic() + timeout
+    while True:
+        if predicate():
+            return
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise AssertionError(
+                f"wait_until timed out after {timeout}s: "
+                f"predicate {predicate!r} never satisfied"
+            )
+        await asyncio.sleep(min(interval, remaining))
 
 
 # ---------------------------------------------------------------------------
@@ -287,15 +315,12 @@ class TestSyntheticEventRoutesThroughPipeline:
             event = alpha.make_event("Route this to beta")
             await alpha.simulate_inbound(event)
 
-            # Allow pipeline to process the event.
-            await asyncio.sleep(0.15)
-
             # Alpha should have recorded the inbound.
-            assert len(alpha.inbound_events) >= 1
+            assert len(alpha.inbound_events) == 1
 
             # Beta should have received the outbound delivery.
-            assert len(beta.delivered_payloads) >= 1, (
-                f"Expected beta to receive at least 1 delivery, "
+            assert len(beta.delivered_payloads) == 1, (
+                f"Expected beta to receive exactly 1 delivery, "
                 f"got {len(beta.delivered_payloads)}"
             )
         finally:
@@ -316,12 +341,11 @@ class TestSyntheticEventRoutesThroughPipeline:
 
             event = mx.make_event("Cross-transport message")
             await mx.simulate_inbound(event)
-            await asyncio.sleep(0.15)
 
             # Meshtastic adapter should have received the delivery.
             mesh = app.adapters["mesh_dst"]
-            assert len(mesh.delivered_payloads) >= 1, (
-                f"Expected mesh_dst to receive delivery, "
+            assert len(mesh.delivered_payloads) == 1, (
+                f"Expected mesh_dst to receive exactly 1 delivery, "
                 f"got {len(mesh.delivered_payloads)}"
             )
         finally:
@@ -341,7 +365,6 @@ class TestSyntheticEventRoutesThroughPipeline:
             assert isinstance(mx, FakeMatrixAdapter)
             event = mx.make_event("No route for this")
             await mx.simulate_inbound(event)
-            await asyncio.sleep(0.1)
 
             # Event should be stored.
             assert app.storage is not None
@@ -379,7 +402,6 @@ class TestDeliveryReceiptGenerated:
             assert isinstance(alpha, FakeMatrixAdapter)
             event = alpha.make_event("Generate receipt")
             await alpha.simulate_inbound(event)
-            await asyncio.sleep(0.2)
 
             # Check storage for receipts.
             assert app.storage is not None
@@ -500,14 +522,6 @@ class TestRuntimeSnapshotCapturesState:
             adapters = snap["adapters"]
             assert isinstance(adapters, dict)
             assert len(adapters) == 4
-            for adapter_id in (
-                "fake_matrix",
-                "fake_meshtastic",
-                "fake_meshcore",
-                "fake_lxlf",
-            ):
-                # fake_lxmf ID is "fake_lxmf"
-                pass
             assert "fake_matrix" in adapters
             assert "fake_meshtastic" in adapters
             assert "fake_meshcore" in adapters
@@ -689,10 +703,9 @@ class TestRepeatedStartStopCycles:
                 # Route an event.
                 event = alpha.make_event(f"Soak cycle {cycle}")
                 await alpha.simulate_inbound(event)
-                await asyncio.sleep(0.15)
 
                 # Verify delivery occurred.
-                assert len(beta.delivered_payloads) >= 1
+                assert len(beta.delivered_payloads) == 1
             finally:
                 await app.stop()
 
@@ -844,10 +857,9 @@ class TestFullFakeRuntimeHappyPath:
             assert isinstance(alpha, FakeMatrixAdapter)
             assert isinstance(beta, FakeMatrixAdapter)
 
-            # -- Inbound event --
+            # -- Inbound event through the full pipeline --
             event = alpha.make_event("Full pipeline integration test")
-            outcomes = await alpha.simulate_inbound(event)
-            await asyncio.sleep(0.15)
+            outcomes = await app.pipeline_runner.handle_ingress(event)
 
             # -- Canonical event stored --
             assert app.storage is not None
@@ -855,35 +867,46 @@ class TestFullFakeRuntimeHappyPath:
             assert stored is not None
             assert stored.event_id == event.event_id
 
+            # -- Pipeline returned a success outcome --
+            assert len(outcomes) == 1
+            outcome = outcomes[0]
+            assert outcome.status == "success"
+            assert outcome.target_adapter == "mx_beta"
+
             # -- Routing produced deliveries --
-            assert len(beta.delivered_payloads) >= 1
+            assert len(beta.delivered_payloads) == 1
 
             # -- Rendering completed (delivery payload produced) --
             payload = beta.delivered_payloads[0]
             assert "text" in payload.payload  # TextRenderer produces {"text": ...}
             assert payload.target_adapter == "mx_beta"
 
-            # -- DeliveryReceipt with source="live" --
+            # -- DeliveryReceipt with full field verification --
             receipts = await app.storage.list_receipts_for_event(event.event_id)
-            assert len(receipts) >= 1
+            assert len(receipts) == 1
             receipt = receipts[0]
+            assert receipt.event_id == event.event_id
             assert receipt.source == "live"
-            assert receipt.target_adapter == "mx_beta"
+            assert receipt.replay_run_id is None
             assert receipt.status == "sent"
+            assert receipt.target_adapter == "mx_beta"
 
             # -- NativeMessageRef persisted (adapter returns native ID) --
-            # The pipeline stores outbound native refs separately from receipts.
             # FakeMatrixAdapter returns $fake_<event_id> as native_message_id.
-            # Resolve via the native ref mapping.
-            beta_adapter = app.adapters["mx_beta"]
-            assert isinstance(beta_adapter, FakeMatrixAdapter)
-            assert len(beta_adapter.delivered_payloads) >= 1
+            # Resolve via the native ref mapping. When no target_channel is
+            # specified in the route, the adapter stores native_channel_id="".
+            native_id = f"$fake_{event.event_id}"
+            resolved = await app.storage.resolve_native_ref(
+                "mx_beta", "", native_id,
+            )
+            assert resolved is not None
+            assert resolved == event.event_id
 
             # -- Runtime accounting incremented --
             acc = app._runtime_accounting.snapshot()
-            assert acc["inbound_accepted"] >= 1
-            assert acc["outbound_attempts"] >= 1
-            assert acc["outbound_delivered"] >= 1
+            assert acc["inbound_accepted"] == 1
+            assert acc["outbound_attempts"] == 1
+            assert acc["outbound_delivered"] == 1
 
             # -- Runtime snapshot contains expected fields --
             snap = build_runtime_snapshot(app)
@@ -975,13 +998,18 @@ class TestFailureKindIntegration:
 
             mx = app.adapters["mx_src"]
             event = mx.make_event("will fail transiently")
-            await mx.simulate_inbound(event)
-            await asyncio.sleep(0.2)
+            outcomes = await app.pipeline_runner.handle_ingress(event)
 
-            # Outcome: adapter failure recorded.
-            acc = app._runtime_accounting.snapshot()
-            assert acc["outbound_failed"] >= 1
-            assert acc["outbound_delivered"] == 0
+            assert len(outcomes) == 1
+            outcome = outcomes[0]
+            assert outcome.failure_kind == DeliveryFailureKind.ADAPTER_TRANSIENT
+            assert outcome.status == "transient_failure"
+            assert outcome.target_adapter == "mesh_dst"
+            # Receipt is persisted in storage even though outcome.receipt is None
+            # (pipeline design: _deliver_one does not propagate receipt on error).
+            receipts = await app.storage.list_receipts_for_event(event.event_id)
+            assert len(receipts) == 1
+            assert receipts[0].status == "failed"
         finally:
             await _clean_stop(app)
 
@@ -1005,11 +1033,16 @@ class TestFailureKindIntegration:
 
             alpha = app.adapters["mx_alpha"]
             event = alpha.make_event("will fail permanently")
-            await alpha.simulate_inbound(event)
-            await asyncio.sleep(0.2)
+            outcomes = await app.pipeline_runner.handle_ingress(event)
 
-            acc = app._runtime_accounting.snapshot()
-            assert acc["outbound_failed"] >= 1
+            assert len(outcomes) == 1
+            assert outcomes[0].failure_kind == DeliveryFailureKind.ADAPTER_PERMANENT
+            assert outcomes[0].status == "permanent_failure"
+            assert outcomes[0].target_adapter == "mx_beta"
+            # Receipt is persisted in storage even though outcome.receipt is None.
+            receipts = await app.storage.list_receipts_for_event(event.event_id)
+            assert len(receipts) == 1
+            assert receipts[0].status == "failed"
         finally:
             beta.deliver = original_deliver  # type: ignore[assignment]
             await _clean_stop(app)
@@ -1023,12 +1056,16 @@ class TestFailureKindIntegration:
         try:
             alpha = app.adapters["mx_alpha"]
             event = alpha.make_event("routed to missing adapter")
-            await alpha.simulate_inbound(event)
-            await asyncio.sleep(0.2)
+            outcomes = await app.pipeline_runner.handle_ingress(event)
 
-            acc = app._runtime_accounting.snapshot()
-            assert acc["outbound_failed"] >= 1
-            assert acc["outbound_delivered"] == 0
+            assert len(outcomes) == 1
+            assert outcomes[0].failure_kind == DeliveryFailureKind.ADAPTER_MISSING
+            assert outcomes[0].status == "permanent_failure"
+            assert outcomes[0].target_adapter == "ghost_adapter"
+            # ADAPTER_MISSING still persists a receipt via deliver_to_target.
+            receipts = await app.storage.list_receipts_for_event(event.event_id)
+            assert len(receipts) == 1
+            assert receipts[0].status == "failed"
         finally:
             await _clean_stop(app)
 
@@ -1048,15 +1085,16 @@ class TestFailureKindIntegration:
 
             alpha = app.adapters["mx_alpha"]
             event = alpha.make_event("renderer will fail")
-            await alpha.simulate_inbound(event)
-            await asyncio.sleep(0.2)
+            outcomes = await app.pipeline_runner.handle_ingress(event)
 
-            acc = app._runtime_accounting.snapshot()
-            assert acc["outbound_failed"] >= 1
-            # Diagnostician should have recorded a renderer failure.
-            diag = app.diagnostician.snapshot()
-            renderer_fails = sum(diag.get("renderer_failures", {}).values())
-            assert renderer_fails >= 1
+            assert len(outcomes) == 1
+            assert outcomes[0].failure_kind == DeliveryFailureKind.RENDERER_FAILURE
+            assert outcomes[0].status == "permanent_failure"
+            assert outcomes[0].target_adapter == "mx_beta"
+            # RENDERER_FAILURE persists a receipt via deliver_to_target.
+            receipts = await app.storage.list_receipts_for_event(event.event_id)
+            assert len(receipts) == 1
+            assert receipts[0].status == "failed"
         finally:
             app.rendering_pipeline.render = original_render  # type: ignore[assignment]
             await _clean_stop(app)
@@ -1077,12 +1115,12 @@ class TestFailureKindIntegration:
 
             alpha = app.adapters["mx_alpha"]
             event = alpha.make_event("planner will fail")
-            await alpha.simulate_inbound(event)
-            await asyncio.sleep(0.2)
+            outcomes = await app.pipeline_runner.handle_ingress(event)
 
-            diag = app.diagnostician.snapshot()
-            planner_fails = sum(diag.get("planner_failures", {}).values())
-            assert planner_fails >= 1
+            assert len(outcomes) == 1
+            assert outcomes[0].failure_kind == DeliveryFailureKind.PLANNER_FAILURE
+            assert outcomes[0].status == "permanent_failure"
+            assert outcomes[0].receipt is None  # no receipt for planner failure
         finally:
             app.router.match = original_match  # type: ignore[assignment]
             await _clean_stop(app)
@@ -1119,7 +1157,7 @@ class TestFailureKindIntegration:
 
             # Verify receipt was persisted with failure status.
             receipts = await app.storage.list_receipts_for_event(event.event_id)
-            assert len(receipts) >= 1
+            assert len(receipts) == 1
             assert receipts[0].status == "failed"
             assert "deadline" in (receipts[0].error or "").lower()
         finally:
@@ -1160,11 +1198,12 @@ class TestFailureKindIntegration:
 
             alpha = app.adapters["mx_a"]
             event = alpha.make_event("capacity full")
-            await alpha.simulate_inbound(event)
-            await asyncio.sleep(0.2)
+            outcomes = await app.pipeline_runner.handle_ingress(event)
 
-            acc = app._runtime_accounting.snapshot()
-            assert acc["capacity_rejections"] >= 1
+            assert len(outcomes) == 1
+            assert outcomes[0].failure_kind == DeliveryFailureKind.CAPACITY_REJECTION
+            assert outcomes[0].status == "permanent_failure"
+            assert outcomes[0].receipt is None  # no receipt for capacity rejection
 
             # Release slot so stop can drain cleanly.
             await cc.release_delivery()
@@ -1185,26 +1224,40 @@ class TestFailureKindIntegration:
 
             alpha = app.adapters["mx_alpha"]
             event = alpha.make_event("shutting down")
-            await alpha.simulate_inbound(event)
-            await asyncio.sleep(0.2)
+            outcomes = await app.pipeline_runner.handle_ingress(event)
 
-            acc = app._runtime_accounting.snapshot()
-            assert acc["capacity_rejections"] >= 1
+            assert len(outcomes) == 1
+            assert outcomes[0].failure_kind == DeliveryFailureKind.SHUTDOWN_REJECTION
+            assert outcomes[0].status == "permanent_failure"
+            assert outcomes[0].receipt is None  # no receipt for shutdown rejection
         finally:
             await _clean_stop(app)
 
     @pytest.mark.asyncio
     async def test_target_not_found_classification(self) -> None:
-        """TARGET_NOT_FOUND: classify_failure produces this when adapter_registered=True but no target."""
-        from medre.adapters.base import AdapterSendError
+        """TARGET_NOT_FOUND: classify_failure when adapter_registered=True but channel missing.
 
-        # TARGET_NOT_FOUND is in the enum; verify classification via the
-        # static helper for completeness.  In the live pipeline this is
-        # not currently emitted as a distinct code path (the adapter-
-        # missing check fires first), but the taxonomy includes it.
-        kind = DeliveryFailureKind.TARGET_NOT_FOUND
-        assert kind.value == "target_not_found"
-        assert not kind.is_retryable
+        In the live pipeline TARGET_NOT_FOUND is not currently emitted as a
+        distinct code path (ADAPTER_MISSING fires first).  Verify the
+        classification logic is reachable via RetryExecutor.classify_failure
+        with an explicit target-not-found scenario.
+        """
+        from medre.adapters.base import AdapterSendError
+        from medre.core.planning.delivery_plan import RetryExecutor
+
+        # Simulate: adapter is registered, but the error is a permanent
+        # AdapterSendError — the classify_failure logic maps permanent
+        # AdapterSendError to ADAPTER_PERMANENT, not TARGET_NOT_FOUND.
+        # TARGET_NOT_FOUND is reserved for a future channel-not-found path.
+        # For now, verify the enum taxonomy and that classify_failure
+        # produces the expected result for a permanent send error.
+        err = AdapterSendError("target channel not found", transient=False)
+        kind = RetryExecutor.classify_failure(err, adapter_registered=True)
+        assert kind == DeliveryFailureKind.ADAPTER_PERMANENT
+
+        # Verify the TARGET_NOT_FOUND enum member exists and is not retryable.
+        assert DeliveryFailureKind.TARGET_NOT_FOUND.value == "target_not_found"
+        assert not DeliveryFailureKind.TARGET_NOT_FOUND.is_retryable
 
 
 # ===================================================================

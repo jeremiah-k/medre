@@ -34,6 +34,7 @@ from medre.adapters.base import (
     AdapterContext,
     AdapterDeliveryResult,
     AdapterInfo,
+    AdapterPermanentError,
     AdapterRole,
     AdapterSendError,
     BaseAdapter,
@@ -252,7 +253,7 @@ class FakeMeshCoreAdapter(BaseAdapter):
         """Accept an outbound rendered payload for delivery.
 
         This adapter consumes :class:`RenderingResult` only.  Passing a
-        raw :class:`CanonicalEvent` raises :class:`TypeError`, enforcing
+        raw :class:`CanonicalEvent` raises :class:`AdapterPermanentError`, enforcing
         the rendering boundary at the adapter level.
 
         Uses the internal :class:`FakeMeshCoreClient` to generate
@@ -271,13 +272,13 @@ class FakeMeshCoreAdapter(BaseAdapter):
 
         Raises
         ------
-        TypeError
+        AdapterPermanentError
             If *result* is not a :class:`RenderingResult`.
-        MeshCoreSendError
+        AdapterSendError
             If ``set_deliver_failure(True)`` was called.
         """
         if not isinstance(result, RenderingResult):
-            raise TypeError(
+            raise AdapterPermanentError(
                 f"FakeMeshCoreAdapter.deliver() accepts RenderingResult only, "
                 f"got {type(result).__name__}. Use simulate_inbound() for "
                 f"the inbound path."
@@ -309,9 +310,9 @@ class FakeMeshCoreAdapter(BaseAdapter):
         return AdapterDeliveryResult(
             native_message_id=str(packet_id),
             native_channel_id=str(channel_index),
+            delivery_note="fake adapter — simulated local acceptance",
             metadata=MappingProxyType({
                 "delivery_status": "local_accepted",
-                "delivery_note": "fake adapter — simulated local acceptance",
             }),
         )
 

@@ -36,6 +36,7 @@ from medre.adapters.base import (
     AdapterContext,
     AdapterDeliveryResult,
     AdapterInfo,
+    AdapterPermanentError,
     AdapterRole,
     AdapterSendError,
     BaseAdapter,
@@ -266,7 +267,7 @@ class FakeLxmfAdapter(BaseAdapter):
         """Accept an outbound rendered payload for delivery.
 
         This adapter consumes :class:`RenderingResult` only.  Passing a
-        raw :class:`CanonicalEvent` raises :class:`TypeError`, enforcing
+        raw :class:`CanonicalEvent` raises :class:`AdapterPermanentError`, enforcing
         the rendering boundary at the adapter level.
 
         Uses the internal :class:`FakeLxmfClient` to generate
@@ -285,13 +286,13 @@ class FakeLxmfAdapter(BaseAdapter):
 
         Raises
         ------
-        TypeError
+        AdapterPermanentError
             If *result* is not a :class:`RenderingResult`.
-        LxmfSendError
+        AdapterSendError
             If ``set_deliver_failure(True)`` was called.
         """
         if not isinstance(result, RenderingResult):
-            raise TypeError(
+            raise AdapterPermanentError(
                 f"FakeLxmfAdapter.deliver() accepts RenderingResult only, "
                 f"got {type(result).__name__}. Use simulate_inbound() for "
                 f"the inbound path."

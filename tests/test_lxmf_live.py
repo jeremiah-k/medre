@@ -493,12 +493,13 @@ class TestLxmfLiveSmoke:
             await adapter.stop()
 
     async def test_outbound_send_type_validation(self):
-        """deliver() raises TypeError for non-RenderingResult input.
+        """deliver() raises AdapterPermanentError for non-RenderingResult input.
 
         This test does not require Reticulum — it validates input
         validation which works in any connection mode.  Uses fake mode
         so the adapter can start without Reticulum.
         """
+        from medre.adapters.base import AdapterPermanentError
         from medre.adapters.lxmf.adapter import LxmfAdapter
 
         config = _make_fake_config()
@@ -506,7 +507,7 @@ class TestLxmfLiveSmoke:
         ctx = _make_context()
         await adapter.start(ctx)
         try:
-            with pytest.raises(TypeError, match="RenderingResult"):
+            with pytest.raises(AdapterPermanentError, match="RenderingResult"):
                 await adapter.deliver("not a rendering result")  # type: ignore[arg-type]
         finally:
             await adapter.stop()

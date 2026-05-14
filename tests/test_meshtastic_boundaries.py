@@ -295,7 +295,7 @@ class TestMeshtasticAdapterDeliveryBoundary:
             payload={"body": "hello"},
             metadata=EventMetadata(),
         )
-        with pytest.raises(TypeError, match="RenderingResult only"):
+        with pytest.raises(AdapterPermanentError, match="RenderingResult only"):
             await adapter.deliver(event)
 
     async def test_real_meshtastic_rejects_canonical_event(self) -> None:
