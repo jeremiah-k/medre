@@ -213,7 +213,7 @@ class TestBaseImportBoundary:
 
     def test_import_medre_cli(self) -> None:
         """CLI module imports must not pull in optional SDKs."""
-        from medre.cli import _get_version
+        from medre.cli.main import _get_version
         assert callable(_get_version)
 
 

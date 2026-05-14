@@ -272,7 +272,7 @@ class TestCLIDiagnostics:
 
     def test_diagnostics_parser_registered(self) -> None:
         """Diagnostics subcommand is registered in the parser."""
-        from medre.cli import _build_parser
+        from medre.cli.main import _build_parser
 
         parser = _build_parser()
         # Parse the diagnostics command.

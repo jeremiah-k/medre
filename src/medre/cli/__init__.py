@@ -32,7 +32,7 @@ from .exit_codes import (
 )
 
 # Main entry point and parser
-from .main import main, _build_parser, _get_version
+from .main import main
 
 __all__ = [
     "main",

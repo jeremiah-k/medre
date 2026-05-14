@@ -14,16 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-
-def _sanitize_error(error: str) -> str:
-    """Delegate to the canonical :func:`medre.runtime.snapshot.sanitize_error`.
-
-    Imported lazily to avoid a circular dependency between
-    ``medre.core.routing.stats`` and ``medre.runtime``.
-    """
-    from medre.runtime.snapshot import sanitize_error
-
-    return sanitize_error(error)
+from medre.observability.sanitization import sanitize_error
 
 
 # ---------------------------------------------------------------------------
@@ -102,7 +93,7 @@ class RouteStats:
             skipped=c.skipped,
             loop_prevented=c.loop_prevented,
         )
-        self._last_errors[route_id] = _sanitize_error(error)
+        self._last_errors[route_id] = sanitize_error(error)
 
     def record_skipped(self, route_id: str) -> None:
         """Record a skipped delivery for *route_id*."""

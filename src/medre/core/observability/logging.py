@@ -22,6 +22,8 @@ import sys
 from datetime import datetime, timezone
 from typing import Any
 
+from medre.observability.sanitization import sanitize_error
+
 # ---------------------------------------------------------------------------
 # Redaction
 # ---------------------------------------------------------------------------
@@ -241,17 +243,6 @@ def diagnostic_event(
 _route_logger = logging.getLogger("medre.route")
 
 
-def _sanitize_error(error: str) -> str:
-    """Delegate to the canonical :func:`medre.runtime.snapshot.sanitize_error`.
-
-    Imported lazily to avoid a circular dependency between
-    ``medre.core.observability.logging`` and ``medre.runtime``.
-    """
-    from medre.runtime.snapshot import sanitize_error
-
-    return sanitize_error(error)
-
-
 def log_route_matched(*, route_id: str, event_id: str) -> None:
     """Log that an event was matched to a route.
 
@@ -303,7 +294,7 @@ def log_route_failed(
     error:
         Human-readable error description.  Sanitised before logging.
     """
-    safe_error = _sanitize_error(error)
+    safe_error = sanitize_error(error)
     _route_logger.warning(
         "route_failed route_id=%s event_id=%s error=%s",
         route_id,

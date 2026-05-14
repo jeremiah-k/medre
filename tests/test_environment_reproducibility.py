@@ -614,7 +614,7 @@ class TestVersionConsistency:
         build), _get_version falls back to the hardcoded value.  That value
         should match pyproject.toml.
         """
-        from medre.cli import _get_version
+        from medre.cli.main import _get_version
 
         pyproject_version = self._project["version"]
         cli_version = _get_version()

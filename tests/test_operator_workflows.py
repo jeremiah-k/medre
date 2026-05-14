@@ -909,7 +909,7 @@ class TestInstallMetadataWorkflow:
 
     def test_version_accessible_via_importlib(self) -> None:
         """Version is accessible via importlib.metadata."""
-        from medre.cli import _get_version
+        from medre.cli.main import _get_version
 
         version = _get_version()
         assert version

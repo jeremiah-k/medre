@@ -23,7 +23,6 @@ from medre.core.observability.logging import (
     _JsonFormatter,
     _redact_context,
     _redact_value,
-    _sanitize_error,
     diagnostic_event,
     get_logger,
     log_route_delivered,

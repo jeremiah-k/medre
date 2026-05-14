@@ -46,6 +46,7 @@ from typing import Any, Callable
 from medre.config.loader import load_config, ConfigSource
 from medre.config.paths import MedrePaths, MedrePathsError
 from medre.config.env import apply_env_overrides, MedreEnvConfig, _SECRET_ENV_NAMES
+from medre.observability.sanitization import sanitize_error
 
 __all__ = ["collect_evidence_bundle"]
 
@@ -95,23 +96,16 @@ def _fixed_mono() -> float:
     return 0.0
 
 
-def _sanitize_error(error: str) -> str:
-    """Sanitize and truncate an error string for the report."""
-    from medre.runtime.snapshot import sanitize_error
-
-    return sanitize_error(error)
-
-
 def _section_ok(data: Any) -> dict[str, Any]:
     return {"status": "ok", "error": None, "data": data}
 
 
 def _section_partial(data: Any, error: str) -> dict[str, Any]:
-    return {"status": "partial", "error": _sanitize_error(error), "data": data}
+    return {"status": "partial", "error": sanitize_error(error), "data": data}
 
 
 def _section_error(error: str) -> dict[str, Any]:
-    return {"status": "error", "error": _sanitize_error(error), "data": None}
+    return {"status": "error", "error": sanitize_error(error), "data": None}
 
 
 def _section_skipped(note: str) -> dict[str, Any]:
@@ -260,8 +254,8 @@ def _collect_route_validation(config: Any) -> dict[str, Any]:
     data: dict[str, Any] = {
         "route_count": route_count,
         "route_enabled": route_enabled,
-        "route_errors": [_sanitize_error(e) for e in errors],
-        "route_warnings": [_sanitize_error(w) for w in warnings],
+        "route_errors": [sanitize_error(e) for e in errors],
+        "route_warnings": [sanitize_error(w) for w in warnings],
         "valid": len(errors) == 0,
     }
 
@@ -524,7 +518,7 @@ async def collect_evidence_bundle(
         return {
             "collected_at": _now().isoformat(),
             "config_source": None,
-            "errors": [_sanitize_error(str(exc))],
+            "errors": [sanitize_error(str(exc))],
             "limitations": _LIMITATIONS,
             "medre_version": _get_version(),
             "runtime_started": False,

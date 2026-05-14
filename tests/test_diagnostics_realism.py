@@ -22,7 +22,8 @@ import pytest
 
 from medre.core.diagnostics.replay_metrics import ReplayMetrics, ReplayRouteCounters
 from medre.core.diagnostics.snapshot import build_diagnostics_snapshot
-from medre.core.routing.stats import RouteStats, _sanitize_error
+from medre.core.routing.stats import RouteStats
+from medre.observability.sanitization import sanitize_error as _sanitize_error
 from medre.runtime.boot_summary import BootSummary, build_boot_summary
 from medre.runtime.capacity import CapacityController
 from medre.runtime.snapshot import (

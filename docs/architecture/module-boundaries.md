@@ -9,10 +9,10 @@ src/medre/
   cli/            argparse, command dispatch, I/O formatting
   runtime/        builder, app, route engine, smoke/drill/trace
   core/           event model, storage, pipeline, routing, rendering
-    observability/  logging setup, sanitization, metrics
+    observability/  logging setup, diagnostic events, metrics
+  observability/  user-facing: sanitization, adapter loggers, summaries
   adapters/       base class + per-transport packages (matrix/, meshtastic/, meshcore/, lxmf/)
   config/         loader, model, env overrides, paths, sample generation
-  logging.py      consolidated structured logging helpers (single source of truth)
 ```
 
 ## Package ownership
@@ -44,7 +44,7 @@ Transport-agnostic building blocks. No adapter or SDK imports.
 **Sub-packages:** `events/` (bus, canonical event, schema, kinds),
 `storage/`, `rendering/`, `routing/`, `planning/`, `policies/`,
 `engine/` (pipeline runner), `diagnostics/`, `identity/`, `lifecycle/`,
-`transforms/`, `observability/` (logging setup, metrics).
+`transforms/`, `observability/` (logging setup, diagnostic events, metrics).
 
 ### `adapters/` — transport boundary
 
@@ -67,7 +67,7 @@ Owns TOML loading, model classes, environment overrides, and path resolution.
 
 | From | May import | Must not import |
 |------|-----------|-----------------|
-| `cli/` commands | `config.*`, `logging`, `runtime.builder` | Adapter implementations, `core.*` internals |
+| `cli/` commands | `config.*`, `observability`, `runtime.builder` | Adapter implementations, `core.*` internals |
 | `runtime/builder` | `adapters.base`, `config.model`, `core.*` | Specific adapter SDK modules |
 | `runtime/observability` | `core.diagnostics`, `core.routing.stats` | Adapter code |
 | `core/*` | Other `core/*` sub-packages | `adapters.*`, `runtime.*`, `cli.*` |
@@ -82,8 +82,7 @@ Key invariants:
   imports both config model types and adapter base classes to wire the system.
 - **`core/` is transport-agnostic.** No module under `core/` imports from
   `adapters/` or `runtime/`.
-- **Logging utilities come from `medre.logging`** (top-level module) or
-  `medre.core.observability`. These are the only sanctioned logging helpers.
+- **Observability has two packages** — see "Observability: Two Packages" below.
 - **Config package is dependency-free.** `config/` imports only stdlib — no
   core types, no adapter types.
 
@@ -93,4 +92,53 @@ Key invariants:
 |--------|-------|--------|
 | `runner.py` (top-level) | Deleted | Logic moved into `runtime/builder.py` and `runtime/app.py` |
 | `cli.py` (monolithic) | `cli/` package | Split into per-command modules for maintainability |
-| `_sanitize_error` (scattered) | `medre.logging.sanitize_for_log` | Consolidated into single logging module |
+| `_sanitize_error` (scattered) | `medre.observability.sanitization.sanitize_error` | Consolidated into user-facing observability package |
+
+## Observability: Two Packages
+
+medre has two observability packages with distinct responsibilities and consumers.
+
+### `medre.observability` — user-facing
+
+Import path: `from medre.observability import ...`
+
+Used by CLI commands, runtime orchestration, and adapter-facing code. This is the
+public observability surface.
+
+| Symbol | Module | Purpose |
+|--------|--------|---------|
+| `sanitize_error` | `.sanitization` | Redact tokens/passwords from error strings, truncate to safe length |
+| `sanitize_for_log` | `.sanitization` | Strip secret keys from dicts, coerce values for structured log output |
+| `adapter_logger` | `.logging` | LoggerAdapter factory injecting `adapter_id` and `transport` context |
+| `startup_summary` | `.summaries` | Multi-line startup summary string for the runtime |
+| `shutdown_summary` | `.summaries` | Multi-line shutdown summary string for the runtime |
+| `format_duration_ms` | `.summaries` | Human-readable duration from monotonic timestamps |
+
+### `medre.core.observability` — framework-internal
+
+Import path: `from medre.core.observability import ...`
+
+Used by the pipeline, routing engine, and internal framework code. Not intended
+for direct consumption by CLI or adapter code.
+
+| Symbol | Module | Purpose |
+|--------|--------|---------|
+| `setup_logging` | `.logging` | Configure the root `medre` logger (handler, level, JSON format) |
+| `get_logger` | `.logging` | Obtain a child logger in the `medre.*` namespace |
+| `diagnostic_event` | `.logging` | Emit structured diagnostic log entries with category and context |
+| `log_route_matched` | `.logging` | Log route match event |
+| `log_route_delivered` | `.logging` | Log successful route delivery |
+| `log_route_failed` | `.logging` | Log failed route delivery (sanitizes error via `medre.observability`) |
+| `log_route_loop_prevented` | `.logging` | Log loop-prevention skip |
+| `EventMetrics` | `.metrics` | Per-stage event counters with snapshot support |
+| `RouteMetrics` | `.metrics` | Per-route delivery counters with snapshot support |
+| `Diagnostician` | `.metrics` | Structured failure and diagnostic event recorder |
+
+### Boundary rules
+
+- `medre.observability` must not import from `medre.core.observability`.
+- `medre.core.observability` may import from `medre.observability` (e.g.
+  `log_route_failed` delegates sanitization to `medre.observability.sanitize_error`).
+- CLI and adapter code import from `medre.observability`. Pipeline and routing
+  internals import from `medre.core.observability`.
+- No duplicate APIs: each symbol lives in exactly one package.

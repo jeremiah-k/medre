@@ -36,7 +36,8 @@ from medre.runtime.snapshot import (
     _MAX_ROUTES,
     build_runtime_snapshot,
 )
-from medre.core.routing.stats import RouteStats, _sanitize_error
+from medre.core.routing.stats import RouteStats
+from medre.observability.sanitization import sanitize_error as _sanitize_error
 
 
 # ---------------------------------------------------------------------------
