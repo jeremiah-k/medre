@@ -847,3 +847,86 @@ class TestSecretRedaction:
         output = _run_cli("routes", "topology", "--config", str(config_with_routes))
         assert "tok" not in output
         assert "access_token" not in output
+
+
+# ---------------------------------------------------------------------------
+# Sample config parse + fake runtime assembly
+# ---------------------------------------------------------------------------
+
+
+class TestSampleConfigAndFakeRuntime:
+    """Sample config parses correctly and a fake runtime can be assembled."""
+
+    CONFIG_FAKE_MULTI = """\
+[runtime]
+name = "fake-runtime-test"
+
+[logging]
+level = "DEBUG"
+
+[storage]
+backend = "memory"
+
+[adapters.matrix.fake_mx]
+enabled = true
+adapter_kind = "fake"
+homeserver = "https://fake.test"
+user_id = "@fake:fake.test"
+access_token = "fake_token_for_test"
+room_allowlist = ["!fake:fake.test"]
+encryption_mode = "plaintext"
+
+[adapters.meshtastic.fake_mesh]
+enabled = true
+adapter_kind = "fake"
+connection_type = "serial"
+serial_port = "/dev/ttyFAKE"
+meshnet_name = "FakeMesh"
+"""
+
+    @pytest.fixture()
+    def fake_config(self, tmp_path: Path) -> Path:
+        p = tmp_path / "fake_config.toml"
+        p.write_text(self.CONFIG_FAKE_MULTI)
+        return p
+
+    def test_sample_config_parses(self) -> None:
+        """generate_sample_config() produces valid TOML."""
+        from medre.config.sample import generate_sample_config
+        import tomllib
+
+        sample = generate_sample_config()
+        parsed = tomllib.loads(sample)
+        assert "runtime" in parsed
+        assert "adapters" in parsed
+
+    @pytest.mark.asyncio
+    async def test_fake_runtime_assembles_from_config(
+        self, fake_config: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A config with adapter_kind='fake' assembles into a working MedreApp."""
+        from medre.config.loader import load_config
+        from medre.config.paths import resolve
+        from medre.runtime.builder import RuntimeBuilder
+        from medre.runtime.app import RuntimeState
+
+        for var in ("MEDRE_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME"):
+            monkeypatch.delenv(var, raising=False)
+        monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
+
+        config, _source, paths = load_config(str(fake_config))
+        builder = RuntimeBuilder(config, paths)
+        app = builder.build()
+
+        assert len(app.adapters) == 2
+        assert "fake_mx" in app.adapters
+        assert "fake_mesh" in app.adapters
+        assert app.state is RuntimeState.INITIALIZED
+
+        await app.start()
+        try:
+            assert app.state is RuntimeState.RUNNING
+            assert len(app.started_adapter_ids) == 2
+        finally:
+            await app.stop()
+            assert app.state is RuntimeState.STOPPED

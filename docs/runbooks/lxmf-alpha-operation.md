@@ -207,7 +207,7 @@ Per-message callbacks update the `LxmfSession`'s outbound tracking dict:
 
 MEDRE's `deliver()` returns an `AdapterDeliveryResult` with the message hash and delivery state metadata. The state is honest: typically `"outbound"` at return time. The pipeline does not wait for delivery confirmation.
 
-Outbound retry is bounded: `_SEND_MAX_RETRIES = 3` with a short linear backoff (`0.1 * attempt` seconds between retries). After exhausting retries, the send raises `LxmfSendError`.
+Outbound retry is bounded: `_SEND_MAX_RETRIES = 3` with a short linear backoff (`0.1 * attempt` seconds between retries). After exhausting retries, the send raises a session/internal `LxmfSendError`, which the adapter normalizes to `AdapterSendError` at the runtime boundary before the pipeline classifies it.
 
 ### 6.4 Reticulum Singleton
 

@@ -229,7 +229,7 @@ and MATRIX_ROOM_ID env vars to run live Matrix tests"*
 |-------------------------------------|------------------------------------------|-------------------------------------------------------|
 | `MatrixConnectionError: mindroom-nio not installed` | Missing dependency | `pip install -e ".[matrix]"`                         |
 | `MatrixConnectionError: failed to authenticate` | Bad token or user ID | Verify token via `curl` login; check user ID format (`@bot:server`) |
-| `MatrixSendError: no room_id`       | Missing `MATRIX_ROOM_ID`                 | Set the room ID env var; ensure bot has joined the room |
+| `AdapterPermanentError: no room_id` | Missing `MATRIX_ROOM_ID`                 | Set the room ID env var; ensure bot has joined the room |
 | `assert info.health == "healthy"` fails | Homeserver unreachable or token expired | Check homeserver URL; regenerate token                |
 | `native_message_id is None`         | Homeserver returned error response       | Check homeserver logs; verify room membership         |
 | All tests SKIP                      | Env vars not set                         | Set all four `MATRIX_*` environment variables         |

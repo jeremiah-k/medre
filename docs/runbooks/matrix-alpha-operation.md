@@ -476,7 +476,7 @@ This is an honest list. Everything here is real.
 
 3. **No inbound queue or persistence.** Inbound events are published directly via `context.publish_inbound()`. If that callback is slow or fails, the event is gone. There is no retry, no dead letter queue, no redelivery.
 
-4. **No rate limiting.** The adapter sends as fast as you call `deliver()`. Matrix homeservers rate-limit by default. If you send too fast, the homeserver will reject messages and you will get `MatrixSendError`.
+4. **No rate limiting.** The adapter sends as fast as you call `deliver()`. Matrix homeservers rate-limit by default. If you send too fast, the homeserver will reject messages and you will get `AdapterSendError` (transient).
 
 5. **No connection health monitoring.** The sync loop either runs or it does not. There is no heartbeat, no periodic ping, no health metric beyond the basic `health_check()` states.
 
@@ -706,11 +706,11 @@ The `MATRIX_USER_ID` value is missing the leading `@`. Matrix user IDs always st
 Wrong: `bot:localhost`
 Right: `@bot:localhost`
 
-### 14.5 `MatrixSendError: no room_id in result`
+### 14.5 `AdapterPermanentError: no room_id in result`
 
-The `deliver()` call did not include a `target_channel` and the payload did not contain a `room_id` key. The adapter needs to know which room to send to.
+The `deliver()` call did not include a `target_channel` and the payload did not contain a `room_id` key. The adapter needs to know which room to send to. This error originates as a session-level `MatrixSendError` internally and is normalized to `AdapterPermanentError` at the adapter boundary.
 
-### 14.6 `MatrixSendError: homeserver returned empty/missing event_id`
+### 14.6 `AdapterSendError: homeserver returned empty/missing event_id`
 
 The homeserver accepted the request but did not return an event ID. This is unusual. Check the homeserver logs. It could indicate a Synapse bug, a database issue, or a malformed request.
 
@@ -736,9 +736,9 @@ python -c "import nio; print(nio.__version__)"
 
 The `sync_forever` loop should be idle most of the time (long-polling with a 30-second timeout). If you see high CPU, it might be rapidly reconnecting due to persistent transient failures. Check `health_check()` for `degraded` state and the `reconnect_attempts` counter in diagnostics. If `reconnect_attempts` is climbing, the adapter is in a reconnect loop — see section 14.19.
 
-### 14.10 Messages appear in Element but `deliver()` raises `MatrixSendError`
+### 14.10 Messages appear in Element but `deliver()` raises `AdapterPermanentError`
 
-The homeserver rejected the message content. Check that the payload is a valid `m.room.message` content dict with a `msgtype` and `body`. The `MatrixRenderer` should produce this format, but if you are constructing payloads manually, double-check the structure.
+The homeserver rejected the message content. Check that the payload is a valid `m.room.message` content dict with a `msgtype` and `body`. The `MatrixRenderer` should produce this format, but if you are constructing payloads manually, double-check the structure. This error originates as a session-level `MatrixSendError` internally and is normalized to `AdapterPermanentError` at the adapter boundary.
 
 ### 14.11 `asyncio.CancelledError` warnings on shutdown
 
