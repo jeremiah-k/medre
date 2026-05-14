@@ -193,6 +193,10 @@ class TestDrillInfrastructure:
             "shutdown_rejection",
             "replay_duplicate_risk",
             "degraded_live_health",
+            "bad_route_config",
+            "all_adapters_build_fail",
+            "partial_degraded_startup",
+            "all_adapters_start_fail",
         }
         assert set(AVAILABLE_DRILLS) == expected
 
@@ -489,8 +493,266 @@ class TestDegradedLiveHealthDrill:
 
 
 # ---------------------------------------------------------------------------
-# Cross-cutting drill tests
+# Pre-runtime drill tests
 # ---------------------------------------------------------------------------
+
+
+class TestBadRouteConfigDrill:
+    """Proves bad_route_config drill exercises route validation failure."""
+
+    @pytest.mark.asyncio
+    async def test_pass(self) -> None:
+        report = await run_drill("bad_route_config")
+        assert report["status"] == "PASS", report.get("fail_reasons", [])
+        assert report["drill_name"] == "bad_route_config"
+        assert report["evidence_level"] == "drill"
+
+    @pytest.mark.asyncio
+    async def test_route_id_in_report(self) -> None:
+        report = await run_drill("bad_route_config")
+        assert report["route_id"] == "bad_route"
+
+    @pytest.mark.asyncio
+    async def test_unknown_adapter_in_report(self) -> None:
+        report = await run_drill("bad_route_config")
+        assert report["unknown_adapter_id"] == "ghost_adapter"
+
+    @pytest.mark.asyncio
+    async def test_known_adapter_ids(self) -> None:
+        report = await run_drill("bad_route_config")
+        assert report["known_adapter_ids"] == ["fake_matrix"]
+
+    @pytest.mark.asyncio
+    async def test_error_type_is_route_validation(self) -> None:
+        report = await run_drill("bad_route_config")
+        assert report["error_type"] == "RouteValidationError"
+        assert "ghost_adapter" in report["error_message"]
+
+    @pytest.mark.asyncio
+    async def test_runtime_not_started(self) -> None:
+        report = await run_drill("bad_route_config")
+        assert report["runtime_started"] is False
+        assert report["build_succeeded"] is False
+
+    @pytest.mark.asyncio
+    async def test_json_safe(self) -> None:
+        report = await run_drill("bad_route_config")
+        serialized = json.dumps(report, sort_keys=True)
+        assert isinstance(serialized, str)
+
+    def test_cli_dispatch(self) -> None:
+        """CLI medre smoke --drill bad_route_config --json works."""
+        from medre.cli import main
+        import io
+
+        config_path = _smoke_config_path()
+        stdout_capture = io.StringIO()
+        stderr_capture = io.StringIO()
+        with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
+            with pytest.raises(SystemExit) as exc_info:
+                main([
+                    "smoke", "--config", config_path,
+                    "--drill", "bad_route_config", "--json",
+                ])
+
+        assert exc_info.value.code == 0
+        report = json.loads(stdout_capture.getvalue())
+        assert report["status"] == "PASS"
+        assert report["drill_name"] == "bad_route_config"
+
+
+class TestAllAdaptersBuildFailDrill:
+    """Proves all_adapters_build_fail drill exercises build failure recording."""
+
+    @pytest.mark.asyncio
+    async def test_pass(self) -> None:
+        report = await run_drill("all_adapters_build_fail")
+        assert report["status"] == "PASS", report.get("fail_reasons", [])
+        assert report["drill_name"] == "all_adapters_build_fail"
+
+    @pytest.mark.asyncio
+    async def test_build_failures_count(self) -> None:
+        report = await run_drill("all_adapters_build_fail")
+        assert report["failed_adapter_count"] == 2
+        assert report["build_failure_count"] == 2
+
+    @pytest.mark.asyncio
+    async def test_build_failures_have_attribution(self) -> None:
+        report = await run_drill("all_adapters_build_fail")
+        failures = report["build_failures"]
+        assert len(failures) == 2
+        adapter_ids = {f["adapter_id"] for f in failures}
+        assert adapter_ids == {"broken1", "broken2"}
+        transports = {f["transport"] for f in failures}
+        assert "matrix" in transports
+        assert "meshtastic" in transports
+
+    @pytest.mark.asyncio
+    async def test_no_adapters_built(self) -> None:
+        report = await run_drill("all_adapters_build_fail")
+        assert report["known_adapter_ids"] == []
+
+    @pytest.mark.asyncio
+    async def test_runtime_not_started(self) -> None:
+        report = await run_drill("all_adapters_build_fail")
+        assert report["runtime_started"] is False
+
+    @pytest.mark.asyncio
+    async def test_json_safe(self) -> None:
+        report = await run_drill("all_adapters_build_fail")
+        serialized = json.dumps(report, sort_keys=True)
+        assert isinstance(serialized, str)
+
+    def test_cli_dispatch(self) -> None:
+        """CLI medre smoke --drill all_adapters_build_fail --json works."""
+        from medre.cli import main
+        import io
+
+        config_path = _smoke_config_path()
+        stdout_capture = io.StringIO()
+        stderr_capture = io.StringIO()
+        with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
+            with pytest.raises(SystemExit) as exc_info:
+                main([
+                    "smoke", "--config", config_path,
+                    "--drill", "all_adapters_build_fail", "--json",
+                ])
+
+        assert exc_info.value.code == 0
+        report = json.loads(stdout_capture.getvalue())
+        assert report["status"] == "PASS"
+
+
+class TestPartialDegradedStartupDrill:
+    """Proves partial_degraded_startup drill exercises degraded startup."""
+
+    @pytest.mark.asyncio
+    async def test_pass(self) -> None:
+        report = await run_drill("partial_degraded_startup")
+        assert report["status"] == "PASS", report.get("fail_reasons", [])
+
+    @pytest.mark.asyncio
+    async def test_outcome_is_partial(self) -> None:
+        report = await run_drill("partial_degraded_startup")
+        assert report["startup_outcome"] == "partial"
+
+    @pytest.mark.asyncio
+    async def test_health_is_degraded(self) -> None:
+        report = await run_drill("partial_degraded_startup")
+        assert report["runtime_health"] == "degraded"
+
+    @pytest.mark.asyncio
+    async def test_started_adapters(self) -> None:
+        report = await run_drill("partial_degraded_startup")
+        assert report["started_adapters"] == ["alpha", "gamma"]
+
+    @pytest.mark.asyncio
+    async def test_failed_adapters(self) -> None:
+        report = await run_drill("partial_degraded_startup")
+        assert report["failed_adapters"] == ["beta"]
+
+    @pytest.mark.asyncio
+    async def test_boot_summary_counts(self) -> None:
+        report = await run_drill("partial_degraded_startup")
+        boot = report["boot_summary"]
+        assert boot is not None
+        assert boot["adapters_started"] == 2
+        assert boot["adapters_failed"] == 1
+        assert boot["adapters_total"] == 3
+
+    @pytest.mark.asyncio
+    async def test_json_safe(self) -> None:
+        report = await run_drill("partial_degraded_startup")
+        serialized = json.dumps(report, sort_keys=True)
+        assert isinstance(serialized, str)
+
+    def test_cli_dispatch(self) -> None:
+        """CLI medre smoke --drill partial_degraded_startup --json works."""
+        from medre.cli import main
+        import io
+
+        config_path = _smoke_config_path()
+        stdout_capture = io.StringIO()
+        stderr_capture = io.StringIO()
+        with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
+            with pytest.raises(SystemExit) as exc_info:
+                main([
+                    "smoke", "--config", config_path,
+                    "--drill", "partial_degraded_startup", "--json",
+                ])
+
+        assert exc_info.value.code == 0
+        report = json.loads(stdout_capture.getvalue())
+        assert report["status"] == "PASS"
+
+
+class TestAllAdaptersStartFailDrill:
+    """Proves all_adapters_start_fail drill exercises total startup failure."""
+
+    @pytest.mark.asyncio
+    async def test_pass(self) -> None:
+        report = await run_drill("all_adapters_start_fail")
+        assert report["status"] == "PASS", report.get("fail_reasons", [])
+
+    @pytest.mark.asyncio
+    async def test_outcome_is_total_failure(self) -> None:
+        report = await run_drill("all_adapters_start_fail")
+        assert report["startup_outcome"] == "total_failure"
+
+    @pytest.mark.asyncio
+    async def test_no_started_adapters(self) -> None:
+        report = await run_drill("all_adapters_start_fail")
+        assert report["started_adapters"] == []
+
+    @pytest.mark.asyncio
+    async def test_all_adapters_failed(self) -> None:
+        report = await run_drill("all_adapters_start_fail")
+        assert sorted(report["failed_adapters"]) == ["alpha", "beta"]
+
+    @pytest.mark.asyncio
+    async def test_cleanup_pipeline_stopped(self) -> None:
+        report = await run_drill("all_adapters_start_fail")
+        assert report["cleanup_evidence"]["pipeline_stopped"] is True
+
+    @pytest.mark.asyncio
+    async def test_cleanup_storage_closed(self) -> None:
+        report = await run_drill("all_adapters_start_fail")
+        assert report["cleanup_evidence"]["storage_closed"] is True
+
+    @pytest.mark.asyncio
+    async def test_cleanup_adapters_stopped(self) -> None:
+        report = await run_drill("all_adapters_start_fail")
+        assert report["cleanup_evidence"]["adapters_stopped"] is True
+
+    @pytest.mark.asyncio
+    async def test_app_state_is_failed(self) -> None:
+        report = await run_drill("all_adapters_start_fail")
+        assert report["cleanup_evidence"]["app_state"] == "failed"
+
+    @pytest.mark.asyncio
+    async def test_json_safe(self) -> None:
+        report = await run_drill("all_adapters_start_fail")
+        serialized = json.dumps(report, sort_keys=True)
+        assert isinstance(serialized, str)
+
+    def test_cli_dispatch(self) -> None:
+        """CLI medre smoke --drill all_adapters_start_fail --json works."""
+        from medre.cli import main
+        import io
+
+        config_path = _smoke_config_path()
+        stdout_capture = io.StringIO()
+        stderr_capture = io.StringIO()
+        with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
+            with pytest.raises(SystemExit) as exc_info:
+                main([
+                    "smoke", "--config", config_path,
+                    "--drill", "all_adapters_start_fail", "--json",
+                ])
+
+        assert exc_info.value.code == 0
+        report = json.loads(stdout_capture.getvalue())
+        assert report["status"] == "PASS"
 
 
 class TestDrillCrossCutting:

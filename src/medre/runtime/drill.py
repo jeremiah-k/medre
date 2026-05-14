@@ -52,6 +52,33 @@ Available drills
 ``degraded_live_health``
     Adapter reports ``health="degraded"``; proves the runtime
     observes degraded health without crashing.
+
+Pre-runtime drills (no adapter start attempted)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+``bad_route_config``
+    Enabled route references an adapter ID not present in config;
+    proves ``RouteValidationError`` from the builder with
+    ``route_id``, ``unknown_adapter_id``, and ``known_adapter_ids``
+    attribution.  Runtime is never started.
+
+``all_adapters_build_fail``
+    All enabled adapters fail during construction; proves the builder
+    records ``build_failures`` with transport/adapter_id attribution
+    and the resulting ``MedreApp.adapters`` is empty.  Runtime start
+    is never attempted.
+
+Startup-failure drills
+~~~~~~~~~~~~~~~~~~~~~~
+``partial_degraded_startup``
+    Some adapters start, one fails; proves ``partial`` startup outcome
+    with ``degraded`` runtime health, correct started/failed adapter
+    attribution, and boot summary evidence.
+
+``all_adapters_start_fail``
+    All built adapters fail on ``start()``; proves ``total_failure``
+    startup outcome with ``RuntimeStartupError`` and full resource
+    cleanup (pipeline runner stopped, storage closed, adapters
+    cleaned up).
 """
 
 from __future__ import annotations
@@ -60,14 +87,38 @@ import dataclasses
 import logging
 from datetime import datetime, timezone
 from typing import Any, Callable
+from unittest.mock import patch
 
+from medre.adapters.base import (
+    AdapterCapabilities,
+    AdapterContext,
+    AdapterDeliveryResult,
+    AdapterInfo,
+    AdapterRole,
+    BaseAdapter,
+)
 from medre.config.loader import load_config
 from medre.config.env import apply_env_overrides
-from medre.config.model import StorageConfig
+from medre.config.model import (
+    AdapterConfigSet,
+    MatrixRuntimeConfig,
+    MeshCoreRuntimeConfig,
+    MeshtasticRuntimeConfig,
+    RuntimeConfig,
+    RuntimeOptions,
+    StorageConfig,
+)
+from medre.config.paths import resolve as resolve_paths
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.events.kinds import EventKind
 from medre.runtime.app import MedreApp
 from medre.runtime.builder import RuntimeBuilder
+from medre.runtime.errors import (
+    RuntimeConfigError,
+    RuntimeStartupError,
+)
+from medre.runtime.route_engine import RouteValidationError
+from medre.runtime.routes import RouteConfig, RouteConfigSet
 from medre.runtime.smoke import (
     _LIMITATIONS as _SMOKE_LIMITATIONS,
     _default_smoke_config_path,
@@ -88,6 +139,10 @@ AVAILABLE_DRILLS: tuple[str, ...] = (
     "shutdown_rejection",
     "replay_duplicate_risk",
     "degraded_live_health",
+    "bad_route_config",
+    "all_adapters_build_fail",
+    "partial_degraded_startup",
+    "all_adapters_start_fail",
 )
 
 _DRILL_LIMITATIONS: list[str] = [
@@ -933,8 +988,579 @@ async def _drill_degraded_live_health(
 
 
 # ---------------------------------------------------------------------------
-# Drill dispatch
+# Private drill-only failing adapters
 # ---------------------------------------------------------------------------
+
+
+class _DrillFailingAdapter(BaseAdapter):
+    """Adapter that raises on ``start()`` and records ``stop()`` calls.
+
+    Used by pre-runtime startup-failure drills to simulate adapter
+    start failures deterministically.
+    """
+
+    adapter_id: str
+    platform: str = "test"
+    role: AdapterRole = AdapterRole.TRANSPORT
+
+    def __init__(self, adapter_id: str) -> None:
+        self.adapter_id = adapter_id
+        self.stop_called: bool = False
+
+    async def start(self, ctx: AdapterContext) -> None:
+        raise RuntimeError(f"drill: simulated start failure for {self.adapter_id}")
+
+    async def stop(self, timeout: float = 5.0) -> None:
+        self.stop_called = True
+
+    async def health_check(self) -> AdapterInfo:
+        return AdapterInfo(
+            adapter_id=self.adapter_id,
+            platform=self.platform,
+            role=self.role,
+            version="0.0.0",
+            capabilities=AdapterCapabilities(),
+            health="failed",
+        )
+
+    async def deliver(self, result: Any) -> AdapterDeliveryResult | None:
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Config / path helpers for programmatic drills
+# ---------------------------------------------------------------------------
+
+
+def _drill_paths() -> Any:
+    """Return a MedrePaths pointing at a temp-safe root.
+
+    Uses MEDRE_HOME so no real filesystem paths are touched.
+    """
+    import os
+    os.environ.pop("MEDRE_HOME", None)
+    os.environ.pop("XDG_CONFIG_HOME", None)
+    os.environ.pop("XDG_STATE_HOME", None)
+    os.environ.pop("XDG_DATA_HOME", None)
+    os.environ.pop("XDG_CACHE_HOME", None)
+    import tempfile
+    os.environ["MEDRE_HOME"] = tempfile.mkdtemp(prefix="medre-drill-")
+    return resolve_paths()
+
+
+# ---------------------------------------------------------------------------
+# Drill: bad_route_config
+# ---------------------------------------------------------------------------
+
+
+async def _drill_bad_route_config(
+    config_path: str | None,
+    storage_path: str | None,
+) -> dict[str, Any]:
+    """Enabled route references a non-existent adapter; builder raises."""
+    report = _base_report("bad_route_config", storage_path=storage_path)
+    steps: list[dict[str, Any]] = []
+
+    config = RuntimeConfig(
+        runtime=RuntimeOptions(name="drill-bad-route-config"),
+        storage=StorageConfig(backend="memory"),
+        adapters=AdapterConfigSet(
+            matrix={
+                "fake_matrix": MatrixRuntimeConfig(
+                    adapter_id="fake_matrix",
+                    enabled=True,
+                    adapter_kind="fake",
+                ),
+            },
+        ),
+        routes=RouteConfigSet(routes=(
+            RouteConfig(
+                route_id="bad_route",
+                source_adapters=("fake_matrix",),
+                dest_adapters=("ghost_adapter",),
+                enabled=True,
+            ),
+        )),
+    )
+    steps.append(_step("create_bad_config", "ok"))
+
+    paths = _drill_paths()
+    builder = RuntimeBuilder(config, paths)
+
+    try:
+        caught_error: Exception | None = None
+        try:
+            builder.build()
+        except RouteValidationError as exc:
+            caught_error = exc
+        except Exception as exc:
+            caught_error = exc
+
+        if caught_error is None:
+            report["status"] = "FAIL"
+            report["fail_reasons"] = [
+                "Expected RouteValidationError but builder.build() succeeded"
+            ]
+        else:
+            error_type = type(caught_error).__name__
+            error_msg = str(caught_error)
+            has_ghost = "ghost_adapter" in error_msg
+
+            steps.append(_step(
+                "verify_route_validation_error",
+                "ok" if isinstance(caught_error, RouteValidationError) else "unexpected",
+                error_type=error_type,
+                error_message=error_msg,
+                has_unknown_adapter=has_ghost,
+            ))
+
+            report["route_id"] = "bad_route"
+            report["unknown_adapter_id"] = "ghost_adapter"
+            report["known_adapter_ids"] = ["fake_matrix"]
+            report["error_type"] = error_type
+            report["error_message"] = error_msg
+            report["build_succeeded"] = False
+            report["runtime_started"] = False
+
+            if not isinstance(caught_error, RouteValidationError):
+                report["status"] = "FAIL"
+                report["fail_reasons"] = [
+                    f"Expected RouteValidationError, got {error_type}: {error_msg}"
+                ]
+            elif not has_ghost:
+                report["status"] = "FAIL"
+                report["fail_reasons"] = [
+                    f"Error message does not mention ghost_adapter: {error_msg}"
+                ]
+
+    except Exception as exc:
+        report["status"] = "FAIL"
+        report["fail_reasons"] = [f"Unexpected error: {exc}"]
+
+    report["drill_steps"] = steps
+    return report
+
+
+# ---------------------------------------------------------------------------
+# Drill: all_adapters_build_fail
+# ---------------------------------------------------------------------------
+
+
+async def _drill_all_adapters_build_fail(
+    config_path: str | None,
+    storage_path: str | None,
+) -> dict[str, Any]:
+    """All enabled adapters fail construction; builder records failures."""
+    report = _base_report("all_adapters_build_fail", storage_path=storage_path)
+    steps: list[dict[str, Any]] = []
+
+    config = RuntimeConfig(
+        runtime=RuntimeOptions(name="drill-all-build-fail"),
+        storage=StorageConfig(backend="memory"),
+        adapters=AdapterConfigSet(
+            matrix={
+                "broken1": MatrixRuntimeConfig(
+                    adapter_id="broken1",
+                    enabled=True,
+                    adapter_kind="fake",
+                ),
+            },
+            meshtastic={
+                "broken2": MeshtasticRuntimeConfig(
+                    adapter_id="broken2",
+                    enabled=True,
+                    adapter_kind="fake",
+                ),
+            },
+        ),
+    )
+    steps.append(_step("create_multi_adapter_config", "ok"))
+
+    paths = _drill_paths()
+
+    try:
+        with patch(
+            "medre.runtime.builder._build_fake_adapter",
+            side_effect=RuntimeConfigError("drill: forced build failure"),
+        ):
+            builder = RuntimeBuilder(config, paths)
+            app = builder.build()
+
+        steps.append(_step("build_runtime", "ok"))
+
+        adapter_count = len(app.adapters)
+        failure_count = len(app.build_failures)
+
+        steps.append(_step(
+            "verify_empty_adapters",
+            "ok" if adapter_count == 0 else "unexpected",
+            adapter_count=adapter_count,
+        ))
+        steps.append(_step(
+            "verify_build_failures",
+            "ok" if failure_count == 2 else "unexpected",
+            failure_count=failure_count,
+        ))
+
+        build_failure_records = [
+            {
+                "transport": bf.transport,
+                "adapter_id": bf.adapter_id,
+                "error": str(bf.error),
+            }
+            for bf in app.build_failures
+        ]
+        steps.append(_step(
+            "verify_failure_attribution",
+            "ok",
+            build_failures=build_failure_records,
+        ))
+
+        report["build_failures"] = build_failure_records
+        report["known_adapter_ids"] = sorted(app.adapters.keys())
+        report["failed_adapter_count"] = failure_count
+        report["build_failure_count"] = failure_count
+        report["adapters_total"] = failure_count
+        report["runtime_started"] = False
+
+        if adapter_count != 0 or failure_count != 2:
+            report["status"] = "FAIL"
+            report["fail_reasons"] = []
+            if adapter_count != 0:
+                report["fail_reasons"].append(
+                    f"Expected 0 adapters, got {adapter_count}"
+                )
+            if failure_count != 2:
+                report["fail_reasons"].append(
+                    f"Expected 2 build failures, got {failure_count}"
+                )
+
+    except Exception as exc:
+        report["status"] = "FAIL"
+        report["fail_reasons"] = [f"Unexpected error: {exc}"]
+
+    report["drill_steps"] = steps
+    return report
+
+
+# ---------------------------------------------------------------------------
+# Drill: partial_degraded_startup
+# ---------------------------------------------------------------------------
+
+
+async def _drill_partial_degraded_startup(
+    config_path: str | None,
+    storage_path: str | None,
+) -> dict[str, Any]:
+    """One adapter starts, one fails; runtime enters DEGRADED RUNNING."""
+    report = _base_report("partial_degraded_startup", storage_path=storage_path)
+    steps: list[dict[str, Any]] = []
+
+    config = RuntimeConfig(
+        runtime=RuntimeOptions(name="drill-partial-degraded"),
+        storage=StorageConfig(backend="memory"),
+        adapters=AdapterConfigSet(
+            matrix={
+                "alpha": MatrixRuntimeConfig(
+                    adapter_id="alpha", enabled=True, adapter_kind="fake",
+                ),
+            },
+            meshtastic={
+                "beta": MeshtasticRuntimeConfig(
+                    adapter_id="beta", enabled=True, adapter_kind="fake",
+                ),
+            },
+            meshcore={
+                "gamma": MeshCoreRuntimeConfig(
+                    adapter_id="gamma", enabled=True, adapter_kind="fake",
+                ),
+            },
+        ),
+    )
+    steps.append(_step("create_three_adapter_config", "ok"))
+
+    paths = _drill_paths()
+
+    app: MedreApp | None = None
+    try:
+        builder = RuntimeBuilder(config, paths)
+        app = builder.build()
+        steps.append(_step("build_runtime", "ok"))
+
+        # Replace beta with a failing adapter.
+        failing = _DrillFailingAdapter(adapter_id="beta")
+        app.adapters["beta"] = failing
+        steps.append(_step("inject_failing_adapter", "ok", target_adapter="beta"))
+
+        await app.start()
+        steps.append(_step("attempt_start", "ok"))
+
+        # Verify runtime state.
+        from medre.runtime.app import RuntimeState
+
+        is_running = app.state == RuntimeState.RUNNING
+        steps.append(_step(
+            "verify_running",
+            "ok" if is_running else "unexpected",
+            runtime_state=app.state.value,
+        ))
+
+        boot = app.boot_summary
+        is_partial = boot is not None and boot.startup_outcome == "partial"
+        is_degraded = boot is not None and boot.runtime_health == "degraded"
+
+        steps.append(_step(
+            "verify_partial_outcome",
+            "ok" if is_partial else "unexpected",
+            startup_outcome=boot.startup_outcome if boot else None,
+        ))
+        steps.append(_step(
+            "verify_degraded_health",
+            "ok" if is_degraded else "unexpected",
+            runtime_health=boot.runtime_health if boot else None,
+        ))
+
+        started = sorted(app.started_adapter_ids)
+        failed = sorted(app._failed_adapter_ids)
+
+        steps.append(_step(
+            "verify_started_adapters",
+            "ok" if started == ["alpha", "gamma"] else "unexpected",
+            started_adapters=started,
+        ))
+        steps.append(_step(
+            "verify_failed_adapters",
+            "ok" if failed == ["beta"] else "unexpected",
+            failed_adapters=failed,
+        ))
+
+        # Verify boot summary counts.
+        correct_counts = (
+            boot is not None
+            and boot.adapters_started == 2
+            and boot.adapters_failed == 1
+            and boot.adapters_total == 3
+        )
+        steps.append(_step(
+            "verify_boot_summary_counts",
+            "ok" if correct_counts else "unexpected",
+            adapters_started=boot.adapters_started if boot else None,
+            adapters_failed=boot.adapters_failed if boot else None,
+            adapters_total=boot.adapters_total if boot else None,
+        ))
+
+        # Verify the failed adapter's stop() was called (cleanup after start failure).
+        steps.append(_step(
+            "verify_failed_adapter_cleanup",
+            "ok" if failing.stop_called else "unexpected",
+            adapter_stop_called=failing.stop_called,
+        ))
+
+        report["started_adapters"] = started
+        report["failed_adapters"] = failed
+        report["startup_outcome"] = boot.startup_outcome if boot else None
+        report["runtime_health"] = boot.runtime_health if boot else None
+        report["boot_summary"] = boot.to_dict() if boot else None
+
+        if not (is_running and is_partial and is_degraded and correct_counts):
+            report["status"] = "FAIL"
+            report["fail_reasons"] = []
+            if not is_running:
+                report["fail_reasons"].append(
+                    f"Expected RUNNING state, got {app.state.value}"
+                )
+            if not is_partial:
+                report["fail_reasons"].append(
+                    f"Expected partial outcome, got "
+                    f"{boot.startup_outcome if boot else 'no boot summary'}"
+                )
+            if not is_degraded:
+                report["fail_reasons"].append(
+                    f"Expected degraded health, got "
+                    f"{boot.runtime_health if boot else 'no boot summary'}"
+                )
+
+    except Exception as exc:
+        report["status"] = "FAIL"
+        report["fail_reasons"] = [f"Unexpected error: {exc}"]
+        # If app was built, attempt cleanup.
+        if app is not None:
+            await _clean_stop(app)
+
+    else:
+        if app is not None:
+            await _clean_stop(app)
+
+    report["drill_steps"] = steps
+    return report
+
+
+# ---------------------------------------------------------------------------
+# Drill: all_adapters_start_fail
+# ---------------------------------------------------------------------------
+
+
+async def _drill_all_adapters_start_fail(
+    config_path: str | None,
+    storage_path: str | None,
+) -> dict[str, Any]:
+    """All adapters build but fail start(); RuntimeStartupError raised."""
+    report = _base_report("all_adapters_start_fail", storage_path=storage_path)
+    steps: list[dict[str, Any]] = []
+
+    config = RuntimeConfig(
+        runtime=RuntimeOptions(name="drill-all-start-fail"),
+        storage=StorageConfig(backend="memory"),
+        adapters=AdapterConfigSet(
+            matrix={
+                "alpha": MatrixRuntimeConfig(
+                    adapter_id="alpha", enabled=True, adapter_kind="fake",
+                ),
+            },
+            meshtastic={
+                "beta": MeshtasticRuntimeConfig(
+                    adapter_id="beta", enabled=True, adapter_kind="fake",
+                ),
+            },
+        ),
+    )
+    steps.append(_step("create_two_adapter_config", "ok"))
+
+    paths = _drill_paths()
+
+    try:
+        builder = RuntimeBuilder(config, paths)
+        app = builder.build()
+        steps.append(_step("build_runtime", "ok"))
+
+        # Replace both adapters with failing trackers.
+        alpha_fail = _DrillFailingAdapter(adapter_id="alpha")
+        beta_fail = _DrillFailingAdapter(adapter_id="beta")
+        app.adapters["alpha"] = alpha_fail
+        app.adapters["beta"] = beta_fail
+        steps.append(_step("inject_failing_adapters", "ok"))
+
+        # Track cleanup via wrapper mocks.
+        pipeline_stop_called = False
+        storage_close_called = False
+
+        original_pipeline_stop = app.pipeline_runner.stop
+
+        async def _track_pipeline_stop() -> None:
+            nonlocal pipeline_stop_called
+            pipeline_stop_called = True
+            await original_pipeline_stop()
+
+        app.pipeline_runner.stop = _track_pipeline_stop
+
+        if app.storage is not None:
+            original_storage_close = app.storage.close
+
+            async def _track_storage_close() -> None:
+                nonlocal storage_close_called
+                storage_close_called = True
+                await original_storage_close()
+
+            app.storage.close = _track_storage_close
+
+        # Attempt start — should raise RuntimeStartupError.
+        startup_error_caught = False
+        try:
+            await app.start()
+        except RuntimeStartupError:
+            startup_error_caught = True
+
+        steps.append(_step(
+            "attempt_start",
+            "ok" if startup_error_caught else "unexpected",
+            runtime_startup_error_caught=startup_error_caught,
+        ))
+
+        from medre.runtime.app import RuntimeState
+
+        is_failed_state = app.state == RuntimeState.FAILED
+        steps.append(_step(
+            "verify_app_state_failed",
+            "ok" if is_failed_state else "unexpected",
+            app_state=app.state.value,
+        ))
+
+        boot = app.boot_summary
+        is_total_failure = boot is not None and boot.startup_outcome == "total_failure"
+
+        steps.append(_step(
+            "verify_total_failure",
+            "ok" if is_total_failure else "unexpected",
+            startup_outcome=boot.startup_outcome if boot else None,
+        ))
+
+        no_started = len(app.started_adapter_ids) == 0
+        steps.append(_step(
+            "verify_no_started_adapters",
+            "ok" if no_started else "unexpected",
+            started_count=len(app.started_adapter_ids),
+        ))
+
+        all_failed = sorted(app._failed_adapter_ids) == ["alpha", "beta"]
+        steps.append(_step(
+            "verify_all_adapters_failed",
+            "ok" if all_failed else "unexpected",
+            failed_adapters=sorted(app._failed_adapter_ids),
+        ))
+
+        # Cleanup evidence.
+        steps.append(_step(
+            "verify_pipeline_cleanup",
+            "ok" if pipeline_stop_called else "unexpected",
+            pipeline_stopped=pipeline_stop_called,
+        ))
+        steps.append(_step(
+            "verify_storage_cleanup",
+            "ok" if storage_close_called else "unexpected",
+            storage_closed=storage_close_called,
+        ))
+        steps.append(_step(
+            "verify_adapter_cleanup",
+            "ok" if alpha_fail.stop_called and beta_fail.stop_called else "unexpected",
+            alpha_stopped=alpha_fail.stop_called,
+            beta_stopped=beta_fail.stop_called,
+        ))
+
+        report["started_adapters"] = sorted(app.started_adapter_ids)
+        report["failed_adapters"] = sorted(app._failed_adapter_ids)
+        report["startup_outcome"] = boot.startup_outcome if boot else None
+        report["runtime_health"] = boot.runtime_health if boot else None
+        report["boot_summary"] = boot.to_dict() if boot else None
+        report["cleanup_evidence"] = {
+            "pipeline_stopped": pipeline_stop_called,
+            "storage_closed": storage_close_called,
+            "adapters_stopped": alpha_fail.stop_called and beta_fail.stop_called,
+            "app_state": app.state.value,
+        }
+
+        if not (startup_error_caught and is_total_failure and is_failed_state
+                and no_started and all_failed
+                and pipeline_stop_called and storage_close_called):
+            report["status"] = "FAIL"
+            report["fail_reasons"] = []
+            if not startup_error_caught:
+                report["fail_reasons"].append("RuntimeStartupError was not raised")
+            if not is_total_failure:
+                report["fail_reasons"].append(
+                    f"Expected total_failure, got "
+                    f"{boot.startup_outcome if boot else 'no boot summary'}"
+                )
+            if not pipeline_stop_called:
+                report["fail_reasons"].append("Pipeline runner was not stopped")
+            if not storage_close_called:
+                report["fail_reasons"].append("Storage was not closed")
+
+    except Exception as exc:
+        report["status"] = "FAIL"
+        report["fail_reasons"] = [f"Unexpected error: {exc}"]
+
+    report["drill_steps"] = steps
+    return report
 
 
 _DRILL_RUNNERS: dict[str, Any] = {
@@ -945,6 +1571,10 @@ _DRILL_RUNNERS: dict[str, Any] = {
     "shutdown_rejection": _drill_shutdown_rejection,
     "replay_duplicate_risk": _drill_replay_duplicate_risk,
     "degraded_live_health": _drill_degraded_live_health,
+    "bad_route_config": _drill_bad_route_config,
+    "all_adapters_build_fail": _drill_all_adapters_build_fail,
+    "partial_degraded_startup": _drill_partial_degraded_startup,
+    "all_adapters_start_fail": _drill_all_adapters_start_fail,
 }
 
 

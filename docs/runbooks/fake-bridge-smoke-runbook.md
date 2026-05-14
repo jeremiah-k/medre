@@ -385,6 +385,27 @@ for what survives process termination, and
 [Bridge Operation > Persistence of Bridge State](bridge-operation.md#12-persistence-of-bridge-state)
 for bridge-specific persistence details.
 
+
+### Evidence bundle workflow
+
+For a structured approach to collecting smoke output, drill reports, and
+inspect results as a single pre-runtime evidence package, use
+`medre evidence`:
+
+```bash
+# Basic bundle: smoke + all drills
+PYTHONPATH=src medre evidence --config my-bridge.toml --json > bundle.json
+
+# Include live health refresh
+PYTHONPATH=src medre evidence --config my-bridge.toml --include-refresh-health --json > bundle-health.json
+
+# Target a specific stored event
+PYTHONPATH=src medre evidence --config my-bridge.toml --event <event_id> --json > bundle-event.json
+```
+
+See [Bridge Evidence Bundle](bridge-evidence-bundle.md) for the full collection
+workflow, report shapes, and bug report attachment guidance.
+
 ### Expected fake bridge PASS output
 
 ```bash

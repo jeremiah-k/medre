@@ -767,7 +767,7 @@ Validates the config file without starting the runtime. Checks for:
 - Conflicting paths
 
 
-### Smoke vs. Diagnostics vs. Inspect
+### Smoke vs. Diagnostics vs. Inspect vs. Evidence
 
 These commands serve different purposes. Operators should understand the
 boundaries:
@@ -775,6 +775,7 @@ boundaries:
 | Command | Storage | Starts adapters | Output | Persistence |
 |---------|---------|----------------|--------|-------------|
 | ``medre smoke`` | In-memory by default; SQLite with ``--storage-path`` | Yes (fake only) | PASS/FAIL JSON report | Ephemeral by default; SQLite persists with ``--storage-path`` |
+| ``medre evidence`` | Per config (memory or SQLite) | Fake only (or real with ``--include-refresh-health``) | Full evidence bundle JSON | Per config |
 | ``medre diagnostics`` | None (build-time) | No | Build-time snapshot | N/A (no data written) |
 | ``medre diagnostics --refresh-health`` | None | Yes (real or fake) | Live health snapshot | Ephemeral — lost on exit |
 | ``medre run`` | Per config (SQLite or memory) | Yes (real or fake) | Logs only | SQLite persists if configured |
@@ -802,9 +803,36 @@ medre inspect native-ref --adapter bot --message '$event_id' --config my-bridge.
 — there is no persistent data to inspect. It also exits 2 if the database
 file does not exist or cannot be opened.
 
+### Evidence Command
+
+```bash
+# Full evidence bundle: config summary + route validation + diagnostics + storage
+medre evidence --config my-bridge.toml --json
+
+# Include live health refresh (starts real adapters)
+medre evidence --config my-bridge.toml --include-refresh-health --json
+
+# Target a specific stored event
+medre evidence --config my-bridge.toml --event <event_id> --json
+```
+
+`medre evidence` collects config summary, route validation, diagnostics
+snapshot, optional live health, and storage inspection into a single JSON
+report. It is the recommended operator command for pre-runtime validation
+and bug report attachments. Exit codes: 0 = ok/partial, 2 = config error.
+
+With `--include-refresh-health`, the command starts all enabled adapters,
+polls health once, captures the live snapshot, and stops. This opens real
+connections for real adapters — the purpose is to verify real connectivity as
+part of the evidence bundle.
+
+See [Bridge Evidence Bundle](bridge-evidence-bundle.md) for the full report
+shape, interpretation guidance, and bug report attachment checklist.
+
 See [Fake Bridge Smoke Runbook](fake-bridge-smoke-runbook.md#smoke-persistence-caveat)
-for the smoke persistence caveat and [Bridge Failure Drills](bridge-failure-drills.md)
-for failure interpretation guidance.
+for the smoke persistence caveat, [Bridge Failure Drills](bridge-failure-drills.md)
+for failure interpretation guidance, and [Bridge Evidence Bundle](bridge-evidence-bundle.md)
+for the full evidence collection workflow using `medre evidence`.
 
 ### Per-Adapter Diagnostics
 

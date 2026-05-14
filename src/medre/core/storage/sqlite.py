@@ -715,6 +715,19 @@ class SQLiteStorage:
             return int(row["cnt"])
         return 0
 
+    async def count_receipts(self) -> int:
+        """Return the total number of delivery receipt rows.
+
+        Returns
+        -------
+        int
+            Count of rows in ``delivery_receipts``.
+        """
+        row = await self._read_one("SELECT COUNT(*) AS cnt FROM delivery_receipts")
+        if row is not None:
+            return int(row["cnt"])
+        return 0
+
     @staticmethod
     def _sync_close(db: sqlite3.Connection) -> None:
         """Close a synchronous connection (called from a worker thread)."""

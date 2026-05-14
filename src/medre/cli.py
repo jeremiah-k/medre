@@ -15,6 +15,7 @@ Usage::
     medre routes validate [--config]  Validate route configuration
     medre routes topology [--config]  Print route topology preview
     medre routes list [--config]      List configured routes
+    medre evidence [--config] [--json]  Collect evidence bundle for support
 
 The module also supports ``python -m medre.cli`` via the ``__main__`` block
 at the bottom of this file.
@@ -1253,6 +1254,72 @@ async def _smoke(
 
 
 # ---------------------------------------------------------------------------
+# Evidence command (async)
+# ---------------------------------------------------------------------------
+
+
+async def _evidence(
+    config_path: str | None,
+    json_output: bool,
+    event_id: str | None,
+    replay_run_id: str | None,
+    include_refresh_health: bool,
+) -> None:
+    """Collect and print an evidence bundle."""
+    import json as _json
+
+    from medre.runtime.evidence import collect_evidence_bundle
+
+    report = await collect_evidence_bundle(
+        config_path,
+        event_id=event_id,
+        replay_run_id=replay_run_id,
+        include_refresh_health=include_refresh_health,
+    )
+
+    if json_output:
+        print(_json.dumps(report, sort_keys=True, indent=2))
+    else:
+        # Human-readable summary.
+        status = report["status"]
+        if status == "ok":
+            print("Evidence: OK")
+        elif status == "partial":
+            print("Evidence: PARTIAL (some sections incomplete)")
+        else:
+            print("Evidence: ERROR")
+
+        print(f"  Collected at:  {report['collected_at']}")
+        print(f"  Version:       {report['medre_version']}")
+        print(f"  Config source: {report.get('config_source', 'N/A')}")
+        print(f"  Runtime started: {report['runtime_started']}")
+
+        sections = report.get("sections", {})
+        for name, section in sorted(sections.items()):
+            sec_status = section.get("status", "unknown")
+            marker = {
+                "ok": "\u2713",
+                "partial": "\u26a0",
+                "error": "\u2717",
+                "skipped": "-",
+            }.get(sec_status, "?")
+            print(f"  {marker} {name}: {sec_status}")
+            if section.get("error"):
+                print(f"      {section['error']}")
+
+        errors = report.get("errors", [])
+        if errors:
+            print()
+            print(f"Errors ({len(errors)}):")
+            for err in errors:
+                print(f"  \u2717 {err}")
+
+    # Exit 0 for ok/partial, EXIT_CONFIG for config load failure.
+    if report["status"] == "error":
+        sys.exit(EXIT_CONFIG)
+
+
+# ---------------------------------------------------------------------------
 # Argument parser
 # ---------------------------------------------------------------------------
 
@@ -1313,6 +1380,17 @@ def _build_parser() -> argparse.ArgumentParser:
     smoke_p.add_argument("--drill", default=None, metavar="NAME",
         help="Run named failure drill instead of normal smoke")
     smoke_p.add_argument("--json", action="store_true", default=False, help="Output JSON report")
+
+    # evidence
+    evidence_p = sub.add_parser("evidence", help="Collect evidence bundle for support")
+    evidence_p.add_argument("--config", default=None, help="Path to config file")
+    evidence_p.add_argument("--json", action="store_true", default=False, help="Output JSON report")
+    evidence_p.add_argument("--event", default=None, metavar="EVENT_ID",
+        help="Include event and delivery receipts from storage")
+    evidence_p.add_argument("--replay-run", default=None, metavar="RUN_ID",
+        help="Include delivery receipts for a replay run from storage")
+    evidence_p.add_argument("--include-refresh-health", action="store_true", default=False,
+        help="Start runtime once to refresh live adapter health")
 
     # inspect (with sub-subcommands)
     inspect_p = sub.add_parser("inspect", help="Read-only storage inspection")
@@ -1415,6 +1493,18 @@ def main(argv: list[str] | None = None) -> None:
                     message=args.message,
                 )
             )
+    elif args.command == "evidence":
+        import asyncio
+
+        asyncio.run(
+            _evidence(
+                args.config,
+                args.json,
+                getattr(args, "event", None),
+                getattr(args, "replay_run", None),
+                args.include_refresh_health,
+            )
+        )
 
 
 if __name__ == "__main__":

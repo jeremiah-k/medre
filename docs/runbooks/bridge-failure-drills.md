@@ -17,7 +17,14 @@ This is an interpretation guide for operators. MEDRE does not provide automated
 remediation, per-adapter restart, or self-healing. Operators diagnose and act
 manually.
 
-For failure categories not covered here (config validation, route topology),
+Pre-runtime drills (`bad_route_config`, `all_adapters_build_fail`,
+`partial_degraded_startup`, `all_adapters_start_fail`) can be run as a batch
+via `medre evidence --config <path> --json` or individually via
+`medre smoke --drill <name> --json`. See
+[Bridge Evidence Bundle](bridge-evidence-bundle.md) for the full collection
+workflow.
+
+For failure categories not covered here (route topology),
 see [Routing Correctness](routing-correctness.md) and
 [Bridge Operation](bridge-operation.md).
 
@@ -113,7 +120,7 @@ construction, no storage initialization, no network I/O.
 
 ### 3.2 Unknown Adapter Ref in Route
 
-**Command:**
+**Command (config validation):**
 
 ```bash
 cat > /tmp/bad-route.toml <<'EOF'
@@ -136,11 +143,18 @@ EOF
 PYTHONPATH=src medre routes validate --config /tmp/bad-route.toml
 ```
 
+**Command (drill):**
+
+```bash
+PYTHONPATH=src medre smoke --drill bad_route_config --json
+```
+
 **Expected FAIL:**
 
-- Exit code: **2** (`EXIT_CONFIG`)
+- Route validation: exit code **2** (`EXIT_CONFIG`) — the runtime would reject this config.
 - stderr: `RouteValidationError` naming the unknown adapter
 - No adapter starts
+- Drill report: `status == "PASS"` — the drill itself exits 0 because the expected error was correctly observed
 
 **Inspect next:**
 
@@ -191,6 +205,23 @@ PYTHONPATH=src medre routes validate --config /tmp/dup-route.toml
 
 Build failures occur during adapter construction — after config parsing but
 before adapter startup. The runtime does not start.
+
+### 4.0 Drill Command (All Build Failures)
+
+Run the pre-runtime build failure drill:
+
+```bash
+PYTHONPATH=src medre smoke --drill all_adapters_build_fail --json
+```
+
+**Expected PASS (drill catches the error correctly):**
+
+- Exit code: **0** (drill itself succeeds)
+- Drill report: `status == "PASS"`
+- Drill steps include config construction, build attempt, and exit code
+  verification
+- The drill proves that the runtime exits with code 3 when all adapters fail
+  to build
 
 ### 4.1 Missing SDK Dependency
 
@@ -267,6 +298,21 @@ PYTHONPATH=src medre run --config /tmp/bad-storage.toml
 
 Startup failures occur after build succeeds but before adapters enter running
 state.
+
+### 5.0 Pre-Runtime Drill Commands
+
+Run startup failure drills as a batch:
+
+```bash
+PYTHONPATH=src medre smoke --drill all_adapters_start_fail --json
+PYTHONPATH=src medre smoke --drill partial_degraded_startup --json
+```
+
+Or collect both as part of a full evidence bundle:
+
+```bash
+PYTHONPATH=src medre evidence --config my-bridge.toml --json > bundle.json
+```
 
 ### 5.1 Total Startup Failure (Exit 4)
 
@@ -779,9 +825,13 @@ provide cross-instance loop prevention. See
 | After this failure... | Run this to inspect |
 |----------------------|-------------------|
 | Config error (exit 2) | `medre config check --config <path>` |
+| Config error (drill) | `medre smoke --drill bad_route_config --json` |
 | Build failure (exit 3) | `medre diagnostics --config <path>` → `startup.build_failures` |
+| Build failure (drill) | `medre smoke --drill all_adapters_build_fail --json` |
 | Total startup failure (exit 4) | `medre diagnostics --config <path>` → `startup.boot_summary` |
+| Total startup failure (drill) | `medre smoke --drill all_adapters_start_fail --json` |
 | Degraded startup | `medre diagnostics --refresh-health` → `health.live_health` |
+| Degraded startup (drill) | `medre smoke --drill partial_degraded_startup --json` |
 | Renderer failure | `medre inspect receipts --event <id> --config <path>` |
 | Adapter permanent | `medre inspect receipts --event <id>` + adapter `diagnostics()` |
 | Adapter transient | Full receipt chain via `parent_receipt_id` |
@@ -844,5 +894,9 @@ medre inspect receipts --event <event_id> --config my-bridge.toml
     ``medre diagnostics --refresh-health`` start and stop the runtime. They do
     not provide ongoing monitoring.
 
-11. **Pre-beta.** Exit codes, receipt schemas, and diagnostic shapes may change
-    before beta. Always verify against the current code.
+    11. **Pre-beta.** Exit codes, receipt schemas, and diagnostic shapes may change
+     before beta. Always verify against the current code.
+
+12. **Evidence bundle workflow.** For a structured approach to collecting
+    smoke output, drill reports, and inspect results as a pre-runtime
+    evidence package, see [Bridge Evidence Bundle](bridge-evidence-bundle.md).

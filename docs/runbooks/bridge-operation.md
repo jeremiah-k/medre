@@ -375,8 +375,11 @@ events, receipts, and native refs are written to the specified database file.
 For durable inspection of bridge delivery state, use ``medre run`` with
 ``[storage] backend = "sqlite"`` and inspect the database afterward. See the
 [Fake Bridge Smoke Runbook](fake-bridge-smoke-runbook.md#smoke-persistence-caveat)
-for details and the [Bridge Failure Drills](bridge-failure-drills.md) runbook
-for failure interpretation guidance.
+for details, the [Bridge Failure Drills](bridge-failure-drills.md) runbook
+for failure interpretation guidance, and the
+[Bridge Evidence Bundle](bridge-evidence-bundle.md) runbook for collecting
+smoke, drill, and inspect outputs as a single pre-runtime evidence package
+via ``medre evidence``.
 
 
 ## 13. Explicit Non-Guarantees
