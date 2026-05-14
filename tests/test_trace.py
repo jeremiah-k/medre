@@ -1165,7 +1165,7 @@ class TestBestEffortWarningText:
     replay_run_id, traceability is NOT dedupe, and duplicate-send risk."""
 
     def test_warning_mentions_distinguishable(self) -> None:
-        from medre.cli import _BEST_EFFORT_WARNING
+        from medre.cli.replay_commands import _BEST_EFFORT_WARNING
 
         assert "distinguishable" in _BEST_EFFORT_WARNING.lower()
         # Must NOT say "NOT distinguishable from live records"
@@ -1173,20 +1173,20 @@ class TestBestEffortWarningText:
             "NOT distinguishable" not in _BEST_EFFORT_WARNING
 
     def test_warning_mentions_source_replay(self) -> None:
-        from medre.cli import _BEST_EFFORT_WARNING
+        from medre.cli.replay_commands import _BEST_EFFORT_WARNING
 
         assert "source='replay'" in _BEST_EFFORT_WARNING
         assert "replay_run_id" in _BEST_EFFORT_WARNING
 
     def test_warning_mentions_traceability_not_dedupe(self) -> None:
-        from medre.cli import _BEST_EFFORT_WARNING
+        from medre.cli.replay_commands import _BEST_EFFORT_WARNING
 
         assert "traceability" in _BEST_EFFORT_WARNING.lower()
         assert "dedupe" in _BEST_EFFORT_WARNING.lower() or \
             "NOT dedupe" in _BEST_EFFORT_WARNING
 
     def test_warning_mentions_duplicate_send_risk(self) -> None:
-        from medre.cli import _BEST_EFFORT_WARNING
+        from medre.cli.replay_commands import _BEST_EFFORT_WARNING
 
         assert "duplicate" in _BEST_EFFORT_WARNING.lower()
 

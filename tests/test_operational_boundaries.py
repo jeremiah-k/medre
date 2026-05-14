@@ -340,7 +340,6 @@ class TestCliWorkflowsRuntimeLayerOnly:
 
     _CLI_SOURCE_MODULES = [
         "medre.cli",
-        "medre.runner",
     ]
 
     @pytest.fixture(
@@ -660,7 +659,7 @@ class TestDeploymentHelpersNoSdkInstantiation:
     """
 
     _DEPLOYMENT_SOURCE_MODULES = [
-        "medre.runner",
+        "medre.cli.run_commands",
         "medre.config.sample",
     ]
 
@@ -729,12 +728,12 @@ class TestDeploymentHelpersNoSdkInstantiation:
             + "\n".join(violations)
         )
 
-    def test_runner_uses_builder_pattern(self) -> None:
-        """``medre.runner`` must build the runtime through
+    def test_run_commands_uses_builder_pattern(self) -> None:
+        """``medre.cli.run_commands`` must build the runtime through
         ``RuntimeBuilder`` — never through direct adapter construction."""
-        source = _source_of("medre.runner")
+        source = _source_of("medre.cli.run_commands")
         assert "RuntimeBuilder" in source, (
-            "medre.runner must use RuntimeBuilder for runtime assembly"
+            "medre.cli.run_commands must use RuntimeBuilder for runtime assembly"
         )
 
     def test_config_sample_no_sdk_references(self) -> None:

@@ -220,8 +220,8 @@ See `README.md` for the full architecture description.
 - `docs/contracts/44-reticulum-license-notes.md`: Version 2. Updated date.
 - `docs/contracts/45-spdx-metadata-audit.md`: Version 2. All findings updated to resolved.
 
-### Track 6: Warning Cleanup
-- `tests/test_runner.py`: Fixed `coroutine 'run' was never awaited` by adding `coro.close()` in mock `fake_asyncio_run`. Added regression test `test_main_no_unawaited_coroutine_warning`.
+### Track 6: Warning Cleanup / Deprecated/Removed
+- `tests/test_runner.py` (DELETED 2026-05-14): Fixed `coroutine 'run' was never awaited` by adding `coro.close()` in mock `fake_asyncio_run`. Added regression test `test_main_no_unawaited_coroutine_warning`. The file was subsequently deleted when `medre.runner` was replaced by `medre.cli.run_commands`.
 
 ### Track 7: Beta Checklist
 - `docs/contracts/32-beta-readiness-checklist.md`: Version 3. D17/D18 resolved. NB1 resolved. Classification summary updated. S6a/S6b/R5 updated to reflect GPL decision.

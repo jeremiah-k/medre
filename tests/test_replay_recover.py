@@ -619,64 +619,64 @@ class TestFailureKindClassification:
     """Tests for failure-kind inference from receipt error/status fields."""
 
     def test_infer_adapter_transient_from_timeout_error(self) -> None:
-        from medre.cli import _infer_failure_kind
+        from medre.cli.recover_commands import _infer_failure_kind
         assert _infer_failure_kind("TimeoutError: connection timed out", "failed") == "adapter_transient"
 
     def test_infer_adapter_transient_from_connection_reset(self) -> None:
-        from medre.cli import _infer_failure_kind
+        from medre.cli.recover_commands import _infer_failure_kind
         assert _infer_failure_kind("ConnectionResetError: connection reset", "failed") == "adapter_transient"
 
     def test_infer_adapter_transient_from_dead_lettered(self) -> None:
         """dead_lettered status implies transient (retries exhausted)."""
-        from medre.cli import _infer_failure_kind
+        from medre.cli.recover_commands import _infer_failure_kind
         assert _infer_failure_kind("some error", "dead_lettered") == "adapter_transient"
 
     def test_infer_adapter_permanent_from_generic_error(self) -> None:
-        from medre.cli import _infer_failure_kind
+        from medre.cli.recover_commands import _infer_failure_kind
         assert _infer_failure_kind("permission denied", "failed") == "adapter_permanent"
 
     def test_infer_renderer_failure(self) -> None:
-        from medre.cli import _infer_failure_kind
+        from medre.cli.recover_commands import _infer_failure_kind
         assert _infer_failure_kind("no renderer registered for event_kind", "failed") == "renderer_failure"
 
     def test_infer_adapter_missing(self) -> None:
-        from medre.cli import _infer_failure_kind
+        from medre.cli.recover_commands import _infer_failure_kind
         assert _infer_failure_kind("adapter_missing: adapter 'x' not registered", "failed") == "adapter_missing"
 
     def test_infer_capacity_rejection(self) -> None:
-        from medre.cli import _infer_failure_kind
+        from medre.cli.recover_commands import _infer_failure_kind
         assert _infer_failure_kind("delivery_capacity_exceeded", "failed") == "capacity_rejection"
 
     def test_infer_shutdown_rejection(self) -> None:
-        from medre.cli import _infer_failure_kind
+        from medre.cli.recover_commands import _infer_failure_kind
         assert _infer_failure_kind("delivery_rejected_shutdown", "failed") == "shutdown_rejection"
 
     def test_infer_deadline_exceeded(self) -> None:
-        from medre.cli import _infer_failure_kind
+        from medre.cli.recover_commands import _infer_failure_kind
         assert _infer_failure_kind("deadline_exceeded: plan deadline passed", "failed") == "deadline_exceeded"
 
     def test_infer_unknown_no_error(self) -> None:
-        from medre.cli import _infer_failure_kind
+        from medre.cli.recover_commands import _infer_failure_kind
         assert _infer_failure_kind(None, "failed") == "unknown"
 
     def test_failure_category_retryable(self) -> None:
-        from medre.cli import _failure_category
+        from medre.cli.recover_commands import _failure_category
         assert _failure_category("adapter_transient") == "retryable"
 
     def test_failure_category_permanent(self) -> None:
-        from medre.cli import _failure_category
+        from medre.cli.recover_commands import _failure_category
         assert _failure_category("adapter_permanent") == "permanent"
         assert _failure_category("adapter_missing") == "permanent"
         assert _failure_category("renderer_failure") == "permanent"
 
     def test_failure_category_operational(self) -> None:
-        from medre.cli import _failure_category
+        from medre.cli.recover_commands import _failure_category
         assert _failure_category("capacity_rejection") == "operational"
         assert _failure_category("shutdown_rejection") == "operational"
         assert _failure_category("deadline_exceeded") == "operational"
 
     def test_failure_category_unknown(self) -> None:
-        from medre.cli import _failure_category
+        from medre.cli.recover_commands import _failure_category
         assert _failure_category("unknown") == "unknown"
         assert _failure_category("something_else") == "unknown"
 

@@ -382,33 +382,7 @@ def _snapshot_limits(limits: Any) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def sanitize_error(error: str) -> str:
-    """Sanitize an error string for safe inclusion in snapshots.
-
-    Strips likely token/secret patterns and SDK object repr strings,
-    then truncates to :data:`_MAX_ERROR_DETAIL_LEN`.
-    """
-    import re as _re
-
-    _TOKEN = _re.compile(
-        r'(syt_[A-Za-z0-9]+)'
-        r'|(MDAx[A-Za-z0-9+/=]{20,})'
-        r'|(?!(.)\3{39,})[A-Za-z0-9+/=]{40,}'
-        r'|(sk-[A-Za-z0-9]{20,})'
-        r'|(api[_-]?key[=:]\s*\S+)'
-        r'|(access_token[=:]\s*\S+)'
-        r'|(token[=:]\s*\S+)'
-        r'|(password[=:]\s*\S+)'
-        r'|(secret[=:]\s*\S+)'
-        r'|(credential[=:]\s*\S+)'
-    )
-    _SDK = _re.compile(r'<[\w.]+ object at 0x[0-9a-fA-F]+>')
-
-    sanitized = _TOKEN.sub('[REDACTED]', error)
-    sanitized = _SDK.sub('[OBJECT_REPR]', sanitized)
-    if len(sanitized) > _MAX_ERROR_DETAIL_LEN:
-        sanitized = sanitized[: _MAX_ERROR_DETAIL_LEN - 3] + "..."
-    return sanitized
+from medre.observability.sanitization import sanitize_error  # noqa: F401 — re-export for backward compat
 
 
 def _snapshot_build_failures(failures: list[Any]) -> list[dict[str, Any]]:

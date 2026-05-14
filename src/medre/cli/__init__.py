@@ -34,17 +34,6 @@ from .exit_codes import (
 # Main entry point and parser
 from .main import main, _build_parser, _get_version
 
-# Re-export symbols accessed by tests via ``from medre.cli import ...``
-from .replay_commands import _BEST_EFFORT_WARNING
-from .recover_commands import _infer_failure_kind, _failure_category, _recover
-from .storage_helpers import _open_readonly_storage
-
-# Re-export config loader and env overrides into the cli namespace so that
-# ``patch("medre.cli.load_config")`` and ``patch("medre.cli.apply_env_overrides")``
-# continue to work during the test migration phase.
-from medre.config.loader import load_config
-from medre.config.env import apply_env_overrides
-
 __all__ = [
     "main",
     "EXIT_OK",

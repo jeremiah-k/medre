@@ -10,7 +10,7 @@ import time
 from medre.config.loader import load_config
 from medre.config.errors import ConfigError
 from medre.config.env import apply_env_overrides
-from medre.logging import (
+from medre.observability import (
     adapter_logger,
     format_duration_ms,
     sanitize_for_log,
