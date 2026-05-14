@@ -40,6 +40,7 @@ from medre.core.diagnostics.replay_metrics import ReplayMetrics
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.events.kinds import EventKind
 from medre.core.events.metadata import EventMetadata
+from medre.core.lifecycle.states import AdapterState
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.capacity import CapacityController
 from medre.runtime.app import MedreApp, RuntimeState
@@ -972,3 +973,227 @@ class TestAdapterLifecycleDuringCancellation:
         await app.wait_for_shutdown(timeout=2.0)
 
         await app.stop()
+
+
+# =====================================================================
+# 11. Shutdown coverage regression (Wave 1 gaps)
+# =====================================================================
+
+
+class TestConcurrentStopExactlyOnce:
+    """Concurrent stop() calls stop each adapter exactly once."""
+
+    @pytest.mark.asyncio
+    async def test_concurrent_stop_skips_already_stopped_adapters(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """Five concurrent stop() calls: adapters end STOPPED, not re-stopped."""
+        config = _config_with_two_fake_adapters()
+        app = _build_app(config, tmp_paths)
+        await app.start()
+
+        adapter_ids = list(app.adapters.keys())
+
+        # Instrument adapter stop() to count calls.
+        stop_counts: dict[str, int] = {aid: 0 for aid in adapter_ids}
+        original_stops: dict[str, Any] = {}
+        for aid, adapter in app.adapters.items():
+            original_stops[aid] = adapter.stop
+
+            async def _counting_stop(
+                *args: Any, _aid: str = aid, _orig: Any = original_stops[aid], **kwargs: Any
+            ) -> None:
+                stop_counts[_aid] += 1
+                await _orig(*args, **kwargs)
+
+            adapter.stop = _counting_stop  # type: ignore[assignment]
+
+        # Fire 5 concurrent stop() calls.
+        await asyncio.gather(
+            *[asyncio.create_task(app.stop()) for _ in range(5)],
+            return_exceptions=True,
+        )
+
+        # Each adapter should have been stopped exactly once.
+        for aid in adapter_ids:
+            assert stop_counts[aid] == 1, (
+                f"Adapter {aid} stop() called {stop_counts[aid]} times, expected 1"
+            )
+
+        # All adapters should be in STOPPED state.
+        for aid in adapter_ids:
+            assert app.adapter_states[aid] is AdapterState.STOPPED, (
+                f"Adapter {aid} state is {app.adapter_states[aid]}, expected STOPPED"
+            )
+
+        assert app.state in (RuntimeState.STOPPED, RuntimeState.FAILED)
+
+
+class TestAllAdaptersStoppedAfterShutdown:
+    """Every adapter ends in a known terminal state after shutdown."""
+
+    @pytest.mark.asyncio
+    async def test_all_adapters_stopped_state_after_clean_shutdown(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """All adapters are STOPPED after a clean full start/stop cycle."""
+        config = _config_with_two_fake_adapters()
+        app = _build_app(config, tmp_paths)
+        await app.start()
+
+        await app.stop()
+        assert app.state == RuntimeState.STOPPED
+
+        for aid, state in app.adapter_states.items():
+            assert state is AdapterState.STOPPED, (
+                f"Adapter {aid} is {state.value}, expected STOPPED"
+            )
+
+    @pytest.mark.asyncio
+    async def test_adapter_states_complete_after_shutdown(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """adapter_states covers every adapter in self.adapters."""
+        config = _config_with_two_fake_adapters()
+        app = _build_app(config, tmp_paths)
+        await app.start()
+
+        await app.stop()
+
+        assert set(app.adapter_states.keys()) == set(app.adapters.keys())
+
+
+class TestPartialAdapterStopFailure:
+    """One adapter failing stop doesn't prevent others from reaching STOPPED."""
+
+    @pytest.mark.asyncio
+    async def test_one_adapter_stop_fails_others_stopped(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """Adapter that raises on stop → FAILED; others → STOPPED; runtime → FAILED."""
+        config = _config_with_two_fake_adapters()
+        app = _build_app(config, tmp_paths)
+        await app.start()
+
+        adapter_ids = sorted(app.adapters.keys())
+        assert len(adapter_ids) == 2
+
+        # Monkey-patch the second adapter to raise on stop.
+        failing_id = adapter_ids[1]
+        clean_id = adapter_ids[0]
+        original_stop = app.adapters[failing_id].stop
+
+        async def _raising_stop(timeout: float = 10.0) -> None:
+            raise RuntimeError(f"Adapter {failing_id} stop failed")
+
+        app.adapters[failing_id].stop = _raising_stop  # type: ignore[assignment]
+
+        # stop() should raise RuntimeShutdownError at the end.
+        from medre.runtime.errors import RuntimeShutdownError
+
+        with pytest.raises(RuntimeShutdownError):
+            await app.stop()
+
+        # Runtime should be FAILED (shutdown had errors).
+        assert app.state == RuntimeState.FAILED
+
+        # Clean adapter should be STOPPED.
+        assert app.adapter_states[clean_id] is AdapterState.STOPPED, (
+            f"Clean adapter {clean_id} is {app.adapter_states[clean_id]}, expected STOPPED"
+        )
+
+        # Failing adapter should be FAILED.
+        assert app.adapter_states[failing_id] is AdapterState.FAILED, (
+            f"Failing adapter {failing_id} is {app.adapter_states[failing_id]}, expected FAILED"
+        )
+
+
+class TestShutdownEventTiming:
+    """Shutdown event is set before adapter stop begins."""
+
+    @pytest.mark.asyncio
+    async def test_shutdown_event_set_before_adapter_stop(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """shutdown_event.is_set() is True inside adapter.stop()."""
+        config = _config_with_one_fake_adapter()
+        app = _build_app(config, tmp_paths)
+        await app.start()
+
+        event_set_during_stop: bool | None = None
+
+        # Monkey-patch adapter stop to check the shutdown event.
+        for adapter in app.adapters.values():
+            original_stop = adapter.stop
+
+            async def _inspecting_stop(
+                *args: Any, _orig: Any = original_stop, **kwargs: Any
+            ) -> None:
+                nonlocal event_set_during_stop
+                event_set_during_stop = app.shutdown_event.is_set()
+                await _orig(*args, **kwargs)
+
+            adapter.stop = _inspecting_stop  # type: ignore[assignment]
+
+        await app.stop()
+
+        assert event_set_during_stop is True, (
+            "shutdown_event was not set when adapter.stop() was called"
+        )
+
+
+class TestCancelledDuringDrain:
+    """Cancelling stop() during the drain loop leaves counters consistent."""
+
+    @pytest.mark.asyncio
+    async def test_cancel_during_drain_counters_consistent(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """Task cancellation during drain loop does not corrupt capacity state."""
+        config = _config_with_one_fake_adapter()
+        app = _build_app(config, tmp_paths)
+        await app.start()
+
+        cc = app._capacity_controller
+        assert cc is not None
+
+        # Acquire a delivery slot so the drain loop can't complete immediately.
+        assert await cc.acquire_delivery()
+        assert cc.delivery_current == 1
+
+        # Use a moderate drain timeout so the drain loop is active.
+        original_drain = app.config.limits.shutdown_drain_timeout_seconds
+        object.__setattr__(
+            app.config.limits,
+            "shutdown_drain_timeout_seconds",
+            5,
+        )
+
+        try:
+            # Start stop() in a task, then cancel it during the drain loop.
+            stop_task = asyncio.create_task(app.stop())
+            # Give stop() time to enter the drain loop.
+            await asyncio.sleep(0.3)
+            stop_task.cancel()
+
+            with pytest.raises(asyncio.CancelledError):
+                await stop_task
+        finally:
+            # Release the slot we acquired so the CapacityController is clean.
+            await cc.release_delivery()
+            object.__setattr__(
+                app.config.limits,
+                "shutdown_drain_timeout_seconds",
+                original_drain,
+            )
+
+        # Capacity counters should be consistent.
+        snap = cc.snapshot()
+        assert snap["delivery_current"] == 0, (
+            f"delivery_current is {snap['delivery_current']}, expected 0"
+        )
+        assert snap["replay_current"] == 0, (
+            f"replay_current is {snap['replay_current']}, expected 0"
+        )
+        # accepting_work should be False (stop_accepting was called).
+        assert snap["accepting_work"] is False

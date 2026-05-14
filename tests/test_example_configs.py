@@ -173,6 +173,33 @@ class TestFakeMultiAdapter:
         assert app.storage is not None
         assert str(app.storage._db_path) == ":memory:"
 
+    def test_routes_parse_correctly(self) -> None:
+        """Routes in fake-multi-adapter config parse into RouteConfigSet."""
+        config, _, _ = load_config(str(self.CONFIG_PATH))
+        routes = config.routes
+        assert len(routes.routes) == 2
+        route_ids = [r.route_id for r in routes.routes]
+        assert "matrix_mesh_bridge" in route_ids
+        assert "matrix_fanout" in route_ids
+
+    def test_routes_register_via_builder(self) -> None:
+        """Routes from the fake-multi-adapter config register successfully
+        after the builder constructs adapters."""
+        config, _, paths = load_config(str(self.CONFIG_PATH))
+        builder = RuntimeBuilder(config, paths)
+        app = builder.build()
+        # All routes should be registered (all adapters built successfully).
+        assert len(app._registered_routes) >= 2, (
+            f"Expected at least 2 registered routes, got "
+            f"{len(app._registered_routes)}: "
+            f"{[r.id for r in app._registered_routes]}"
+        )
+        registered_ids = [r.id for r in app._registered_routes]
+        # matrix_mesh_bridge is bidirectional, so it expands to 2 routes
+        # (forward + reverse).  matrix_fanout is source_to_dest with 1 source.
+        assert "matrix_mesh_bridge" in registered_ids
+        assert "matrix_fanout" in registered_ids
+
 
 # ===========================================================================
 # 4. Meshtastic-serial: loads and validates (no build — hardware needed)
@@ -280,6 +307,34 @@ class TestMixedMatrixMeshtastic:
         meshtastic = data["adapters"]["meshtastic"]["radio"]
         assert meshtastic["connection_type"] == "serial"
         assert "serial_port" in meshtastic
+
+    def test_routes_section_structure(self) -> None:
+        """The mixed bridge config must include a route section referencing
+        the correct adapter IDs (main and radio)."""
+        raw = _read(self.CONFIG_PATH)
+        data = tomllib.loads(raw)
+        assert "routes" in data, "Mixed bridge config must have a [routes] section"
+        routes = data["routes"]
+        assert "matrix_radio_bridge" in routes
+        bridge = routes["matrix_radio_bridge"]
+        assert bridge["source_adapters"] == ["main"]
+        assert bridge["dest_adapters"] == ["radio"]
+        assert bridge["directionality"] == "bidirectional"
+        assert bridge["enabled"] is True
+        # Policy must only use supported fields.
+        if "policy" in bridge:
+            policy = bridge["policy"]
+            assert "allowed_event_types" in policy
+            # Unsupported policy fields must not be present.
+            for unsupported in (
+                "sender_allowlist", "room_allowlist",
+                "channel_allowlist", "allowed_source_adapters",
+                "allowed_dest_adapters",
+            ):
+                assert unsupported not in policy, (
+                    f"Unsupported policy field {unsupported!r} in "
+                    f"mixed bridge example config"
+                )
 
     @pytest.mark.skip(reason="Requires Matrix credentials + Meshtastic hardware")
     def test_build_with_credentials_and_hardware(self) -> None:

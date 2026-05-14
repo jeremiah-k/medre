@@ -256,6 +256,76 @@ identity_path = "{state}/lxmf/identity"
 | `identity_path` | string | `None` | Path to Reticulum identity file. Supports [path placeholders](#path-placeholders). |
 
 
+### `[routes.ROUTE_ID]`
+
+Routes define named bridges between adapters. Each route declares source
+and destination adapter IDs and controls which events flow between them.
+Routes are evaluated in the order they appear in the TOML file.
+
+`ROUTE_ID` must contain only alphanumeric characters, underscores, or
+hyphens. Route IDs must be unique across the entire configuration.
+
+Routes reference **adapter IDs** (the resolved `adapter_id` value), not the
+TOML section key. When `adapter_id` is not explicitly set, it defaults to
+the section key.
+
+```toml
+[routes.matrix_radio_bridge]
+source_adapters = ["main"]
+dest_adapters = ["radio"]
+directionality = "bidirectional"
+enabled = true
+source_room = "!room:example.com"
+dest_channel = "1"
+
+[routes.matrix_radio_bridge.policy]
+allowed_event_types = ["message"]
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `source_adapters` | list of string | *(required)* | Adapter IDs that originate events. Must not overlap with `dest_adapters`. |
+| `dest_adapters` | list of string | *(required)* | Adapter IDs that receive events. Must not overlap with `source_adapters`. |
+| `directionality` | string | `"source_to_dest"` | Direction of flow. One of `source_to_dest`, `dest_to_source`, or `bidirectional`. |
+| `enabled` | bool | `true` | Whether this route is active at startup. Disabled routes are validated but not registered. |
+| `source_room` | string | `None` | Source Matrix room ID. Alias for `source_channel`. |
+| `dest_room` | string | `None` | Destination Matrix room ID. Alias for `dest_channel`. |
+| `source_channel` | string | `None` | Source channel/conversation ID. |
+| `dest_channel` | string | `None` | Destination channel/conversation ID. |
+
+#### Route Policy (`[routes.ROUTE_ID.policy]`)
+
+Optional static allowlist policy attached to a route.
+
+```toml
+[routes.matrix_radio_bridge.policy]
+allowed_event_types = ["message"]
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `allowed_event_types` | list of string | `[]` | Event kinds this route permits (e.g. `"message"`). Empty means all events. |
+
+> **Note:** Other policy fields (`sender_allowlist`, `room_allowlist`,
+> `channel_allowlist`, `allowed_source_adapters`, `allowed_dest_adapters`)
+> are reserved placeholders and must not be set. The config parser rejects
+> them.
+
+#### Adapter ID Semantics in Routes
+
+- Routes reference the **resolved** `adapter_id`, not the TOML section key.
+  If you override `adapter_id` in an adapter section, use that override
+  value in routes.
+- Routes referencing **unknown** adapter IDs (not declared in any
+  `[adapters.*]` section) raise a validation error at runtime startup.
+- Routes referencing **disabled** adapters (`enabled = false`) also raise a
+  validation error — disabled adapters are excluded from the runtime.
+- If an adapter is enabled but **fails to build** (e.g. missing optional
+  SDK), routes referencing it are degraded rather than failing: routes
+  with a failed source adapter are skipped; routes with failed target
+  adapters have those targets removed.
+
+
 ## XDG Default Paths
 
 When `MEDRE_HOME` is **not** set, MEDRE follows the XDG Base Directory

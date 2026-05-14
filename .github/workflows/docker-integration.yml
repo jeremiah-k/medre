@@ -1,0 +1,167 @@
+name: Docker Integration
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+      - "**-review"
+  push:
+    branches:
+      - main
+      - develop
+      - "**-review"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docker-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      # Pinned, validated image references for deterministic CI behavior.
+      # Update digests when bumping versions — verify with:
+      #   docker pull matrixdotorg/synapse:v1.149.0 && docker image inspect --format='{{index .RepoDigests 0}}' matrixdotorg/synapse:v1.149.0
+      MEDRE_SYNAPSE_IMAGE: matrixdotorg/synapse:v1.149.0
+      MEDRE_MESHTASTICD_IMAGE: meshtastic/meshtasticd:2.7.15
+      MEDRE_CI_ARTIFACT_DIR: ${{ github.workspace }}/.ci-artifacts/docker-integration
+      MEDRE_DOCKER_READY_TIMEOUT: "120"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # --- Docker image caching ---
+      # Caches Docker image tars to avoid re-pulling on every run.
+      # Pattern adapted from meshtastic-matrix-relay CI.
+
+      - name: Derive Synapse image cache metadata
+        id: synapse-cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="${MEDRE_SYNAPSE_IMAGE}"
+          # Derive a stable cache key from the image name
+          cache_key="${RUNNER_OS}-synapse-image-$(echo -n "${image}" | sha256sum | awk '{print $1}')"
+          cache_path="${RUNNER_TEMP}/synapse-image-cache/${cache_key}.tar"
+          {
+            echo "cache_key=${cache_key}"
+            echo "cache_path=${cache_path}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Derive meshtasticd image cache metadata
+        id: meshtasticd-cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="${MEDRE_MESHTASTICD_IMAGE}"
+          cache_key="${RUNNER_OS}-meshtasticd-image-$(echo -n "${image}" | sha256sum | awk '{print $1}')"
+          cache_path="${RUNNER_TEMP}/meshtasticd-image-cache/${cache_key}.tar"
+          {
+            echo "cache_key=${cache_key}"
+            echo "cache_path=${cache_path}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Restore cached Synapse image
+        id: synapse-image-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.synapse-cache.outputs.cache_path }}
+          key: ${{ steps.synapse-cache.outputs.cache_key }}
+
+      - name: Restore cached meshtasticd image
+        id: meshtasticd-image-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.meshtasticd-cache.outputs.cache_path }}
+          key: ${{ steps.meshtasticd-cache.outputs.cache_key }}
+
+      - name: Load cached Synapse image
+        if: ${{ steps.synapse-image-cache.outputs.cache-hit == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker load -i "${{ steps.synapse-cache.outputs.cache_path }}"
+
+      - name: Load cached meshtasticd image
+        if: ${{ steps.meshtasticd-image-cache.outputs.cache-hit == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker load -i "${{ steps.meshtasticd-cache.outputs.cache_path }}"
+
+      # Docker Hub login for higher rate limits (200 vs 100 pulls/6h).
+      # Secrets are optional — pulls still work without them.
+      - name: Log in to Docker Hub
+        continue-on-error: true
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # --- Python setup ---
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install MEDRE with integration extras
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[matrix,meshtastic,dev]"
+
+      # --- Run tests ---
+
+      - name: Run Docker integration tests
+        run: |
+          timeout --foreground 13m bash scripts/ci/run-docker-integration.sh
+
+      # --- Post-run: save image caches ---
+
+      - name: Save Synapse image tar
+        if: ${{ always() && steps.synapse-image-cache.outputs.cache-hit != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cache_path="${{ steps.synapse-cache.outputs.cache_path }}"
+          mkdir -p "$(dirname "${cache_path}")"
+          docker save "${MEDRE_SYNAPSE_IMAGE}" -o "${cache_path}"
+
+      - name: Save meshtasticd image tar
+        if: ${{ always() && steps.meshtasticd-image-cache.outputs.cache-hit != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cache_path="${{ steps.meshtasticd-cache.outputs.cache_path }}"
+          mkdir -p "$(dirname "${cache_path}")"
+          docker save "${MEDRE_MESHTASTICD_IMAGE}" -o "${cache_path}"
+
+      - name: Persist cached Synapse image
+        if: ${{ always() && steps.synapse-image-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ steps.synapse-cache.outputs.cache_path }}
+          key: ${{ steps.synapse-cache.outputs.cache_key }}
+
+      - name: Persist cached meshtasticd image
+        if: ${{ always() && steps.meshtasticd-image-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ steps.meshtasticd-cache.outputs.cache_path }}
+          key: ${{ steps.meshtasticd-cache.outputs.cache_key }}
+
+      # --- Artifact upload ---
+
+      - name: Upload integration artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-integration-logs
+          path: |
+            ${{ env.MEDRE_CI_ARTIFACT_DIR }}/**/*
+          if-no-files-found: warn
+          retention-days: 7

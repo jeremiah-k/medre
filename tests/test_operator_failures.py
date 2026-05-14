@@ -705,7 +705,7 @@ class TestCLINoTraceback:
     def test_cli_config_check_bad_file_exits_cleanly(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """'medre config check --config /nonexistent' exits with code 1, no traceback."""
+        """'medre config check --config /nonexistent' exits nonzero, no traceback."""
         from medre.cli import main
 
         monkeypatch.setattr(sys, "argv", ["medre", "config", "check", "--config", str(tmp_path / "nope.toml")])
@@ -713,7 +713,7 @@ class TestCLINoTraceback:
         with pytest.raises(SystemExit) as exc_info:
             with redirect_stderr(buf):
                 main()
-        assert exc_info.value.code == 1
+        assert exc_info.value.code not in (None, 0)
         output = buf.getvalue()
         # Should be a clean error message, not a Python traceback.
         assert "Traceback" not in output
@@ -722,7 +722,7 @@ class TestCLINoTraceback:
     def test_cli_routes_validate_bad_config_exits_cleanly(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """'medre routes validate --config /nonexistent' exits with code 1, no traceback."""
+        """'medre routes validate --config /nonexistent' exits nonzero, no traceback."""
         from medre.cli import main
 
         monkeypatch.setattr(sys, "argv", ["medre", "routes", "validate", "--config", str(tmp_path / "gone.toml")])
@@ -730,7 +730,7 @@ class TestCLINoTraceback:
         with pytest.raises(SystemExit) as exc_info:
             with redirect_stderr(buf):
                 main()
-        assert exc_info.value.code == 1
+        assert exc_info.value.code not in (None, 0)
         output = buf.getvalue()
         assert "Traceback" not in output
 

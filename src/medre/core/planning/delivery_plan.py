@@ -158,9 +158,10 @@ class DeliveryFailureKind(Enum):
         The target adapter ID is not registered in the pipeline config
         (no adapter instance exists for that ID).  Always permanent.
     TARGET_NOT_FOUND:
-        The target adapter ID exists in config, but the adapter returned
-        no route target at delivery time (e.g. channel not found in
-        transport).  Always permanent.
+        Reserved.  Not currently emitted by any adapter.  Conditions
+        where a channel, address, or destination is not found are
+        currently classified as :attr:`ADAPTER_PERMANENT` unless a
+        future adapter-specific path deliberately maps them here.
     DEADLINE_EXCEEDED:
         The delivery plan's ``deadline`` has passed.  Not retryable.
     CAPACITY_REJECTION:

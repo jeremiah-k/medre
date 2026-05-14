@@ -1228,3 +1228,96 @@ class TestFakeAdapterIdPropagation:
         assert app.adapters["ft_id"].adapter_id == "ft_id"
         assert app.adapters["fc_id"].adapter_id == "fc_id"
         assert app.adapters["fl_id"].adapter_id == "fl_id"
+
+
+# ---------------------------------------------------------------------------
+# Deterministic build ordering
+# ---------------------------------------------------------------------------
+
+
+class TestDeterministicBuildOrdering:
+    """Adapters are built in (transport, adapter_id) sorted order."""
+
+    def test_build_adapters_sorted_by_transport_then_id(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """_build_adapters processes adapters in deterministic (transport, adapter_id) order."""
+        # Configure adapters whose (transport, adapter_id) sort order differs
+        # from a plain adapter_id sort.
+        rt_matrix = MatrixRuntimeConfig(
+            adapter_id="z_matrix",
+            enabled=True,
+            adapter_kind="fake",
+            config=None,
+        )
+        rt_mesh = MeshtasticRuntimeConfig(
+            adapter_id="a_mesh",
+            enabled=True,
+            adapter_kind="fake",
+            config=None,
+        )
+        rt_core = MeshCoreRuntimeConfig(
+            adapter_id="m_core",
+            enabled=True,
+            adapter_kind="fake",
+            config=None,
+        )
+        config = RuntimeConfig(
+            storage=StorageConfig(backend="memory"),
+            adapters=AdapterConfigSet(
+                matrix={"zm": rt_matrix},
+                meshtastic={"am": rt_mesh},
+                meshcore={"mc": rt_core},
+            ),
+        )
+        builder = RuntimeBuilder(config, tmp_paths)
+
+        # Track the order adapters are built by patching _build_single_adapter.
+        build_order: list[str] = []
+        original_build = builder._build_single_adapter
+
+        def _tracking_build(transport: str, adapter_id: str, rtc: Any) -> BaseAdapter:
+            build_order.append(f"{transport}.{adapter_id}")
+            return original_build(transport, adapter_id, rtc)
+
+        with patch.object(builder, "_build_single_adapter", side_effect=_tracking_build):
+            adapters: dict[str, BaseAdapter] = {}
+            builder._build_adapters(adapters)
+
+        # Expected order: sorted by (transport, adapter_id):
+        # ("lxmf", ...) — none configured
+        # ("matrix", "z_matrix") — matrix < meshcore < meshtastic alphabetically
+        # ("meshcore", "m_core")
+        # ("meshtastic", "a_mesh")
+        assert build_order == [
+            "matrix.z_matrix",
+            "meshcore.m_core",
+            "meshtastic.a_mesh",
+        ]
+
+    def test_build_order_reproducible_across_builds(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """Two builds with identical config produce identical adapter dict key order."""
+        config = RuntimeConfig(
+            storage=StorageConfig(backend="memory"),
+            adapters=AdapterConfigSet(
+                matrix={"m1": MatrixRuntimeConfig(
+                    adapter_id="m1", enabled=True, adapter_kind="fake", config=None,
+                )},
+                meshtastic={"t1": MeshtasticRuntimeConfig(
+                    adapter_id="t1", enabled=True, adapter_kind="fake", config=None,
+                )},
+            ),
+        )
+        builder = RuntimeBuilder(config, tmp_paths)
+
+        adapters1: dict[str, BaseAdapter] = {}
+        builder._build_adapters(adapters1)
+        order1 = list(adapters1.keys())
+
+        adapters2: dict[str, BaseAdapter] = {}
+        builder._build_adapters(adapters2)
+        order2 = list(adapters2.keys())
+
+        assert order1 == order2

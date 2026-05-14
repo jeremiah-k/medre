@@ -53,3 +53,29 @@ enabled = true
 adapter_kind = "fake"
 connection_type = "fake"
 display_name = "MEDRE Dev LXMF"
+
+# ---------------------------------------------------------------------------
+# Routes — bridge routes between fake adapters
+# ---------------------------------------------------------------------------
+
+# Bidirectional bridge between Matrix and Meshtastic.
+[routes.matrix_mesh_bridge]
+source_adapters = ["fake_matrix"]
+dest_adapters = ["fake_meshtastic"]
+directionality = "bidirectional"
+enabled = true
+source_room = "!fake-room:fake.local"
+dest_channel = "1"
+
+[routes.matrix_mesh_bridge.policy]
+allowed_event_types = ["message"]
+
+# Fan-out from Matrix to MeshCore and LXMF.
+[routes.matrix_fanout]
+source_adapters = ["fake_matrix"]
+dest_adapters = ["fake_meshcore", "fake_lxmf"]
+directionality = "source_to_dest"
+enabled = true
+
+[routes.matrix_fanout.policy]
+allowed_event_types = ["message"]

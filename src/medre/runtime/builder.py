@@ -16,8 +16,10 @@ Construction order
 6. :class:`Diagnostician` — metrics and diagnostics
 7. :class:`RelationResolver` — cross-adapter event linking
 8. :class:`PipelineConfig` / :class:`PipelineRunner` — orchestration
-9. Adapters — constructed from enabled adapter configs
-10. :class:`asyncio.Event` — shutdown signal
+9. Adapters — constructed from enabled adapter configs, in deterministic
+   ``(transport, adapter_id)`` sorted order
+10. Routes — validated, expanded, and registered in config declaration order
+11. :class:`asyncio.Event` — shutdown signal
 """
 
 from __future__ import annotations

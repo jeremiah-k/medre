@@ -47,6 +47,20 @@ logger = logging.getLogger("medre")
 
 
 # ---------------------------------------------------------------------------
+# Exit codes
+# ---------------------------------------------------------------------------
+
+EXIT_OK = 0
+"""Successful exit."""
+EXIT_CONFIG = 2
+"""Config parse or validation error."""
+EXIT_BUILD = 3
+"""Runtime build error (missing dependency, bad path, adapter construction failure)."""
+EXIT_STARTUP = 4
+"""Total startup failure (zero adapters started, core subsystem failure)."""
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -160,7 +174,7 @@ def _config_check(config_path: str | None) -> None:
         config, source, paths = load_config(config_path)
     except Exception as exc:
         print(f"Config error: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_CONFIG)
 
     # --- Config file info ---
     print(f"Config file: {paths.config_file}")
@@ -272,7 +286,7 @@ def _config_check(config_path: str | None) -> None:
     print()
     if validation_errors:
         print(f"Config has {len(validation_errors)} error(s)")
-        sys.exit(1)
+        sys.exit(EXIT_CONFIG)
     else:
         print("Config valid")
     print(f"  {enabled_count}/{total} adapter(s) enabled")
@@ -347,7 +361,7 @@ def _routes_validate(config_path: str | None) -> None:
         config, source, paths = load_config(config_path)
     except Exception as exc:
         print(f"Config error: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_CONFIG)
 
     routes: RouteConfigSet = config.routes
     route_list = routes.routes
@@ -447,7 +461,7 @@ def _routes_validate(config_path: str | None) -> None:
     total_errors = len(errors)
 
     if total_errors:
-        sys.exit(1)
+        sys.exit(EXIT_CONFIG)
     elif total_warnings:
         print()
         print(f"Routes valid with {total_warnings} warning(s)")
@@ -462,7 +476,7 @@ def _routes_topology(config_path: str | None) -> None:
         config, source, paths = load_config(config_path)
     except Exception as exc:
         print(f"Config error: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_CONFIG)
 
     routes: RouteConfigSet = config.routes
     route_list = routes.routes
@@ -557,7 +571,7 @@ def _routes_list(config_path: str | None) -> None:
         config, source, paths = load_config(config_path)
     except Exception as exc:
         print(f"Config error: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_CONFIG)
 
     routes: RouteConfigSet = config.routes
     route_list = routes.routes
@@ -633,7 +647,7 @@ def _diagnostics(config_path: str | None) -> None:
         config, source, paths = load_config(config_path)
     except Exception as exc:
         print(f"Config error: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_CONFIG)
 
     config = apply_env_overrides(config, paths)
 
@@ -643,7 +657,7 @@ def _diagnostics(config_path: str | None) -> None:
         app = builder.build()
     except Exception as exc:
         print(f"Runtime build error: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_BUILD)
 
     # Use fixed timestamps for deterministic output.
     fixed_now = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
@@ -679,10 +693,10 @@ async def _run(config_path: str | None) -> None:
         config, source, paths = load_config(config_path)
     except ConfigError as exc:
         print(f"Config error: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_CONFIG)
     except Exception as exc:
         print(f"Config error: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_CONFIG)
     config = apply_env_overrides(config, paths)
 
     # Check for enabled adapters *before* building runtime.
@@ -692,7 +706,7 @@ async def _run(config_path: str | None) -> None:
             "Error: no adapters enabled. Set at least one adapter enabled = true in config.",
             file=sys.stderr,
         )
-        sys.exit(1)
+        sys.exit(EXIT_CONFIG)
 
     # Configure logging from the loaded config
     _setup_logging(config)
@@ -712,7 +726,11 @@ async def _run(config_path: str | None) -> None:
         print(f"  Disabled adapters: {', '.join(f'{t}.{aid}' for t, aid in disabled)}")
 
     builder = RuntimeBuilder(config, paths)
-    app = builder.build()
+    try:
+        app = builder.build()
+    except Exception as exc:
+        print(f"Runtime build error: {exc}", file=sys.stderr)
+        sys.exit(EXIT_BUILD)
 
     # Report build failures before startup.
     if app.build_failures:
@@ -755,7 +773,7 @@ async def _run(config_path: str | None) -> None:
         await app.start()
     except Exception as exc:
         # RuntimeStartupError means total failure (zero adapters).
-        # Print what we know and re-raise.
+        # Print what we know and exit with a startup-specific code.
         from medre.runtime.errors import RuntimeStartupError
 
         # Report per-adapter results from app state.
@@ -774,7 +792,10 @@ async def _run(config_path: str | None) -> None:
         print(summary)
         if isinstance(exc, RuntimeStartupError):
             print(f"\nRuntime startup failed: {exc}")
-        raise
+            sys.exit(EXIT_STARTUP)
+        # Unexpected exception during startup (core subsystem failure).
+        print(f"\nRuntime startup failed: {exc}", file=sys.stderr)
+        sys.exit(EXIT_STARTUP)
 
     # Build startup results from app state (supports partial startup).
     for adapter_id in app.started_adapter_ids:

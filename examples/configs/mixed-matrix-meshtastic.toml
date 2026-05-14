@@ -33,3 +33,20 @@ enabled = true
 connection_type = "serial"
 serial_port = "/dev/ttyACM0"
 meshnet_name = "bridge-radio"
+
+# ---------------------------------------------------------------------------
+# Routes — bridge Matrix room to Meshtastic radio channel
+# ---------------------------------------------------------------------------
+# Routes reference adapter_id values (defaulting to the TOML section key).
+# Here: "main" (Matrix) and "radio" (Meshtastic).
+
+[routes.matrix_radio_bridge]
+source_adapters = ["main"]
+dest_adapters = ["radio"]
+directionality = "bidirectional"
+enabled = true
+source_room = "!bridge-room:example.com"
+dest_channel = "1"
+
+[routes.matrix_radio_bridge.policy]
+allowed_event_types = ["message"]

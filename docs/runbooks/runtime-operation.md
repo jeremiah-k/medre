@@ -18,6 +18,33 @@ medre config check
 ```
 
 
+## Exit Codes
+
+`medre run` uses differentiated exit codes so operators and process supervisors can distinguish failure categories without parsing stderr.
+
+| Code | Constant | Meaning |
+|------|----------|---------|
+| 0 | `EXIT_OK` | Successful run and clean shutdown. |
+| 2 | `EXIT_CONFIG` | Config file not found, TOML parse error, validation error, or no adapters enabled. |
+| 3 | `EXIT_BUILD` | Runtime build failure — missing optional SDK dependency, invalid storage path, or adapter construction error. Adapters that fail during construction are recorded as build failures; if *all* adapters fail to build, the runtime exits with this code. |
+| 4 | `EXIT_STARTUP` | Total startup failure — zero adapters started successfully (after build). This covers core subsystem failures (storage init, pipeline runner) and total adapter startup failure. |
+
+**Degraded startup does NOT exit.** If at least one adapter starts successfully but others fail, the runtime enters `RUNNING` with `DEGRADED` health and continues operating. The boot summary and console output report which adapters failed.
+
+### Exit Codes by Command
+
+| Command | Config error | Build error | Startup error |
+|---------|:---:|:---:|:---:|
+| `medre run` | 2 | 3 | 4 |
+| `medre diagnostics` | 2 | 3 | n/a |
+| `medre config check` | 2 | n/a | n/a |
+| `medre routes validate` | 2 | n/a | n/a |
+| `medre routes topology` | 2 | n/a | n/a |
+| `medre routes list` | 2 | n/a | n/a |
+
+All commands print a human-readable error message to stderr (no traceback) before exiting nonzero.
+
+
 ## Configuration Overview
 
 MEDRE uses a single TOML config file. The `[adapters.*]` sections define which transport adapters to run. You can declare multiple adapters of the same transport type, each with a unique `adapter_id`.

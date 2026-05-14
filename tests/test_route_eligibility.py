@@ -1194,3 +1194,123 @@ class TestStartupReadinessBidirectional:
         # Reverse skipped (source "b" failed)
         # Overall: worst state wins → SKIPPED
         assert readiness.route_states["bridge"] == RouteOperationalState.SKIPPED
+
+
+# ===================================================================
+# Route references disabled adapter
+# ===================================================================
+
+
+class TestRouteReferencesDisabledAdapter:
+    """Routes referencing a disabled adapter raise RouteValidationError.
+
+    Disabled adapters are excluded from the configured-enabled adapter ID
+    set, so a route referencing one is treated the same as referencing an
+    unknown adapter.
+    """
+
+    def test_disabled_source_adapter_raises(self) -> None:
+        """A route whose source adapter is disabled must raise."""
+        rcs = RouteConfigSet(routes=(
+            _rc("r1", ("disabled_a",), ("b",)),
+        ))
+        router = Router()
+        # "disabled_a" is not in the adapter_ids set because it's disabled
+        with pytest.raises(RouteValidationError, match="unknown source"):
+            register_routes(router, rcs, frozenset({"b"}))
+
+    def test_disabled_dest_adapter_raises(self) -> None:
+        """A route whose dest adapter is disabled must raise."""
+        rcs = RouteConfigSet(routes=(
+            _rc("r1", ("a",), ("disabled_b",)),
+        ))
+        router = Router()
+        with pytest.raises(RouteValidationError, match="unknown dest"):
+            register_routes(router, rcs, frozenset({"a"}))
+
+    def test_disabled_route_skipped_not_raised(self) -> None:
+        """A route with enabled=false is skipped, not validated."""
+        rcs = RouteConfigSet(routes=(
+            _rc("r1", ("ghost",), ("phantom",), enabled=False),
+        ))
+        router = Router()
+        # Should NOT raise — disabled routes are not validated
+        result = register_routes(router, rcs, frozenset({"a", "b"}))
+        assert result.eligibility.disabled == ("r1",)
+        assert result.eligibility.registered == ()
+
+
+# ===================================================================
+# Route adapter ID override semantics
+# ===================================================================
+
+
+class TestRouteAdapterIdOverride:
+    """Routes resolve against the adapter_id (not the TOML section key).
+
+    When an adapter sets adapter_id = "custom", the route must reference
+    "custom" — not the section key.  This tests the route engine's
+    understanding of adapter IDs, not the TOML parsing (which happens in
+    test_config_loader.py).
+    """
+
+    def test_route_uses_resolved_adapter_id(self) -> None:
+        """Routes must reference the resolved adapter_id value."""
+        rcs = RouteConfigSet(routes=(
+            _rc("r1", ("custom_id",), ("b",)),
+        ))
+        router = Router()
+        # "custom_id" is the resolved adapter_id (not a TOML section key)
+        result = register_routes(router, rcs, frozenset({"custom_id", "b"}))
+        assert result.eligibility.registered == ("r1",)
+
+    def test_route_using_section_key_not_adapter_id_raises(self) -> None:
+        """If adapter overrides ID to 'custom', route referencing section
+        key 'original' must raise — the section key is not a known adapter."""
+        rcs = RouteConfigSet(routes=(
+            _rc("r1", ("original",), ("b",)),
+        ))
+        router = Router()
+        with pytest.raises(RouteValidationError, match="unknown source"):
+            register_routes(router, rcs, frozenset({"custom_id", "b"}))
+
+
+# ---------------------------------------------------------------------------
+# Deterministic route registration ordering
+# ---------------------------------------------------------------------------
+
+
+class TestDeterministicRouteRegistrationOrder:
+    """Routes are registered in config declaration order (deterministic)."""
+
+    def test_routes_registered_in_config_declaration_order(self) -> None:
+        """register_routes preserves config declaration order."""
+        rcs = RouteConfigSet(routes=(
+            _rc("zebra_route", ("a",), ("b",)),
+            _rc("alpha_route", ("b",), ("a",)),
+            _rc("middle_route", ("a",), ("b",)),
+        ))
+        router = Router()
+        result = register_routes(
+            router, rcs,
+            frozenset({"a", "b"}),
+        )
+        # Registered route IDs should follow config declaration order,
+        # not alphabetical order.
+        registered_ids = [r.id for r in result.registered_routes]
+        assert registered_ids == ["zebra_route", "alpha_route", "middle_route"]
+
+    def test_route_states_keys_sorted(self) -> None:
+        """route_states dict keys are deterministically sorted."""
+        rcs = RouteConfigSet(routes=(
+            _rc("z_route", ("a",), ("b",)),
+            _rc("a_route", ("b",), ("a",)),
+        ))
+        router = Router()
+        result = register_routes(
+            router, rcs,
+            frozenset({"a", "b"}),
+        )
+        assert list(result.eligibility.route_states.keys()) == sorted(
+            result.eligibility.route_states.keys()
+        )

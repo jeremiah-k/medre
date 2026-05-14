@@ -48,12 +48,16 @@ class BootSummary:
         Number of configured but disabled adapters (not attempted).
     build_failure_count:
         Number of adapters that failed during construction (before startup).
+    build_failure_ids:
+        Sorted tuple of adapter IDs that failed during construction
+        (before startup).  Empty when no build failures occurred.
     failed_adapter_ids:
         Sorted tuple of adapter IDs that failed to start.
     started_adapter_ids:
         Sorted tuple of adapter IDs that started successfully.
     route_count:
-        Number of registered routes at startup time.
+        Number of routes successfully registered on the router at startup
+        time.  Excludes disabled, skipped, and unavailable routes.
     storage_backend:
         Storage backend name (e.g. ``"sqlite"``, ``"memory"``), or ``"none"``.
     replay_available:
@@ -70,12 +74,13 @@ class BootSummary:
     adapters_total: int
     adapters_disabled: int
     build_failure_count: int
-    failed_adapter_ids: tuple[str, ...]
-    started_adapter_ids: tuple[str, ...]
-    route_count: int
-    storage_backend: str
-    replay_available: bool
-    persisted_events_count: int | None
+    build_failure_ids: tuple[str, ...] = ()
+    failed_adapter_ids: tuple[str, ...] = ()
+    started_adapter_ids: tuple[str, ...] = ()
+    route_count: int = 0
+    storage_backend: str = "none"
+    replay_available: bool = False
+    persisted_events_count: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Return a deterministic, JSON-safe dict of the boot summary.
@@ -122,6 +127,7 @@ def build_boot_summary(
     adapters_total: int,
     adapters_disabled: int,
     build_failure_count: int,
+    build_failure_ids: list[str] | tuple[str, ...] = (),
     failed_adapter_ids: list[str] | tuple[str, ...],
     started_adapter_ids: list[str] | tuple[str, ...],
     route_count: int,
@@ -143,6 +149,7 @@ def build_boot_summary(
         adapters_total=adapters_total,
         adapters_disabled=adapters_disabled,
         build_failure_count=build_failure_count,
+        build_failure_ids=tuple(sorted(build_failure_ids)),
         failed_adapter_ids=tuple(sorted(failed_adapter_ids)),
         started_adapter_ids=tuple(sorted(started_adapter_ids)),
         route_count=route_count,

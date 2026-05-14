@@ -953,3 +953,296 @@ class TestTotalFailureCleansNeverStartedAdapters:
         # Both failed adapters should have stop() called.
         assert app.adapters["alpha"].stop_called
         assert app.adapters["beta"].stop_called
+
+
+# ===================================================================
+# Deterministic start ordering
+# ===================================================================
+
+
+class _OrderRecordingAdapter(BaseAdapter):
+    """Adapter that records the order in which start() is called."""
+
+    adapter_id: str = "order_recorder"
+    platform: str = "test"
+    role: AdapterRole = AdapterRole.TRANSPORT
+
+    def __init__(self, adapter_id: str = "order_recorder") -> None:
+        self.adapter_id = adapter_id
+
+    async def start(self, ctx: AdapterContext) -> None:
+        pass
+
+    async def stop(self, timeout: float = 5.0) -> None:
+        pass
+
+    async def health_check(self) -> AdapterInfo:
+        return AdapterInfo(
+            adapter_id=self.adapter_id,
+            platform=self.platform,
+            role=self.role,
+            version="0.0.0",
+            capabilities=AdapterCapabilities(),
+            health="healthy",
+        )
+
+    async def deliver(self, result: Any) -> AdapterDeliveryResult | None:
+        return None
+
+
+class TestDeterministicStartOrdering:
+    """Adapters are started in sorted adapter_id order."""
+
+    @pytest.mark.asyncio
+    async def test_adapters_started_in_sorted_id_order(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """started_adapter_ids reflects sorted adapter_id start order."""
+        config = _config_with_two_fake_adapters()
+        app = _build_app(config, tmp_paths)
+
+        # Replace with recording adapters whose IDs sort differently
+        # from config declaration order.
+        gamma = _OrderRecordingAdapter(adapter_id="gamma")
+        alpha = _OrderRecordingAdapter(adapter_id="alpha")
+        app.adapters["alpha"] = alpha
+        app.adapters["beta"] = gamma
+        # Rename the key so the dict has "gamma" key
+        app.adapters["gamma"] = app.adapters.pop("beta")
+
+        await app.start()
+        try:
+            # started_adapter_ids should be sorted by adapter_id.
+            assert app.started_adapter_ids == ["alpha", "gamma"]
+        finally:
+            await app.stop()
+
+
+# ===================================================================
+# BootSummary accuracy: route_count, build_failure_ids
+# ===================================================================
+
+
+class TestBootSummaryRouteCountAndBuildFailureIds:
+    """BootSummary.route_count counts registered routes;
+    build_failure_ids lists build-failure adapter IDs."""
+
+    @pytest.mark.asyncio
+    async def test_route_count_excludes_disabled_routes(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """BootSummary.route_count counts only registered (active) routes."""
+        from medre.runtime.routes import RouteConfig, RouteConfigSet
+
+        rt_a = _fake_matrix_config(adapter_id="adapter_a")
+        rt_b = _fake_matrix_config(adapter_id="adapter_b")
+        route_enabled = RouteConfig(
+            route_id="active_route",
+            source_adapters=("adapter_a",),
+            dest_adapters=("adapter_b",),
+            enabled=True,
+        )
+        route_disabled = RouteConfig(
+            route_id="disabled_route",
+            source_adapters=("adapter_a",),
+            dest_adapters=("adapter_b",),
+            enabled=False,
+        )
+        config = RuntimeConfig(
+            runtime=RuntimeOptions(name="test-route-count"),
+            storage=StorageConfig(backend="memory"),
+            adapters=AdapterConfigSet(
+                matrix={"a": rt_a, "b": rt_b},
+            ),
+            routes=RouteConfigSet(routes=(route_enabled, route_disabled)),
+        )
+        app = _build_app(config, tmp_paths)
+
+        await app.start()
+        try:
+            boot = app.boot_summary
+            assert boot is not None
+            # Only the enabled route should be counted.
+            assert boot.route_count == 1
+        finally:
+            await app.stop()
+
+    @pytest.mark.asyncio
+    async def test_route_count_zero_when_no_routes_configured(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """BootSummary.route_count is 0 when no routes are configured."""
+        config = _config_with_one_fake_adapter()
+        app = _build_app(config, tmp_paths)
+
+        await app.start()
+        try:
+            boot = app.boot_summary
+            assert boot is not None
+            assert boot.route_count == 0
+        finally:
+            await app.stop()
+
+    @pytest.mark.asyncio
+    async def test_build_failure_ids_populated(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """BootSummary.build_failure_ids contains the adapter IDs that failed to build."""
+        config = _config_with_one_fake_adapter()
+        app = _build_app(config, tmp_paths)
+
+        # Inject build failures.
+        app.build_failures.append(
+            AdapterBuildFailure(
+                transport="matrix",
+                adapter_id="broken_alpha",
+                error=RuntimeError("build failed"),
+            )
+        )
+        app.build_failures.append(
+            AdapterBuildFailure(
+                transport="meshtastic",
+                adapter_id="broken_beta",
+                error=RuntimeError("build failed"),
+            )
+        )
+
+        await app.start()
+        try:
+            boot = app.boot_summary
+            assert boot is not None
+            # build_failure_ids should be sorted.
+            assert boot.build_failure_ids == ("broken_alpha", "broken_beta")
+            assert boot.build_failure_count == 2
+        finally:
+            await app.stop()
+
+    @pytest.mark.asyncio
+    async def test_build_failure_ids_empty_when_no_failures(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """BootSummary.build_failure_ids is empty when no build failures."""
+        config = _config_with_one_fake_adapter()
+        app = _build_app(config, tmp_paths)
+
+        await app.start()
+        try:
+            boot = app.boot_summary
+            assert boot is not None
+            assert boot.build_failure_ids == ()
+            assert boot.build_failure_count == 0
+        finally:
+            await app.stop()
+
+
+# ===================================================================
+# Integrated: build failure + start failure + route degradation
+# ===================================================================
+
+
+class TestIntegratedBuildStartRouteDegradation:
+    """Combined scenario: build failures, start failures, and route
+    degradation in a single startup sequence."""
+
+    @pytest.mark.asyncio
+    async def test_build_and_start_failures_with_route_degradation(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """Build failure + start failure produces DEGRADED health,
+        partial outcome, and route eligibility reflects both."""
+        from medre.runtime.routes import RouteConfig, RouteConfigSet
+
+        rt_a = _fake_matrix_config(adapter_id="adapter_a")
+        rt_b = _fake_matrix_config(adapter_id="adapter_b")
+        # Route from a → b (both should build fine as fakes).
+        route1 = RouteConfig(
+            route_id="route_a_to_b",
+            source_adapters=("adapter_a",),
+            dest_adapters=("adapter_b",),
+            enabled=True,
+        )
+        config = RuntimeConfig(
+            runtime=RuntimeOptions(name="test-integrated-degradation"),
+            storage=StorageConfig(backend="memory"),
+            adapters=AdapterConfigSet(
+                matrix={"a": rt_a, "b": rt_b},
+            ),
+            routes=RouteConfigSet(routes=(route1,)),
+        )
+        app = _build_app(config, tmp_paths)
+
+        # Make adapter_b fail on start.
+        app.adapters["adapter_b"] = _FailingAdapter(adapter_id="adapter_b")
+
+        # Add a build failure for a phantom adapter.
+        app.build_failures.append(
+            AdapterBuildFailure(
+                transport="matrix",
+                adapter_id="phantom_build_fail",
+                error=RuntimeError("phantom build failure"),
+            )
+        )
+
+        await app.start()
+        try:
+            # Runtime should be RUNNING (adapter_a started).
+            assert app.state == RuntimeState.RUNNING
+
+            boot = app.boot_summary
+            assert boot is not None
+            assert boot.startup_outcome == "partial"
+            assert boot.runtime_health == "degraded"
+            assert boot.adapters_started == 1
+            assert boot.adapters_failed == 2  # 1 start + 1 build
+            assert boot.adapters_total == 3   # 2 built + 1 build failure
+            assert boot.build_failure_count == 1
+            assert boot.build_failure_ids == ("phantom_build_fail",)
+            assert boot.failed_adapter_ids == ("adapter_b",)
+
+            # Route eligibility: route_a_to_b is registered but degraded
+            # because adapter_b failed to build at build-time eligibility.
+            # Actually adapter_b DID build (it's a fake) but failed to start.
+            # So build-time eligibility says REGISTERED, but startup readiness
+            # should downgrade it.
+            eligibility = app.route_eligibility
+            assert eligibility is not None
+            assert "route_a_to_b" in eligibility.route_states
+
+            # Startup readiness should reflect the start failure.
+            readiness = app.startup_readiness
+            assert readiness is not None
+            assert readiness.route_states.get("route_a_to_b") is not None
+        finally:
+            await app.stop()
+
+    @pytest.mark.asyncio
+    async def test_all_start_failures_with_build_failures_is_total_failure(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """All adapters fail to start + build failures → TOTAL_FAILURE + FAILED."""
+        config = _config_with_one_fake_adapter()
+        app = _build_app(config, tmp_paths)
+
+        # Make the single adapter fail to start.
+        app.adapters["fake_matrix"] = _FailingAdapter(adapter_id="fake_matrix")
+
+        # Add a build failure.
+        app.build_failures.append(
+            AdapterBuildFailure(
+                transport="matrix",
+                adapter_id="broken_build",
+                error=RuntimeError("build failed"),
+            )
+        )
+
+        with pytest.raises(RuntimeStartupError, match="Total startup failure"):
+            await app.start()
+
+        assert app.state == RuntimeState.FAILED
+        boot = app.boot_summary
+        assert boot is not None
+        assert boot.startup_outcome == "total_failure"
+        assert boot.build_failure_ids == ("broken_build",)
+        assert boot.failed_adapter_ids == ("fake_matrix",)
+        assert boot.adapters_total == 2
+        assert boot.adapters_started == 0

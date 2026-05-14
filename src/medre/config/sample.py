@@ -41,6 +41,10 @@ path = "{state}/medre.sqlite"
 
 [adapters.matrix.main]
 enabled = true
+# adapter_kind = "real"  # "real" (default) or "fake".  Use "fake" for
+#                         # development/testing without live SDKs or network.
+# adapter_id = "main"    # Defaults to the TOML section key.  Only set when
+#                         # you need an ID that differs from the section name.
 homeserver = "https://matrix.example.com"
 user_id = "@bot:example.com"
 # Prefer using MEDRE_MATRIX_ACCESS_TOKEN env var over embedding tokens

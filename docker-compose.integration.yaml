@@ -1,0 +1,48 @@
+# MEDRE Docker Integration Test Services
+#
+# Starts Synapse and meshtasticd for local integration testing.
+# NOT intended for production use.
+#
+# Usage:
+#   docker compose -f docker-compose.integration.yaml up -d
+#   pytest tests/integration/ -m docker -v
+#   docker compose -f docker-compose.integration.yaml down -v
+#
+# Environment variables (see conftest.py for defaults):
+#   MEDRE_SYNAPSE_PORT       — Synapse HTTP port (default: 8008)
+#   MEDRE_MESHTASTICD_PORT   — meshtasticd TCP port (default: 4403)
+#   MEDRE_MESHTASTICD_HWID   — meshtasticd hardware ID (default: 11)
+
+services:
+  # === Synapse (Matrix homeserver) ===
+  synapse:
+    image: matrixdotorg/synapse:v1.149.0
+    container_name: medre-integration-synapse
+    ports:
+      - "${MEDRE_SYNAPSE_PORT:-8008}:8008"
+    volumes:
+      - synapse-data:/data
+    environment:
+      SYNAPSE_SERVER_NAME: localhost
+      SYNAPSE_REPORT_STATS: "no"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8008/_matrix/client/versions || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 15s
+
+  # === meshtasticd (simulated Meshtastic node) ===
+  meshtasticd:
+    image: meshtastic/meshtasticd:2.7.15
+    container_name: medre-integration-meshtasticd
+    network_mode: host
+    command: >
+      meshtasticd
+      -s
+      --fsdir=/var/lib/meshtasticd-medre
+      -p ${MEDRE_MESHTASTICD_PORT:-4403}
+      -h ${MEDRE_MESHTASTICD_HWID:-11}
+
+volumes:
+  synapse-data:

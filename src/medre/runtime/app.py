@@ -296,6 +296,9 @@ class MedreApp:
         Order: storage → pipeline runner → adapters.
 
         Adapters are started in deterministic order (sorted by adapter_id).
+        Note: this differs from build order, which sorts by
+        ``(transport, adapter_id)`` — see
+        :mod:`~medre.runtime.builder` for details.
         Individual adapter start failures are logged with adapter_id
         attribution but do **not** abort the remaining adapters.  On
         catastrophic core subsystem failure, any already-started adapters
@@ -488,7 +491,7 @@ class MedreApp:
                 disabled_count += 1
 
         # -- Route count ------------------------------------------------------
-        route_count = len(self.config.routes.routes) if self.config.routes else 0
+        route_count = len(self._registered_routes) if self._registered_routes else 0
 
         # -- Storage backend name ---------------------------------------------
         storage_backend = "none"
@@ -507,6 +510,7 @@ class MedreApp:
             adapters_total=attempted_total,
             adapters_disabled=disabled_count,
             build_failure_count=build_failed,
+            build_failure_ids=[bf.adapter_id for bf in self.build_failures],
             failed_adapter_ids=failed_adapter_ids,
             started_adapter_ids=list(self.started_adapter_ids),
             route_count=route_count,

@@ -592,6 +592,7 @@ class TestStartupSummaryUsefulness:
             "adapters_total",
             "adapters_disabled",
             "build_failure_count",
+            "build_failure_ids",
             "failed_adapter_ids",
             "started_adapter_ids",
             "route_count",

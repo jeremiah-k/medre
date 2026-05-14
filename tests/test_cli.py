@@ -822,6 +822,95 @@ class TestRunErrors:
 
 
 # ---------------------------------------------------------------------------
+# medre run — differentiated exit codes
+# ---------------------------------------------------------------------------
+
+
+class TestRunExitCodes:
+    """Tests that 'medre run' uses differentiated exit codes for failure categories."""
+
+    def test_config_error_exit_code(self, tmp_path: Path) -> None:
+        """Config parse error exits with EXIT_CONFIG (2), not generic 1."""
+        from medre.cli import EXIT_CONFIG
+
+        with pytest.raises(SystemExit) as exc_info:
+            _run_cli("run", "--config", str(tmp_path / "missing.toml"))
+        assert exc_info.value.code == EXIT_CONFIG
+
+    def test_no_adapters_exit_code(self, config_no_adapters: Path) -> None:
+        """No enabled adapters exits with EXIT_CONFIG (2)."""
+        from medre.cli import EXIT_CONFIG
+
+        with pytest.raises(SystemExit) as exc_info:
+            _run_cli("run", "--config", str(config_no_adapters))
+        assert exc_info.value.code == EXIT_CONFIG
+
+    def test_build_error_no_traceback(self, config_with_routes: Path) -> None:
+        """Runtime build failure produces clean error, not raw traceback."""
+        from unittest.mock import patch
+
+        with patch(
+            "medre.runtime.builder.RuntimeBuilder.build",
+            side_effect=RuntimeError("simulated missing SDK dependency"),
+        ):
+            _, stderr = _run_cli_both(
+                "run", "--config", str(config_with_routes)
+            )
+        assert "Traceback" not in stderr
+        assert "Runtime build error:" in stderr
+
+    def test_build_error_exit_code(self, config_with_routes: Path) -> None:
+        """Runtime build failure exits with EXIT_BUILD (3)."""
+        from medre.cli import EXIT_BUILD
+        from unittest.mock import patch
+
+        with patch(
+            "medre.runtime.builder.RuntimeBuilder.build",
+            side_effect=RuntimeError("simulated build failure"),
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                _run_cli("run", "--config", str(config_with_routes))
+        assert exc_info.value.code == EXIT_BUILD
+
+    def test_config_check_exit_code(self, tmp_path: Path) -> None:
+        """Config check with missing file exits with EXIT_CONFIG (2)."""
+        from medre.cli import EXIT_CONFIG
+
+        with pytest.raises(SystemExit) as exc_info:
+            _run_cli("config", "check", "--config", str(tmp_path / "missing.toml"))
+        assert exc_info.value.code == EXIT_CONFIG
+
+    def test_routes_validate_config_error_exit_code(self, tmp_path: Path) -> None:
+        """Routes validate with missing config exits with EXIT_CONFIG (2)."""
+        from medre.cli import EXIT_CONFIG
+
+        with pytest.raises(SystemExit) as exc_info:
+            _run_cli("routes", "validate", "--config", str(tmp_path / "missing.toml"))
+        assert exc_info.value.code == EXIT_CONFIG
+
+    def test_diagnostics_config_error_exit_code(self, tmp_path: Path) -> None:
+        """Diagnostics with missing config exits with EXIT_CONFIG (2)."""
+        from medre.cli import EXIT_CONFIG
+
+        with pytest.raises(SystemExit) as exc_info:
+            _run_cli("diagnostics", "--config", str(tmp_path / "missing.toml"))
+        assert exc_info.value.code == EXIT_CONFIG
+
+    def test_diagnostics_build_error_exit_code(self, config_with_routes: Path) -> None:
+        """Diagnostics build failure exits with EXIT_BUILD (3)."""
+        from medre.cli import EXIT_BUILD
+        from unittest.mock import patch
+
+        with patch(
+            "medre.runtime.builder.RuntimeBuilder.build",
+            side_effect=RuntimeError("simulated build failure"),
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                _run_cli("diagnostics", "--config", str(config_with_routes))
+        assert exc_info.value.code == EXIT_BUILD
+
+
+# ---------------------------------------------------------------------------
 # Secret redaction — config commands must not leak secrets
 # ---------------------------------------------------------------------------
 

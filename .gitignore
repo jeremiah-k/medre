@@ -219,3 +219,6 @@ __marimo__/
 
 #AI Agents
 .sisyphus/
+
+# Docker integration test artifacts
+.ci-artifacts/
