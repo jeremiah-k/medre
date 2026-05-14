@@ -821,7 +821,8 @@ def _struct_to_json(obj: object) -> str:
 async def _open_readonly_storage(config_path: str | None) -> Any:
     """Load config, resolve DB path, and open storage for read-only inspection.
 
-    Raises ``SystemExit`` on config or storage errors.
+    Opens the database in strict read-only mode — no file creation, no DDL,
+    no schema writes.  Raises ``SystemExit`` on config or storage errors.
     """
     from medre.config.paths import MedrePathsError
     from medre.core.storage.sqlite import SQLiteStorage
@@ -848,15 +849,10 @@ async def _open_readonly_storage(config_path: str | None) -> Any:
     else:
         db_path = str(paths.database_path)
 
-    storage = SQLiteStorage(db_path)
     try:
-        await storage.initialize()
+        storage = await SQLiteStorage.open_readonly(db_path)
     except Exception as exc:
         print(f"Storage error: {exc}", file=sys.stderr)
-        try:
-            await storage.close()
-        except Exception:
-            pass
         sys.exit(EXIT_BUILD)
     return storage
 
@@ -1181,7 +1177,13 @@ def _setup_logging(config: object) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def _smoke(config_path: str | None, message_text: str, json_output: bool) -> None:
+async def _smoke(
+    config_path: str | None,
+    message_text: str,
+    json_output: bool,
+    storage_path: str | None = None,
+    drill_name: str | None = None,
+) -> None:
     """Run fake bridge smoke test and print a compact evidence report.
 
     Builds and starts the runtime with fake adapters, injects one
@@ -1191,12 +1193,21 @@ async def _smoke(config_path: str | None, message_text: str, json_output: bool) 
     Exit codes: 0 on PASS, 1 on FAIL.
     """
     import json as _json
-    from medre.runtime.smoke import run_fake_bridge_smoke
 
-    report = await run_fake_bridge_smoke(
-        config_path,
-        message_text=message_text,
-    )
+    if drill_name is not None:
+        from medre.runtime.drill import run_drill
+        report = await run_drill(
+            drill_name,
+            config_path=config_path,
+            storage_path=storage_path,
+        )
+    else:
+        from medre.runtime.smoke import run_fake_bridge_smoke
+        report = await run_fake_bridge_smoke(
+            config_path,
+            message_text=message_text,
+            storage_path=storage_path,
+        )
 
     if json_output:
         print(_json.dumps(report, sort_keys=True, indent=2))
@@ -1227,6 +1238,11 @@ async def _smoke(config_path: str | None, message_text: str, json_output: bool) 
         print(f"  Native refs: {n_refs}")
         if acc:
             print(f"  Accounting:  inbound={acc.get('inbound_accepted', 0)} delivered={acc.get('outbound_delivered', 0)} failed={acc.get('outbound_failed', 0)}")
+
+        # Storage info
+        sp = report.get("storage_path")
+        if sp:
+            print(f"  Storage:     {sp}")
 
         # Print one limitation as a reminder.
         limitations = report.get("limitations", [])
@@ -1292,6 +1308,10 @@ def _build_parser() -> argparse.ArgumentParser:
     smoke_p = sub.add_parser("smoke", help="Run fake bridge smoke test")
     smoke_p.add_argument("--config", default=None, help="Path to config file (default: examples/configs/fake-bridge-smoke.toml)")
     smoke_p.add_argument("--message", default="medre smoke test", help="Text for test message")
+    smoke_p.add_argument("--storage-path", default=None, metavar="PATH",
+        help="Persist smoke evidence to SQLite at this path (default: in-memory)")
+    smoke_p.add_argument("--drill", default=None, metavar="NAME",
+        help="Run named failure drill instead of normal smoke")
     smoke_p.add_argument("--json", action="store_true", default=False, help="Output JSON report")
 
     # inspect (with sub-subcommands)
@@ -1370,7 +1390,8 @@ def main(argv: list[str] | None = None) -> None:
         import asyncio
 
         asyncio.run(
-            _smoke(args.config, args.message, args.json)
+            _smoke(args.config, args.message, args.json,
+                   storage_path=args.storage_path, drill_name=args.drill)
         )
     elif args.command == "inspect":
         import asyncio

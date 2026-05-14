@@ -8,6 +8,7 @@ The database runs in WAL mode for safe concurrent reads.
 from __future__ import annotations
 
 import asyncio
+import os
 import sqlite3
 import threading
 from datetime import datetime, timezone
@@ -597,6 +598,98 @@ class SQLiteStorage:
         db.execute("PRAGMA journal_mode=WAL")
         db.commit()
         return db
+
+    @classmethod
+    async def open_readonly(cls, db_path: str) -> SQLiteStorage:
+        """Open an existing database in strict read-only mode.
+
+        Does **not** create the database file, tables, indexes, or metadata
+        rows.  Suitable for ``medre inspect`` commands that must never
+        mutate storage.
+
+        Raises
+        ------
+        StorageInitializationError
+            If the database file does not exist, has no schema version
+            metadata (uninitialised), or has an incompatible schema shape.
+        """
+        if db_path != ":memory:" and not os.path.exists(db_path):
+            raise StorageInitializationError(
+                f"Database file does not exist: {db_path}. "
+                f"Cannot open in read-only mode — no file was created."
+            )
+
+        instance = cls(db_path)
+
+        if instance._use_aiosqlite:
+            db = await aiosqlite.connect(  # type: ignore[union-attr]
+                f"file:{db_path}?mode=ro", uri=True,
+            )
+            db.row_factory = sqlite3.Row
+            instance._db = db
+        else:
+            instance._db = await asyncio.to_thread(instance._sync_open_readonly)
+
+        # Validate metadata and shape without writing anything.
+        await instance._verify_schema_version_readonly()
+        await instance._validate_schema_shape()
+
+        return instance
+
+    def _sync_open_readonly(self) -> sqlite3.Connection:
+        """Synchronous counterpart of :meth:`open_readonly`."""
+        db = sqlite3.connect(
+            f"file:{self._db_path}?mode=ro",
+            uri=True,
+            check_same_thread=False,
+        )
+        db.row_factory = sqlite3.Row
+        return db
+
+    async def _verify_schema_version_readonly(self) -> None:
+        """Check schema version without writing.
+
+        Unlike :meth:`_verify_schema_version`, this raises immediately when
+        the version row is absent (uninitialised database) rather than
+        inserting it.
+        """
+        try:
+            row = await self._read_one(
+                "SELECT value FROM _medre_schema_meta WHERE key = 'schema_version'"
+            )
+        except StorageError as exc:
+            # Table doesn't exist — database not initialised.
+            raise StorageInitializationError(
+                "Database has no schema version metadata — likely "
+                "uninitialised.  Cannot open in read-only mode."
+            ) from exc
+
+        if row is None:
+            raise StorageInitializationError(
+                "Database has no schema version metadata — likely "
+                "uninitialised.  Cannot open in read-only mode."
+            )
+
+        stored_version = row["value"]
+        try:
+            stored_int = int(stored_version)
+        except (ValueError, TypeError):
+            raise StorageInitializationError(
+                f"Storage schema version is not an integer: {stored_version!r}. "
+                f"Expected {_EXPECTED_SCHEMA_VERSION}. "
+                f"Resolve the mismatch manually — no auto-migration is performed."
+            )
+
+        if stored_int != _EXPECTED_SCHEMA_VERSION:
+            raise StorageInitializationError(
+                f"Storage schema version mismatch: database has version "
+                f"{stored_int}, but this version of medre expects version "
+                f"{_EXPECTED_SCHEMA_VERSION}. "
+                f"Resolve the mismatch manually — no auto-migration or "
+                f"silent reset is performed.  Options: export data, delete "
+                f"the database file, and restart; or downgrade medre to "
+                f"match the database version."
+            )
 
     async def close(self) -> None:
         """Close the underlying database connection and release resources."""

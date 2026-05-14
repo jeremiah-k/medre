@@ -2030,3 +2030,143 @@ class TestInspectNativeRef:
                 "--config", str(config_inspect_memory),
             )
         assert exc_info.value.code == EXIT_CONFIG
+
+
+# ---------------------------------------------------------------------------
+# Inspect read-only enforcement tests
+# ---------------------------------------------------------------------------
+
+
+class TestInspectReadOnly:
+    """Verify that inspect commands never create DB files or mutate storage."""
+
+    def test_missing_db_exits_build(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """inspect event with non-existent DB exits EXIT_BUILD (3)."""
+        from medre.cli import EXIT_BUILD
+
+        monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
+        (tmp_path / "state").mkdir(parents=True, exist_ok=True)
+        config_text = """\
+[runtime]
+name = "test-inspect-missing"
+
+[storage]
+backend = "sqlite"
+path = "{state}/no_such_file.db"
+"""
+        cfg = tmp_path / "config.toml"
+        cfg.write_text(config_text)
+
+        with pytest.raises(SystemExit) as exc_info:
+            _run_cli(
+                "inspect", "event", "evt-1",
+                "--config", str(cfg),
+            )
+        assert exc_info.value.code == EXIT_BUILD
+
+    def test_missing_db_not_created(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """inspect does not create the missing DB file."""
+        monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
+        (tmp_path / "state").mkdir(parents=True, exist_ok=True)
+
+        db_path = tmp_path / "state" / "missing.db"
+        assert not db_path.exists()
+
+        config_text = """\
+[runtime]
+name = "test-no-create"
+
+[storage]
+backend = "sqlite"
+path = "{state}/missing.db"
+"""
+        cfg = tmp_path / "config.toml"
+        cfg.write_text(config_text)
+
+        with pytest.raises(SystemExit):
+            _run_cli(
+                "inspect", "event", "evt-1",
+                "--config", str(cfg),
+            )
+        assert not db_path.exists()
+
+    def test_missing_db_stderr_has_storage_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Missing DB error message mentions storage or does not exist."""
+        monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
+        (tmp_path / "state").mkdir(parents=True, exist_ok=True)
+
+        config_text = """\
+[runtime]
+name = "test-missing-err"
+
+[storage]
+backend = "sqlite"
+path = "{state}/missing.db"
+"""
+        cfg = tmp_path / "config.toml"
+        cfg.write_text(config_text)
+
+        stdout, stderr = _run_cli_both(
+            "inspect", "event", "evt-1",
+            "--config", str(cfg),
+        )
+        assert "Storage error" in stderr or "does not exist" in stderr
+
+    def test_missing_db_receipts_exits_build(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """inspect receipts with non-existent DB also exits EXIT_BUILD."""
+        from medre.cli import EXIT_BUILD
+
+        monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
+        (tmp_path / "state").mkdir(parents=True, exist_ok=True)
+
+        config_text = """\
+[runtime]
+name = "test-missing-receipts"
+
+[storage]
+backend = "sqlite"
+path = "{state}/missing.db"
+"""
+        cfg = tmp_path / "config.toml"
+        cfg.write_text(config_text)
+
+        with pytest.raises(SystemExit) as exc_info:
+            _run_cli(
+                "inspect", "receipts", "--event", "evt-1",
+                "--config", str(cfg),
+            )
+        assert exc_info.value.code == EXIT_BUILD
+
+    def test_missing_db_native_ref_exits_build(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """inspect native-ref with non-existent DB also exits EXIT_BUILD."""
+        from medre.cli import EXIT_BUILD
+
+        monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
+        (tmp_path / "state").mkdir(parents=True, exist_ok=True)
+
+        config_text = """\
+[runtime]
+name = "test-missing-nref"
+
+[storage]
+backend = "sqlite"
+path = "{state}/missing.db"
+"""
+        cfg = tmp_path / "config.toml"
+        cfg.write_text(config_text)
+
+        with pytest.raises(SystemExit) as exc_info:
+            _run_cli(
+                "inspect", "native-ref",
+                "--adapter", "matrix", "--message", "$msg",
+                "--config", str(cfg),
+            )
+        assert exc_info.value.code == EXIT_BUILD

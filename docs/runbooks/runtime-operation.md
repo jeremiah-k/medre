@@ -766,6 +766,46 @@ Validates the config file without starting the runtime. Checks for:
 - Required fields per adapter type
 - Conflicting paths
 
+
+### Smoke vs. Diagnostics vs. Inspect
+
+These commands serve different purposes. Operators should understand the
+boundaries:
+
+| Command | Storage | Starts adapters | Output | Persistence |
+|---------|---------|----------------|--------|-------------|
+| ``medre smoke`` | In-memory by default; SQLite with ``--storage-path`` | Yes (fake only) | PASS/FAIL JSON report | Ephemeral by default; SQLite persists with ``--storage-path`` |
+| ``medre diagnostics`` | None (build-time) | No | Build-time snapshot | N/A (no data written) |
+| ``medre diagnostics --refresh-health`` | None | Yes (real or fake) | Live health snapshot | Ephemeral — lost on exit |
+| ``medre run`` | Per config (SQLite or memory) | Yes (real or fake) | Logs only | SQLite persists if configured |
+| ``medre inspect *`` | Opens existing SQLite (read-only) | No | Queried data | Reads existing DB |
+
+For durable post-run inspection of events, receipts, and native refs, use
+``medre run`` with ``[storage] backend = "sqlite"``, then query with
+``medre inspect`` subcommands:
+
+```bash
+# Inspect a specific event
+medre inspect event <event_id> --config my-bridge.toml
+
+# Inspect delivery receipts for an event
+medre inspect receipts --event <event_id> --config my-bridge.toml
+
+# Inspect receipts from a replay run
+medre inspect receipts --replay-run <run_id> --config my-bridge.toml
+
+# Resolve a native message ref
+medre inspect native-ref --adapter bot --message '$event_id' --config my-bridge.toml
+```
+
+``medre inspect`` exits with code 2 if the config uses ``backend = "memory"``
+— there is no persistent data to inspect. It also exits 2 if the database
+file does not exist or cannot be opened.
+
+See [Fake Bridge Smoke Runbook](fake-bridge-smoke-runbook.md#smoke-persistence-caveat)
+for the smoke persistence caveat and [Bridge Failure Drills](bridge-failure-drills.md)
+for failure interpretation guidance.
+
 ### Per-Adapter Diagnostics
 
 Diagnostics are per-adapter. Each adapter's snapshot is isolated from other adapters. See Contract 29 for the complete diagnostics schema.

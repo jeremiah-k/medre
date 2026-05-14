@@ -6,6 +6,7 @@ receipts, ordering guarantees, and close/reopen persistence.
 from __future__ import annotations
 
 import os
+import sqlite3
 import tempfile
 from datetime import datetime, timezone
 
@@ -1766,3 +1767,173 @@ class TestStorageIndexes:
                 pytest.fail(
                     f"Redundant manual index '{name}' duplicates UNIQUE autoindex"
                 )
+
+
+# ===================================================================
+# open_readonly — strict read-only open for inspect commands
+# ===================================================================
+
+
+class TestOpenReadonly:
+    """SQLiteStorage.open_readonly() opens existing DBs without mutation."""
+
+    async def test_missing_file_raises(self) -> None:
+        """open_readonly raises StorageInitializationError for missing file."""
+        with pytest.raises(StorageInitializationError, match="does not exist"):
+            await SQLiteStorage.open_readonly("/nonexistent/path/test.db")
+
+    async def test_missing_file_not_created(self) -> None:
+        """open_readonly does not create the file even transiently."""
+        db_path = os.path.join(tempfile.gettempdir(), f"medre-test-nocreate-{os.getpid()}.db")
+        assert not os.path.exists(db_path)
+        try:
+            with pytest.raises(StorageInitializationError):
+                await SQLiteStorage.open_readonly(db_path)
+            assert not os.path.exists(db_path)
+        finally:
+            if os.path.exists(db_path):
+                os.unlink(db_path)
+
+    async def test_valid_db_reads_events(self) -> None:
+        """open_readonly on a valid initialized DB can read events."""
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = f.name
+
+        try:
+            # Write phase — normal initialize.
+            storage = SQLiteStorage(db_path)
+            await storage.initialize()
+            event = _make_event(event_id="readonly-evt-1")
+            await storage.append(event)
+            await storage.close()
+
+            # Read-only phase.
+            ro = await SQLiteStorage.open_readonly(db_path)
+            retrieved = await ro.get("readonly-evt-1")
+            assert retrieved is not None
+            assert retrieved.event_id == "readonly-evt-1"
+            await ro.close()
+        finally:
+            os.unlink(db_path)
+
+    async def test_fresh_empty_db_raises(self) -> None:
+        """open_readonly on a file with no tables raises StorageInitializationError."""
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = f.name
+
+        try:
+            # File exists but is an empty SQLite database — no tables.
+            raw = sqlite3.connect(db_path)
+            raw.close()
+
+            with pytest.raises(StorageInitializationError, match="no schema version"):
+                await SQLiteStorage.open_readonly(db_path)
+        finally:
+            os.unlink(db_path)
+
+    async def test_old_shape_db_raises(self) -> None:
+        """open_readonly on an old-shape DB raises StorageInitializationError."""
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = f.name
+
+        try:
+            raw = sqlite3.connect(db_path)
+            # Minimal old-shape: event_relations without target_native_thread_id.
+            raw.executescript("""
+                CREATE TABLE canonical_events (
+                    event_id TEXT PRIMARY KEY,
+                    event_kind TEXT NOT NULL,
+                    schema_version INTEGER NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    source_adapter TEXT NOT NULL,
+                    source_transport_id TEXT NOT NULL,
+                    source_channel_id TEXT,
+                    parent_event_id TEXT,
+                    lineage TEXT NOT NULL DEFAULT '[]',
+                    payload TEXT NOT NULL DEFAULT '{}',
+                    metadata TEXT NOT NULL DEFAULT '{}',
+                    depth INTEGER NOT NULL DEFAULT 0,
+                    trace_id TEXT,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE event_relations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_id TEXT NOT NULL,
+                    relation_type TEXT NOT NULL,
+                    target_event_id TEXT,
+                    target_native_adapter TEXT,
+                    target_native_channel_id TEXT,
+                    target_native_message_id TEXT,
+                    key TEXT,
+                    fallback_text TEXT,
+                    metadata TEXT NOT NULL DEFAULT '{}',
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE native_message_refs (
+                    id TEXT PRIMARY KEY,
+                    event_id TEXT NOT NULL,
+                    adapter TEXT NOT NULL,
+                    native_channel_id TEXT,
+                    native_message_id TEXT NOT NULL,
+                    direction TEXT NOT NULL,
+                    metadata TEXT,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE delivery_receipts (
+                    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+                    receipt_id TEXT UNIQUE NOT NULL,
+                    event_id TEXT NOT NULL,
+                    delivery_plan_id TEXT NOT NULL,
+                    target_adapter TEXT NOT NULL,
+                    route_id TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL,
+                    error TEXT,
+                    adapter_message_id TEXT,
+                    next_retry_at TEXT,
+                    attempt_number INTEGER NOT NULL DEFAULT 1,
+                    parent_receipt_id TEXT,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE plugin_state (
+                    plugin_id TEXT NOT NULL,
+                    key TEXT NOT NULL,
+                    value TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY(plugin_id, key)
+                );
+                CREATE TABLE _medre_schema_meta (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                );
+                INSERT INTO _medre_schema_meta (key, value)
+                    VALUES ('schema_version', '1');
+            """)
+            raw.close()
+
+            with pytest.raises(StorageInitializationError, match="schema shape mismatch"):
+                await SQLiteStorage.open_readonly(db_path)
+        finally:
+            os.unlink(db_path)
+
+    async def test_readonly_rejects_writes(self) -> None:
+        """open_readonly connection rejects INSERT (SQLite mode=ro)."""
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = f.name
+
+        try:
+            # Create a valid DB with one event.
+            storage = SQLiteStorage(db_path)
+            await storage.initialize()
+            event = _make_event(event_id="ro-write-test")
+            await storage.append(event)
+            await storage.close()
+
+            # Open read-only and attempt to write.
+            ro = await SQLiteStorage.open_readonly(db_path)
+            with pytest.raises(Exception):
+                # SQLite will reject the INSERT in mode=ro.
+                duplicate = _make_event(event_id="should-fail")
+                await ro.append(duplicate)
+            await ro.close()
+        finally:
+            os.unlink(db_path)

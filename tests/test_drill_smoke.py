@@ -1,0 +1,557 @@
+"""Tests for operator failure drills and smoke persistence.
+
+Proves that:
+
+- ``medre smoke --storage-path`` persists evidence to SQLite.
+- ``run_drill()`` produces valid PASS reports for each drill.
+- Drill reports have the correct shape and evidence fields.
+- No Docker, network, or SDK dependencies.
+"""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+from contextlib import redirect_stdout, redirect_stderr
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from medre.runtime.drill import run_drill, AVAILABLE_DRILLS
+from medre.runtime.smoke import run_fake_bridge_smoke
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _clean_path_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    for var in (
+        "MEDRE_HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_STATE_HOME",
+        "XDG_DATA_HOME",
+        "XDG_CACHE_HOME",
+    ):
+        monkeypatch.delenv(var, raising=False)
+
+
+def _smoke_config_path() -> str:
+    """Return path to the shipped fake-bridge-smoke.toml."""
+    from medre.runtime.smoke import _default_smoke_config_path
+    path = _default_smoke_config_path()
+    assert path is not None, "examples/configs/fake-bridge-smoke.toml not found"
+    return path
+
+
+# ---------------------------------------------------------------------------
+# Storage persistence tests
+# ---------------------------------------------------------------------------
+
+
+class TestSmokeStoragePath:
+    """Proves --storage-path persists smoke evidence to SQLite."""
+
+    @pytest.mark.asyncio
+    async def test_storage_path_creates_sqlite(self, tmp_path: Path) -> None:
+        """Storage path creates a real SQLite file."""
+        db_path = str(tmp_path / "smoke-test.db")
+        config_path = _smoke_config_path()
+        report = await run_fake_bridge_smoke(
+            config_path, storage_path=db_path,
+        )
+        assert report["status"] == "PASS", report.get("fail_reasons", [])
+        assert Path(db_path).is_file()
+
+    @pytest.mark.asyncio
+    async def test_storage_path_report_includes_path(self, tmp_path: Path) -> None:
+        """Report includes storage_path and storage_backend when set."""
+        db_path = str(tmp_path / "smoke-test.db")
+        report = await run_fake_bridge_smoke(
+            _smoke_config_path(), storage_path=db_path,
+        )
+        assert report["storage_path"] == db_path
+        assert report["storage_backend"] == "sqlite"
+
+    @pytest.mark.asyncio
+    async def test_default_stays_memory(self) -> None:
+        """Without storage_path, report has memory backend and no storage_path key."""
+        report = await run_fake_bridge_smoke(_smoke_config_path())
+        assert report["storage_backend"] == "memory"
+        assert "storage_path" not in report
+
+    @pytest.mark.asyncio
+    async def test_storage_path_data_persists(self, tmp_path: Path) -> None:
+        """Stored event is retrievable from the SQLite file after smoke."""
+        db_path = str(tmp_path / "smoke-test.db")
+        report = await run_fake_bridge_smoke(
+            _smoke_config_path(), storage_path=db_path,
+        )
+        event_id = report["event_id"]
+        # Direct SQLite query to prove persistence.
+        conn = sqlite3.connect(db_path)
+        try:
+            rows = conn.execute(
+                "SELECT count(*) FROM canonical_events WHERE event_id = ?",
+                (event_id,),
+            ).fetchone()
+            assert rows is not None and rows[0] >= 1
+        finally:
+            conn.close()
+
+    @pytest.mark.asyncio
+    async def test_storage_path_receipts_persist(self, tmp_path: Path) -> None:
+        """Delivery receipts are persisted to SQLite."""
+        db_path = str(tmp_path / "smoke-test.db")
+        report = await run_fake_bridge_smoke(
+            _smoke_config_path(), storage_path=db_path,
+        )
+        event_id = report["event_id"]
+        conn = sqlite3.connect(db_path)
+        try:
+            rows = conn.execute(
+                "SELECT count(*) FROM delivery_receipts WHERE event_id = ?",
+                (event_id,),
+            ).fetchone()
+            assert rows is not None and rows[0] >= 1
+        finally:
+            conn.close()
+
+    def test_cli_storage_path_flag(self, tmp_path: Path) -> None:
+        """CLI medre smoke --storage-path produces valid JSON."""
+        from medre.cli import main
+        import io
+
+        db_path = str(tmp_path / "cli-test.db")
+        config_path = _smoke_config_path()
+
+        stdout_capture = io.StringIO()
+        stderr_capture = io.StringIO()
+        with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
+            with pytest.raises(SystemExit) as exc_info:
+                main([
+                    "smoke", "--config", config_path,
+                    "--storage-path", db_path, "--json",
+                ])
+
+        assert exc_info.value.code == 0
+        report = json.loads(stdout_capture.getvalue())
+        assert report["status"] == "PASS"
+        assert report["storage_path"] == db_path
+        assert report["storage_backend"] == "sqlite"
+
+    def test_cli_storage_path_human_readable(self, tmp_path: Path) -> None:
+        """CLI medre smoke --storage-path (no --json) shows storage info."""
+        from medre.cli import main
+        import io
+
+        db_path = str(tmp_path / "cli-human.db")
+        config_path = _smoke_config_path()
+
+        stdout_capture = io.StringIO()
+        stderr_capture = io.StringIO()
+        with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
+            with pytest.raises(SystemExit) as exc_info:
+                main([
+                    "smoke", "--config", config_path,
+                    "--storage-path", db_path,
+                ])
+
+        assert exc_info.value.code == 0
+        output = stdout_capture.getvalue()
+        assert "Storage:" in output
+
+
+# ---------------------------------------------------------------------------
+# Drill infrastructure tests
+# ---------------------------------------------------------------------------
+
+
+class TestDrillInfrastructure:
+    """Proves drill dispatch and report shape."""
+
+    @pytest.mark.asyncio
+    async def test_unknown_drill_returns_fail(self) -> None:
+        """Unknown drill name returns FAIL report."""
+        report = await run_drill("nonexistent_drill")
+        assert report["status"] == "FAIL"
+        assert report["evidence_level"] == "drill"
+        assert "Unknown drill" in report["fail_reasons"][0]
+
+    @pytest.mark.asyncio
+    async def test_available_drills_list(self) -> None:
+        """AVAILABLE_DRILLS contains all expected drill names."""
+        expected = {
+            "renderer_failure",
+            "adapter_permanent_failure",
+            "adapter_transient_failure",
+            "capacity_rejection",
+            "shutdown_rejection",
+            "replay_duplicate_risk",
+            "degraded_live_health",
+        }
+        assert set(AVAILABLE_DRILLS) == expected
+
+    def test_cli_drill_dispatch(self) -> None:
+        """CLI medre smoke --drill renderer_failure --json works."""
+        from medre.cli import main
+        import io
+
+        config_path = _smoke_config_path()
+        stdout_capture = io.StringIO()
+        stderr_capture = io.StringIO()
+        with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
+            with pytest.raises(SystemExit) as exc_info:
+                main([
+                    "smoke", "--config", config_path,
+                    "--drill", "renderer_failure", "--json",
+                ])
+
+        assert exc_info.value.code == 0
+        report = json.loads(stdout_capture.getvalue())
+        assert report["status"] == "PASS"
+        assert report["drill_name"] == "renderer_failure"
+
+    def test_cli_drill_human_readable(self) -> None:
+        """CLI medre smoke --drill shows human-readable output."""
+        from medre.cli import main
+        import io
+
+        config_path = _smoke_config_path()
+        stdout_capture = io.StringIO()
+        stderr_capture = io.StringIO()
+        with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
+            with pytest.raises(SystemExit) as exc_info:
+                main([
+                    "smoke", "--config", config_path,
+                    "--drill", "renderer_failure",
+                ])
+
+        assert exc_info.value.code == 0
+        output = stdout_capture.getvalue()
+        assert "PASS" in output
+
+    def test_cli_drill_unknown_name_fails(self) -> None:
+        """CLI medre smoke --drill nonexistent exits 1."""
+        from medre.cli import main
+        import io
+
+        config_path = _smoke_config_path()
+        stdout_capture = io.StringIO()
+        stderr_capture = io.StringIO()
+        with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
+            with pytest.raises(SystemExit) as exc_info:
+                main([
+                    "smoke", "--config", config_path,
+                    "--drill", "nonexistent_drill", "--json",
+                ])
+
+        assert exc_info.value.code == 1
+        report = json.loads(stdout_capture.getvalue())
+        assert report["status"] == "FAIL"
+
+
+# ---------------------------------------------------------------------------
+# Individual drill tests
+# ---------------------------------------------------------------------------
+
+
+class TestRendererFailureDrill:
+    """Proves renderer_failure drill exercises RENDERER_FAILURE path."""
+
+    @pytest.mark.asyncio
+    async def test_pass(self) -> None:
+        report = await run_drill("renderer_failure", config_path=_smoke_config_path())
+        assert report["status"] == "PASS", report.get("fail_reasons", [])
+        assert report["drill_name"] == "renderer_failure"
+        assert report["evidence_level"] == "drill"
+        assert "event_id" in report
+        assert "drill_steps" in report
+        assert len(report["drill_steps"]) >= 3
+
+    @pytest.mark.asyncio
+    async def test_json_safe(self) -> None:
+        report = await run_drill("renderer_failure", config_path=_smoke_config_path())
+        serialized = json.dumps(report, sort_keys=True)
+        assert isinstance(serialized, str)
+
+    @pytest.mark.asyncio
+    async def test_has_failed_receipt(self) -> None:
+        """Renderer failure produces a 'failed' receipt."""
+        report = await run_drill("renderer_failure", config_path=_smoke_config_path())
+        steps = report["drill_steps"]
+        verify_step = next(
+            (s for s in steps if s["step"] == "verify_failed_receipt"), None,
+        )
+        assert verify_step is not None
+        assert verify_step["result"] == "ok"
+        assert verify_step["has_failed_receipt"] is True
+
+
+class TestAdapterPermanentFailureDrill:
+    """Proves adapter_permanent_failure drill exercises ADAPTER_PERMANENT path."""
+
+    @pytest.mark.asyncio
+    async def test_pass(self) -> None:
+        report = await run_drill(
+            "adapter_permanent_failure", config_path=_smoke_config_path(),
+        )
+        assert report["status"] == "PASS", report.get("fail_reasons", [])
+
+    @pytest.mark.asyncio
+    async def test_outcome_is_permanent(self) -> None:
+        report = await run_drill(
+            "adapter_permanent_failure", config_path=_smoke_config_path(),
+        )
+        steps = report["drill_steps"]
+        verify_step = next(
+            (s for s in steps if s["step"] == "verify_permanent_failure"), None,
+        )
+        assert verify_step is not None
+        assert verify_step["observed"] == "permanent_failure"
+
+    @pytest.mark.asyncio
+    async def test_json_safe(self) -> None:
+        report = await run_drill(
+            "adapter_permanent_failure", config_path=_smoke_config_path(),
+        )
+        json.dumps(report, sort_keys=True)
+
+
+class TestAdapterTransientFailureDrill:
+    """Proves adapter_transient_failure drill exercises ADAPTER_TRANSIENT path."""
+
+    @pytest.mark.asyncio
+    async def test_pass(self) -> None:
+        report = await run_drill(
+            "adapter_transient_failure", config_path=_smoke_config_path(),
+        )
+        assert report["status"] == "PASS", report.get("fail_reasons", [])
+
+    @pytest.mark.asyncio
+    async def test_outcome_is_transient(self) -> None:
+        report = await run_drill(
+            "adapter_transient_failure", config_path=_smoke_config_path(),
+        )
+        steps = report["drill_steps"]
+        verify_step = next(
+            (s for s in steps if s["step"] == "verify_transient_failure"), None,
+        )
+        assert verify_step is not None
+        assert verify_step["observed"] == "transient_failure"
+
+    @pytest.mark.asyncio
+    async def test_failure_is_retryable(self) -> None:
+        report = await run_drill(
+            "adapter_transient_failure", config_path=_smoke_config_path(),
+        )
+        steps = report["drill_steps"]
+        retry_step = next(
+            (s for s in steps if s["step"] == "verify_retryable"), None,
+        )
+        assert retry_step is not None
+        assert retry_step["is_retryable"] is True
+
+    @pytest.mark.asyncio
+    async def test_json_safe(self) -> None:
+        report = await run_drill(
+            "adapter_transient_failure", config_path=_smoke_config_path(),
+        )
+        json.dumps(report, sort_keys=True)
+
+
+class TestCapacityRejectionDrill:
+    """Proves capacity_rejection drill exercises CAPACITY_REJECTION path."""
+
+    @pytest.mark.asyncio
+    async def test_pass(self) -> None:
+        report = await run_drill(
+            "capacity_rejection", config_path=_smoke_config_path(),
+        )
+        assert report["status"] == "PASS", report.get("fail_reasons", [])
+
+    @pytest.mark.asyncio
+    async def test_no_receipt_for_rejected(self) -> None:
+        """Capacity rejection produces no receipt."""
+        report = await run_drill(
+            "capacity_rejection", config_path=_smoke_config_path(),
+        )
+        steps = report["drill_steps"]
+        no_rcpt = next(
+            (s for s in steps if s["step"] == "verify_no_receipt"), None,
+        )
+        assert no_rcpt is not None
+        assert no_rcpt["result"] == "ok"
+
+    @pytest.mark.asyncio
+    async def test_json_safe(self) -> None:
+        report = await run_drill(
+            "capacity_rejection", config_path=_smoke_config_path(),
+        )
+        json.dumps(report, sort_keys=True)
+
+
+class TestShutdownRejectionDrill:
+    """Proves shutdown_rejection drill exercises SHUTDOWN_REJECTION path."""
+
+    @pytest.mark.asyncio
+    async def test_pass(self) -> None:
+        report = await run_drill(
+            "shutdown_rejection", config_path=_smoke_config_path(),
+        )
+        assert report["status"] == "PASS", report.get("fail_reasons", [])
+
+    @pytest.mark.asyncio
+    async def test_no_receipt_for_rejected(self) -> None:
+        """Shutdown rejection produces no receipt."""
+        report = await run_drill(
+            "shutdown_rejection", config_path=_smoke_config_path(),
+        )
+        steps = report["drill_steps"]
+        no_rcpt = next(
+            (s for s in steps if s["step"] == "verify_no_receipt"), None,
+        )
+        assert no_rcpt is not None
+        assert no_rcpt["result"] == "ok"
+
+    @pytest.mark.asyncio
+    async def test_json_safe(self) -> None:
+        report = await run_drill(
+            "shutdown_rejection", config_path=_smoke_config_path(),
+        )
+        json.dumps(report, sort_keys=True)
+
+
+class TestReplayDuplicateRiskDrill:
+    """Proves replay_duplicate_risk drill shows duplicate receipt creation."""
+
+    @pytest.mark.asyncio
+    async def test_pass(self) -> None:
+        report = await run_drill(
+            "replay_duplicate_risk", config_path=_smoke_config_path(),
+        )
+        assert report["status"] == "PASS", report.get("fail_reasons", [])
+
+    @pytest.mark.asyncio
+    async def test_duplicate_receipts_created(self) -> None:
+        """Replay creates new receipts beyond the initial delivery."""
+        report = await run_drill(
+            "replay_duplicate_risk", config_path=_smoke_config_path(),
+        )
+        steps = report["drill_steps"]
+        dup_step = next(
+            (s for s in steps if s["step"] == "verify_duplicate_receipts"), None,
+        )
+        assert dup_step is not None
+        assert dup_step["new_receipts"] > 0
+
+    @pytest.mark.asyncio
+    async def test_json_safe(self) -> None:
+        report = await run_drill(
+            "replay_duplicate_risk", config_path=_smoke_config_path(),
+        )
+        json.dumps(report, sort_keys=True)
+
+
+class TestDegradedLiveHealthDrill:
+    """Proves degraded_live_health drill observes degraded adapter health."""
+
+    @pytest.mark.asyncio
+    async def test_pass(self) -> None:
+        report = await run_drill(
+            "degraded_live_health", config_path=_smoke_config_path(),
+        )
+        assert report["status"] == "PASS", report.get("fail_reasons", [])
+
+    @pytest.mark.asyncio
+    async def test_degraded_observed(self) -> None:
+        """Drill observes 'degraded' health status."""
+        report = await run_drill(
+            "degraded_live_health", config_path=_smoke_config_path(),
+        )
+        steps = report["drill_steps"]
+        verify_step = next(
+            (s for s in steps if s["step"] == "verify_degraded"), None,
+        )
+        assert verify_step is not None
+        assert verify_step["observed_health"] == "degraded"
+
+    @pytest.mark.asyncio
+    async def test_json_safe(self) -> None:
+        report = await run_drill(
+            "degraded_live_health", config_path=_smoke_config_path(),
+        )
+        json.dumps(report, sort_keys=True)
+
+
+# ---------------------------------------------------------------------------
+# Cross-cutting drill tests
+# ---------------------------------------------------------------------------
+
+
+class TestDrillCrossCutting:
+    """Proves all drills share correct report shape."""
+
+    @pytest.mark.parametrize("drill_name", AVAILABLE_DRILLS)
+    @pytest.mark.asyncio
+    async def test_report_has_required_fields(self, drill_name: str) -> None:
+        """Every drill report has the required top-level fields."""
+        report = await run_drill(drill_name, config_path=_smoke_config_path())
+        for field in ("status", "evidence_level", "drill_name", "timestamp",
+                       "config_source", "storage_backend", "drill_steps",
+                       "limitations"):
+            assert field in report, f"Missing field {field!r} in {drill_name}"
+
+    @pytest.mark.parametrize("drill_name", AVAILABLE_DRILLS)
+    @pytest.mark.asyncio
+    async def test_report_passes(self, drill_name: str) -> None:
+        """Every drill produces a PASS report."""
+        report = await run_drill(drill_name, config_path=_smoke_config_path())
+        assert report["status"] == "PASS", (
+            f"Drill {drill_name} failed: {report.get('fail_reasons', [])}"
+        )
+
+    @pytest.mark.parametrize("drill_name", AVAILABLE_DRILLS)
+    @pytest.mark.asyncio
+    async def test_report_json_safe(self, drill_name: str) -> None:
+        """Every drill report is JSON-serializable."""
+        report = await run_drill(drill_name, config_path=_smoke_config_path())
+        serialized = json.dumps(report, sort_keys=True)
+        parsed = json.loads(serialized)
+        assert parsed["drill_name"] == drill_name
+
+    @pytest.mark.parametrize("drill_name", AVAILABLE_DRILLS)
+    @pytest.mark.asyncio
+    async def test_report_has_drill_steps(self, drill_name: str) -> None:
+        """Every drill report has non-empty drill_steps."""
+        report = await run_drill(drill_name, config_path=_smoke_config_path())
+        assert isinstance(report["drill_steps"], list)
+        assert len(report["drill_steps"]) >= 2
+
+    @pytest.mark.parametrize("drill_name", AVAILABLE_DRILLS)
+    @pytest.mark.asyncio
+    async def test_evidence_level_is_drill(self, drill_name: str) -> None:
+        """Every drill report has evidence_level = 'drill'."""
+        report = await run_drill(drill_name, config_path=_smoke_config_path())
+        assert report["evidence_level"] == "drill"
+
+    @pytest.mark.parametrize("drill_name", AVAILABLE_DRILLS)
+    @pytest.mark.asyncio
+    async def test_drill_with_storage_path(self, drill_name: str, tmp_path: Path) -> None:
+        """Every drill works with --storage-path."""
+        db_path = str(tmp_path / f"drill-{drill_name}.db")
+        report = await run_drill(
+            drill_name,
+            config_path=_smoke_config_path(),
+            storage_path=db_path,
+        )
+        assert report["status"] == "PASS", (
+            f"Drill {drill_name} with storage_path failed: "
+            f"{report.get('fail_reasons', [])}"
+        )
+        assert report["storage_backend"] == "sqlite"
+        assert report.get("storage_path") == db_path

@@ -228,6 +228,7 @@ async def run_fake_bridge_smoke(
     config_path: str | None = None,
     *,
     message_text: str = "medre smoke test",
+    storage_path: str | None = None,
     now_fn: Callable[[], datetime] | None = None,
     monotonic_fn: Callable[[], float] | None = None,
 ) -> dict[str, Any]:
@@ -252,6 +253,11 @@ async def run_fake_bridge_smoke(
         ``examples/configs/fake-bridge-smoke.toml`` when available.
     message_text:
         Body text for the injected event.
+    storage_path:
+        When provided, override storage to SQLite at this path instead of
+        the default in-memory backend.  Allows operators to persist smoke
+        evidence for post-run inspection.  ``None`` (the default) keeps
+        the config's original ``storage.backend`` (typically ``"memory"``).
     now_fn:
         Callable returning UTC datetime (inject for deterministic tests).
     monotonic_fn:
@@ -288,6 +294,15 @@ async def run_fake_bridge_smoke(
 
     config_source_value = source.value
     config = apply_env_overrides(config, paths)
+
+    # -- Override storage if --storage-path provided -------------------------
+    if storage_path is not None:
+        import dataclasses as _dc
+        from medre.config.model import StorageConfig as _SC
+        config = _dc.replace(
+            config,
+            storage=_dc.replace(config.storage, backend="sqlite", path=storage_path),
+        )
 
     # -- Step 2: Preflight --------------------------------------------------
     preflight = _run_preflight(config)
@@ -442,6 +457,8 @@ async def run_fake_bridge_smoke(
         "evidence_level": "fake_bridge",
         "timestamp": _now().isoformat(),
         "config_source": config_source_value,
+        "storage_backend": config.storage.backend,
+        **({"storage_path": storage_path} if storage_path is not None else {}),
         "preflight": preflight,
         "source_adapter": source_aid,
         "target_adapters": target_adapters,

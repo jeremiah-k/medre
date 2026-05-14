@@ -320,7 +320,9 @@ PYTHONPATH=src medre smoke --json; echo "exit: $?"
 - Real transport connectivity (no network involved).
 - Real adapter codec correctness for live packet formats.
 - Delivery confirmation beyond local adapter acceptance.
-- Persistence or crash recovery (in-memory storage).
+- Persistence or crash recovery (in-memory storage). The JSON report is the
+  only surviving artifact. ``medre inspect`` requires SQLite storage; use
+  ``medre run`` with ``[storage] backend = "sqlite"`` for durable inspection.
 
 The underlying function ``run_fake_bridge_smoke()`` in
 ``medre.runtime.smoke`` can also be called programmatically:
@@ -330,6 +332,58 @@ from medre.runtime.smoke import run_fake_bridge_smoke
 report = await run_fake_bridge_smoke("path/to/config.toml")
 assert report["status"] == "PASS"
 ```
+
+**Note:** ``run_fake_bridge_smoke()`` also uses in-memory storage by default.
+The returned report dict is the only surviving artifact. For durable inspection
+of stored evidence, run the full runtime with ``[storage] backend = "sqlite"``
+instead.
+
+
+### Smoke persistence caveat
+
+``medre smoke`` uses in-memory storage by default. When the smoke process exits,
+all stored evidence — events, receipts, native refs, accounting counters — is
+released. The JSON report (or human-readable output) printed to stdout is the
+only surviving record.
+
+Pass ``--storage-path <path>`` to persist evidence to a SQLite database instead.
+When ``--storage-path`` is supplied, events, receipts, and native refs are
+written to the specified database file and can be inspected with ``medre inspect``
+after the process exits.
+
+``medre inspect`` subcommands require persistent storage. Running
+``medre inspect`` against a config with ``[storage] backend = "memory"``
+produces:
+
+```
+Error: storage backend is 'memory' — no persistent data to inspect.
+```
+
+To inspect stored evidence after a run, use ``medre run`` with SQLite storage:
+
+```toml
+[storage]
+backend = "sqlite"
+```
+
+```bash
+# Run with persistent storage
+PYTHONPATH=src medre run --config my-bridge.toml
+
+# After runtime exits (or in a separate terminal), inspect stored evidence:
+PYTHONPATH=src medre inspect event <event_id> --config my-bridge.toml
+PYTHONPATH=src medre inspect receipts --event <event_id> --config my-bridge.toml
+PYTHONPATH=src medre inspect native-ref --adapter <name> --message <native_id> --config my-bridge.toml
+PYTHONPATH=src medre inspect receipts --replay-run <run_id> --config my-bridge.toml
+```
+
+All ``medre inspect`` commands are read-only. They open the SQLite database,
+query the requested data, print it, and close. They do not modify state.
+
+See [Runtime Operation > Persistence](runtime-operation.md#persistence-and-crash-semantics)
+for what survives process termination, and
+[Bridge Operation > Persistence of Bridge State](bridge-operation.md#12-persistence-of-bridge-state)
+for bridge-specific persistence details.
 
 ### Expected fake bridge PASS output
 

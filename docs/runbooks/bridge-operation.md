@@ -354,8 +354,29 @@ After a hard crash during active Matrix-to-Meshtastic bridging:
      AND e.source_adapter = 'bridge'
    ORDER BY e.created_at DESC;
    ```
+   Or use the inspect CLI:
+   ```bash
+   medre inspect receipts --event <event_id> --config my-bridge.toml
+   ```
 3. Decide whether to replay the orphaned events. Use `DRY_RUN` first to verify route matching, then `BEST_EFFORT` if re-delivery is warranted.
 4. Expect possible duplicate deliveries — replay does not deduplicate.
+
+### Smoke Command Does Not Persist
+
+The ``medre smoke`` command uses in-memory storage by default. Receipts,
+events, and accounting data produced during a default smoke run are not written
+to SQLite and are not inspectable with ``medre inspect`` after the process
+exits. The JSON report printed to stdout is the only surviving record.
+
+Pass ``--storage-path <path>`` to persist evidence to a SQLite database that
+``medre inspect`` can query afterward. When ``--storage-path`` is provided, all
+events, receipts, and native refs are written to the specified database file.
+
+For durable inspection of bridge delivery state, use ``medre run`` with
+``[storage] backend = "sqlite"`` and inspect the database afterward. See the
+[Fake Bridge Smoke Runbook](fake-bridge-smoke-runbook.md#smoke-persistence-caveat)
+for details and the [Bridge Failure Drills](bridge-failure-drills.md) runbook
+for failure interpretation guidance.
 
 
 ## 13. Explicit Non-Guarantees
