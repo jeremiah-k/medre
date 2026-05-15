@@ -1716,14 +1716,18 @@ class TestStorageIndexes:
     async def test_native_message_refs_event_id_index(
         self, temp_storage: SQLiteStorage
     ) -> None:
-        """idx_nrefs_event_id on native_message_refs(event_id).
+        """idx_nrefs_event_created on native_message_refs(event_id, created_at).
+
+        Replaces the older idx_nrefs_event_id(event_id).  The composite
+        index covers both the WHERE event_id=? filter and the ORDER BY
+        created_at ASC used by _SELECT_NREFS_FOR_EVENT.
 
         The UNIQUE(adapter, native_channel_id, native_message_id) constraint
         creates an autoindex; we do NOT assert a manual index for that triple.
         """
         indexes = await self._index_columns(temp_storage, "native_message_refs")
-        assert "idx_nrefs_event_id" in indexes
-        assert indexes["idx_nrefs_event_id"] == frozenset({"event_id"})
+        assert "idx_nrefs_event_created" in indexes
+        assert indexes["idx_nrefs_event_created"] == frozenset({"event_id", "created_at"})
 
     async def test_receipts_plan_index(
         self, temp_storage: SQLiteStorage
@@ -1750,6 +1754,19 @@ class TestStorageIndexes:
         indexes = await self._index_columns(temp_storage, "delivery_receipts")
         assert "idx_receipts_source" in indexes
         assert indexes["idx_receipts_source"] == frozenset({"source", "replay_run_id"})
+
+    async def test_receipts_replay_run_index(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """idx_receipts_replay_run on delivery_receipts(replay_run_id).
+
+        Serves _SELECT_RECEIPTS_BY_REPLAY_RUN which filters by replay_run_id
+        alone (without source).  idx_receipts_source(source, replay_run_id)
+        cannot serve this query because source is not in the WHERE clause.
+        """
+        indexes = await self._index_columns(temp_storage, "delivery_receipts")
+        assert "idx_receipts_replay_run" in indexes
+        assert indexes["idx_receipts_replay_run"] == frozenset({"replay_run_id"})
 
     async def test_no_manual_index_for_unique_autoindex(
         self, temp_storage: SQLiteStorage

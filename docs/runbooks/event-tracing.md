@@ -538,7 +538,94 @@ sqlite3 {state}/medre.sqlite "
 ```
 
 
-## 5. Limitations
+## 5. Trace Integrity Notes
+
+This section documents the ordering and timestamping guarantees that underpin
+trace output. Understanding these properties is essential for interpreting
+timeline reports during incident investigation.
+
+### 5.1 All Timestamps Are in UTC
+
+Every `created_at` and `timestamp` field stored in SQLite uses ISO-8601 with
+UTC timezone (`+00:00` or `Z`). The `_now_iso()` helper in the storage layer
+produces timestamps via `datetime.now(timezone.utc).isoformat()`. Trace output
+presents these timestamps as-is. There is no local timezone conversion.
+
+### 5.2 Receipt Ordering Is by Sequence Number
+
+Delivery receipts are ordered by their `sequence` column, which is an
+`INTEGER PRIMARY KEY AUTOINCREMENT`. This ordering is deterministic and stable
+across restarts:
+
+- `list_receipts_for_event`: `ORDER BY sequence ASC`
+- `list_receipts_by_replay_run`: `ORDER BY sequence ASC`
+- `list_receipts_for_plan`: `ORDER BY attempt_number ASC, sequence ASC`
+
+The `sequence` value is assigned at INSERT time by SQLite's auto-increment.
+It reflects the true chronological order of receipt creation. Using `sequence`
+instead of `created_at` avoids non-determinism when two receipts share the
+same timestamp (which happens frequently in fast pipelines).
+
+### 5.3 Replay Receipts Are Interleaved with Live Receipts
+
+Replay receipts are stored in the same `delivery_receipts` table as live
+receipts. They are interleaved in `sequence` order. A replay receipt will have
+a higher `sequence` value than any live receipt that preceded it, because it
+was inserted later. The `source` column (`"live"` vs `"replay"`) distinguishes
+origin. The `replay_run_id` column groups receipts from the same replay
+invocation.
+
+This means a timeline for an event that was both live-delivered and
+replay-delivered shows receipts in chronological insertion order, not grouped
+by source. Use the `source` field to filter:
+
+```bash
+# Show only live receipts:
+medre inspect receipts --event evt_abc123 --config my-bridge.toml | \
+  python3 -c "import json,sys; [print(json.dumps(r)) for r in json.load(sys.stdin) if r.get('source')=='live']"
+```
+
+### 5.4 Events Are Sorted by Timestamp Then event_id
+
+The event query (`medre trace event`, event listing) uses
+`ORDER BY timestamp ASC, event_id ASC`. The `event_id` tiebreaker ensures
+deterministic ordering when two events share the same timestamp. Events are
+not sorted by `created_at` (the storage insertion time) but by `timestamp`
+(the event's logical occurrence time, set by the source adapter).
+
+### 5.5 Source Column Distinguishes Origin
+
+The `source` column on `delivery_receipts` has two values:
+
+| Value | Meaning |
+|-------|---------|
+| `"live"` | Delivery produced by the normal runtime pipeline during operation |
+| `"replay"` | Delivery produced by an operator-initiated replay run |
+
+Do not use `replay_run_id IS NOT NULL` to detect replay receipts. Future
+features may populate `replay_run_id` for non-replay purposes. The `source`
+column is the authoritative filter.
+
+### 5.6 replay_run_id Groups Receipts from the Same Replay Run
+
+Each `medre replay --mode BEST_EFFORT` invocation generates a unique
+`replay_run_id`. All receipts produced by that invocation share the same
+`replay_run_id` and have `source='replay'`. Multiple BEST_EFFORT runs of the
+same events produce different `replay_run_id` values. To audit a specific
+replay run:
+
+```bash
+medre trace replay replay_xyz789 --config my-bridge.toml
+```
+
+### 5.7 Native Refs Are Ordered by created_at Then id
+
+Native message refs for an event are ordered by `ORDER BY created_at ASC, id ASC`.
+The `id` tiebreaker ensures deterministic ordering when multiple refs share the
+same timestamp.
+
+
+## 6. Limitations
 
 1. **No in-flight visibility.** Events that are currently being delivered have
    no receipt yet. If the runtime crashes mid-delivery, no receipt is written.
@@ -573,7 +660,7 @@ sqlite3 {state}/medre.sqlite "
    change before beta. Always verify against the current code.
 
 
-## 6. Cross-References
+## 7. Cross-References
 
 - [Replay Operation](replay-operation.md) — replay modes, command shape,
   receipt interpretation, duplicate risk assessment.

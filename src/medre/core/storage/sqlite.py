@@ -143,17 +143,24 @@ CREATE TABLE IF NOT EXISTS _medre_schema_meta (
 # StorageInitializationError before index creation is attempted.
 # NOTE: native_message_refs(adapter, native_channel_id, native_message_id) is
 # already covered by the UNIQUE constraint autoindex; no manual duplicate needed.
+# NOTE: idx_nrefs_event_created replaces the older idx_nrefs_event_id.  The
+# composite (event_id, created_at) covers the WHERE + ORDER BY of
+# _SELECT_NREFS_FOR_EVENT and is a strict superset of the single-column index.
+# The DROP IF EXISTS handles databases created before this migration.
 _INDEXES: str = """
 CREATE INDEX IF NOT EXISTS idx_events_timestamp
     ON canonical_events(timestamp, event_id);
 CREATE INDEX IF NOT EXISTS idx_relations_event_id
     ON event_relations(event_id, id);
-CREATE INDEX IF NOT EXISTS idx_nrefs_event_id
-    ON native_message_refs(event_id);
+DROP INDEX IF EXISTS idx_nrefs_event_id;
+CREATE INDEX IF NOT EXISTS idx_nrefs_event_created
+    ON native_message_refs(event_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_receipts_plan
     ON delivery_receipts(delivery_plan_id, target_adapter, attempt_number, sequence);
 CREATE INDEX IF NOT EXISTS idx_receipts_event
     ON delivery_receipts(event_id, sequence);
+CREATE INDEX IF NOT EXISTS idx_receipts_replay_run
+    ON delivery_receipts(replay_run_id);
 CREATE INDEX IF NOT EXISTS idx_receipts_source
     ON delivery_receipts(source, replay_run_id);
 """
@@ -287,7 +294,7 @@ ORDER BY sequence ASC
 _SELECT_NREFS_FOR_EVENT = """
 SELECT * FROM native_message_refs
 WHERE event_id = ?
-ORDER BY created_at ASC
+ORDER BY created_at ASC, id ASC
 """
 
 
@@ -439,7 +446,7 @@ def _build_query_sql(filt: EventFilter) -> tuple[str, tuple[Any, ...]]:
         params.append(filt.time_end.isoformat())
 
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
-    sql = f"SELECT * FROM canonical_events{where} ORDER BY timestamp ASC LIMIT ?"
+    sql = f"SELECT * FROM canonical_events{where} ORDER BY timestamp ASC, event_id ASC LIMIT ?"
     params.append(filt.limit)
     return sql, tuple(params)
 

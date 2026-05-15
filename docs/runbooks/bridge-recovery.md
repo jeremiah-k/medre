@@ -477,7 +477,289 @@ See [Runtime Supervision > Database Corruption Recovery](runtime-supervision.md#
 for the authoritative procedure.
 
 
-## 6. Recovery Commands Quick Reference
+## 6. Investigating Incidents
+
+This section provides concrete commands and expected output for common
+investigation patterns. Use these when you need to understand what happened
+during an incident rather than recover from one.
+
+### 6.1 Correlating event_id, replay_run_id, receipt_id, and Native IDs
+
+Every delivery produces a chain of identifiers. The canonical event has an
+`event_id`; each delivery attempt produces a `receipt_id` linked to that event;
+and each adapter interaction may produce a native message ref linking the
+canonical event to a transport-native ID (Matrix event ID, Meshtastic packet
+ID, etc.).
+
+```bash
+# Start from a known event_id:
+medre trace event evt_abc123 --config my-bridge.toml
+
+# Expected output (human-readable):
+#   Event: evt_abc123 (message.text) from bot
+#   Timeline (3 entries):
+#
+#     2026-05-14T10:30:00Z  [event] message.text from bot
+#     2026-05-14T10:30:00.010Z  [native_ref] outbound via radio: fake_123
+#     2026-05-14T10:30:00.050Z  [receipt] sent -> radio (attempt 1)
+#
+#   Summary:
+#     Receipts: sent: 1
+#     Native refs: 1
+```
+
+The timeline shows the correlation: `event_id` is the primary key. Each
+`[receipt]` entry has a `receipt_id` (not shown in compact mode; use `--json`
+to see it). Each `[native_ref]` entry links back to the event via
+`canonical_event_id`. Replay receipts include `replay_run_id` grouping.
+
+To see all identifiers explicitly:
+
+```bash
+medre inspect receipts --event evt_abc123 --config my-bridge.toml
+
+# Expected output (JSON):
+# [
+#   {
+#     "receipt_id": "rcpt_001",
+#     "event_id": "evt_abc123",
+#     "target_adapter": "radio",
+#     "route_id": "bot-to-radio",
+#     "status": "sent",
+#     "source": "live",
+#     "replay_run_id": null,
+#     "attempt_number": 1,
+#     "parent_receipt_id": null,
+#     "created_at": "2026-05-14T10:30:00.050000+00:00"
+#   }
+# ]
+```
+
+### 6.2 Interpreting Replay Receipts vs Live Receipts
+
+Replay receipts are interleaved with live receipts in storage, ordered by
+`sequence` (the auto-increment primary key). The `source` column distinguishes
+origin: `"live"` for pipeline deliveries, `"replay"` for replay-attributed
+deliveries.
+
+```bash
+# An event that was delivered live and then replayed:
+medre inspect receipts --event evt_abc123 --config my-bridge.toml
+
+# Expected output (JSON, truncated):
+# [
+#   {
+#     "receipt_id": "rcpt_001",
+#     "event_id": "evt_abc123",
+#     "status": "sent",
+#     "source": "live",
+#     "replay_run_id": null,
+#     "sequence": 1,
+#     ...
+#   },
+#   {
+#     "receipt_id": "rcpt_r1",
+#     "event_id": "evt_abc123",
+#     "status": "sent",
+#     "source": "replay",
+#     "replay_run_id": "replay_xyz789",
+#     "sequence": 42,
+#     ...
+#   }
+# ]
+```
+
+Interpretation: the event was first delivered at `sequence=1` (live), then
+re-delivered at `sequence=42` (replay run `replay_xyz789`). Both deliveries
+produced real outbound messages. The `replay_run_id` groups all receipts from
+the same replay invocation.
+
+To isolate only replay receipts:
+
+```bash
+medre inspect receipts --replay-run replay_xyz789 --config my-bridge.toml
+```
+
+### 6.3 Interpreting Partial Evidence: Routing Succeeded but Delivery Failed
+
+When routing matches a route but the adapter rejects the delivery, you see a
+receipt with `status="failed"` and a `failure_kind` indicating the cause.
+
+```bash
+medre trace event evt_partial --config my-bridge.toml
+
+# Expected output:
+#   Event: evt_partial (message.text) from bot
+#   Timeline (2 entries):
+#
+#     2026-05-14T10:30:00Z  [event] message.text from bot
+#     2026-05-14T10:30:00.050Z  [receipt] failed -> radio (attempt 1) \
+#       error=adapter_transient
+#
+#   Summary:
+#     Receipts: failed: 1
+#     Native refs: 0
+```
+
+Key indicators of partial evidence:
+- A receipt exists with `route_id` populated (routing matched).
+- `status="failed"` with a non-null `failure_kind` (delivery rejected).
+- No native ref for the failed adapter (the adapter never produced a native
+  message ID because delivery failed before that point).
+- If `attempt_number > 1`, check `parent_receipt_id` to trace the retry chain.
+
+```bash
+# Check the full retry chain:
+sqlite3 {state}/medre.sqlite "
+  SELECT receipt_id, attempt_number, status, failure_kind, parent_receipt_id
+  FROM delivery_receipts
+  WHERE event_id = 'evt_partial'
+  ORDER BY sequence ASC;
+"
+
+# Expected:
+# rcpt_001|1|failed|adapter_transient|
+# rcpt_002|2|failed|adapter_transient|rcpt_001
+# rcpt_003|3|sent||rcpt_002
+```
+
+### 6.4 Interpreting Callback Ingress Evidence
+
+When an event is ingested from a source adapter (inbound direction), there is
+no `DeliveryOutcome` or delivery receipt for the ingestion itself. The event
+exists in `canonical_events`, and any delivery receipts correspond to outbound
+deliveries triggered by that event.
+
+```bash
+# An inbound event with successful outbound delivery:
+medre trace event evt_inbound --config my-bridge.toml
+
+# Expected output:
+#   Event: evt_inbound (message.text) from radio
+#   Timeline (3 entries):
+#
+#     2026-05-14T10:30:00Z  [event] message.text from radio
+#     2026-05-14T10:30:00.010Z  [native_ref] inbound via radio: pkt_456
+#     2026-05-14T10:30:00.050Z  [receipt] sent -> matrix (attempt 1)
+```
+
+The `[event]` entry is the ingestion. The `[native_ref]` with `direction:
+inbound` shows the original transport-native message. The `[receipt]` shows the
+outbound delivery to another adapter. There is no receipt for the inbound side
+-- only the event and its native ref.
+
+To identify inbound-only events (ingested but never delivered):
+
+```bash
+sqlite3 {state}/medre.sqlite "
+  SELECT e.event_id, e.source_adapter,
+    (SELECT COUNT(*) FROM delivery_receipts r WHERE r.event_id = e.event_id) AS receipt_count
+  FROM canonical_events e
+  WHERE (SELECT COUNT(*) FROM delivery_receipts r WHERE r.event_id = e.event_id) = 0
+  ORDER BY e.created_at DESC
+  LIMIT 20;
+"
+```
+
+### 6.5 How Duplicate Suppression Appears in Storage
+
+MEDRE does not have a deduplication layer, but loop prevention suppresses
+delivery when an event would be routed back to its source adapter. In this
+case, no receipt is written. The event exists in `canonical_events` with no
+corresponding receipt for the loop-prevented adapter.
+
+```bash
+# An event where loop prevention suppressed delivery:
+medre trace event evt_loop_prevented --config my-bridge.toml
+
+# Expected output:
+#   Event: evt_loop_prevented (message.text) from bot
+#   Timeline (1 entry):
+#
+#     2026-05-14T10:30:00Z  [event] message.text from bot
+#
+#   Summary:
+#     Receipts: none
+#     Native refs: 0
+```
+
+No receipt was written because loop prevention prevented delivery. The event
+has zero receipts. This is the same storage signature as an orphaned event.
+To distinguish loop-prevented events from orphans, check whether the event's
+source adapter matches any route's destination:
+
+```bash
+# Events with no receipts where the source adapter IS a route destination
+# (likely loop-prevented, not orphaned):
+sqlite3 {state}/medre.sqlite "
+  SELECT e.event_id, e.source_adapter
+  FROM canonical_events e
+  LEFT JOIN delivery_receipts r ON e.event_id = r.event_id
+  WHERE r.event_id IS NULL
+    AND e.source_adapter IN (
+      SELECT DISTINCT json_extract(value, '$.dest') FROM ...
+    )
+  ORDER BY e.created_at DESC
+  LIMIT 20;
+"
+```
+
+Note: loop prevention is tracked in process-local `loop_prevented` counters
+in the routing/accounting layer. These counters reset on restart. To check
+loop prevention from storage alone, correlate the event's source adapter with
+the route configuration.
+
+### 6.6 Restart Boundaries: Previous Events in Storage, Counters Reset
+
+After a restart, all events and receipts survive in SQLite. Process-local
+counters (capacity rejections, outbound failed, route stats, loop-prevented)
+reset to zero. This means:
+
+1. Events from before the restart are still queryable via `medre trace` and
+   `medre inspect`.
+2. Receipts from before the restart are still in `delivery_receipts` with
+   their original `sequence` values.
+3. New receipts after restart continue the `sequence` auto-increment (no gap
+   filling -- gaps indicate lost in-flight deliveries).
+4. Counter-based diagnostics (`medre diagnostics`) reflect only post-restart
+   state.
+
+```bash
+# Identify the restart boundary by looking for a gap in receipt timestamps:
+sqlite3 {state}/medre.sqlite "
+  SELECT r1.created_at AS before_restart,
+         r2.created_at AS after_restart,
+         (julianday(r2.created_at) - julianday(r1.created_at)) * 86400 AS gap_seconds
+  FROM delivery_receipts r1
+  JOIN delivery_receipts r2 ON r2.sequence = r1.sequence + 1
+  WHERE (julianday(r2.created_at) - julianday(r1.created_at)) * 86400 > 60
+  ORDER BY r1.sequence DESC
+  LIMIT 5;
+"
+
+# Expected output (if restart happened):
+# 2026-05-14T10:30:00.050Z|2026-05-14T11:15:00.010Z|2699.96
+#
+# A gap of ~45 minutes between consecutive receipts suggests a restart.
+# Events created during the gap that have no receipts are likely lost
+# in-flight deliveries.
+```
+
+To find events that were likely in-flight at the crash point:
+
+```bash
+sqlite3 {state}/medre.sqlite "
+  SELECT e.event_id, e.created_at
+  FROM canonical_events e
+  LEFT JOIN delivery_receipts r ON e.event_id = r.event_id
+  WHERE r.event_id IS NULL
+    AND e.created_at BETWEEN '2026-05-14T10:25:00Z' AND '2026-05-14T10:35:00Z'
+  ORDER BY e.created_at ASC;
+"
+```
+
+
+## 7. Recovery Commands Quick Reference
 
 | Scenario | Command | Purpose |
 |----------|---------|---------|
@@ -495,7 +777,7 @@ for the authoritative procedure.
 | Verify startup | `grep "Assembly complete" {state}/logs/medre.log \| tail -1` | Confirm all adapters started |
 
 
-## 7. Caveats
+## 8. Caveats
 
 1. **No automatic retry.** Recovery is entirely operator-initiated. MEDRE does
    not automatically replay orphaned events, restart failed adapters, or retry
@@ -534,7 +816,7 @@ for the authoritative procedure.
    before beta. Always verify against the current code.
 
 
-## 8. Cross-References
+## 9. Cross-References
 
 - [Event Tracing](event-tracing.md) — tracing events and replay runs through
   the pipeline lifecycle, timeline reports, SQL queries.
