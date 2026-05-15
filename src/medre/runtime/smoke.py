@@ -1,8 +1,10 @@
 """Operator-facing fake bridge smoke runner.
 
 Provides :func:`run_fake_bridge_smoke` — a single async function that
-proves the MEDRE runtime pipeline works end-to-end with fake adapters
-and in-memory storage.  Docker-free, network-free, SDK-free.
+proves the MEDRE runtime pipeline works end-to-end with fake adapters.
+Default smoke uses in-memory storage unless ``--storage-path`` is provided;
+run-session uses SQLite persistent/temp storage.  Docker-free, network-free,
+SDK-free.
 
 Produces a compact evidence report (plain dict) that can be serialised
 as JSON.  The CLI surface ``medre smoke`` calls this function and prints

@@ -76,6 +76,8 @@ async def _smoke(
         n_receipts = len(report.get("delivery_receipts", []))
         n_refs = len(report.get("native_refs", []))
 
+        # JSON status uses lowercase "passed"/"failed"; terminal output uses
+        # "PASS"/"FAIL" labels for visual clarity.
         if status == "passed":
             print(f"Fake bridge smoke: PASS")
         else:
@@ -155,6 +157,8 @@ async def _run_session(
         storage = report.get("storage_path", "N/A")
         snap_path = report.get("final_snapshot_path", "N/A")
 
+        # JSON status uses lowercase "passed"/"failed"; terminal output uses
+        # "PASS"/"FAIL" labels for visual clarity.
         if status == "passed":
             print("Run session: PASS")
         else:
