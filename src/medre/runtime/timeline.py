@@ -212,28 +212,17 @@ async def assemble_storage_summary(storage: Any) -> dict[str, Any]:
     event_count = await storage.count_events()
     receipt_count = await storage.count_receipts()
 
-    # Receipt count by source (live vs replay) — one SQL query.
-    source_rows = await storage._read_all(
-        "SELECT source, COUNT(*) AS cnt FROM delivery_receipts "
-        "GROUP BY source",
-    )
-    receipt_by_source: dict[str, int] = {"live": 0, "replay": 0}
-    for row in source_rows:
-        key = row["source"] if row["source"] in ("live", "replay") else "live"
-        receipt_by_source[key] = row["cnt"]
+    # Receipt count by source (live vs replay).
+    receipt_by_source: dict[str, int] = {
+        "live": await storage.count_receipts_by_source("live"),
+        "replay": await storage.count_receipts_by_source("replay"),
+    }
 
-    # Native ref count — lightweight query.
-    nref_row = await storage._read_one(
-        "SELECT COUNT(*) AS cnt FROM native_message_refs",
-    )
-    native_ref_count = nref_row["cnt"] if nref_row else 0
+    # Native ref count.
+    native_ref_count = await storage.count_native_refs()
 
     # Distinct replay run count.
-    run_row = await storage._read_one(
-        "SELECT COUNT(DISTINCT replay_run_id) AS cnt "
-        "FROM delivery_receipts WHERE replay_run_id IS NOT NULL",
-    )
-    replay_run_count = run_row["cnt"] if run_row else 0
+    replay_run_count = await storage.count_replay_runs()
 
     return {
         "event_count": event_count,

@@ -1,12 +1,18 @@
 # Fake Bridge Evidence Criteria
 
-> Last updated: 2026-05-14
+> Last updated: 2026-05-15
 > Scope: Defining what assertions constitute proof of correct bridge behavior
 > Status: Pre-beta. Criteria defined for fake bridge and Docker SDK-boundary levels.
 
 This document defines evidence-level criteria for each bridge flow type. Each
 criterion specifies what must be asserted to consider a flow "proven" at a given
 level of fidelity.
+
+**Authoritative source:** The per-transport, per-tier evidence matrix with test
+file cross-references is in
+[docs/architecture/transport-validation-matrix.md](../architecture/transport-validation-matrix.md).
+The provenance table and tier descriptions below are kept for context; the
+matrix is the single source of truth for what is proven and what is not.
 
 
 ## Provenance Levels
@@ -229,6 +235,9 @@ Key:
 - ❓ = partial or unconfirmed
 
 Fake callback = simulate_inbound, Wrapper callback = adapter callback → pipeline → fake outbound, Docker SDK-boundary = real SDK against containerized service, Live = real endpoint/hardware.
+
+For per-adapter detail, test file cross-references, and known gaps, see
+[docs/architecture/transport-validation-matrix.md](../architecture/transport-validation-matrix.md).
 
 
 ## What Remains Unproven

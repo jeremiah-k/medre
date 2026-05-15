@@ -372,10 +372,7 @@ async def _collect_storage_section(
     """
     from medre.config.paths import MedrePathsError as _MPE
     from medre.core.storage.sqlite import SQLiteStorage
-    from medre.runtime.trace import (
-        assemble_event_timeline,
-        assemble_replay_timeline,
-    )
+    from medre.runtime import timeline as _timeline
 
     storage_config = config.storage
 
@@ -427,21 +424,20 @@ async def _collect_storage_section(
             import msgspec
             import json as _json
 
-            event = await storage.get(event_id)
-            if event is not None:
-                data["event"] = _json.loads(msgspec.json.encode(event))
+            tl_result = await _timeline.assemble_event_timeline(
+                storage, event_id,
+            )
+            if tl_result is not None:
+                event = tl_result["event"]
+                receipts = tl_result["receipts"]
+                native_refs = tl_result["native_refs"]
 
-                # Fetch native refs and relations for timeline assembly.
-                native_refs = await storage.list_native_refs_for_event(event_id)
-                relations = await storage.list_relations(event_id)
-                receipts = await storage.list_receipts_for_event(event_id)
+                data["event"] = _json.loads(msgspec.json.encode(event))
                 data["native_refs_for_event"] = [
                     _json.loads(msgspec.json.encode(r)) for r in native_refs
                 ]
 
-                data["timeline"] = assemble_event_timeline(
-                    event, receipts, native_refs, relations,
-                )
+                data["timeline"] = tl_result["timeline_entries"]
 
                 # Compact incident summary using shared classification.
                 from medre.observability.classification import (
@@ -513,15 +509,17 @@ async def _collect_storage_section(
             import msgspec
             import json as _json
 
-            receipts = await storage.list_receipts_by_replay_run(replay_run_id)
-            data["replay_run_receipts"] = [
-                _json.loads(msgspec.json.encode(r)) for r in receipts
-            ]
-
-            if receipts:
-                data["replay_timeline"] = assemble_replay_timeline(
-                    replay_run_id, receipts, {},
-                )
+            tl_replay = await _timeline.assemble_replay_timeline(
+                storage, replay_run_id,
+            )
+            if tl_replay is not None:
+                data["replay_run_receipts"] = [
+                    _json.loads(msgspec.json.encode(r))
+                    for r in tl_replay["receipts"]
+                ]
+                data["replay_timeline"] = tl_replay["timeline_entries"]
+            else:
+                data["replay_run_receipts"] = []
 
         # If event was requested but not found, report partial.
         if event_id is not None and data["event"] is None:

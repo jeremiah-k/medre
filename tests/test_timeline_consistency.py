@@ -21,7 +21,7 @@ from medre.core.events import (
     NativeMessageRef,
 )
 from medre.core.storage.sqlite import SQLiteStorage
-from medre.runtime.trace import assemble_event_timeline
+from medre.runtime import timeline as _timeline
 
 
 def _now() -> datetime:
@@ -124,13 +124,25 @@ async def _surface_data(
     storage: SQLiteStorage, event_id: str, *, with_timeline: bool = False,
 ) -> dict[str, Any]:
     """Gather data as trace/inspect/evidence surfaces would."""
+    if with_timeline:
+        tl_result = await _timeline.assemble_event_timeline(storage, event_id)
+        if tl_result is None:
+            return {"found": False}
+        return {
+            "found": True,
+            "event_id": tl_result["event"].event_id,
+            "receipt_count": len(tl_result["receipts"]),
+            "native_ref_count": len(tl_result["native_refs"]),
+            "receipts": tl_result["receipts"],
+            "native_refs": tl_result["native_refs"],
+            "timeline": tl_result["timeline_entries"],
+        }
     event = await storage.get(event_id)
     if event is None:
         return {"found": False}
     receipts = await storage.list_receipts_for_event(event_id)
     native_refs = await storage.list_native_refs_for_event(event_id)
-    relations = await storage.list_relations(event_id)
-    result: dict[str, Any] = {
+    return {
         "found": True,
         "event_id": event.event_id,
         "receipt_count": len(receipts),
@@ -138,9 +150,6 @@ async def _surface_data(
         "receipts": receipts,
         "native_refs": native_refs,
     }
-    if with_timeline:
-        result["timeline"] = assemble_event_timeline(event, receipts, native_refs, relations)
-    return result
 
 
 # -- Test 1: trace / evidence / inspect receipt counts agree

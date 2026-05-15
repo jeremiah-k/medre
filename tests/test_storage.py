@@ -1954,3 +1954,176 @@ class TestOpenReadonly:
             await ro.close()
         finally:
             os.unlink(db_path)
+
+
+# ===================================================================
+# Public count methods: count_native_refs, count_receipts_by_source,
+# count_replay_runs
+# ===================================================================
+
+
+class TestPublicCountMethods:
+    """Public count methods on SQLiteStorage."""
+
+    async def test_count_native_refs_empty(self, temp_storage: SQLiteStorage) -> None:
+        """count_native_refs returns 0 on a fresh database."""
+        assert await temp_storage.count_native_refs() == 0
+
+    async def test_count_native_refs_after_storing(
+        self, temp_storage: SQLiteStorage,
+    ) -> None:
+        """count_native_refs returns the correct total after storing refs."""
+        event = _make_event(event_id="evt-cnt-nref")
+        await temp_storage.append(event)
+
+        for i in range(3):
+            ref = NativeMessageRef(
+                id=f"nref-cnt-{i}",
+                event_id="evt-cnt-nref",
+                adapter=f"adapter_{i}",
+                native_channel_id="ch-0",
+                native_message_id=f"msg-{i}",
+                native_thread_id=None,
+                native_relation_id=None,
+                direction="outbound",
+            )
+            await temp_storage.store_native_ref(ref)
+
+        assert await temp_storage.count_native_refs() == 3
+
+    async def test_count_receipts_by_source_live_only(
+        self, temp_storage: SQLiteStorage,
+    ) -> None:
+        """count_receipts_by_source('live') counts only live receipts."""
+        event = _make_event(event_id="evt-src-live")
+        await temp_storage.append(event)
+
+        for i in range(4):
+            receipt = DeliveryReceipt(
+                receipt_id=f"rcpt-src-live-{i}",
+                event_id="evt-src-live",
+                delivery_plan_id=f"plan-live-{i}",
+                target_adapter=f"adapter_{i}",
+                status="sent",
+                source="live",
+            )
+            await temp_storage.append_receipt(receipt)
+
+        assert await temp_storage.count_receipts_by_source("live") == 4
+        assert await temp_storage.count_receipts_by_source("replay") == 0
+
+    async def test_count_receipts_by_source_replay(
+        self, temp_storage: SQLiteStorage,
+    ) -> None:
+        """count_receipts_by_source('replay') counts only replay receipts."""
+        event = _make_event(event_id="evt-src-replay")
+        await temp_storage.append(event)
+
+        receipt = DeliveryReceipt(
+            receipt_id="rcpt-src-replay-0",
+            event_id="evt-src-replay",
+            delivery_plan_id="plan-replay-0",
+            target_adapter="adapter_r",
+            status="sent",
+            source="replay",
+            replay_run_id="run-1",
+        )
+        await temp_storage.append_receipt(receipt)
+
+        assert await temp_storage.count_receipts_by_source("replay") == 1
+        assert await temp_storage.count_receipts_by_source("live") == 0
+
+    async def test_count_receipts_by_source_mixed(
+        self, temp_storage: SQLiteStorage,
+    ) -> None:
+        """count_receipts_by_source distinguishes live from replay in mixed data."""
+        event = _make_event(event_id="evt-src-mix")
+        await temp_storage.append(event)
+
+        for i in range(2):
+            r_live = DeliveryReceipt(
+                receipt_id=f"rcpt-mix-live-{i}",
+                event_id="evt-src-mix",
+                delivery_plan_id=f"plan-mix-l-{i}",
+                target_adapter=f"adapter_l_{i}",
+                status="sent",
+                source="live",
+            )
+            await temp_storage.append_receipt(r_live)
+
+        for i in range(3):
+            r_replay = DeliveryReceipt(
+                receipt_id=f"rcpt-mix-replay-{i}",
+                event_id="evt-src-mix",
+                delivery_plan_id=f"plan-mix-r-{i}",
+                target_adapter=f"adapter_r_{i}",
+                status="sent",
+                source="replay",
+                replay_run_id=f"run-mix-{i}",
+            )
+            await temp_storage.append_receipt(r_replay)
+
+        assert await temp_storage.count_receipts_by_source("live") == 2
+        assert await temp_storage.count_receipts_by_source("replay") == 3
+
+    async def test_count_receipts_by_source_empty(
+        self, temp_storage: SQLiteStorage,
+    ) -> None:
+        """count_receipts_by_source returns 0 when no receipts exist."""
+        assert await temp_storage.count_receipts_by_source("live") == 0
+        assert await temp_storage.count_receipts_by_source("replay") == 0
+
+    async def test_count_replay_runs_empty(self, temp_storage: SQLiteStorage) -> None:
+        """count_replay_runs returns 0 when no replay receipts exist."""
+        assert await temp_storage.count_replay_runs() == 0
+
+    async def test_count_replay_runs_distinct(
+        self, temp_storage: SQLiteStorage,
+    ) -> None:
+        """count_replay_runs returns the count of distinct replay_run_ids."""
+        event = _make_event(event_id="evt-replay-runs")
+        await temp_storage.append(event)
+
+        # 3 receipts with run-a, 2 with run-b, 1 live (no run).
+        for i in range(3):
+            r = DeliveryReceipt(
+                receipt_id=f"rcpt-rr-a-{i}",
+                event_id="evt-replay-runs",
+                delivery_plan_id=f"plan-rr-a-{i}",
+                target_adapter=f"adapter_a_{i}",
+                status="sent",
+                source="replay",
+                replay_run_id="run-a",
+            )
+            await temp_storage.append_receipt(r)
+
+        for i in range(2):
+            r = DeliveryReceipt(
+                receipt_id=f"rcpt-rr-b-{i}",
+                event_id="evt-replay-runs",
+                delivery_plan_id=f"plan-rr-b-{i}",
+                target_adapter=f"adapter_b_{i}",
+                status="sent",
+                source="replay",
+                replay_run_id="run-b",
+            )
+            await temp_storage.append_receipt(r)
+
+        # Live receipt — should not count.
+        r_live = DeliveryReceipt(
+            receipt_id="rcpt-rr-live",
+            event_id="evt-replay-runs",
+            delivery_plan_id="plan-rr-live",
+            target_adapter="adapter_live",
+            status="sent",
+            source="live",
+        )
+        await temp_storage.append_receipt(r_live)
+
+        assert await temp_storage.count_replay_runs() == 2
+
+    async def test_count_receipts_by_source_unknown_source(
+        self, temp_storage: SQLiteStorage,
+    ) -> None:
+        """count_receipts_by_source returns 0 for a source that has no matches."""
+        assert await temp_storage.count_receipts_by_source("nonexistent") == 0

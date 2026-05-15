@@ -212,7 +212,191 @@ real adapter is not proven.
 | Live network | **Not claimed** | No cross-transport bridge test against real endpoints |
 
 
-## 8. Operational Checklist
+## 8. How to Validate MEDRE Bridge Operation
+
+This section provides concrete commands and expected outcomes for validating
+MEDRE bridge behavior at three tiers of fidelity. Start at the lowest tier and
+work upward. Each tier is a prerequisite for the next.
+
+The authoritative evidence matrix for all transports and tiers is in
+[docs/architecture/transport-validation-matrix.md](../architecture/transport-validation-matrix.md).
+
+### 8.1 Quick Validation (No Docker, No Hardware)
+
+This validates the core pipeline, codec, rendering, receipts, accounting, and
+loop prevention using fake adapters. No network, no Docker, no SDK dependencies.
+
+**Commands:**
+
+```bash
+# Full unit test suite (includes fake bridge + wrapper callback tests)
+PYTHONPATH=src pytest -q
+
+# Run only fake bridge smoke tests (fastest validation)
+PYTHONPATH=src pytest tests/test_fake_bridge_smoke.py tests/test_matrix_fake_bridge.py tests/test_meshtastic_fake_bridge.py -q
+
+# Run wrapper callback ingress tests (proves adapter callback paths)
+PYTHONPATH=src pytest tests/test_matrix_wrapper_ingress.py tests/test_meshtastic_wrapper_ingress.py tests/test_meshcore_wrapper_ingress.py tests/test_lxmf_wrapper_ingress.py -q
+```
+
+**Expected evidence report:**
+
+- All tests pass (3200+ for full suite; ~10-20 for targeted runs).
+- No `ImportError` or `ModuleNotFoundError` for SDK packages (fake adapters
+  require zero optional dependencies).
+- Each fake bridge test asserts: inbound event persisted, route selected,
+  rendered outbound payload, `DeliveryReceipt` with `status == "sent"`,
+  `RuntimeAccounting` counters incremented.
+
+**What passing proves:**
+
+- Pipeline routing, rendering, receipts, accounting, and loop prevention work
+  correctly with all four transports.
+- Per-transport adapter codec and callback paths work with real adapter code
+  (wrapper callback tests).
+- The core is correct. Bugs are not in the pipeline.
+
+**What passing does NOT prove:**
+
+- Nothing about real SDK behavior, network I/O, or hardware.
+- A passing fake bridge test gives no evidence that the real transport SDK
+  connects to anything.
+
+**What failing means:**
+
+- `ImportError` for `msgspec` or `medre.core`: installation is broken. Run
+  `pip install -e ".[dev]"` and verify `PYTHONPATH=src`.
+- Test failures in fake bridge: core pipeline regression. Do not proceed to
+  Docker or live testing until fake bridge tests pass clean.
+- Failures in wrapper callback tests: adapter codec regression. The
+  simulate_inbound → codec → pipeline path is broken for that adapter.
+
+### 8.2 Docker Validation (Containerized Transports)
+
+This validates real SDK libraries against containerized services. Requires
+Docker, the relevant SDK dependency group, and network access to pull images.
+
+**Prerequisites:**
+
+```bash
+pip install -e ".[matrix,meshtastic,dev]"
+docker compose -f tests/integration/docker-compose.synapse.yml up -d
+```
+
+**Commands:**
+
+```bash
+# Matrix Docker tests (Synapse)
+PYTHONPATH=src pytest tests/integration/test_synapse_connectivity.py tests/integration/test_synapse_bridge_smoke.py tests/integration/test_synapse_run_session.py -q
+
+# Meshtastic Docker tests (meshtasticd)
+docker compose -f tests/integration/docker-compose.meshtasticd.yml up -d
+PYTHONPATH=src pytest tests/integration/test_meshtasticd_connectivity.py tests/integration/test_meshtasticd_sdk_bridge.py -q
+```
+
+**Expected evidence report (Matrix):**
+
+- `test_synapse_connectivity`: real nio SDK connects to Synapse, delivers a
+  message, reports healthy, stops cleanly.
+- `test_synapse_bridge_smoke`: real sync_loop delivers inbound event through
+  pipeline. Receipts persisted with genuine Synapse `event_id`. Report shows
+  `ingress_path == "sync_loop"`.
+- `test_synapse_run_session`: full runtime lifecycle against Docker Synapse.
+
+**Expected evidence report (Meshtastic):**
+
+- `test_meshtasticd_connectivity`: real `mtjk` SDK creates `TCPInterface`,
+  subscribes to pubsub, reports healthy, stops cleanly.
+- `test_meshtasticd_sdk_bridge`: outbound delivery via real `sendText` returns
+  real packet ID. SDK lifecycle proven. Inbound uses `simulate_inbound` (not
+  real pubsub).
+- `test_two_client_real_packet_injection` is `xfail(strict=False)` — bonus
+  evidence if it passes, but do not rely on it.
+
+**What passing proves:**
+
+- Real SDK libraries load, connect, and interact with containerized services.
+- Config-to-runtime path works with real connection parameters.
+- Adapter lifecycle (start, health, deliver, stop) works through real SDK code.
+- For Matrix: inbound delivery through real nio sync_forever callback. Full
+  codec → pipeline → receipt chain with genuine Synapse event IDs.
+- For Meshtastic: outbound delivery through real `sendText`. SDK lifecycle and
+  pubsub subscription.
+
+**What passing does NOT prove:**
+
+- Container runs on localhost. Not a real network environment.
+- Meshtastic inbound through real pubsub callback is unconfirmed (see known
+  gap: two-client relay).
+- No MeshCore or LXMF Docker tests exist.
+- No cross-transport bridge between two real adapters (bridge smoke routes
+  real Matrix to fake outbound).
+
+**What failing means:**
+
+- Docker not running: start Docker, pull images, verify containers are up.
+- `ImportError` for `mindroom_nio` or `mtjk`: install the relevant dependency
+  group (`pip install -e ".[matrix]"` or `pip install -e ".[meshtastic]"`).
+- Connection refused: container not ready. Wait for health checks or check
+  `docker compose logs`.
+- Meshtastic tests fail with SDK errors: meshtasticd may not be running in
+  simulation mode. Verify `docker-compose.meshtasticd.yml` passes `-s` flag.
+
+### 8.3 Live Validation (Real Accounts/Devices)
+
+This validates adapters against real endpoints. Requires real credentials,
+accounts, or hardware. These tests are off by default and gated by environment
+variables.
+
+**Prerequisites:**
+
+```bash
+pip install -e ".[matrix,meshtastic,dev]"
+
+# For Matrix live tests:
+export MATRIX_HOMESERVER=https://your-homeserver.org
+export MATRIX_USER_ID=@user:your-homeserver.org
+export MATRIX_ACCESS_TOKEN=syt_...
+export MATRIX_ROOM_ID='!roomid:your-homeserver.org'
+```
+
+**Commands:**
+
+```bash
+# Matrix live smoke (requires MATRIX_* env vars)
+PYTHONPATH=src pytest tests/test_matrix_live.py -m live --tb=short -q
+
+# No live test files exist for Meshtastic, MeshCore, or LXMF
+```
+
+**Expected evidence report (Matrix):**
+
+- Adapter starts, sends a message, reports diagnostics, stops.
+- A real `event_id` is returned by the homeserver.
+- The message appears in the room (manual verification or check `event_id`
+  against Synapse).
+
+**What passing proves:**
+
+- The Matrix adapter works against a real homeserver with real credentials.
+- Basic connectivity and protocol compliance for Matrix.
+
+**What passing does NOT prove:**
+
+- Sustained reliability, throughput, or reconnect resilience.
+- No live test exists for Meshtastic, MeshCore, or LXMF. Passing Matrix live
+  says nothing about those transports.
+
+**What failing means:**
+
+- Tests skipped: environment variables not set. This is expected if you do not
+  have real credentials.
+- Connection refused / timeout: homeserver unreachable, credentials invalid,
+  or room does not exist. Verify the `MATRIX_*` values.
+- 401/403: access token expired or wrong user. Regenerate the token.
+
+
+## 9. Operational Checklist
 
 When operating a multi-transport bridge:
 
@@ -231,7 +415,7 @@ When operating a multi-transport bridge:
 7. **Trust receipt lineage.** The `attempt_number` and `parent_receipt_id` chain on receipts provides a complete audit trail. Use it to reconstruct what happened, not to assume what should have happened.
 
 
-## 9. Route Attribution in Delivery Receipts
+## 10. Route Attribution in Delivery Receipts
 
 Every `DeliveryReceipt` now carries a `route_id` field identifying which route was responsible for the delivery attempt. This provides direct attribution from receipt back to route configuration.
 
@@ -255,11 +439,11 @@ Every `DeliveryReceipt` now carries a `route_id` field identifying which route w
 See: Contract 51 (Route Attribution), Contract 52 (Routed Delivery Result).
 
 
-## 10. Route Loop Prevention
+## 11. Route Loop Prevention
 
 MEDRE detects and prevents routing loops at multiple layers. This section describes what operators should know about loop behavior in bridge scenarios.
 
-### 10.1 Direct Loop Detection (Startup)
+### 11.1 Direct Loop Detection (Startup)
 
 At startup, `check_route_loops` detects two forms of loops in route configuration:
 
@@ -268,13 +452,13 @@ At startup, `check_route_loops` detects two forms of loops in route configuratio
 
 Both are logged as warnings. Startup is **not blocked**. The operator should review and fix cycle-inducing routes.
 
-### 10.2 Self-Loop Guard (Runtime, Per-Delivery)
+### 11.2 Self-Loop Guard (Runtime, Per-Delivery)
 
 During delivery execution, the pipeline checks each target: if `target_adapter == event.source_adapter`, the delivery is skipped. The outcome records `status="skipped"` with `error="loop_prevented"`. No adapter call is made. `RouteStats` records the prevention.
 
 This guard fires on every delivery attempt. It catches runtime self-loops that configuration-level detection may not prevent (e.g., a bidirectional route where a single adapter appears in both source and destination after expansion).
 
-### 10.2a Native-Ref Duplicate Suppression (Runtime, Per-Ingress)
+### 11.2a Native-Ref Duplicate Suppression (Runtime, Per-Ingress)
 
 At pipeline Stage 1.5, `PipelineRunner.handle_ingress` checks each inbound event's `source_native_ref` against previously stored native message references. If a matching ref is found, the event is dropped before routing. This prevents echo when a radio transport re-delivers the same packet (e.g., MeshCore session retries or LXMF store-and-forward redelivery).
 
@@ -289,11 +473,11 @@ Native-ref dedup requires stable adapter-provided native IDs. Which adapters pro
 
 **Native-ref dedup is NOT replay dedupe.** Replay (section 7) produces independent canonical events and receipts. Replayed events get new `event_id` values and new `DeliveryReceipt` rows. Native-ref dedup prevents echo from transport-layer re-delivery of the same physical packet; it does not suppress replay-originated events. Multiple `BEST_EFFORT` replays of the same original event will produce additional deliveries.
 
-### 10.2b Route-Trace Guard (Runtime, Per-Delivery)
+### 11.2b Route-Trace Guard (Runtime, Per-Delivery)
 
 During delivery execution, `PipelineRunner._execute_single_delivery` inspects the `route_trace` on the event's `RoutingMetadata`. The route_trace records which route IDs have already processed the event. If the current route ID appears more than once in the trace, the delivery is skipped. This catches multi-hop cycles that escape the self-loop guard (e.g., A→B→C→A where no single delivery targets the source adapter).
 
-### 10.3 What Loop Prevention Does Not Cover
+### 11.3 What Loop Prevention Does Not Cover
 
 - **Cross-instance loops:** If two separate MEDRE instances bridge the same transports in opposite directions, neither instance detects the loop. Loop prevention is local-process only.
 - **Application-level loops:** A user on Matrix commanding a bot to send a message to Meshtastic, and a Meshtastic user replying which triggers a message back to Matrix, is not a routing loop — it is normal bidirectional bridge operation. Loop prevention guards against the same event being routed back to its origin adapter, not against new events generated by users.
@@ -304,7 +488,7 @@ During delivery execution, `PipelineRunner._execute_single_delivery` inspects th
 See: Contract 49 (Routing and Bridge), Routing Correctness Runbook.
 
 
-## 11. Soak Harness and Queue Pressure
+## 12. Soak Harness and Queue Pressure
 
 ### Soak Harness Reference
 
@@ -361,7 +545,7 @@ During bridge operation, monitor these signals:
 **Important:** MEDRE remains best-effort. Queue bounds prevent unbounded accumulation but do not prevent data loss under extreme pressure. No exactly-once guarantees. No transactional delivery guarantees. Radio transports remain probabilistic. The soak harness validates stability patterns for CI — it is not a substitute for operational monitoring with live transports.
 
 
-## 12. Persistence of Bridge State
+## 13. Persistence of Bridge State
 
 Bridge delivery state has a clear persistence boundary. This section describes what bridge operators can rely on and what is ephemeral. For the full contract, see Contract 55 (Runtime Persistence).
 
@@ -425,7 +609,7 @@ smoke, drill, and inspect outputs as a single pre-runtime evidence package
 via ``medre evidence``.
 
 
-## 13. Explicit Non-Guarantees
+## 14. Explicit Non-Guarantees
 
 The bridge operation layer explicitly does **not** provide:
 
@@ -446,7 +630,7 @@ The bridge operation layer explicitly does **not** provide:
 8. **Persistent in-flight recovery.** No in-flight delivery state survives shutdown. No replay resume after restart. Cancelled deliveries are lost.
 
 
-## 14. Shutdown Snapshot and Bridge Evidence
+## 15. Shutdown Snapshot and Bridge Evidence
 
 ### Capturing Bridge State at Shutdown
 
@@ -503,7 +687,7 @@ Bridge operators should distinguish between two categories of evidence:
 For the full shutdown snapshot schema, see [Runtime Operation — Shutdown Snapshot](runtime-operation.md#shutdown-snapshot---snapshot-on-shutdown). For the evidence bundle report shape, see [Bridge Evidence Bundle](bridge-evidence-bundle.md).
 
 
-## 15. Bridged Message Appearance
+## 16. Bridged Message Appearance
 
 This section documents what a message actually looks like when bridged from one
 transport to another. The rendering pipeline converts a `CanonicalEvent` into a

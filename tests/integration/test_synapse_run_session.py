@@ -64,6 +64,7 @@ from .test_synapse_bridge_smoke import (
     _INBOUND_FALLBACK,
     _INBOUND_SYNC_LOOP,
     _wait_for_sync_or_fallback,
+    _classify_fallback_reason,
 )
 
 logger = logging.getLogger(__name__)
@@ -226,7 +227,8 @@ class TestSynapseRunSession:
                 logger.warning(
                     "Run session: sync loop did not deliver; "
                     "used direct _on_room_message fallback. "
-                    "native_event_id=%s",
+                    "reason=%s native_event_id=%s",
+                    ingress.fallback_reason,
                     ingress.native_event_id,
                 )
 
@@ -287,6 +289,7 @@ class TestSynapseRunSession:
                 "command": "run_session",
                 "evidence_level": "docker_sdk_boundary",
                 "ingress_path": ingress.ingress_path,
+                "fallback_reason": ingress.fallback_reason,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "event_id": canonical_id,
                 "source_adapter": "synapse-run-session-bot",
@@ -332,12 +335,182 @@ class TestSynapseRunSession:
 
             logger.info(
                 "Run session report: status=%s ingress_path=%s "
-                "event_id=%s receipts=%d",
+                "fallback_reason=%s event_id=%s receipts=%d",
                 report["status"],
                 report["ingress_path"],
+                report["fallback_reason"],
                 report["event_id"],
                 len(report["receipts"]),
             )
+        finally:
+            await matrix_adapter.stop()
+            await fake_out.stop()
+            await runner.stop()
+
+    # ------------------------------------------------------------------
+    # Explicit ingress-path tests
+    # ------------------------------------------------------------------
+
+    @pytest.mark.xfail(
+        reason="Strict sync_loop ingress is not yet reliable; "
+               "xfail proves the test exists and tracks progress",
+        strict=False,
+    )
+    async def test_strict_sync_loop(
+        self, synapse_env: SynapseEnvironment, temp_storage: SQLiteStorage,
+    ) -> None:
+        """FAILS (xfail) if fallback is used — proves strict sync goal.
+
+        Mirrors ``test_synapse_bridge_smoke.test_strict_sync_loop`` but
+        exercises the run-session report shape.  When this test passes,
+        the sync loop reliably delivers inbound events within the
+        timeout window for the run-session code path.
+        """
+        ts = int(time.time())
+        body_text = f"MEDRE strict run-session (ts={ts})"
+        txn_id = f"strict-session-txn-{ts}"
+
+        accounting = RuntimeAccounting()
+        fake_out = FakeMatrixAdapter("fake-out-strict-sess", channel="ch-0")
+
+        route = Route(
+            id="strict-session-route",
+            source=RouteSource(
+                adapter="synapse-run-session-bot",
+                event_kinds=("message.created",),
+                channel=synapse_env.test_room_id,
+            ),
+            targets=[RouteTarget(adapter="fake-out-strict-sess")],
+        )
+        router = Router(routes=[route])
+
+        config = _make_matrix_config(synapse_env)
+        matrix_adapter = MatrixAdapter(config)
+
+        pipeline_config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={
+                "fake-out-strict-sess": fake_out,
+                "synapse-run-session-bot": matrix_adapter,
+            },
+            runtime_accounting=accounting,
+        )
+        runner = PipelineRunner(pipeline_config)
+        await runner.start()
+
+        matrix_ctx = _make_adapter_context_for_pipeline(
+            "synapse-run-session-bot", runner,
+        )
+        await matrix_adapter.start(matrix_ctx)
+
+        fake_ctx = _make_adapter_context_for_pipeline(
+            "fake-out-strict-sess", runner,
+        )
+        await fake_out.start(fake_ctx)
+
+        try:
+            ingress = await _wait_for_sync_or_fallback(
+                synapse_env=synapse_env,
+                matrix_adapter=matrix_adapter,
+                fake_out=fake_out,
+                body_text=body_text,
+                txn_id=txn_id,
+            )
+
+            assert ingress.ingress_path == _INBOUND_SYNC_LOOP, (
+                f"Strict sync test requires sync_loop ingress, "
+                f"got {ingress.ingress_path!r} "
+                f"(reason={ingress.fallback_reason!r})"
+            )
+        finally:
+            await matrix_adapter.stop()
+            await fake_out.stop()
+            await runner.stop()
+
+    async def test_sync_with_fallback(
+        self, synapse_env: SynapseEnvironment, temp_storage: SQLiteStorage,
+    ) -> None:
+        """Passes regardless of ingress path; reports which path was used.
+
+        Mirrors ``test_synapse_bridge_smoke.test_sync_with_fallback`` for
+        the run-session code path.  Always passes but explicitly logs
+        ingress_path and fallback_reason.
+        """
+        ts = int(time.time())
+        body_text = f"MEDRE fallback run-session (ts={ts})"
+        txn_id = f"fb-session-txn-{ts}"
+
+        accounting = RuntimeAccounting()
+        fake_out = FakeMatrixAdapter("fake-out-fb-sess", channel="ch-0")
+
+        route = Route(
+            id="fb-session-route",
+            source=RouteSource(
+                adapter="synapse-run-session-bot",
+                event_kinds=("message.created",),
+                channel=synapse_env.test_room_id,
+            ),
+            targets=[RouteTarget(adapter="fake-out-fb-sess")],
+        )
+        router = Router(routes=[route])
+
+        config = _make_matrix_config(synapse_env)
+        matrix_adapter = MatrixAdapter(config)
+
+        pipeline_config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={
+                "fake-out-fb-sess": fake_out,
+                "synapse-run-session-bot": matrix_adapter,
+            },
+            runtime_accounting=accounting,
+        )
+        runner = PipelineRunner(pipeline_config)
+        await runner.start()
+
+        matrix_ctx = _make_adapter_context_for_pipeline(
+            "synapse-run-session-bot", runner,
+        )
+        await matrix_adapter.start(matrix_ctx)
+
+        fake_ctx = _make_adapter_context_for_pipeline(
+            "fake-out-fb-sess", runner,
+        )
+        await fake_out.start(fake_ctx)
+
+        try:
+            ingress = await _wait_for_sync_or_fallback(
+                synapse_env=synapse_env,
+                matrix_adapter=matrix_adapter,
+                fake_out=fake_out,
+                body_text=body_text,
+                txn_id=txn_id,
+            )
+
+            assert len(fake_out.delivered_payloads) >= 1
+            rendered = fake_out.delivered_payloads[0]
+            assert rendered.payload["body"] == body_text
+
+            logger.info(
+                "Run-session fallback-tolerant: ingress_path=%s "
+                "fallback_reason=%s native_event_id=%s",
+                ingress.ingress_path,
+                ingress.fallback_reason,
+                ingress.native_event_id,
+            )
+
+            assert ingress.ingress_path in (
+                _INBOUND_SYNC_LOOP, _INBOUND_FALLBACK,
+            )
+
+            if ingress.ingress_path == _INBOUND_FALLBACK:
+                assert ingress.fallback_reason in (
+                    "sync_not_running", "sync_error", "sync_timeout",
+                ), (
+                    f"Unexpected fallback_reason: {ingress.fallback_reason!r}"
+                )
         finally:
             await matrix_adapter.stop()
             await fake_out.stop()

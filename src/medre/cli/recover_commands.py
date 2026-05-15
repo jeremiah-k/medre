@@ -12,7 +12,7 @@ from medre.observability.classification import (
     failure_category as _failure_category,
     recommended_commands as _recommended_commands,
 )
-from medre.runtime.trace import assemble_event_timeline
+from medre.runtime import timeline as _timeline
 
 from .exit_codes import EXIT_NOT_FOUND, EXIT_CONFIG, EXIT_BUILD
 from .storage_helpers import _open_readonly_storage
@@ -35,17 +35,17 @@ async def _recover(
         timeline: list[dict[str, Any]] = []
         if event_id is not None:
             # Single-event recovery.
-            event = await storage.get(event_id)
-            if event is None:
+            tl_result = await _timeline.assemble_event_timeline(storage, event_id)
+            if tl_result is None:
                 print(
                     f"Error: event not found: {event_id}",
                     file=sys.stderr,
                 )
                 sys.exit(EXIT_NOT_FOUND)
 
-            receipts = await storage.list_receipts_for_event(event_id)
-            native_refs = await storage.list_native_refs_for_event(event_id)
-            relations = await storage.list_relations(event_id)
+            event = tl_result["event"]
+            receipts = tl_result["receipts"]
+            native_refs = tl_result["native_refs"]
 
             # Identify failed targets and classify by failure_kind.
             classification: dict[str, list[dict[str, Any]]] = {
@@ -93,9 +93,7 @@ async def _recover(
                     })
 
             # Build timeline for runbook.
-            timeline = assemble_event_timeline(
-                event, receipts, native_refs, relations,
-            )
+            timeline = tl_result["timeline_entries"]
 
             # Aggregate recommended commands across present categories.
             present_categories = {

@@ -119,24 +119,62 @@ class IngressResult:
         The Synapse-assigned Matrix event_id (``$...``).
     body_text:
         The plain-text body of the test message.
+    fallback_reason:
+        Human-readable reason why fallback was used, or ``""`` if sync_loop
+        succeeded.  One of: ``"sync_timeout"``, ``"sync_error"``,
+        ``"sync_not_running"``, or ``""`` (no fallback).
+    sync_health:
+        Snapshot of adapter diagnostics at the time fallback was triggered.
+        Empty dict if sync_loop succeeded.
     """
 
-    __slots__ = ("ingress_path", "native_event_id", "body_text")
+    __slots__ = (
+        "ingress_path", "native_event_id", "body_text",
+        "fallback_reason", "sync_health",
+    )
 
     def __init__(
         self,
         ingress_path: str,
         native_event_id: str,
         body_text: str,
+        fallback_reason: str = "",
+        sync_health: dict[str, Any] | None = None,
     ) -> None:
         self.ingress_path = ingress_path
         self.native_event_id = native_event_id
         self.body_text = body_text
+        self.fallback_reason = fallback_reason
+        self.sync_health = sync_health or {}
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _capture_sync_health(adapter: MatrixAdapter) -> dict[str, Any]:
+    """Snapshot adapter diagnostics for fallback reason analysis."""
+    try:
+        return adapter.diagnostics()
+    except Exception:
+        return {"error": "diagnostics() raised"}
+
+
+def _classify_fallback_reason(adapter: MatrixAdapter) -> str:
+    """Classify WHY fallback was needed based on adapter diagnostics.
+
+    Returns one of:
+    - ``"sync_not_running"``: sync task is not alive.
+    - ``"sync_error"``: sync task ran but last_sync_error is set.
+    - ``"sync_timeout"``: sync task alive, no error, but no event delivered.
+    """
+    diag = _capture_sync_health(adapter)
+    if not diag.get("sync_task_running", False):
+        return "sync_not_running"
+    if diag.get("last_sync_error") is not None:
+        return "sync_error"
+    return "sync_timeout"
 
 
 async def _wait_for_sync_or_fallback(
@@ -146,21 +184,25 @@ async def _wait_for_sync_or_fallback(
     fake_out: FakeMatrixAdapter,
     body_text: str,
     txn_id: str,
-    timeout: float = 15.0,
+    timeout: float = 25.0,
+    poll_interval: float = 0.3,
     fallback_grace: float = 0.5,
 ) -> IngressResult:
     """Send a message and wait for delivery; return the ingress path used.
 
     1. Sends a message as the test user via Synapse HTTP API.
     2. Polls ``fake_out.delivered_payloads`` for up to *timeout* seconds.
+       During polling, periodically logs sync health diagnostics.
     3. If the sync loop delivers within *timeout*, returns
        :pyattr:`ingress_path` ``"sync_loop"``.
-    4. Otherwise calls ``_on_room_message`` directly with a real Synapse
-       ``event_id`` and returns
-       :pyattr:`ingress_path` ``"direct_on_room_message_fallback"``.
+    4. Otherwise classifies the fallback reason, logs it, calls
+       ``_on_room_message`` directly with a real Synapse ``event_id``,
+       and returns :pyattr:`ingress_path`
+       ``"direct_on_room_message_fallback"``.
 
     The caller can inspect ``result.ingress_path`` to distinguish full
-    SDK-boundary proof from codec+pipeline-only proof.
+    SDK-boundary proof from codec+pipeline-only proof, and
+    ``result.fallback_reason`` to understand WHY fallback was needed.
     """
     # 1. Send via Synapse HTTP API.
     native_event_id = _send_message_as_test_user(
@@ -174,21 +216,59 @@ async def _wait_for_sync_or_fallback(
     # 2. Poll for the sync loop to deliver through the pipeline.
     deadline = time.monotonic() + timeout
     found = False
+    last_health_log = 0.0
     while time.monotonic() < deadline:
         if len(fake_out.delivered_payloads) >= 1:
             found = True
             break
-        await asyncio.sleep(0.3)
+        # Periodically log sync health (every ~3s) for diagnostics.
+        now = time.monotonic()
+        if now - last_health_log >= 3.0:
+            health = _capture_sync_health(matrix_adapter)
+            logger.info(
+                "Sync poll: waiting for delivery. "
+                "sync_task_running=%s sync_running=%s "
+                "last_sync_error=%s last_successful_sync=%s "
+                "inbound_published=%d elapsed=%.1fs",
+                health.get("sync_task_running"),
+                health.get("sync_running"),
+                health.get("last_sync_error"),
+                health.get("last_successful_sync"),
+                health.get("inbound_published", 0),
+                timeout - (deadline - now),
+            )
+            last_health_log = now
+        await asyncio.sleep(poll_interval)
 
     # 3. Record which ingress path was used.
     if found:
+        logger.info(
+            "Sync loop delivered event %s within timeout",
+            native_event_id,
+        )
         return IngressResult(
             ingress_path=_INBOUND_SYNC_LOOP,
             native_event_id=native_event_id,
             body_text=body_text,
         )
 
-    # 4. Fallback: direct _on_room_message with a real Synapse event_id.
+    # 4. Fallback: classify why and log it.
+    reason = _classify_fallback_reason(matrix_adapter)
+    sync_health = _capture_sync_health(matrix_adapter)
+
+    logger.warning(
+        "Matrix bridge smoke: sync loop did not deliver within %.1fs; "
+        "using direct _on_room_message fallback. "
+        "reason=%s native_event_id=%s sync_task_running=%s "
+        "last_sync_error=%s inbound_published=%d",
+        timeout,
+        reason,
+        native_event_id,
+        sync_health.get("sync_task_running"),
+        sync_health.get("last_sync_error"),
+        sync_health.get("inbound_published", 0),
+    )
+
     from types import SimpleNamespace
 
     room = SimpleNamespace(room_id=synapse_env.test_room_id)
@@ -210,6 +290,8 @@ async def _wait_for_sync_or_fallback(
         ingress_path=_INBOUND_FALLBACK,
         native_event_id=native_event_id,
         body_text=body_text,
+        fallback_reason=reason,
+        sync_health=sync_health,
     )
 
 
@@ -457,7 +539,8 @@ class TestSynapseBridgeSmoke:
                 logger.warning(
                     "Matrix bridge smoke: sync loop did not deliver within "
                     "timeout; used direct _on_room_message fallback. "
-                    "native_event_id=%s",
+                    "reason=%s native_event_id=%s",
+                    ingress.fallback_reason,
                     native_event_id,
                 )
 
@@ -529,6 +612,7 @@ class TestSynapseBridgeSmoke:
                 "transport": "matrix",
                 "evidence_level": "docker_sdk_boundary",
                 "ingress_path": inbound_path,
+                "fallback_reason": ingress.fallback_reason,
                 "source_adapter": "synapse-bridge-bot",
                 "target_adapter": "fake-out",
                 "native_event_id": native_event_id,
@@ -553,6 +637,198 @@ class TestSynapseBridgeSmoke:
                 report["native_event_id"],
                 report["receipt_status"],
             )
+        finally:
+            await matrix_adapter.stop()
+            await fake_out.stop()
+            await runner.stop()
+
+    # ------------------------------------------------------------------
+    # Explicit ingress-path tests
+    # ------------------------------------------------------------------
+
+    @pytest.mark.xfail(
+        reason="Strict sync_loop ingress is not yet reliable; "
+               "xfail proves the test exists and tracks progress",
+        strict=False,
+    )
+    async def test_strict_sync_loop(
+        self, synapse_env: SynapseEnvironment, temp_storage: SQLiteStorage,
+    ) -> None:
+        """FAILS (xfail) if fallback is used — proves strict sync goal.
+
+        This test runs the same pipeline as
+        ``test_sync_with_fallback`` but asserts that the ingress path
+        MUST be ``"sync_loop"``.  It is marked ``xfail(strict=False)``
+        so the suite stays green while the sync-loop reliability work
+        is in progress.  When this test starts passing, it proves that
+        the real nio ``sync_forever`` callback delivers inbound events
+        reliably within the timeout window.
+
+        When this test passes consistently, remove the ``xfail`` marker
+        and promote it to a required test.
+        """
+        ts = int(time.time())
+        body_text = f"MEDRE strict sync test (ts={ts})"
+        txn_id = f"strict-sync-txn-{ts}"
+
+        accounting = RuntimeAccounting()
+        fake_out = FakeMatrixAdapter("fake-out-strict", channel="ch-0")
+
+        route = Route(
+            id="strict-sync-route",
+            source=RouteSource(
+                adapter="synapse-bridge-bot",
+                event_kinds=("message.created",),
+                channel=synapse_env.test_room_id,
+            ),
+            targets=[RouteTarget(adapter="fake-out-strict")],
+        )
+        router = Router(routes=[route])
+
+        config = _make_matrix_config(synapse_env)
+        matrix_adapter = MatrixAdapter(config)
+
+        pipeline_config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={
+                "fake-out-strict": fake_out,
+                "synapse-bridge-bot": matrix_adapter,
+            },
+            runtime_accounting=accounting,
+        )
+        runner = PipelineRunner(pipeline_config)
+        await runner.start()
+
+        matrix_ctx = _make_adapter_context_for_pipeline(
+            "synapse-bridge-bot", runner,
+        )
+        await matrix_adapter.start(matrix_ctx)
+
+        fake_ctx = _make_adapter_context_for_pipeline("fake-out-strict", runner)
+        await fake_out.start(fake_ctx)
+
+        try:
+            ingress = await _wait_for_sync_or_fallback(
+                synapse_env=synapse_env,
+                matrix_adapter=matrix_adapter,
+                fake_out=fake_out,
+                body_text=body_text,
+                txn_id=txn_id,
+            )
+
+            # STRICT assertion: sync_loop MUST deliver.
+            assert ingress.ingress_path == _INBOUND_SYNC_LOOP, (
+                f"Strict sync test requires sync_loop ingress, "
+                f"got {ingress.ingress_path!r} "
+                f"(reason={ingress.fallback_reason!r})"
+            )
+        finally:
+            await matrix_adapter.stop()
+            await fake_out.stop()
+            await runner.stop()
+
+    async def test_sync_with_fallback(
+        self, synapse_env: SynapseEnvironment, temp_storage: SQLiteStorage,
+    ) -> None:
+        """Passes regardless of ingress path; reports which path was used.
+
+        This test always passes but explicitly logs the ingress path and
+        fallback reason so CI output shows exactly what was proven:
+
+        - ``ingress_path="sync_loop"``: full SDK-boundary proof.
+        - ``ingress_path="direct_on_room_message_fallback"``: codec +
+          pipeline + storage proven; sync callback dispatch NOT proven.
+
+        The ``fallback_reason`` field explains WHY fallback was needed:
+        ``"sync_not_running"``, ``"sync_error"``, or ``"sync_timeout"``.
+        """
+        ts = int(time.time())
+        body_text = f"MEDRE fallback-tolerant test (ts={ts})"
+        txn_id = f"fallback-txn-{ts}"
+
+        accounting = RuntimeAccounting()
+        fake_out = FakeMatrixAdapter("fake-out-fb", channel="ch-0")
+
+        route = Route(
+            id="fallback-route",
+            source=RouteSource(
+                adapter="synapse-bridge-bot",
+                event_kinds=("message.created",),
+                channel=synapse_env.test_room_id,
+            ),
+            targets=[RouteTarget(adapter="fake-out-fb")],
+        )
+        router = Router(routes=[route])
+
+        config = _make_matrix_config(synapse_env)
+        matrix_adapter = MatrixAdapter(config)
+
+        pipeline_config = _make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={
+                "fake-out-fb": fake_out,
+                "synapse-bridge-bot": matrix_adapter,
+            },
+            runtime_accounting=accounting,
+        )
+        runner = PipelineRunner(pipeline_config)
+        await runner.start()
+
+        matrix_ctx = _make_adapter_context_for_pipeline(
+            "synapse-bridge-bot", runner,
+        )
+        await matrix_adapter.start(matrix_ctx)
+
+        fake_ctx = _make_adapter_context_for_pipeline("fake-out-fb", runner)
+        await fake_out.start(fake_ctx)
+
+        try:
+            ingress = await _wait_for_sync_or_fallback(
+                synapse_env=synapse_env,
+                matrix_adapter=matrix_adapter,
+                fake_out=fake_out,
+                body_text=body_text,
+                txn_id=txn_id,
+            )
+
+            # Pipeline + codec + storage always works regardless of path.
+            assert len(fake_out.delivered_payloads) >= 1, (
+                "FakeMatrixAdapter should have received at least one "
+                "rendered payload"
+            )
+            rendered = fake_out.delivered_payloads[0]
+            assert rendered.payload["body"] == body_text
+
+            canonical_id = await temp_storage.resolve_native_ref(
+                adapter="synapse-bridge-bot",
+                native_channel_id=synapse_env.test_room_id,
+                native_message_id=ingress.native_event_id,
+            )
+            assert canonical_id is not None
+
+            # Explicit report: always log which path was used.
+            logger.info(
+                "Fallback-tolerant test: ingress_path=%s "
+                "fallback_reason=%s native_event_id=%s",
+                ingress.ingress_path,
+                ingress.fallback_reason,
+                ingress.native_event_id,
+            )
+
+            # Validate ingress_path value.
+            assert ingress.ingress_path in (
+                _INBOUND_SYNC_LOOP, _INBOUND_FALLBACK,
+            )
+
+            # If fallback, validate reason is one of the known causes.
+            if ingress.ingress_path == _INBOUND_FALLBACK:
+                assert ingress.fallback_reason in (
+                    "sync_not_running", "sync_error", "sync_timeout",
+                ), (
+                    f"Unexpected fallback_reason: {ingress.fallback_reason!r}"
+                )
         finally:
             await matrix_adapter.stop()
             await fake_out.stop()
