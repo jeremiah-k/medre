@@ -28,10 +28,10 @@ split.
 
 | File | Lines | Status |
 |------|-------|--------|
-| `tests/test_pipeline.py` | 2,937 | Allowlisted; pending split |
 | `tests/test_matrix_session.py` | 2,241 | Allowlisted; pending split |
 | `tests/test_cli.py` | 2,172 | Allowlisted; pending split |
 | `tests/test_replay.py` | 1,850 | Allowlisted; pending split |
+| `tests/test_replay_routing.py` | 1,584 | Allowlisted; pending split |
 | `tests/test_storage.py` | 1,939 | Allowlisted; pending split |
 | `tests/test_canonical_events.py` | 1,992 | Allowlisted; pending split |
 | `tests/test_meshtastic_fake_bridge.py` | 1,540 | Allowlisted; pending split |
@@ -108,8 +108,8 @@ generators).
 
 ## Avoiding Fixed Sleeps
 
-Never use `asyncio.sleep()` in tests. Fixed sleeps are nondeterministic, slow
-the suite, and mask race conditions.
+Never use fixed sleeps directly in tests; use `wait_until()` or deterministic
+hooks (`asyncio.Event`, mock callbacks).
 
 ### Use `wait_until()` for polling conditions
 
@@ -280,7 +280,7 @@ from tests.helpers.assertions import assert_report_shape
 
 def test_smoke_report_json_shape(smoke_report):
     assert_report_shape(smoke_report)
-    assert smoke_report["status"] == "pass"
+    assert smoke_report["status"] == "passed"
     assert smoke_report["evidence_level"] == "fake_bridge"
 ```
 
@@ -458,7 +458,7 @@ python -m compileall -q src tests
 
 ```bash
 # Single test file
-PYTHONPATH=src pytest tests/test_pipeline.py -v
+PYTHONPATH=src pytest tests/test_pipeline_delivery.py -v
 
 # Files matching a prefix
 PYTHONPATH=src pytest tests/test_matrix_session*.py -v
@@ -483,31 +483,24 @@ PYTHONPATH=src medre smoke --json
 | `ResourceWarning` in test output | Unclosed resource or leaked coroutine | Fix the mock or add cleanup (see [Async Mocking Rules](#async-mocking-rules)) |
 
 
+## Completed Splits
+
+These files have been split by behavioral domain following the procedure above.
+
+| Original file | Result | Domain files |
+|---------------|--------|-------------|
+| `tests/test_adapter_callback_bridge.py` | Split | 6 domain files |
+| `tests/test_longrun_callback_bridge.py` | Split | 4 domain files |
+| `tests/test_operator_workflows.py` | Split | 7 domain files |
+| `tests/test_pipeline.py` | Split | 5 domain files (delivery, failure taxonomy, fanout, native refs, capacity) |
+
+
 ## Next Modernization Wave
 
 The following allowlisted files should be split by subdomain. The suggested
 split targets are starting points; actual domains may shift during analysis.
 
 ### Priority splits (largest files first)
-
-**`tests/test_pipeline.py` (2,937 lines)**
-
-| Target file | Domain |
-|-------------|--------|
-| `tests/test_pipeline_delivery.py` | Core delivery path: ingress, validation, routing, delivery |
-| `tests/test_pipeline_failure_taxonomy.py` | Failure classification, error paths, retry budget |
-| `tests/test_pipeline_fanout.py` | Multi-target delivery, fanout, error isolation |
-| `tests/test_pipeline_native_refs.py` | NativeMessageRef resolution, cross-adapter mapping |
-| `tests/test_pipeline_capacity.py` | Capacity limits, backpressure, overload behavior |
-
-**`tests/test_matrix_session.py` (2,241 lines)**
-
-| Target file | Domain |
-|-------------|--------|
-| `tests/test_matrix_session_lifecycle.py` | Session start, stop, health check |
-| `tests/test_matrix_session_sync_recovery.py` | Initial sync, reconnection, error recovery |
-| `tests/test_matrix_session_encryption.py` | E2EE setup, encrypted room handling |
-| `tests/test_matrix_session_delivery_retry.py` | Delivery attempts, retry budgets, failure handling |
 
 **`tests/test_cli.py` (2,172 lines)**
 
@@ -518,6 +511,15 @@ split targets are starting points; actual domains may shift during analysis.
 | `tests/test_cli_diagnostics.py` | Diagnostics, health check, snapshot commands |
 | `tests/test_cli_inspect.py` | Inspect subcommands (event, receipts, native-ref) |
 | `tests/test_cli_run.py` | `medre run`, `medre smoke`, `medre evidence` commands |
+
+**`tests/test_matrix_session.py` (2,241 lines)**
+
+| Target file | Domain |
+|-------------|--------|
+| `tests/test_matrix_session_lifecycle.py` | Session start, stop, health check |
+| `tests/test_matrix_session_sync_recovery.py` | Initial sync, reconnection, error recovery |
+| `tests/test_matrix_session_encryption.py` | E2EE setup, encrypted room handling |
+| `tests/test_matrix_session_delivery_retry.py` | Delivery attempts, retry budgets, failure handling |
 
 **`tests/test_replay.py` (1,850 lines)**
 
@@ -537,11 +539,12 @@ split targets are starting points; actual domains may shift during analysis.
 | `tests/test_storage_inspect.py` | Inspect queries: event, receipts, native refs |
 | `tests/test_storage_durability.py` | Crash recovery, partial writes, schema validation |
 
+**`tests/test_canonical_events.py` (1,992 lines)** -- domains TBD
+
 ### Analysis-pending splits
 
 These files need domain analysis before split targets can be defined:
 
-- `tests/test_canonical_events.py` (1,992 lines) -- domains TBD
 - `tests/test_meshtastic_fake_bridge.py` (1,540 lines) -- domains TBD
 - `tests/test_fake_runtime_smoke.py` (1,506 lines) -- domains TBD
 - `tests/test_runtime_builder.py` (1,440 lines) -- domains TBD

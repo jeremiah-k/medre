@@ -23,7 +23,6 @@ TESTS_DIR = Path(__file__).resolve().parent
 # Legacy files that are allowed to exceed 1 500 lines until they are split.
 # Each carries a TODO comment inside.
 LEGACY_ALLOWLIST: dict[str, int] = {
-    "test_pipeline.py": 2_937,
     "test_matrix_session.py": 2_241,
     "test_cli.py": 2_172,
     "test_replay.py": 1_850,
@@ -31,20 +30,18 @@ LEGACY_ALLOWLIST: dict[str, int] = {
     "test_canonical_events.py": 1_992,
     "test_meshtastic_fake_bridge.py": 1_540,
     "test_fake_runtime_smoke.py": 1_506,
-    # Monoliths slated for deletion (Wave 3) — exempt from line count.
-    "test_adapter_callback_bridge.py": 1_772,
-    "test_operator_workflows.py": 1_997,
     # Pre-existing files that exceed the limit — allowlisted until split.
     "test_replay_routing.py": 1_584,
 }
 
 MAX_LINES = 1_500
 
-# Monolith files slated for deletion (Wave 3 step 2).
+# Deleted monoliths — guarding against reintroduction of deleted files.
 DELETED_MONOLITHS = (
     "test_adapter_callback_bridge",
     "test_longrun_callback_bridge",
     "test_operator_workflows",
+    "test_pipeline",
 )
 
 # New bridge / operator files — must not contain fixed asyncio.sleep(N) with N>0.
@@ -151,14 +148,35 @@ def test_no_file_exceeds_1500_lines() -> None:
 
 
 # ===================================================================
+# Check 1b — every allowlisted file exists on disk
+# ===================================================================
+
+
+def test_all_allowlisted_files_exist() -> None:
+    """Every file in LEGACY_ALLOWLIST must exist on disk.
+
+    Catches stale entries that refer to deleted files.
+    """
+    missing: list[str] = []
+    for name in LEGACY_ALLOWLIST:
+        path = TESTS_DIR / name
+        if not path.exists():
+            missing.append(name)
+    assert not missing, (
+        "Allowlisted file(s) do not exist — remove stale entry:\n  "
+        + "\n  ".join(missing)
+    )
+
+
+# ===================================================================
 # Check 2 — no imports from deleted monoliths
 # ===================================================================
 
 
 @pytest.mark.parametrize("monolith_stem", DELETED_MONOLITHS)
 def test_no_imports_from_deleted_monoliths(monolith_stem: str) -> None:
-    """No ``tests/`` .py file imports from a monolith slated for deletion,
-    except the monolith file itself.
+    """No ``tests/`` .py file imports from a deleted monolith, guarding
+    against reintroduction of already-deleted files.
     """
     monolith_file = f"{monolith_stem}.py"
     deleted_monolith_files = {f"{s}.py" for s in DELETED_MONOLITHS}

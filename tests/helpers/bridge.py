@@ -20,7 +20,7 @@ from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Router
 from medre.core.routing.stats import RouteStats
 from medre.core.runtime.accounting import RuntimeAccounting
-from medre.core.storage.sqlite import SQLiteStorage
+from medre.core.storage.backend import StorageBackend
 
 
 def make_adapter_context(
@@ -39,7 +39,7 @@ def make_adapter_context(
 
 
 def make_pipeline_config(
-    storage: SQLiteStorage,
+    storage: StorageBackend,
     router: Router,
     *,
     adapters: dict[str, Any] | None = None,
@@ -54,7 +54,7 @@ def make_pipeline_config(
     renderers.
     """
     rp = rendering_pipeline or RenderingPipeline()
-    if not rp._renderers:
+    if not rp.status_summary()["renderer_count"]:
         rp.register(TextRenderer(), priority=100)
 
     return PipelineConfig(
