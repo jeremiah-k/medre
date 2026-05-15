@@ -645,11 +645,11 @@ INFO  medre.runtime: Shutdown complete in 70ms
 
 **Shutdown accounting counters:**
 
-The shutdown summary reports the number of adapters stopped and any errors encountered. Runtime accounting counters (`delivery_timeouts`, `delivery_rejections`, `replay_timeouts`, `replay_rejections`) are **not printed at shutdown** — they are process-local in-memory values that are lost when the process exits. To capture these values before shutdown, use `--snapshot-on-shutdown` (see below).
+The shutdown summary reports the number of adapters stopped and any errors encountered. Runtime accounting counters (`delivery_timeouts`, `delivery_rejections`, `replay_timeouts`, `replay_rejections`) **are printed at shutdown** as a compact one-line summary alongside the adapter stop and error counts. To capture the full counter breakdown (including per-route stats and capacity gauges) to a file, use `--snapshot-on-shutdown` (see below).
 
 ### Shutdown Snapshot (`--snapshot-on-shutdown`)
 
-The `--snapshot-on-shutdown` flag writes a runtime snapshot JSON file to disk immediately before the shutdown sequence begins. This captures the final state of the runtime, including accounting counters, capacity gauges, and adapter lifecycle state.
+The `--snapshot-on-shutdown` flag writes a runtime snapshot JSON file to disk after the graceful shutdown sequence completes. This captures the final state of the runtime, including accounting counters, capacity gauges, and adapter lifecycle state.
 
 **Usage:**
 
@@ -665,7 +665,7 @@ The snapshot is written to `{state_dir}/shutdown-snapshot.json` (resolved accord
 
 | Section | Content |
 |---------|---------|
-| `lifecycle.runtime_state` | `"stopping"` (captured before full stop) |
+| `lifecycle.runtime_state` | `"stopped"` (captured after graceful shutdown completes) |
 | `lifecycle.adapters.{id}` | Per-adapter lifecycle state at shutdown time |
 | `accounting` | Final `RuntimeAccounting` counters (inbound/outbound counts) |
 | `capacity` | Final `CapacityController` gauges (delivery_current, timeouts, rejections) |
@@ -675,7 +675,7 @@ The snapshot is written to `{state_dir}/shutdown-snapshot.json` (resolved accord
 
 **Important caveats:**
 
-- The snapshot is captured **before** adapters are stopped. Adapter health reflects the last-known state, not the stopped state.
+- The snapshot is captured **after** adapters are stopped. `lifecycle.runtime_state` will be `"stopped"`. Adapter health reflects the stopped state.
 - Counters and stats in the snapshot are **process-local and non-durable**. They represent the in-memory state at the moment of capture. The same counters reset to zero on the next startup.
 - Runtime events (`diagnostics.runtime_events`) are **process-local**. They are not persisted to SQLite and do not survive the process exiting. The shutdown snapshot is the only way to capture them.
 - There is **no automatic retry scheduler** and **no final ACK guarantee** for any transport. The snapshot records what the runtime observed, not what the remote side confirmed.
@@ -715,6 +715,14 @@ The snapshot is written to `{state_dir}/shutdown-snapshot.json` (resolved accord
 | CapacityController gauges | Yes | Process-local; reset on startup |
 | Active replay runs | Yes | Must re-initiate manually |
 | Runtime events buffer | Yes | Process-local; use `--snapshot-on-shutdown` to capture |
+
+**Second interrupt (repeated Ctrl-C):**
+
+If a second `SIGINT` arrives while graceful shutdown is already in progress, the runtime escalates to a hard kill — the process exits immediately without completing the drain phase or adapter stop sequence. This is a safety valve to prevent an unresponsive shutdown from hanging indefinitely.
+
+**Signal handler reset:**
+
+Signal handlers are reset/reinstalled at the start of each `medre run` invocation. The `shutdown_requested` flag is cleared to `False` before the runtime begins, ensuring that a previous invocation's signal state does not leak into the next run. This is important in scenarios where the runtime is restarted programmatically within the same process.
 
 **Hard kill (SIGKILL / `kill -9`):**
 

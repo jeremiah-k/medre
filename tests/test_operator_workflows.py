@@ -1188,3 +1188,219 @@ class TestSnapshotOnShutdown:
             "limits", "persistence", "replay", "routes", "startup", "unstable",
         }
         assert set(snap.keys()) == expected_sections
+
+
+# ===================================================================
+# 15. Real CLI snapshot test — _run() writes snapshot via CLI lifecycle
+# ===================================================================
+
+
+class TestRealSnapshotOnShutdown:
+    """_run() lifecycle writes a valid snapshot to the specified path."""
+
+    @pytest.mark.asyncio
+    async def test_snapshot_written_after_shutdown(self, tmp_path: Path) -> None:
+        """Full _run() lifecycle: startup → shutdown → snapshot file exists and is valid."""
+        import medre.cli.run_commands as run_mod
+
+        p = tmp_path / "config.toml"
+        p.write_text(CONFIG_SINGLE_ADAPTER)
+        snap_path = tmp_path / "snap.json"
+
+        # Reset global state before test.
+        run_mod.shutdown_requested = False
+
+        async def _trigger_shutdown() -> None:
+            """Wait for startup, then trigger shutdown."""
+            await asyncio.sleep(0.3)
+            run_mod.shutdown_requested = True
+
+        task = asyncio.create_task(run_mod._run(str(p), snapshot_path=str(snap_path)))
+        trigger = asyncio.create_task(_trigger_shutdown())
+        await asyncio.gather(task, trigger)
+
+        assert snap_path.exists(), "Snapshot file was not written"
+        data = json.loads(snap_path.read_text())
+        assert data["schema_version"] == 1
+        assert "lifecycle" in data
+        assert data["lifecycle"]["runtime_state"] == "stopped"
+        assert "accounting" in data
+        assert "routes" in data
+
+    @pytest.mark.asyncio
+    async def test_snapshot_json_is_valid(self, tmp_path: Path) -> None:
+        """Snapshot written by _run() is valid, parseable JSON."""
+        import medre.cli.run_commands as run_mod
+
+        p = tmp_path / "config.toml"
+        p.write_text(CONFIG_SINGLE_ADAPTER)
+        snap_path = tmp_path / "snap.json"
+
+        run_mod.shutdown_requested = False
+
+        async def _trigger_shutdown() -> None:
+            await asyncio.sleep(0.3)
+            run_mod.shutdown_requested = True
+
+        task = asyncio.create_task(run_mod._run(str(p), snapshot_path=str(snap_path)))
+        trigger = asyncio.create_task(_trigger_shutdown())
+        await asyncio.gather(task, trigger)
+
+        raw = snap_path.read_text()
+        data = json.loads(raw)
+        assert isinstance(data, dict)
+        # Keys should be sorted (sort_keys=True in json.dumps).
+        top_keys = list(data.keys())
+        assert top_keys == sorted(top_keys)
+
+
+# ===================================================================
+# 16. Run output assertions — startup and shutdown stdout
+# ===================================================================
+
+
+class TestRunOutput:
+    """Assert specific text appears in stdout during _run() lifecycle."""
+
+    @pytest.mark.asyncio
+    async def test_startup_output_lists_adapters(self, tmp_path: Path) -> None:
+        """Startup output lists adapter IDs."""
+        import medre.cli.run_commands as run_mod
+
+        p = tmp_path / "config.toml"
+        p.write_text(CONFIG_SINGLE_ADAPTER)
+
+        run_mod.shutdown_requested = False
+
+        async def _trigger_shutdown() -> None:
+            await asyncio.sleep(0.3)
+            run_mod.shutdown_requested = True
+
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            task = asyncio.create_task(run_mod._run(str(p)))
+            trigger = asyncio.create_task(_trigger_shutdown())
+            await asyncio.gather(task, trigger)
+
+        output = stdout.getvalue()
+        assert "solo" in output
+
+    @pytest.mark.asyncio
+    async def test_startup_output_shows_route_eligibility(self, tmp_path: Path) -> None:
+        """Route eligibility text appears when routes are configured."""
+        import medre.cli.run_commands as run_mod
+
+        p = tmp_path / "config.toml"
+        p.write_text(CONFIG_FAKE_MULTI)
+
+        run_mod.shutdown_requested = False
+
+        async def _trigger_shutdown() -> None:
+            await asyncio.sleep(0.3)
+            run_mod.shutdown_requested = True
+
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            task = asyncio.create_task(run_mod._run(str(p)))
+            trigger = asyncio.create_task(_trigger_shutdown())
+            await asyncio.gather(task, trigger)
+
+        output = stdout.getvalue()
+        assert "Route eligibility:" in output
+
+    @pytest.mark.asyncio
+    async def test_shutdown_output_shows_accounting(self, tmp_path: Path) -> None:
+        """Accounting counters appear in stdout during shutdown."""
+        import medre.cli.run_commands as run_mod
+
+        p = tmp_path / "config.toml"
+        p.write_text(CONFIG_SINGLE_ADAPTER)
+
+        run_mod.shutdown_requested = False
+
+        async def _trigger_shutdown() -> None:
+            await asyncio.sleep(0.3)
+            run_mod.shutdown_requested = True
+
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            task = asyncio.create_task(run_mod._run(str(p)))
+            trigger = asyncio.create_task(_trigger_shutdown())
+            await asyncio.gather(task, trigger)
+
+        output = stdout.getvalue()
+        assert "Accounting:" in output
+
+    @pytest.mark.asyncio
+    async def test_shutdown_output_shows_snapshot_path(self, tmp_path: Path) -> None:
+        """When snapshot_path is provided, 'Final snapshot written' appears."""
+        import medre.cli.run_commands as run_mod
+
+        p = tmp_path / "config.toml"
+        p.write_text(CONFIG_SINGLE_ADAPTER)
+        snap_path = tmp_path / "snap.json"
+
+        run_mod.shutdown_requested = False
+
+        async def _trigger_shutdown() -> None:
+            await asyncio.sleep(0.3)
+            run_mod.shutdown_requested = True
+
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            task = asyncio.create_task(
+                run_mod._run(str(p), snapshot_path=str(snap_path))
+            )
+            trigger = asyncio.create_task(_trigger_shutdown())
+            await asyncio.gather(task, trigger)
+
+        output = stdout.getvalue()
+        assert "Final snapshot written to:" in output
+
+
+# ===================================================================
+# 17. Stale shutdown state — repeated _run() calls
+# ===================================================================
+
+
+class TestStaleShutdownState:
+    """Repeated _run() calls do not inherit stale shutdown_requested."""
+
+    @pytest.mark.asyncio
+    async def test_repeated_run_no_stale_shutdown(self, tmp_path: Path) -> None:
+        """shutdown_requested=True before first _run() is reset; second _run() starts clean."""
+        import medre.cli.run_commands as run_mod
+
+        p = tmp_path / "config.toml"
+        p.write_text(CONFIG_SINGLE_ADAPTER)
+
+        # Pre-set stale shutdown state.
+        run_mod.shutdown_requested = True
+
+        async def _trigger_shutdown_after_delay() -> None:
+            await asyncio.sleep(0.3)
+            run_mod.shutdown_requested = True
+
+        # First run: should reset shutdown_requested to False at start,
+        # then exit when we trigger shutdown.
+        stdout1 = io.StringIO()
+        with redirect_stdout(stdout1):
+            task1 = asyncio.create_task(run_mod._run(str(p)))
+            trigger1 = asyncio.create_task(_trigger_shutdown_after_delay())
+            await asyncio.gather(task1, trigger1)
+
+        # After first run, shutdown_requested is True (set by trigger).
+        # Second run should reset it to False.
+        async def _trigger_shutdown_second() -> None:
+            await asyncio.sleep(0.3)
+            run_mod.shutdown_requested = True
+
+        stdout2 = io.StringIO()
+        with redirect_stdout(stdout2):
+            task2 = asyncio.create_task(run_mod._run(str(p)))
+            trigger2 = asyncio.create_task(_trigger_shutdown_second())
+            await asyncio.gather(task2, trigger2)
+
+        # Both runs should have completed successfully (not hung).
+        output2 = stdout2.getvalue()
+        assert "Runtime shutting down" in output2

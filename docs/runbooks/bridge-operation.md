@@ -412,13 +412,13 @@ The bridge operation layer explicitly does **not** provide:
 
 ### Capturing Bridge State at Shutdown
 
-For long-running bridge deployments, operators can capture the final runtime state before shutdown using the `--snapshot-on-shutdown` flag:
+For long-running bridge deployments, operators can capture the final runtime state after graceful shutdown using the `--snapshot-on-shutdown` flag:
 
 ```bash
 medre run --config bridge.toml --snapshot-on-shutdown
 ```
 
-This writes a snapshot JSON file to `{state_dir}/shutdown-snapshot.json` containing the runtime's final accounting counters, capacity gauges, adapter lifecycle state, route delivery statistics, and the bounded runtime events buffer. The snapshot is captured **before** adapters are stopped.
+This writes a snapshot JSON file to `{state_dir}/shutdown-snapshot.json` containing the runtime's final accounting counters, capacity gauges, adapter lifecycle state, route delivery statistics, and the bounded runtime events buffer. The snapshot is captured **after** graceful shutdown completes, so `lifecycle.runtime_state` will be `"stopped"`. Accounting counters are also printed to the console as a compact one-line summary at shutdown.
 
 The shutdown snapshot is particularly valuable for bridge operators because it preserves:
 
@@ -430,7 +430,7 @@ The shutdown snapshot is particularly valuable for bridge operators because it p
 These values are process-local and non-durable. Without `--snapshot-on-shutdown`, they are lost when the process exits. With it, the snapshot file survives as a post-run artifact.
 
 **Caveats:**
-- The snapshot is a point-in-time capture, not a continuous log. It reflects the state at the moment shutdown begins.
+- The snapshot is a point-in-time capture, not a continuous log. It reflects the state after graceful shutdown completes (`lifecycle.runtime_state` will be `"stopped"`).
 - There is no automatic retry scheduler. No final ACK guarantee. Runtime events are process-local.
 - Replay is manual and duplicate-risky. The snapshot may show replay receipts from earlier runs, but cannot tell you which delivery actually reached the remote side.
 

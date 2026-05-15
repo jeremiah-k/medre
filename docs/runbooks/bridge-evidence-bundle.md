@@ -117,7 +117,7 @@ PYTHONPATH=src medre inspect receipts --replay-run <run_id> --config my-bridge.t
 | `medre inspect native-ref --adapter <name> --message <id> --config <path>` | Opens SQLite (RO) | No | Ref JSON | 0=found, 2=no SQLite |
 | `medre diagnostics --config <path>` | None | No | Build-time snapshot JSON | 0=ok, 2=config, 3=build |
 | `medre diagnostics --refresh-health --config <path>` | None | Yes (real or fake) | Live health snapshot JSON | 0=ok, 2=config, 3=build, 4=startup |
-| `medre run --config <path> --snapshot-on-shutdown` | Per config (SQLite or memory) | Yes (real or fake) | Logs + `{state_dir}/shutdown-snapshot.json` | 0=clean shutdown, 2=config, 3=build, 4=startup |
+| `medre run --config <path> --snapshot-on-shutdown` | Per config (SQLite or memory) | Yes (real or fake) | Logs + writes final JSON snapshot after graceful shutdown to `{state_dir}/shutdown-snapshot.json` | 0=clean shutdown, 2=config, 3=build, 4=startup |
 
 
 ## 3. Report Shapes
