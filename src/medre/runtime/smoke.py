@@ -18,6 +18,24 @@ through the adapter publish callback) and then inspects every evidence
 surface: storage, delivery receipts, native refs, accounting counters,
 route stats, and the full runtime snapshot.
 
+This is the **direct pipeline** ingress path.  It differs from the
+**adapter callback** ingress path exercised by
+:func:`~medre.runtime.run_session.orchestration.run_bridge_session`
+with ``ingress_mode="adapter_callback"``:
+
+- **Direct pipeline** (smoke, run-session default): calls
+  ``handle_ingress(event)`` directly, which returns
+  ``list[DeliveryOutcome]`` for immediate evidence collection.
+  The adapter-level ``publish_inbound`` callback is not invoked.
+
+- **Adapter callback** (run-session optional): calls
+  ``adapter.simulate_inbound(event)``, which goes through the
+  adapter's ``ctx.publish_inbound`` callback before reaching
+  ``handle_ingress`` internally.  This exercises the same callback
+  path that real adapter inbound messages use, but does not return
+  ``DeliveryOutcome`` objects — evidence is collected from storage
+  polling instead.
+
 Design note: ``handle_ingress`` is used instead of
 :meth:`~medre.adapters.fake_matrix.FakeMatrixAdapter.simulate_inbound`
 because the smoke needs the ``list[DeliveryOutcome]`` return value for

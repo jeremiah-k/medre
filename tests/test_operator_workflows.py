@@ -1771,7 +1771,7 @@ class TestScenarioCrossCheck:
         """Report scenario_category matches expected category."""
         from medre.runtime.run_session import (
             run_bridge_session,
-            _scenario_category,
+            scenario_category,
         )
 
         db_path = str(tmp_path / f"cat-{scenario}.db")
@@ -1780,7 +1780,7 @@ class TestScenarioCrossCheck:
             storage_path=db_path,
         )
         assert report["status"] == "passed"
-        expected_cat = _scenario_category(scenario)
+        expected_cat = scenario_category(scenario)
         assert report.get("scenario_category") == expected_cat, (
             f"scenario_category for {scenario}: "
             f"expected {expected_cat!r}, got {report.get('scenario_category')!r}"

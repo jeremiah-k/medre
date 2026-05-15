@@ -338,7 +338,33 @@ class PipelineRunner:
         # Stage 1 – validate
         self._validate_event(event)
 
-        # Accounting: inbound event accepted past validation.
+        # Stage 1.5 – duplicate native ref check.  If this event carries
+        # a source_native_ref that already resolves to an existing
+        # canonical event, the pipeline has already processed this
+        # message.  Skip store + delivery to prevent duplicates and
+        # echo loops.
+        snr = event.source_native_ref
+        if snr is not None and snr.native_message_id:
+            existing_event_id = await self._config.storage.resolve_native_ref(
+                adapter=snr.adapter,
+                native_channel_id=snr.native_channel_id,
+                native_message_id=snr.native_message_id,
+            )
+            if existing_event_id is not None:
+                self._log.info(
+                    "Duplicate native ref suppressed: event_id=%s "
+                    "native_ref=(%s,%s,%s) already mapped to %s",
+                    event.event_id,
+                    snr.adapter,
+                    snr.native_channel_id,
+                    snr.native_message_id,
+                    existing_event_id,
+                )
+                if self._runtime_accounting is not None:
+                    self._runtime_accounting.record_loop_prevented()
+                return []
+
+        # Accounting: inbound event accepted past validation + dedup.
         if self._runtime_accounting is not None:
             self._runtime_accounting.record_inbound_accepted()
 

@@ -44,8 +44,13 @@ def _expected_failure_kind(scenario: str) -> str | None:
     }.get(scenario)
 
 
-def _scenario_category(scenario: str) -> str:
-    """Return the scenario category for operator categorization."""
+def scenario_category(scenario: str) -> str:
+    """Return the scenario category for operator categorization.
+
+    Public API for use by tests and report consumers.  Maps scenario
+    names to one of: ``"happy_path"``, ``"delivery_failure"``,
+    ``"capacity"``, ``"health"``, or ``"unknown"``.
+    """
     return {
         "happy_path": "happy_path",
         "renderer_failure": "delivery_failure",
@@ -112,11 +117,19 @@ async def _inject_scenario(
     app: MedreApp,
     scenario: str,
     source_aid: str,
+    *,
+    ingress_mode: str = "direct_pipeline",
 ) -> str | None:
     """Inject failure conditions for the given scenario.
 
     Modifies runtime state in-place before event injection.  Returns
     ``None`` on success, or an error description if scenario setup failed.
+
+    The *ingress_mode* parameter is recorded for reference but does not
+    affect scenario setup — scenario preparation (clearing renderers,
+    monkeypatching adapters, exhausting capacity) is ingress-mode-
+    agnostic.  The mode determines how the event is subsequently
+    injected (see :func:`run_bridge_session`).
     """
     if scenario == "renderer_failure":
         pipeline = app.pipeline_runner

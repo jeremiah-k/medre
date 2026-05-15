@@ -50,13 +50,23 @@ from .scenario import (
     _inject_scenario,
     _observed_failure_kind,
     _operator_interpretation,
-    _scenario_category,
+    scenario_category,
     _simulation_method,
 )
 
-__all__ = ["run_bridge_session"]
+__all__ = ["run_bridge_session", "DEFAULT_INGRESS_MODE"]
 
 _logger = logging.getLogger(__name__)
+
+# Supported ingress modes for run-session injection.
+_SUPPORTED_INGRESS_MODES: frozenset[str] = frozenset({
+    "direct_pipeline",
+    "adapter_callback",
+})
+
+#: Default ingress mode: inject events directly into the pipeline via
+#: :meth:`~medre.core.engine.pipeline.PipelineRunner.handle_ingress`.
+DEFAULT_INGRESS_MODE: str = "direct_pipeline"
 
 
 # ---------------------------------------------------------------------------
@@ -76,6 +86,50 @@ def _default_smoke_config_path() -> str | None:
     return None
 
 
+@dataclasses.dataclass(frozen=True)
+class _ResolvedPaths:
+    """Resolved config and storage paths for a run-session."""
+
+    config_path: str | None
+    config_source: str
+    storage_path: str
+    storage_ephemeral: bool
+
+
+def _resolve_paths(
+    config_path: str | None,
+    storage_path: str | None,
+) -> _ResolvedPaths:
+    """Resolve config and storage paths for run-session.
+
+    Falls back to the shipped ``fake-bridge-smoke.toml`` when
+    *config_path* is ``None``.  Creates a temporary SQLite file when
+    *storage_path* is ``None``.
+    """
+    resolved_config_path = config_path
+    config_source_value = "explicit"
+    if resolved_config_path is None:
+        default = _default_smoke_config_path()
+        if default is not None:
+            resolved_config_path = default
+            config_source_value = "default"
+
+    storage_provided = storage_path is not None
+    if not storage_provided:
+        tmp = tempfile.NamedTemporaryFile(
+            suffix=".db", prefix="medre-session-", delete=False,
+        )
+        storage_path = tmp.name
+        tmp.close()
+
+    return _ResolvedPaths(
+        config_path=resolved_config_path,
+        config_source=config_source_value,
+        storage_path=storage_path,  # type: ignore[arg-type]
+        storage_ephemeral=not storage_provided,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -89,6 +143,7 @@ async def run_bridge_session(
     message_text: str = "medre run-session test",
     message_count: int = 1,
     scenario: str = "happy_path",
+    ingress_mode: str = DEFAULT_INGRESS_MODE,
     now_fn: Callable[[], datetime] | None = None,
     monotonic_fn: Callable[[], float] | None = None,
 ) -> dict[str, Any]:
@@ -129,6 +184,14 @@ async def run_bridge_session(
         ``"renderer_failure"``, ``"adapter_permanent_failure"``,
         ``"adapter_transient_failure"``, ``"capacity_rejection"``,
         ``"degraded_live_health"``.
+    ingress_mode:
+        How events enter the pipeline.  ``"direct_pipeline"`` (default)
+        injects via ``handle_ingress()`` and collects
+        ``DeliveryOutcome`` objects directly.  ``"adapter_callback"``
+        injects via ``adapter.simulate_inbound()`` which goes through
+        the adapter's ``publish_inbound`` callback — closer to the
+        real adapter ingress path but does not return outcomes
+        (evidence is collected from storage polling instead).
     now_fn:
         Injectable clock for deterministic testing.
     monotonic_fn:
@@ -142,23 +205,12 @@ async def run_bridge_session(
     _now = now_fn or (lambda: datetime.now(timezone.utc))
     is_failure_scenario = scenario != "happy_path"
 
-    # -- Resolve config path ------------------------------------------------
-    resolved_config_path = config_path
-    config_source_value = "explicit"
-    if resolved_config_path is None:
-        default = _default_smoke_config_path()
-        if default is not None:
-            resolved_config_path = default
-            config_source_value = "default"
-
-    # -- Resolve storage path -----------------------------------------------
-    storage_provided = storage_path is not None
-    if not storage_provided:
-        tmp = tempfile.NamedTemporaryFile(
-            suffix=".db", prefix="medre-session-", delete=False,
-        )
-        storage_path = tmp.name
-        tmp.close()
+    # -- Resolve config and storage paths ------------------------------------
+    paths_resolved = _resolve_paths(config_path, storage_path)
+    resolved_config_path = paths_resolved.config_path
+    config_source_value = paths_resolved.config_source
+    storage_path = paths_resolved.storage_path
+    storage_provided = not paths_resolved.storage_ephemeral
 
     # -- Step 1: Load config ------------------------------------------------
     try:
@@ -223,10 +275,23 @@ async def run_bridge_session(
     # -- Step 4: Inject event(s) --------------------------------------------
     source_aid, source_adapter = _pick_source_adapter(app)
 
+    if ingress_mode not in _SUPPORTED_INGRESS_MODES:
+        return {
+            "status": "failed",
+            "command": "run_session",
+            "fail_reason": f"Invalid ingress_mode: {ingress_mode!r}",
+            "evidence_level": "fake_run_session",
+            "timestamp": _now().isoformat(),
+            "storage_path": storage_path,
+            "limitations": _LIMITATIONS,
+        }
+
     # Inject scenario-specific failure before event injection.
     scenario_error: str | None = None
     if is_failure_scenario:
-        scenario_error = await _inject_scenario(app, scenario, source_aid)
+        scenario_error = await _inject_scenario(
+            app, scenario, source_aid, ingress_mode=ingress_mode,
+        )
 
     # Inject multiple events if message_count > 1.
     all_outcomes: list[Any] = []
@@ -238,8 +303,17 @@ async def run_bridge_session(
         event_ids.append(event.event_id)
 
         try:
-            outcomes = await app.pipeline_runner.handle_ingress(event)
-            all_outcomes.extend(outcomes)
+            if ingress_mode == "adapter_callback":
+                # Adapter-callback path: inject through the adapter's
+                # simulate_inbound, which calls ctx.publish_inbound.
+                # This does not return DeliveryOutcomes — evidence is
+                # collected from storage polling below.
+                await source_adapter.simulate_inbound(event)
+            else:
+                # Direct-pipeline path: inject through handle_ingress,
+                # which returns DeliveryOutcomes for immediate evidence.
+                outcomes = await app.pipeline_runner.handle_ingress(event)
+                all_outcomes.extend(outcomes)
         except Exception as exc:
             if injection_error is None:
                 injection_error = f"{type(exc).__name__}: {exc}"
@@ -361,7 +435,7 @@ async def run_bridge_session(
 
     if is_failure_scenario:
         # Failure scenarios: passed means the expected failure was observed.
-        scenario_cat = _scenario_category(scenario)
+        scenario_cat = scenario_category(scenario)
         sim_method = _simulation_method(scenario)
 
         if scenario == "degraded_live_health":
@@ -473,6 +547,7 @@ async def run_bridge_session(
         "status": "passed" if passed else "failed",
         "command": "run_session",
         "evidence_level": "fake_run_session",
+        "ingress_mode": ingress_mode,
         "timestamp": _now().isoformat(),
         "generated_at": _now().isoformat(),
         "config_source": config_source_value,
@@ -507,7 +582,7 @@ async def run_bridge_session(
     report["operator_interpretation"] = _operator_interpretation(scenario)
     if is_failure_scenario:
         report["scenario"] = scenario
-        report["scenario_category"] = _scenario_category(scenario)
+        report["scenario_category"] = scenario_category(scenario)
         report["simulated"] = True
         report["simulation_method"] = _simulation_method(scenario)
 
