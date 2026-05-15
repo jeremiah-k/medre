@@ -271,6 +271,7 @@ class RetryWorker:
             try:
                 is_dead_lettered = await self._check_dead_lettered(
                     receipt.event_id, receipt.target_adapter,
+                    parent_receipt_id,
                 )
             except Exception:
                 _logger.exception(
@@ -284,6 +285,7 @@ class RetryWorker:
                 try:
                     dl_receipt_id = await self._find_dead_letter_receipt_id(
                         receipt.event_id, receipt.target_adapter,
+                        parent_receipt_id,
                     )
                 except Exception:
                     _logger.exception(
@@ -329,22 +331,28 @@ class RetryWorker:
                 await self._capacity.release_delivery()
 
     async def _check_dead_lettered(
-        self, event_id: str, target_adapter: str,
+        self, event_id: str, target_adapter: str, parent_receipt_id: str,
     ) -> bool:
-        """Check if a dead-lettered receipt exists for this event/target."""
+        """Check if a dead-lettered receipt exists for this specific retry lineage."""
         receipts = await self._storage.list_receipts_for_event(event_id)
         return any(
-            r.status == "dead_lettered" and r.target_adapter == target_adapter
+            r.status == "dead_lettered"
+            and r.target_adapter == target_adapter
+            and r.parent_receipt_id == parent_receipt_id
             for r in receipts
         )
 
     async def _find_dead_letter_receipt_id(
-        self, event_id: str, target_adapter: str,
+        self, event_id: str, target_adapter: str, parent_receipt_id: str,
     ) -> str | None:
-        """Return the receipt_id of the dead-lettered receipt, if any."""
+        """Return the receipt_id of the dead-lettered receipt for this lineage, if any."""
         receipts = await self._storage.list_receipts_for_event(event_id)
         for r in receipts:
-            if r.status == "dead_lettered" and r.target_adapter == target_adapter:
+            if (
+                r.status == "dead_lettered"
+                and r.target_adapter == target_adapter
+                and r.parent_receipt_id == parent_receipt_id
+            ):
                 return r.receipt_id
         return None
 

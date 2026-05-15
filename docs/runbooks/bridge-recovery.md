@@ -100,8 +100,10 @@ medre replay --mode BEST_EFFORT --config my-bridge.toml
 
 **Warning:** BEST_EFFORT sends real messages. Events that already have `sent`
 receipts will be delivered again. Traceability is not deduplication — each
-replay produces new outbound messages. There is no retry scheduler; replay
-is a one-shot operator action.
+replay produces new outbound messages. RetryWorker is separate from replay:
+it is opt-in (disabled by default), and only retries `adapter_transient`
+failures that have a `RetryPolicy` configured. Replay remains a manual
+operator action.
 
 ### Step 5: Collect Evidence Bundle
 

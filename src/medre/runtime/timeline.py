@@ -3,7 +3,7 @@
 Centralises the fetch+assemble pattern duplicated across trace, evidence,
 recover, and inspect commands.  Delegates timeline construction ordering
 to :mod:`medre.runtime.trace`; this module adds storage-backed async
-fetch, source classification (live/replay/mixed), replay-run grouping,
+fetch, source classification (live/retry/replay/mixed), replay-run grouping,
 and ordering guarantees.
 
 All functions accept a :class:`~medre.core.storage.backend.StorageBackend`

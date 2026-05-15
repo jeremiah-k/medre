@@ -41,7 +41,8 @@ columns that are never filtered on.
 | `idx_receipts_plan` | `(delivery_plan_id, target_adapter, attempt_number, sequence)` | Plan receipt queries + delivery_status view |
 | `idx_receipts_event` | `(event_id, sequence)` | Receipt lookup per event |
 | `idx_receipts_source` | `(source, replay_run_id)` | Source+run filtering |
-| `idx_receipts_retry_due` | `(next_retry_at)` **partial** `WHERE status='failed' AND failure_kind='adapter_transient' AND next_retry_at IS NOT NULL` | RetryWorker due-receipt poll (Q13) |
+| `idx_receipts_retry_due` | `(status, failure_kind, next_retry_at)` | RetryWorker due-receipt poll (Q13) |
+| `idx_receipts_parent_retry` | `(parent_receipt_id, source)` | NOT EXISTS subquery in list_due_retry_receipts (Q13) |
 
 ---
 
@@ -63,7 +64,7 @@ Every distinct query shape found across the audited files.
 | Q10 | `query() relations batch` | `event_relations` | `event_id IN (?)` | — | per-query (batch) | ✅ idx_relations_event_id | Batch fetch after Q9 |
 | Q11 | `count_events` | `canonical_events` | — | — | per-evidence | N/A | Full scan, acceptable |
 | Q12 | `count_receipts` | `delivery_receipts` | — | — | per-evidence | N/A | Full scan, acceptable |
-| Q13 | `list_due_retry_receipts` | `delivery_receipts` | `status = 'failed', failure_kind = 'adapter_transient', next_retry_at IS NOT NULL, next_retry_at <= ?, attempt_number < ?` | `next_retry_at ASC, sequence ASC` | per-RetryWorker-cycle | ✅ idx_receipts_retry_due | `max_attempts` parameterised (default 3); partial index covers WHERE except `attempt_number < ?` |
+| Q13 | `list_due_retry_receipts` | `delivery_receipts` | `status = 'failed', failure_kind = 'adapter_transient', next_retry_at IS NOT NULL, next_retry_at <= ?, attempt_number < ?, NOT EXISTS (child retry)` | `next_retry_at ASC, sequence ASC` | per-RetryWorker-cycle | ✅ idx_receipts_retry_due + idx_receipts_parent_retry | `max_attempts` parameterised (default 3); NOT EXISTS excludes receipts already handled by a child retry receipt |
 
 ---
 
@@ -143,13 +144,26 @@ Every distinct query shape found across the audited files.
 - **Coverage:** The index column `next_retry_at` supports both `next_retry_at <= ?` and `ORDER BY next_retry_at ASC`. The `attempt_number < ?` condition (from parameterised `max_attempts`) is applied as a post-filter on the index result set.
 - **Callers:** RetryWorker cycle loop, `count_pending_retry`.
 
-### F10: No unindexed JOIN foreign keys
+### F10: Retry deduplication — NOT EXISTS clause (resolved)
+
+- **Query affected:** Q13 (`list_due_retry_receipts`, `count_pending_retry`)
+- **Problem:** Without deduplication, `list_due_retry_receipts` could return receipts that already had a child retry receipt (i.e. a delivery receipt with `source='retry'` and `parent_receipt_id` pointing back to the failed receipt). This caused repeated retry attempts for the same failure.
+- **Fix:** Added a `NOT EXISTS` subquery that checks for child receipts with `source = 'retry'` linked via `parent_receipt_id`. Also added `idx_receipts_parent_retry(parent_receipt_id, source)` to cover the subquery.
+- **Severity:** Resolved — prevents the retry blocker where already-handled due receipts were re-queued.
+
+### F11: Dead-letter lineage specificity (resolved)
+
+- **Problem:** `_check_dead_lettered` and `_find_dead_letter_receipt_id` in the RetryWorker matched any dead-lettered receipt for the same `event_id`/`target_adapter`, regardless of retry lineage. This could incorrectly identify a dead-letter from a different retry chain.
+- **Fix:** Both methods now also filter by `parent_receipt_id`, matching the specific retry chain that produced the failure.
+- **Severity:** Resolved — dead-letter detection now respects retry lineage boundaries.
+
+### F12: No unindexed JOIN foreign keys
 
 - `event_relations.event_id` → `canonical_events.event_id`: covered by `idx_relations_event_id`
 - `native_message_refs.event_id` → `canonical_events.event_id`: covered by `idx_nrefs_event_id` (and proposed replacement)
 - `delivery_receipts.event_id` → `canonical_events.event_id`: covered by `idx_receipts_event`
 
-### F11: No ORDER BY on unindexed columns in hot paths
+### F13: No ORDER BY on unindexed columns in hot paths
 
 - `timestamp ASC` on `canonical_events`: covered by `idx_events_timestamp`
 - `sequence ASC` on `delivery_receipts`: covered by PK or composite indexes
@@ -266,5 +280,5 @@ independently traceable.
 | `canonical_events.event_kind` | Low-cardinality column; query Q9 always has ORDER BY timestamp which uses `idx_events_timestamp` |
 | `canonical_events.source_adapter` | Low-cardinality; always combined with timestamp range in practice |
 | `canonical_events.parent_event_id` | Never used in a WHERE clause |
-| `delivery_receipts.parent_receipt_id` | Never used in a WHERE clause |
+| `delivery_receipts.parent_receipt_id` | Now indexed via `idx_receipts_parent_retry(parent_receipt_id, source)` for NOT EXISTS deduplication |
 | `delivery_receipts.status` | Low-cardinality; never queried alone |

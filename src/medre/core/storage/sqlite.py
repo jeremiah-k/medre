@@ -167,6 +167,8 @@ CREATE INDEX IF NOT EXISTS idx_receipts_source
     ON delivery_receipts(source, replay_run_id);
 CREATE INDEX IF NOT EXISTS idx_receipts_retry_due
     ON delivery_receipts(status, failure_kind, next_retry_at);
+CREATE INDEX IF NOT EXISTS idx_receipts_parent_retry
+    ON delivery_receipts(parent_receipt_id, source);
 """
 
 # ---------------------------------------------------------------------------
@@ -1176,13 +1178,18 @@ class SQLiteStorage:
         ordered by next_retry_at ASC, sequence ASC, limited to *limit*.
         Excludes receipts that have reached *max_attempts* or are dead_lettered."""
         rows = await self._read_all(
-            """SELECT * FROM delivery_receipts
-             WHERE status = 'failed'
-               AND failure_kind = 'adapter_transient'
-               AND next_retry_at IS NOT NULL
-               AND next_retry_at <= ?
-               AND attempt_number < ?
-             ORDER BY next_retry_at ASC, sequence ASC
+            """SELECT * FROM delivery_receipts r
+             WHERE r.status = 'failed'
+               AND r.failure_kind = 'adapter_transient'
+               AND r.next_retry_at IS NOT NULL
+               AND r.next_retry_at <= ?
+               AND r.attempt_number < ?
+               AND NOT EXISTS (
+                   SELECT 1 FROM delivery_receipts child
+                   WHERE child.parent_receipt_id = r.receipt_id
+                     AND child.source = 'retry'
+               )
+             ORDER BY r.next_retry_at ASC, r.sequence ASC
              LIMIT ?""",
             (now.isoformat(), max_attempts, limit),
         )
@@ -1191,12 +1198,17 @@ class SQLiteStorage:
     async def count_pending_retry(self, now: datetime, max_attempts: int = 3) -> int:
         """Count transient-failure receipts due for retry."""
         row = await self._read_one(
-            """SELECT COUNT(*) AS cnt FROM delivery_receipts
-             WHERE status = 'failed'
-               AND failure_kind = 'adapter_transient'
-               AND next_retry_at IS NOT NULL
-               AND next_retry_at <= ?
-               AND attempt_number < ?""",
+            """SELECT COUNT(*) AS cnt FROM delivery_receipts r
+             WHERE r.status = 'failed'
+               AND r.failure_kind = 'adapter_transient'
+               AND r.next_retry_at IS NOT NULL
+               AND r.next_retry_at <= ?
+               AND r.attempt_number < ?
+               AND NOT EXISTS (
+                   SELECT 1 FROM delivery_receipts child
+                   WHERE child.parent_receipt_id = r.receipt_id
+                     AND child.source = 'retry'
+               )""",
             (now.isoformat(), max_attempts),
         )
         return row["cnt"] if row else 0

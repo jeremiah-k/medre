@@ -451,3 +451,75 @@ class TestRetryTraceEvidence:
             assert timeline["source"] == "mixed"
         finally:
             await runner.stop()
+
+    async def test_trace_shows_no_duplicate_retry_lineage(self, temp_storage):
+        """Timeline assembly returns exactly the right receipts with no
+        duplicates.  Calling assemble_event_timeline a second time (simulating
+        a second worker cycle) yields the same result — timeline unchanged."""
+        event = _make_event()
+        await temp_storage.append(event)
+
+        t0 = datetime(2026, 3, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+        # Attempt 1: transient failure
+        failed = _make_failed_receipt(
+            event_id=event.event_id,
+            receipt_id="rcpt-fail-dup",
+            attempt_number=1,
+            created_at=t0,
+        )
+        await temp_storage.append_receipt(failed)
+
+        # Attempt 2: retry succeeds (source=retry)
+        retry_success = DeliveryReceipt(
+            receipt_id="rcpt-ok-dup",
+            event_id=event.event_id,
+            delivery_plan_id="plan-1",
+            target_adapter="target_a",
+            route_id="route-1",
+            status="sent",
+            attempt_number=2,
+            parent_receipt_id="rcpt-fail-dup",
+            source="retry",
+            created_at=t0 + timedelta(seconds=1),
+        )
+        await temp_storage.append_receipt(retry_success)
+
+        # First timeline assembly
+        timeline = await assemble_event_timeline(temp_storage, event.event_id)
+        assert timeline is not None
+        receipts = timeline["receipts"]
+        assert len(receipts) == 2, (
+            f"Expected exactly 2 receipts, got {len(receipts)}"
+        )
+
+        # Verify lineage
+        assert receipts[0].receipt_id == "rcpt-fail-dup"
+        assert receipts[0].status == "failed"
+        assert receipts[0].attempt_number == 1
+        assert receipts[1].receipt_id == "rcpt-ok-dup"
+        assert receipts[1].status == "sent"
+        assert receipts[1].attempt_number == 2
+        assert receipts[1].parent_receipt_id == "rcpt-fail-dup"
+        assert receipts[1].source == "retry"
+
+        # No duplicate retry receipts
+        retry_receipts = [
+            r for r in receipts if r.source == "retry"
+        ]
+        assert len(retry_receipts) == 1, (
+            "Should have exactly 1 retry receipt, no duplicates"
+        )
+
+        # Second assembly (simulates second worker cycle reading same data)
+        timeline2 = await assemble_event_timeline(temp_storage, event.event_id)
+        assert timeline2 is not None
+        receipts2 = timeline2["receipts"]
+        assert len(receipts2) == 2, (
+            "Timeline should be unchanged on second assembly — still 2 receipts"
+        )
+
+        # Receipt IDs identical between both calls
+        ids_1 = [r.receipt_id for r in receipts]
+        ids_2 = [r.receipt_id for r in receipts2]
+        assert ids_1 == ids_2

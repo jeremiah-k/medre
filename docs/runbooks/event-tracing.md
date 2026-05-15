@@ -251,7 +251,7 @@ Entry types: `[receipt]` (status, target, event ID) and `[event_summary]`
 
 **Caveat:** The `duplicate_risk` field is informational only — it does not
 prevent duplicates. BEST_EFFORT replay sends real messages regardless. There
-is no active retry scheduler for replay; replay is operator-initiated and one-shot.
+RetryWorker handles transient delivery failures automatically when enabled, but does not re-deliver orphaned events; replay is operator-initiated and one-shot.
 The RetryWorker handles transient delivery failures automatically when enabled (receipts carry `source="retry"`), but does not re-deliver orphaned events.
 Runtime events are process-local — if the process crashed during replay,
 completed deliveries are preserved (receipts in SQLite) but remaining events
