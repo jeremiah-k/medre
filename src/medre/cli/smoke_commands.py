@@ -111,6 +111,7 @@ async def _run_session(
     storage_path: str | None,
     snapshot_dir: str | None,
     json_output: bool,
+    scenario: str = "happy_path",
 ) -> None:
     """Run a complete bridge session and print a cross-linked evidence report.
 
@@ -135,6 +136,7 @@ async def _run_session(
         config_path,
         storage_path=storage_path,
         snapshot_dir=snapshot_dir,
+        scenario=scenario,
     )
 
     if json_output:

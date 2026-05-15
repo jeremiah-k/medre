@@ -162,7 +162,7 @@ Capacity is acquired **per destination, not per route**. Each target in a fan-ou
 - The route was matched correctly and the delivery plan was created — the failure is a capacity issue, not a routing issue.
 - `RouteStats.record_failed()` is called on the capacity-rejected target so per-route counters reflect the failure.
 
-This means a route can be correctly configured and correctly matched, but still produce failed deliveries if the pipeline is under capacity pressure. Check `delivery_timeouts` and `delivery_rejections` in the `CapacityController` snapshot to distinguish capacity failures from routing failures.
+This means a route can be correctly configured and correctly matched, but still produce failed deliveries if the pipeline is under capacity pressure. Check `capacity_rejections` and `outbound_failed` in the diagnostics snapshot to distinguish capacity failures from routing failures.
 
 ### 2.6 Loop Prevention Scope
 

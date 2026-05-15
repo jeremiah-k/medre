@@ -68,7 +68,7 @@ The following runtime state is held in memory only and is never written to SQLit
 
 ### 3.2 CapacityController State
 
-`CapacityController` state — semaphore counts, diagnostic gauges, and all counters:
+`CapacityController` state — semaphore counts, diagnostic gauges, and all counters. **These are CapacityController internal gauge names**, not the operator-facing `RuntimeAccounting` counter names (`capacity_rejections`, `outbound_failed`, etc.).
 
 | Counter | Nature |
 |---------|--------|
@@ -182,7 +182,7 @@ The only route attribution that survives a crash is the `route_id` on persisted 
 | Observability Data | Persistence | Survives Crash |
 |-------------------|-------------|---------------|
 | Structured log entries | Appended to `{state}/logs/medre.log` | Yes (up to last flush) |
-| Diagnostic counters (`delivery_timeouts`, etc.) | Process-local only | No |
+| Diagnostic counters (`delivery_timeouts`, etc.) — CapacityController internal gauges | Process-local only | No |
 | Capacity gauges (`delivery_current`, etc.) | Process-local only | No |
 | RouteStats per-route counters | Process-local only | No |
 | `medre diagnostics` output | Ephemeral snapshot, never persisted | No |

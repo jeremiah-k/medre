@@ -106,6 +106,18 @@ def _build_parser() -> argparse.ArgumentParser:
         "--snapshot-dir", default=None, metavar="DIR",
         help="Directory for final snapshot JSON (run-session only; default: storage directory)",
     )
+    smoke_p.add_argument(
+        "--scenario", default="happy_path",
+        choices=[
+            "happy_path",
+            "renderer_failure",
+            "adapter_permanent_failure",
+            "adapter_transient_failure",
+            "capacity_rejection",
+            "degraded_live_health",
+        ],
+        help="Failure scenario for run-session (default: happy_path)",
+    )
     smoke_p.add_argument("--json", action="store_true", default=False, help="Output JSON report")
 
     # evidence
@@ -247,6 +259,7 @@ def main(argv: list[str] | None = None) -> None:
                     storage_path=args.storage_path,
                     snapshot_dir=getattr(args, "snapshot_dir", None),
                     json_output=args.json,
+                    scenario=getattr(args, "scenario", "happy_path"),
                 )
             )
         else:

@@ -46,8 +46,8 @@ There are no substates within `STOPPING` for individual shutdown phases. Phase-l
 When `CapacityController.stop_accepting()` is called (during `MedreApp.stop()`):
 
 1. `_accepting_work` is set to `False`.
-2. All subsequent `acquire_delivery()` calls return `False` immediately. The `delivery_rejections` counter is incremented.
-3. All subsequent `acquire_replay()` calls return `False` immediately. The `replay_rejections` counter is incremented.
+2. All subsequent `acquire_delivery()` calls return `False` immediately. The `delivery_rejections` internal gauge is incremented (maps to `outbound_failed` in `RuntimeAccounting`).
+3. All subsequent `acquire_replay()` calls return `False` immediately. The `replay_rejections` internal gauge is incremented (maps to `outbound_failed` in `RuntimeAccounting`).
 4. In-flight work (slots already acquired) continues executing until completion or the drain timeout expires.
 5. The controller does **not** cancel in-flight work directly. It gates new admissions.
 

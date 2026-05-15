@@ -40,10 +40,10 @@ see [Routing Correctness](routing-correctness.md) and
 | Renderer failure | 0 | `failed` (RENDERER_FAILURE) | No | `medre inspect receipts`, RouteStats |
 | Adapter permanent | 0 | `failed` (ADAPTER_PERMANENT) | No | receipt lineage, adapter `diagnostics()` |
 | Adapter transient | 0 | `sent` (after retry) or `failed` | Yes (up to max_attempts) | receipt `attempt_number`, `parent_receipt_id` |
-| Capacity exceeded | 0 | `failed` (delivery_capacity_exceeded) | No | `delivery_timeouts` counter, logs |
+| Capacity exceeded | 0 | `failed` (delivery_capacity_exceeded) | No | `capacity_rejections` counter, logs |
 | Deadline exceeded | 0 | `failed` (DEADLINE_EXCEEDED) | No | delivery plan timestamps |
-| Shutdown rejection | 0 | `failed` (delivery_rejected_shutdown) | No | `delivery_rejections` counter |
-| Replay capacity | 0 | `error` (replay_capacity_exceeded) | No | `replay_timeouts` counter |
+| Shutdown rejection | 0 | `failed` (delivery_rejected_shutdown) | No | `outbound_failed` counter |
+| Replay capacity | 0 | `error` (replay_capacity_exceeded) | No | `capacity_rejections` counter |
 | Replay duplicate | 0 | `sent` (multiple receipts, source=replay) | N/A (by design) | receipt `replay_run_id` |
 | Loop prevented | 0 | `skipped` (no receipt) | No | `loop_prevented` counter, RouteStats |
 | Degraded live health | 0 (command succeeds) | N/A | No | `health.live_health.adapters[]` |
@@ -558,13 +558,13 @@ PYTHONPATH=src pytest tests/test_soak_harness.py -v
 
 - `DeliveryOutcome`: `status == "permanent_failure"`,
   `error == "delivery_capacity_exceeded"`.
-- `delivery_timeouts` counter in `CapacityController` snapshot growing.
+- `capacity_rejections` counter in `CapacityController` snapshot growing.
 - No retry — capacity timeout is a backpressure signal.
 
 **Inspect next:**
 
 1. `CapacityController.snapshot()` — `delivery_current` vs `delivery_limit`.
-2. `delivery_timeouts` — sustained growth means the limit is too low.
+2. `capacity_rejections` — sustained growth means the limit is too low.
 3. Increase `max_inflight_deliveries` in `[runtime.limits]` if memory allows.
 4. Reduce active routes or source event rate.
 
@@ -601,11 +601,11 @@ In-flight deliveries when shutdown begins are rejected, not drained.
 **Expected FAIL:**
 
 - `DeliveryOutcome`: `error == "delivery_rejected_shutdown"`.
-- `delivery_rejections` counter incremented.
+- `outbound_failed` counter incremented.
 
 **Inspect next:**
 
-1. `delivery_rejections` counter in capacity snapshot.
+1. `outbound_failed` counter in capacity snapshot.
 2. Logs showing which deliveries were in-flight at shutdown time.
 3. If these deliveries are important, replay the corresponding events after
    restart.
@@ -623,7 +623,7 @@ Replay events in progress when shutdown begins are rejected.
 
 - Replay result: `status == "error"`,
   `error == "replay_rejected_shutdown"`.
-- `replay_rejections` counter incremented.
+- `outbound_failed` counter incremented. (Replay rejection tracks the same counter category as delivery rejection.)
 
 **Inspect next:** Re-initiate replay after restart with the same parameters.
 
@@ -672,7 +672,7 @@ More concurrent replay deliveries than `max_inflight_replay_events`.
 
 - Replay result: `status == "error"`,
   `error == "replay_capacity_exceeded"`.
-- `replay_timeouts` counter growing.
+- `capacity_rejections` counter growing.
 
 **Inspect next:**
 
@@ -853,8 +853,8 @@ This cross-check workflow applies to all drills in this runbook:
 | `renderer_failure` | Event ingestion, no delivery | `failure_kind == "RENDERER_FAILURE"`, `status == "failed"` |
 | `adapter_permanent_failure` | Delivery attempt | `failure_kind == "ADAPTER_PERMANENT"`, no retry chain |
 | `adapter_transient_failure` | Retry chain | `attempt_number`, `parent_receipt_id` progression |
-| `capacity_rejection` | No receipt (permanent failure) | `delivery_timeouts` counter (process-local, lost on restart) |
-| `shutdown_rejection` | No receipt (rejected) | `delivery_rejections` counter (process-local) |
+| `capacity_rejection` | No receipt (permanent failure) | `capacity_rejections` counter (process-local, lost on restart) |
+| `shutdown_rejection` | No receipt (rejected) | `outbound_failed` counter (process-local) |
 | `replay_duplicate_risk` | Live vs. replay receipts | `source` field, `replay_run_id` grouping |
 | `degraded_live_health` | Health snapshot | `health.live_health.adapters[].health`, `.error` |
 
@@ -885,11 +885,11 @@ report shape.
 | Renderer failure | `medre inspect receipts --event <id> --config <path>` |
 | Adapter permanent | `medre inspect receipts --event <id>` + adapter `diagnostics()` |
 | Adapter transient | Full receipt chain via `parent_receipt_id` |
-| Capacity exceeded | `delivery_timeouts` counter in logs; tune `max_inflight_deliveries` |
+| Capacity exceeded | `capacity_rejections` counter in logs; tune `max_inflight_deliveries` |
 | Deadline exceeded | Delivery plan timestamps vs. actual adapter latency |
-| Shutdown rejection | `delivery_rejections` counter; replay orphaned events after restart |
+| Shutdown rejection | `outbound_failed` counter; replay orphaned events after restart |
 | Replay duplicate | `medre inspect receipts --replay-run <id> --config <path>` |
-| Replay capacity | `replay_timeouts` counter; tune `max_inflight_replay_events` |
+| Replay capacity | `capacity_rejections` counter; tune `max_inflight_replay_events` |
 | Live health degraded | `medre diagnostics --refresh-health` → per-adapter `.error` |
 | Loop prevented | `RouteStats` → `loop_prevented`; `accounting.snapshot()` |
 
@@ -920,8 +920,8 @@ medre inspect receipts --event <event_id> --config my-bridge.toml
    existing SQLite database in read-only mode. They exit with code 2 if the
    config uses ``backend = "memory"`` or the database file does not exist.
 
-4. **Counters reset on restart.** ``delivery_timeouts``, ``delivery_rejections``,
-   ``RouteStats``, and ``CapacityController`` gauges are process-local. They
+ 4. **Counters reset on restart.** ``capacity_rejections``, ``outbound_failed``,
+    ``RouteStats``, and ``CapacityController`` gauges are process-local. They
    reset to zero on every startup.
 
 5. **No automated remediation.** MEDRE does not restart adapters, routes, or

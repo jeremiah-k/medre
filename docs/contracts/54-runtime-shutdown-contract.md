@@ -227,7 +227,7 @@ v2 introduces `CapacityController` (see Contract 53, §15) as the central capaci
 When `MedreApp.stop()` is called:
 
 1. `capacity_controller.stop_accepting()` is called. This sets `accepting_work = False`.
-2. All subsequent `acquire_replay()` calls return `False` immediately, with the `replay_rejections` counter incremented.
+2. All subsequent `acquire_replay()` calls return `False` immediately, with the `replay_rejections` internal gauge incremented (maps to `outbound_failed` in `RuntimeAccounting`).
 3. In-flight replay deliveries (those that already acquired a slot) continue executing until they complete or the drain timeout expires.
 4. No new replay work is admitted after this point. The `ReplayEngine` does not have its own shutdown hook — it relies on `CapacityController` to gate new work and on the pipeline teardown to cancel any remaining tasks.
 
@@ -275,7 +275,7 @@ The drain phase logs the outcome:
 - **Successful drain:** `"In-flight work drained"` — both counters reached 0 before timeout.
 - **Drain timeout:** `"Drain timed out — {delivery_current} delivery, {replay_current} replay in-flight abandoned"` — some work did not complete within the drain window. The `capacity_controller.snapshot()` provides the exact counts of abandoned work.
 
-The runtime diagnostics snapshot (via `MedreApp.diagnostics_snapshot()`) includes:
+The runtime diagnostics snapshot (via `MedreApp.diagnostics_snapshot()`) includes CapacityController **internal gauge** names. These are semaphore-level counters inside `CapacityController`, distinct from the operator-facing `RuntimeAccounting` counters (`capacity_rejections`, `outbound_failed`, etc.).
 
 ```json
 {

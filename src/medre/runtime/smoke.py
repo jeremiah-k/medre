@@ -186,35 +186,42 @@ async def _collect_native_refs(
 ) -> list[dict[str, str]]:
     """Resolve native refs for each successful delivery outcome."""
     refs: list[dict[str, str]] = []
+    if app.storage is None:
+        return refs
+
     for outcome in outcomes:
         if outcome.status != "success":
             continue
         target = outcome.target_adapter
-        adapter = app.adapters.get(target)
-        if adapter is None:
+        # Query stored native refs for this event from storage.
+        try:
+            native_ref_records = await app.storage.list_native_refs_for_event(
+                outcome.event_id,
+            )
+        except (AttributeError, TypeError):
+            # Storage backend may not implement list_native_refs_for_event.
             continue
-        # Derive the expected native ID from the adapter's platform.
-        platform = getattr(adapter, "platform", "")
-        if platform == "matrix":
-            native_id = f"$fake_{outcome.event_id}"
-            channel_id = ""
-        elif platform in ("meshtastic", "meshcore"):
-            # First sequential packet ID.
-            native_id = "1"
-            channel_id = "0"
-        else:
+        except Exception:
             continue
-        if app.storage is None:
-            return refs
-        resolved = await app.storage.resolve_native_ref(
-            target, channel_id, native_id,
-        )
-        if resolved is not None:
+
+        for nref in native_ref_records:
+            if getattr(nref, "direction", None) != "outbound":
+                continue
+            if getattr(nref, "adapter", None) != target:
+                continue
+            native_channel_id = getattr(nref, "native_channel_id", "") or ""
+            native_message_id = getattr(nref, "native_message_id", "")
+            try:
+                resolved = await app.storage.resolve_native_ref(
+                    target, native_channel_id, native_message_id,
+                )
+            except Exception:
+                continue
             refs.append({
                 "adapter": target,
-                "channel": channel_id,
-                "native_id": native_id,
-                "resolves_to": resolved,
+                "channel": native_channel_id,
+                "native_id": native_message_id,
+                "resolves_to": resolved or getattr(nref, "event_id", ""),
             })
     return refs
 

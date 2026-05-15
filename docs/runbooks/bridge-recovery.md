@@ -497,8 +497,8 @@ for the authoritative procedure.
    or orchestrator. Operators must detect failures externally (logs, process
    supervisors, cron health checks).
 
-5. **Counters reset on restart.** All runtime counters (delivery_timeouts,
-   delivery_rejections, RouteStats) reset to zero on every startup. There is no
+ 5. **Counters reset on restart.** All runtime counters (capacity_rejections,
+   outbound_failed, RouteStats) reset to zero on every startup. There is no
    persistent metrics store.
 
 6. **Single-machine only.** Recovery operates on the local SQLite database.

@@ -367,13 +367,13 @@ The replay semaphore is independent of the delivery semaphore. Replay deliveries
 When a delivery cannot acquire a semaphore slot within `delivery_acquire_timeout_seconds`:
 
 1. The delivery outcome records `status="permanent_failure"` with `failure_kind=CAPACITY_REJECTION` (or `SHUTDOWN_REJECTION` during shutdown).
-2. `CapacityController` increments its `delivery_timeouts` counter (available via `snapshot()`).
+2. `CapacityController` increments its `delivery_timeouts` internal gauge (available via `snapshot()`; maps to `capacity_rejections` in `RuntimeAccounting`).
 3. No retry is attempted. Capacity timeout is a backpressure signal.
 4. A WARNING log is emitted: `"Capacity timeout: delivery to {adapter_id} timed out waiting for slot ({current}/{limit})"`.
 
 ### 14.5 Diagnostics Counters
 
-The `CapacityController` exposes runtime capacity counters via its `snapshot()` method. These are **runtime capacity gauges and counters**, not `Diagnostician` counters:
+The `CapacityController` exposes runtime capacity counters via its `snapshot()` method. These are **CapacityController internal gauges** — they track semaphore-level acquire/reject/timeout events inside the controller itself. They are distinct from `RuntimeAccounting` operator counters (`capacity_rejections`, `outbound_failed`, `outbound_delivered`, `loop_prevented`, `inbound_accepted`), which track delivery outcomes at the accounting layer.
 
 | Snapshot field | Type | Description |
 |----------------|------|-------------|
@@ -512,7 +512,7 @@ When capacity is exhausted, the system applies one of three behaviors depending 
 
 ### 15.7 Capacity Rejection Metrics
 
-The `CapacityController` tracks the following counters, all visible via `snapshot()`:
+The `CapacityController` tracks the following **internal gauges**, all visible via `snapshot()`. These are CapacityController-internal names (acquire/timeout/reject at the semaphore level), not the operator-facing `RuntimeAccounting` counter names (`capacity_rejections`, `outbound_failed`, `outbound_delivered`, etc.).
 
 | Counter | Type | Description |
 |---------|------|-------------|

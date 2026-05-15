@@ -22,7 +22,7 @@ that only existed in memory.
 **What tracing does NOT show you:**
 
 - In-flight delivery state (lost on crash or shutdown — no receipt exists).
-- Process-local counters (delivery_timeouts, RouteStats — reset on restart).
+- Process-local counters (capacity_rejections, RouteStats — reset on restart).
 - Adapter health at the time of the event (not stored).
 - Transport-level delivery confirmation beyond what the adapter reported.
 
@@ -339,7 +339,7 @@ types:
 |--------------|----------------|-------------------|
 | `replay_duplicate_risk` | BEST_EFFORT replay produces receipts for events that already have live receipts | Multiple outbound deliveries for the same event. Use `source` field to distinguish live from replay. |
 | `adapter_transient_failure` | Transient adapter failure triggers retry chain | Check `attempt_number` progression and `parent_receipt_id` lineage. Each retry is a separate receipt. |
-| `shutdown_rejection` | In-flight delivery cancelled during runtime shutdown | No receipt is written for rejected deliveries. Check `delivery_rejections` counter (process-local, lost on restart). |
+| `shutdown_rejection` | In-flight delivery cancelled during runtime shutdown | No receipt is written for rejected deliveries. Check `outbound_failed` counter (process-local, lost on restart). |
 | `degraded_live_health` | Adapter reports degraded/failed health after startup | Event may have been delivered to a degraded adapter. Check the adapter's `.error` field in live health output. |
 
 To drill into these scenarios:
@@ -536,8 +536,8 @@ sqlite3 {state}/medre.sqlite "
    The event exists in `canonical_events` but has no corresponding entry in
    `delivery_receipts`.
 
-2. **Counters reset on restart.** Process-local counters (delivery_timeouts,
-   delivery_rejections, RouteStats) are not stored in SQLite. Timeline reports
+ 2. **Counters reset on restart.** Process-local counters (capacity_rejections,
+   outbound_failed, RouteStats) are not stored in SQLite. Timeline reports
    cannot reference counter values from before the last restart.
 
 3. **No adapter health history.** Adapter health states at the time of delivery

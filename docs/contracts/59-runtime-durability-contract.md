@@ -105,7 +105,7 @@ The following state is **lost** on process termination (crash, shutdown, or rest
 | In-flight deliveries | Semaphore-tracked coroutines | No receipt, no retry, no recovery |
 | Active replay runs | Async generator iterations | Must re-initiate manually |
 | ReplaySummary (completed replay results) | In-memory dataclass | Must re-run replay to regenerate |
-| `CapacityController` counters (`delivery_timeouts`, `delivery_rejections`, etc.) | In-memory counters | Reset to zero on every startup |
+| `CapacityController` internal gauges (`delivery_timeouts`, `delivery_rejections`, etc.) | In-memory counters | Reset to zero on every startup |
 | `RouteStats` per-route counters | In-memory counters | No historical route statistics |
 | `RuntimeAccounting` counters | In-memory counters | Reset to zero on every startup |
 | Adapter health / connection state | In-memory | Adapters reconnect from scratch on restart |
@@ -163,7 +163,7 @@ When `CapacityController` reaches its semaphore limit:
 - New delivery attempts wait up to `delivery_acquire_timeout_seconds`, then fail with `status="permanent_failure"` and `error="delivery_capacity_exceeded"` (or `error="delivery_rejected_shutdown"` if the runtime has stopped accepting work).
 - No retry is attempted — capacity timeout is a backpressure signal, not a transient error.
 - The runtime continues operating; existing in-flight work completes normally.
-- Counters (`delivery_timeouts`, `delivery_rejections`) are incremented and visible via `snapshot()`.
+- Internal gauges (`delivery_timeouts`, `delivery_rejections`) are incremented and visible via `snapshot()`. Operator-facing counters (`capacity_rejections`, `outbound_failed`) are tracked in `RuntimeAccounting`.
 
 The runtime does **not** degrade into a different operational mode under capacity pressure. It rejects new work and continues processing in-flight work.
 

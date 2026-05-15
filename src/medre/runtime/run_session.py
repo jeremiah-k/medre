@@ -14,11 +14,20 @@ after the session completes using ``medre trace``, ``medre inspect``,
 
 Fake injection stays scoped to this module.  No adapter-level publish
 callback or public injection API is exposed.
+
+Package boundary decision
+-------------------------
+Operator tools (smoke, drill, evidence, trace, recover, run_session) live
+in ``runtime/`` because they depend on the runtime lifecycle (MedreApp,
+RuntimeBuilder).  If a future ``medre.operator`` package is created, it
+will import from ``runtime``, never the reverse.  No files should be moved
+out of ``runtime/`` without updating this comment and the import graph.
 """
 
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 import logging
 import tempfile
@@ -26,10 +35,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from medre.config.loader import load_config, ConfigSource
-from medre.config.paths import MedrePaths
+from medre.adapters.base import (
+    AdapterDeliveryResult,
+    AdapterPermanentError,
+    AdapterSendError,
+)
+from medre.config.loader import load_config
 from medre.config.env import apply_env_overrides
-from medre.core.events.canonical import CanonicalEvent
+from medre.core.events.canonical import CanonicalEvent, NativeMessageRef
 from medre.core.events.kinds import EventKind
 from medre.runtime.app import MedreApp, RuntimeState
 from medre.runtime.builder import RuntimeBuilder
@@ -49,12 +62,26 @@ _RECEIPT_POLL_TIMEOUT: float = 3.0
 _RECEIPT_POLL_INTERVAL: float = 0.1
 """Seconds between receipt polling attempts."""
 
+_SUPPORTED_SCENARIOS: tuple[str, ...] = (
+    "happy_path",
+    "renderer_failure",
+    "adapter_permanent_failure",
+    "adapter_transient_failure",
+    "capacity_rejection",
+    "degraded_live_health",
+)
+
 _LIMITATIONS: list[str] = [
     "Fake adapters only — no real transport connectivity proven",
     "Persistent storage (SQLite) but no crash-recovery proof",
     "Single-event session — no sustained throughput or load evidence",
     "No reconnection resilience or retry-against-live proof",
     "Fire-and-forget delivery model for radio transports",
+    (
+        "Native refs are derived from actual stored receipts; adapters "
+        "that return native_message_id=None (e.g. local enqueue) produce "
+        "no native refs."
+    ),
 ]
 
 # ---------------------------------------------------------------------------
@@ -151,37 +178,65 @@ async def _poll_for_receipts(
 async def _collect_native_refs(
     app: MedreApp,
     outcomes: list[Any],
+    event_id: str,
+    errors: list[str],
 ) -> list[dict[str, str]]:
-    """Resolve native refs for each successful delivery outcome."""
+    """Resolve native refs for each successful delivery outcome.
+
+    Derives evidence from actual stored receipts rather than fabricating
+    platform-specific IDs.  Looks up ``NativeMessageRef`` records persisted
+    by the pipeline when adapters return an ``AdapterDeliveryResult`` with
+    ``native_message_id`` set.
+    """
     refs: list[dict[str, str]] = []
-    for outcome in outcomes:
-        if outcome.status != "success":
-            continue
-        target = outcome.target_adapter
-        adapter = app.adapters.get(target)
-        if adapter is None:
-            continue
-        platform = getattr(adapter, "platform", "")
-        if platform == "matrix":
-            native_id = f"$fake_{outcome.event_id}"
-            channel_id = ""
-        elif platform in ("meshtastic", "meshcore"):
-            native_id = "1"
-            channel_id = "0"
-        else:
-            continue
-        if app.storage is None:
-            return refs
-        resolved = await app.storage.resolve_native_ref(
-            target, channel_id, native_id,
+    storage = app.storage
+    if storage is None:
+        return refs
+
+    # Retrieve actual native refs stored by the pipeline for this event.
+    native_ref_records: list[NativeMessageRef] = []
+    try:
+        native_ref_records = await storage.list_native_refs_for_event(event_id)
+    except (AttributeError, TypeError):
+        # Storage backend may not implement list_native_refs_for_event in
+        # all test mocks; fall back gracefully.
+        _logger.debug(
+            "Storage does not support list_native_refs_for_event; "
+            "falling back to per-adapter resolve_native_ref",
         )
-        if resolved is not None:
-            refs.append({
-                "adapter": target,
-                "channel": channel_id,
-                "native_id": native_id,
-                "resolves_to": resolved,
-            })
+    except Exception as exc:
+        errors.append(f"Native ref lookup error: {exc}")
+        return refs
+
+    for nref in native_ref_records:
+        # Only include outbound refs for adapters that have successful outcomes.
+        if nref.direction != "outbound":
+            continue
+        has_success = any(
+            o.status == "success" and o.target_adapter == nref.adapter
+            for o in outcomes
+        )
+        if not has_success:
+            continue
+        # Verify via resolve_native_ref.
+        try:
+            resolved = await storage.resolve_native_ref(
+                nref.adapter,
+                nref.native_channel_id,
+                nref.native_message_id,
+            )
+        except Exception as exc:
+            errors.append(
+                f"resolve_native_ref failed for adapter={nref.adapter}: {exc}"
+            )
+            continue
+        refs.append({
+            "adapter": nref.adapter,
+            "channel": nref.native_channel_id or "",
+            "native_id": nref.native_message_id,
+            "resolves_to": resolved or nref.event_id,
+        })
+
     return refs
 
 
@@ -205,6 +260,184 @@ def _build_cross_linked_commands(
 
 
 # ---------------------------------------------------------------------------
+# Scenario injection helpers
+# ---------------------------------------------------------------------------
+
+
+def _expected_failure_kind(scenario: str) -> str | None:
+    """Return the expected failure classification for a scenario."""
+    return {
+        "renderer_failure": "renderer_failure",
+        "adapter_permanent_failure": "adapter_permanent",
+        "adapter_transient_failure": "adapter_transient",
+        "capacity_rejection": "capacity_rejection",
+        "degraded_live_health": "degraded_health",
+    }.get(scenario)
+
+
+def _operator_interpretation(scenario: str) -> str:
+    """Return operator-facing guidance for interpreting a scenario result."""
+    return {
+        "happy_path": (
+            "All steps should succeed. If any step fails, investigate "
+            "the specific failing component."
+        ),
+        "renderer_failure": (
+            "Event injection should produce a 'failed' receipt with "
+            "failure_kind=renderer_failure. The event is stored but "
+            "never delivered. No native refs should be created."
+        ),
+        "adapter_permanent_failure": (
+            "Delivery should fail with permanent_failure classification. "
+            "A 'failed' receipt is persisted. No native ref for the "
+            "failed adapter. Outbound_failed accounting should increment."
+        ),
+        "adapter_transient_failure": (
+            "Delivery should fail with transient_failure classification "
+            "and is_retryable=True. A 'failed' receipt is persisted. "
+            "No native ref for the failed adapter."
+        ),
+        "capacity_rejection": (
+            "Delivery should be rejected with capacity_rejection "
+            "classification. No receipt should be persisted for the "
+            "rejected delivery. Capacity_rejections accounting should "
+            "increment."
+        ),
+        "degraded_live_health": (
+            "Runtime should observe degraded adapter health without "
+            "crashing. Event delivery may still succeed. The snapshot "
+            "should reflect degraded health for the target adapter."
+        ),
+    }.get(scenario, "Unknown scenario.")
+
+
+async def _inject_scenario(
+    app: MedreApp,
+    scenario: str,
+    source_aid: str,
+) -> str | None:
+    """Inject failure conditions for the given scenario.
+
+    Modifies runtime state in-place before event injection.  Returns
+    ``None`` on success, or an error description if scenario setup failed.
+    """
+    if scenario == "renderer_failure":
+        pipeline = app.pipeline_runner
+        if pipeline is None or not hasattr(pipeline, "_rendering_pipeline"):
+            return "No rendering pipeline to clear"
+        pipeline._rendering_pipeline._renderers.clear()
+
+    elif scenario == "adapter_permanent_failure":
+        target_aid: str | None = None
+        for aid in sorted(app.adapters.keys()):
+            if aid != source_aid:
+                target_aid = aid
+                break
+        if target_aid is None:
+            return "No target adapter to patch for permanent failure"
+        adapter = app.adapters[target_aid]
+        original_deliver = adapter.deliver
+
+        async def _failing_deliver(
+            result: Any,
+            _orig: Any = original_deliver,
+        ) -> Any:
+            raise AdapterPermanentError(
+                "run-session: simulated permanent failure"
+            )
+
+        adapter.deliver = _failing_deliver  # type: ignore[assignment]
+
+    elif scenario == "adapter_transient_failure":
+        target_aid = None
+        for aid in sorted(app.adapters.keys()):
+            if aid != source_aid:
+                target_aid = aid
+                break
+        if target_aid is None:
+            return "No target adapter to patch for transient failure"
+        adapter = app.adapters[target_aid]
+        original_deliver = adapter.deliver
+
+        async def _transient_deliver(
+            result: Any,
+            _orig: Any = original_deliver,
+        ) -> Any:
+            raise AdapterSendError(
+                "run-session: simulated transient failure",
+                transient=True,
+            )
+
+        adapter.deliver = _transient_deliver  # type: ignore[assignment]
+
+    elif scenario == "capacity_rejection":
+        cc = app._capacity_controller
+        if cc is None:
+            return "No capacity controller wired"
+        # Exhaust the delivery semaphore.
+        from medre.runtime.capacity import CapacityController
+        from medre.config.model import RuntimeLimits
+        small_cc = CapacityController(
+            RuntimeLimits(
+                max_inflight_deliveries=1,
+                max_inflight_replay_events=1,
+                delivery_acquire_timeout_seconds=0.1,
+            ),
+        )
+        await small_cc._delivery_sem.acquire()
+        small_cc._delivery_current = 1
+        app._capacity_controller = small_cc
+        app.pipeline_runner._capacity_controller = small_cc
+
+    elif scenario == "degraded_live_health":
+        target_aid = None
+        for aid in sorted(app.adapters.keys()):
+            target_aid = aid
+            break
+        if target_aid is None:
+            return "No adapter available for health patch"
+        from medre.adapters.base import AdapterInfo, AdapterCapabilities, AdapterRole
+        adapter = app.adapters[target_aid]
+
+        # Preserve original capabilities.
+        orig_caps: AdapterCapabilities | None = None
+        try:
+            info = await adapter.health_check()
+            orig_caps = info.capabilities
+        except Exception:
+            orig_caps = AdapterCapabilities(text=True)
+
+        async def _degraded_health() -> AdapterInfo:
+            raw_role = getattr(adapter, "role", "unknown")
+            role = (
+                raw_role
+                if isinstance(raw_role, AdapterRole)
+                else AdapterRole.PRESENTATION
+            )
+            return AdapterInfo(
+                adapter_id=adapter.adapter_id,
+                platform=getattr(adapter, "platform", "unknown"),
+                role=role,
+                version="0.1.0",
+                capabilities=orig_caps,
+                health="degraded",
+            )
+
+        adapter.health_check = _degraded_health  # type: ignore[assignment]
+        await app.refresh_live_health()
+
+    return None
+
+
+def _observed_failure_kind(outcomes: list[Any]) -> str | None:
+    """Derive the observed failure classification from delivery outcomes."""
+    for o in outcomes:
+        if o.failure_kind is not None:
+            return o.failure_kind.value
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -215,6 +448,7 @@ async def run_bridge_session(
     snapshot_dir: str | None = None,
     *,
     message_text: str = "medre run-session test",
+    scenario: str = "happy_path",
     now_fn: Callable[[], datetime] | None = None,
     monotonic_fn: Callable[[], float] | None = None,
 ) -> dict[str, Any]:
@@ -246,6 +480,11 @@ async def run_bridge_session(
         parent directory of *storage_path*.
     message_text:
         Body text for the injected event.
+    scenario:
+        Failure scenario to inject.  One of: ``"happy_path"``,
+        ``"renderer_failure"``, ``"adapter_permanent_failure"``,
+        ``"adapter_transient_failure"``, ``"capacity_rejection"``,
+        ``"degraded_live_health"``.
     now_fn:
         Injectable clock for deterministic testing.
     monotonic_fn:
@@ -257,6 +496,7 @@ async def run_bridge_session(
         Compact operator report.  JSON-safe.
     """
     _now = now_fn or (lambda: datetime.now(timezone.utc))
+    is_failure_scenario = scenario != "happy_path"
 
     # -- Resolve config path ------------------------------------------------
     resolved_config_path = config_path
@@ -268,14 +508,13 @@ async def run_bridge_session(
             config_source_value = "default"
 
     # -- Resolve storage path -----------------------------------------------
-    auto_storage = False
-    if storage_path is None:
+    storage_provided = storage_path is not None
+    if not storage_provided:
         tmp = tempfile.NamedTemporaryFile(
             suffix=".db", prefix="medre-session-", delete=False,
         )
         storage_path = tmp.name
         tmp.close()
-        auto_storage = True
 
     # -- Step 1: Load config ------------------------------------------------
     try:
@@ -294,11 +533,11 @@ async def run_bridge_session(
     config = apply_env_overrides(config, paths)
 
     # Override storage to SQLite.
-    import dataclasses as _dc
-    from medre.config.model import StorageConfig as _SC
-    config = _dc.replace(
+    config = dataclasses.replace(
         config,
-        storage=_dc.replace(config.storage, backend="sqlite", path=storage_path),
+        storage=dataclasses.replace(
+            config.storage, backend="sqlite", path=storage_path,
+        ),
     )
 
     # -- Step 2: Build runtime ----------------------------------------------
@@ -335,6 +574,11 @@ async def run_bridge_session(
     source_aid, source_adapter = _pick_source_adapter(app)
     event = _make_session_event(source_adapter, message_text)
 
+    # Inject scenario-specific failure before event injection.
+    scenario_error: str | None = None
+    if is_failure_scenario:
+        scenario_error = await _inject_scenario(app, scenario, source_aid)
+
     outcomes: list[Any] = []
     injection_error: str | None = None
     try:
@@ -345,11 +589,12 @@ async def run_bridge_session(
     # -- Step 5: Poll for delivery receipts ---------------------------------
     receipts: list[Any] = []
     storage = app.storage
+    collection_errors: list[str] = []
     if storage is not None and injection_error is None:
         try:
             receipts = await _poll_for_receipts(storage, event.event_id)
         except Exception as exc:
-            _logger.warning("Receipt polling error: %s", exc)
+            collection_errors.append(f"Receipt polling error: {exc}")
 
     # Collect evidence while runtime is still running (storage is open).
     # Stored event
@@ -357,11 +602,15 @@ async def run_bridge_session(
     if storage is not None:
         try:
             stored_event = await storage.get(event.event_id)
-        except Exception:
-            pass
+        except Exception as exc:
+            collection_errors.append(
+                f"Stored event lookup error: {exc}"
+            )
 
     # Native refs (must be collected before stop closes storage).
-    native_refs = await _collect_native_refs(app, outcomes)
+    native_refs = await _collect_native_refs(
+        app, outcomes, event.event_id, collection_errors,
+    )
 
     # -- Step 6: Graceful shutdown ------------------------------------------
     try:
@@ -376,8 +625,8 @@ async def run_bridge_session(
         snap = build_runtime_snapshot(
             app, now_fn=now_fn, monotonic_fn=monotonic_fn,
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        collection_errors.append(f"Snapshot build error: {exc}")
 
     if snapshot_dir is None:
         snapshot_dir = str(Path(storage_path).parent)
@@ -391,15 +640,15 @@ async def run_bridge_session(
     except Exception as exc:
         _logger.warning("Snapshot write error: %s", exc)
 
-    # -- Step 7: Inspect (already collected before stop) --------------------
+    # -- Step 8: Inspect (already collected before stop) --------------------
     # Accounting
     accounting: dict[str, int] | None = None
     accounting_obj = getattr(app, "_runtime_accounting", None)
     if accounting_obj is not None and hasattr(accounting_obj, "snapshot"):
         try:
             accounting = accounting_obj.snapshot()
-        except Exception:
-            pass
+        except Exception as exc:
+            collection_errors.append(f"Accounting snapshot error: {exc}")
 
     # Target adapters and route IDs from outcomes
     target_adapters = sorted({
@@ -441,28 +690,46 @@ async def run_bridge_session(
         accounting.get("outbound_delivered", 0) if accounting else 0
     )
 
-    passed = (
-        event_stored
-        and has_success
-        and has_sent_receipt
-        and delivered_count >= 1
-        and injection_error is None
-        and runtime_state == "stopped"
-    )
-
-    fail_reasons: list[str] = []
-    if injection_error is not None:
-        fail_reasons.append(f"Event injection failed: {injection_error}")
-    if not event_stored:
-        fail_reasons.append("Event not found in storage")
-    if not has_success:
-        fail_reasons.append("No successful delivery outcome")
-    if not has_sent_receipt:
-        fail_reasons.append("No receipt with status 'sent'")
-    if delivered_count < 1:
-        fail_reasons.append("Accounting outbound_delivered < 1")
-    if runtime_state != "stopped":
-        fail_reasons.append(f"Runtime state is '{runtime_state}', expected 'stopped'")
+    if is_failure_scenario:
+        # Failure scenarios: PASS means the expected failure was observed.
+        observed = _observed_failure_kind(outcomes)
+        expected = _expected_failure_kind(scenario)
+        passed = (
+            observed == expected
+            and scenario_error is None
+        )
+        fail_reasons: list[str] = []
+        if scenario_error is not None:
+            fail_reasons.append(f"Scenario setup failed: {scenario_error}")
+        if observed != expected:
+            fail_reasons.append(
+                f"Expected failure_kind={expected}, observed={observed}"
+            )
+    else:
+        # Happy path: all steps must succeed.
+        passed = (
+            event_stored
+            and has_success
+            and has_sent_receipt
+            and delivered_count >= 1
+            and injection_error is None
+            and runtime_state == "stopped"
+        )
+        fail_reasons = []
+        if injection_error is not None:
+            fail_reasons.append(f"Event injection failed: {injection_error}")
+        if not event_stored:
+            fail_reasons.append("Event not found in storage")
+        if not has_success:
+            fail_reasons.append("No successful delivery outcome")
+        if not has_sent_receipt:
+            fail_reasons.append("No receipt with status 'sent'")
+        if delivered_count < 1:
+            fail_reasons.append("Accounting outbound_delivered < 1")
+        if runtime_state != "stopped":
+            fail_reasons.append(
+                f"Runtime state is '{runtime_state}', expected 'stopped'"
+            )
 
     # Accounting printer uses the same 5 field names as run_commands.py.
     accounting_display: dict[str, int] | None = None
@@ -485,6 +752,7 @@ async def run_bridge_session(
         "timestamp": _now().isoformat(),
         "config_source": config_source_value,
         "storage_path": storage_path,
+        "storage_ephemeral": not storage_provided,
         "final_snapshot_path": snapshot_path,
         "event_id": event.event_id,
         "route_id": route_ids[0] if route_ids else None,
@@ -500,5 +768,15 @@ async def run_bridge_session(
 
     if not passed:
         report["fail_reasons"] = fail_reasons
+
+    if collection_errors:
+        report["collection_errors"] = collection_errors
+
+    # Scenario-specific report fields.
+    if is_failure_scenario:
+        report["scenario"] = scenario
+        report["expected_failure_kind"] = _expected_failure_kind(scenario)
+        report["observed_failure_kind"] = _observed_failure_kind(outcomes)
+        report["operator_interpretation"] = _operator_interpretation(scenario)
 
     return report

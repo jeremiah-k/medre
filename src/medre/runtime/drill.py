@@ -418,30 +418,25 @@ async def _drill_adapter_permanent_failure(
                 failure_kind=failure_kind,
             ))
             # Verify: no native ref for failed delivery (native refs only
-            # created on success).  Use the smoke runner's approach: check
-            # that resolve_native_ref for the expected fake native ID returns None.
+            # created on success).  Query storage for any outbound refs for
+            # this event targeting the failed adapter.
             failed_adapter = app.adapters.get(patched_aid)
             has_unexpected_ref = False
             if failed_adapter is not None and app.storage is not None:
-                platform = getattr(failed_adapter, "platform", "")
-                if platform in ("meshtastic", "meshcore"):
-                    try:
-                        ref = await app.storage.resolve_native_ref(
-                            patched_aid, "0", "1",
-                        )
-                        if ref is not None:
+                try:
+                    native_ref_records = await app.storage.list_native_refs_for_event(
+                        event.event_id,
+                    )
+                    for nref in native_ref_records:
+                        if (getattr(nref, "direction", None) == "outbound"
+                                and getattr(nref, "adapter", None) == patched_aid):
                             has_unexpected_ref = True
-                    except Exception:
-                        pass
-                elif platform == "matrix":
-                    try:
-                        ref = await app.storage.resolve_native_ref(
-                            patched_aid, "", f"$fake_{event.event_id}",
-                        )
-                        if ref is not None:
-                            has_unexpected_ref = True
-                    except Exception:
-                        pass
+                            break
+                except (AttributeError, TypeError):
+                    # Storage backend may not implement list_native_refs_for_event.
+                    pass
+                except Exception:
+                    pass
             steps.append(_step(
                 "verify_no_native_ref",
                 "ok" if not has_unexpected_ref else "unexpected",
@@ -582,25 +577,20 @@ async def _drill_adapter_transient_failure(
             failed_adapter = app.adapters.get(patched_aid)
             has_unexpected_ref = False
             if failed_adapter is not None and app.storage is not None:
-                platform = getattr(failed_adapter, "platform", "")
-                if platform in ("meshtastic", "meshcore"):
-                    try:
-                        ref = await app.storage.resolve_native_ref(
-                            patched_aid, "0", "1",
-                        )
-                        if ref is not None:
+                try:
+                    native_ref_records = await app.storage.list_native_refs_for_event(
+                        event.event_id,
+                    )
+                    for nref in native_ref_records:
+                        if (getattr(nref, "direction", None) == "outbound"
+                                and getattr(nref, "adapter", None) == patched_aid):
                             has_unexpected_ref = True
-                    except Exception:
-                        pass
-                elif platform == "matrix":
-                    try:
-                        ref = await app.storage.resolve_native_ref(
-                            patched_aid, "", f"$fake_{event.event_id}",
-                        )
-                        if ref is not None:
-                            has_unexpected_ref = True
-                    except Exception:
-                        pass
+                            break
+                except (AttributeError, TypeError):
+                    # Storage backend may not implement list_native_refs_for_event.
+                    pass
+                except Exception:
+                    pass
             steps.append(_step(
                 "verify_no_native_ref",
                 "ok" if not has_unexpected_ref else "unexpected",

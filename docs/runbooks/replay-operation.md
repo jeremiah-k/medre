@@ -441,8 +441,8 @@ medre trace event evt_abc123 --config my-bridge.toml
    BEST_EFFORT mode produces storage receipts. DRY_RUN and RE_ROUTE results
    exist only in the CLI output.
 
-5. **Counters reset on restart.** Process-local counters (delivery_timeouts,
-   replay_timeouts) reset on every runtime restart. Replay results should be
+ 5. **Counters reset on restart.** Process-local counters (capacity_rejections)
+    reset on every runtime restart. Replay results should be
    verified via SQLite queries, not counters.
 
 6. **Single-machine only.** Replay operates on the local SQLite database.

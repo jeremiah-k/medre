@@ -102,8 +102,8 @@ Per-adapter entries in `adapters` carry a `provenance` field:
 | Signal | How to Check | What It Means |
 |--------|-------------|---------------|
 | Adapter health | `medre diagnostics` | `healthy`, `degraded`, `failed`, or `stopped` per adapter. |
-| Capacity pressure | `medre diagnostics` → `delivery_timeouts` | Growing timeouts indicate delivery concurrency is insufficient. |
-| Replay pressure | `medre diagnostics` → `replay_timeouts` | Growing timeouts indicate replay concurrency is insufficient. |
+| Capacity pressure | `medre diagnostics` → `capacity_rejections` | Growing rejections indicate delivery concurrency is insufficient. |
+| Replay pressure | `medre diagnostics` → `capacity_rejections` | Growing rejections indicate replay concurrency is insufficient. |
 | Log errors | `grep ERROR {state}/logs/medre.log` | Error frequency and patterns indicate systemic issues. |
 
 All process-local state resets to zero on every restart. There is no persistent metrics store. If you need historical trends, implement external log aggregation.
@@ -184,7 +184,7 @@ medre diagnostics
 Then check capacity gauges:
 
 - `delivery_current` near `delivery_limit` → sustained delivery pressure.
-- `delivery_timeouts` growing → delivery concurrency is insufficient.
+- `capacity_rejections` growing → delivery concurrency is insufficient.
 - `replay_current` near `replay_limit` → sustained replay pressure.
 
 ### 3.4 "Runtime Is Running but Not Delivering"
@@ -324,7 +324,7 @@ If the SQLite database reaches filesystem limits:
 
 ### 6.3 High Delivery Pressure
 
-When `delivery_timeouts` is growing steadily:
+When `capacity_rejections` is growing steadily:
 
 1. Increase `max_inflight_deliveries` in `[runtime.limits]` if memory allows.
 2. Reduce the number of active routes or source event rate.

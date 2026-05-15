@@ -309,9 +309,9 @@ During bridge operation, monitor these signals:
 
 | Signal | Source | Interpretation |
 |--------|--------|----------------|
-| `delivery_timeouts` growing | `CapacityController` | Delivery concurrency is insufficient for the load |
+| `capacity_rejections` growing | `CapacityController` | Delivery concurrency is insufficient for the load |
 | `total_dropped` growing | Meshtastic adapter | Outbound send rate cannot keep up with inbound rate |
-| `replay_timeouts` growing | `CapacityController` | Replay concurrency is insufficient |
+| `capacity_rejections` growing (replay) | `CapacityController` | Replay concurrency is insufficient |
 | High `delivery_current` sustained | `CapacityController` | Adapters are slow to complete deliveries |
 
 **Remediation:**
@@ -337,7 +337,7 @@ Bridge delivery state has a clear persistence boundary. This section describes w
 ### What Does NOT Persist
 
 - **In-flight bridge deliveries** — if the runtime crashes while a Matrix-to-Meshtastic bridge delivery is in progress, the delivery is lost. The source event exists in SQLite (it was stored before delivery), but there is no receipt for the interrupted delivery. The operator cannot distinguish "delivery was attempted but crashed" from "delivery was never attempted."
-- **Runtime bridge counters** — `delivery_timeouts`, `delivery_rejections`, per-route delivery counts: all reset to zero on restart. There is no persistent metric store.
+- **Runtime bridge counters** — `capacity_rejections`, `outbound_failed`, per-route delivery counts: all reset to zero on restart. There is no persistent metric store.
 - **Active replay deliveries** — if a `BEST_EFFORT` replay was bridging historical events when the crash occurred, the replay run is lost. Completed deliveries from that replay run (those that produced receipts) are preserved. Remaining events must be re-replayed manually.
 
 ### Bridge Crash Recovery Example

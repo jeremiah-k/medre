@@ -742,7 +742,7 @@ PYTHONPATH=src medre smoke --drill <drill_name> --storage-path /tmp/medre-smoke.
    prove live network behavior, sustained throughput, reconnection resilience,
    or multi-hop delivery.
 
-5. **Counters reset on restart.** `delivery_timeouts`, `delivery_rejections`,
+ 5. **Counters reset on restart.** `capacity_rejections`, `outbound_failed`,
     `RouteStats`, `CapacityController` gauges are process-local. They reset to
     zero on every startup. Use `medre run --snapshot-on-shutdown` to capture
     these values to disk before the process exits.
