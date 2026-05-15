@@ -31,9 +31,24 @@ live-network criteria are tracked separately per transport.
 |------|--------|-------------------|
 | Fake bridge | **Proven** | Pipeline routing, rendering, receipts, accounting, loop prevention all work with fake adapters |
 | Adapter-wrapper | **Proven** | Per-transport adapter codec, renderer, session logic work with mocked transport |
+| Adapter-wrapper callback bridge | **Proven (MeshCore, LXMF)** | Real adapter callback path (simulate_inbound → codec → pipeline → fake outbound) exercises wrapper-to-pipeline boundary without Docker or live transport |
 | Docker SDK-boundary | **Proven** | Real SDK code paths exercise against containerized Synapse/meshtasticd |
 | Docker SDK-boundary bridge smoke | **Proven** | Real Matrix SDK codec + pipeline routing + storage + accounting with genuine Synapse event_ids |
 | Live network | **Not claimed** | No live cross-transport bridge test has been executed against real endpoints |
+
+### Per-Adapter Wrapper Callback Bridge Evidence
+
+| Adapter | Evidence level | What is proven | What is not proven |
+|---------|---------------|----------------|-------------------|
+| MeshCore | `fake_pipeline` (wrapper callback bridge) | `simulate_inbound` → `_on_message` → `MeshCoreCodec.decode` → pipeline routing → fake outbound delivery. Full callback-to-delivery path with real adapter code. | Docker SDK-boundary (no containerized MeshCore node). Live radio validation. |
+| LXMF | `fake_pipeline` (wrapper callback bridge) | `_on_packet` → `LxmfCodec.decode` → pipeline routing → fake outbound delivery. Full callback-to-delivery path with real adapter code. | Docker SDK-boundary (no containerized Reticulum/LXMF router). Live network validation. |
+
+### run_bridge_session Evidence Levels
+
+| Mode | Evidence produced | Evidence level | Proven | Not proven |
+|------|------------------|----------------|--------|------------|
+| `run_session` (adapter_callback) | Persisted `DeliveryReceipt` records, `RuntimeAccounting` counters, `NativeMessageRef` entries. No `DeliveryOutcome`. | `fake_run_session_adapter_callback` | Receipt persistence chain, accounting increments, native-ref storage. | Target adapter delivery correctness (no `DeliveryOutcome` produced). |
+| `run_session` (full_pipeline) | `DeliveryOutcome` objects from target adapter, plus receipts/accounting/native-refs. | `fake_pipeline` (full) | Full delivery path including target adapter outcome. | Docker/live validation. |
 
 
 ## Unidirectional Bridge (A -> B)

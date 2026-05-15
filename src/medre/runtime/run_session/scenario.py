@@ -239,9 +239,21 @@ async def _inject_scenario(
     return None
 
 
-def _observed_failure_kind(outcomes: list[Any]) -> str | None:
-    """Derive the observed failure classification from delivery outcomes."""
-    for o in outcomes:
-        if o.failure_kind is not None:
-            return o.failure_kind.value
+def _observed_failure_kind(
+    outcomes_or_receipts: list[Any],
+    use_receipts: bool = False,
+) -> str | None:
+    """Derive the observed failure classification.
+
+    When ``use_receipts=True``, inspects ``failure_kind`` on receipt
+    objects (which store the kind as a string).  Otherwise inspects
+    ``DeliveryOutcome`` objects where ``failure_kind`` is an enum with
+    a ``.value`` attribute.
+    """
+    for item in outcomes_or_receipts:
+        fk = item.failure_kind
+        if fk is not None:
+            if use_receipts:
+                return str(fk)
+            return fk.value if hasattr(fk, "value") else str(fk)
     return None

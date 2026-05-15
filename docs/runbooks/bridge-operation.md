@@ -262,6 +262,17 @@ This guard fires on every delivery attempt. It catches runtime self-loops that c
 
 At pipeline Stage 1.5, `PipelineRunner.handle_ingress` checks each inbound event's `source_native_ref` against previously stored native message references. If a matching ref is found, the event is dropped before routing. This prevents echo when a radio transport re-delivers the same packet (e.g., MeshCore session retries or LXMF store-and-forward redelivery).
 
+Native-ref dedup requires stable adapter-provided native IDs. Which adapters provide them:
+
+| Adapter | Native ID source | Stability |
+|---------|-----------------|-----------|
+| Matrix | `event_id` | Stable. Synapse-assigned, globally unique per event. |
+| Meshtastic | `packet_id` | Stable per packet, but may collide under high churn (IDs are small integers reused across sessions). |
+| MeshCore | `sender_timestamp` | Stable per node. Distinguishes messages from the same sender but is not globally unique across nodes. |
+| LXMF | `source_hash + nonce` combination | May vary depending on codec implementation. LXMF does not guarantee a globally unique, stable ID in all codec paths. |
+
+**Native-ref dedup is NOT replay dedupe.** Replay (section 7) produces independent canonical events and receipts. Replayed events get new `event_id` values and new `DeliveryReceipt` rows. Native-ref dedup prevents echo from transport-layer re-delivery of the same physical packet; it does not suppress replay-originated events. Multiple `BEST_EFFORT` replays of the same original event will produce additional deliveries.
+
 ### 10.2b Route-Trace Guard (Runtime, Per-Delivery)
 
 During delivery execution, `PipelineRunner._execute_single_delivery` inspects the `route_trace` on the event's `RoutingMetadata`. The route_trace records which route IDs have already processed the event. If the current route ID appears more than once in the trace, the delivery is skipped. This catches multi-hop cycles that escape the self-loop guard (e.g., A→B→C→A where no single delivery targets the source adapter).

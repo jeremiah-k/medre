@@ -123,16 +123,16 @@ async def _poll_for_receipts(
 
 async def _collect_native_refs(
     app: MedreApp,
-    outcomes: list[Any],
+    receipts: list[Any],
     event_id: str,
     errors: list[str],
 ) -> list[dict[str, str]]:
-    """Resolve native refs for each successful delivery outcome.
+    """Resolve native refs for each successful delivery using stored receipts.
 
-    Derives evidence from actual stored receipts rather than fabricating
-    platform-specific IDs.  Looks up ``NativeMessageRef`` records persisted
-    by the pipeline when adapters return an ``AdapterDeliveryResult`` with
-    ``native_message_id`` set.
+    Looks up ``NativeMessageRef`` records persisted by the pipeline and
+    matches outbound refs to adapters with ``sent`` receipts.  Does not
+    require ``DeliveryOutcome`` objects — works for both direct-pipeline
+    and adapter-callback modes.
     """
     refs: list[dict[str, str]] = []
     storage = app.storage
@@ -144,8 +144,6 @@ async def _collect_native_refs(
     try:
         native_ref_records = await storage.list_native_refs_for_event(event_id)
     except (AttributeError, TypeError):
-        # Storage backend may not implement list_native_refs_for_event in
-        # all test mocks; native refs will be empty but not fatal.
         _logger.debug(
             "Storage does not support list_native_refs_for_event; "
             "native refs will be omitted from the report",
@@ -154,15 +152,15 @@ async def _collect_native_refs(
         errors.append(f"Native ref lookup error: {exc}")
         return refs
 
+    # Build set of adapters with successful receipts for fast lookup.
+    sent_adapters = {r.target_adapter for r in receipts if r.status == "sent"}
+
     for nref in native_ref_records:
-        # Only include outbound refs for adapters that have successful outcomes.
+        # Only include outbound refs.
         if nref.direction != "outbound":
             continue
-        has_success = any(
-            o.status == "success" and o.target_adapter == nref.adapter
-            for o in outcomes
-        )
-        if not has_success:
+        # Match against sent receipts instead of outcomes.
+        if nref.adapter not in sent_adapters:
             continue
         # Verify via resolve_native_ref.
         try:

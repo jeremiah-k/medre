@@ -347,13 +347,12 @@ async def run_bridge_session(
 
     # Native refs (must be collected before stop closes storage).
     all_native_refs: list[dict[str, str]] = []
-    if all_outcomes:
-        for eid in event_ids:
-            event_outcomes = [o for o in all_outcomes if o.event_id == eid]
-            refs = await _collect_native_refs(
-                app, event_outcomes, eid, collection_errors,
-            )
-            all_native_refs.extend(refs)
+    for eid in event_ids:
+        event_receipts = [r for r in all_receipts if r.event_id == eid]
+        refs = await _collect_native_refs(
+            app, event_receipts, eid, collection_errors,
+        )
+        all_native_refs.extend(refs)
 
     # -- Step 6: Graceful shutdown ------------------------------------------
     try:
@@ -393,17 +392,29 @@ async def run_bridge_session(
         except Exception as exc:
             collection_errors.append(f"Accounting snapshot error: {exc}")
 
-    # Target adapters and route IDs from outcomes
-    target_adapters = sorted({
-        o.target_adapter
-        for o in all_outcomes
-        if o.status == "success"
-    })
-    route_ids = sorted({
-        o.route_id
-        for o in all_outcomes
-        if o.route_id
-    })
+    # Target adapters and route IDs from outcomes, falling back to receipts.
+    if all_outcomes:
+        target_adapters = sorted({
+            o.target_adapter
+            for o in all_outcomes
+            if o.status == "success"
+        })
+        route_ids = sorted({
+            o.route_id
+            for o in all_outcomes
+            if o.route_id
+        })
+    else:
+        target_adapters = sorted({
+            r.target_adapter
+            for r in all_receipts
+            if r.status == "sent"
+        })
+        route_ids = sorted({
+            r.route_id
+            for r in all_receipts
+            if r.route_id
+        })
 
     # Receipt summaries
     receipt_summaries = [
@@ -427,8 +438,8 @@ async def run_bridge_session(
 
     # -- Step 9: Build report -----------------------------------------------
     event_stored = stored_event is not None
-    has_success = any(o.status == "success" for o in all_outcomes)
     has_sent_receipt = any(r.status == "sent" for r in all_receipts)
+    has_success = any(o.status == "success" for o in all_outcomes) if all_outcomes else has_sent_receipt
     delivered_count = (
         accounting.get("outbound_delivered", 0) if accounting else 0
     )
@@ -466,7 +477,10 @@ async def run_bridge_session(
         else:
             # Failure-kind scenarios (renderer, adapter permanent/transient,
             # capacity).
-            observed = _observed_failure_kind(all_outcomes)
+            if ingress_mode == "adapter_callback" and not all_outcomes:
+                observed = _observed_failure_kind(all_receipts, use_receipts=True)
+            else:
+                observed = _observed_failure_kind(all_outcomes)
             expected = _expected_failure_kind(scenario)
             passed = (
                 observed == expected
@@ -602,7 +616,10 @@ async def run_bridge_session(
         else:
             # Failure-kind scenarios.
             report["expected_failure_kind"] = _expected_failure_kind(scenario)
-            report["observed_failure_kind"] = _observed_failure_kind(all_outcomes)
+            if ingress_mode == "adapter_callback" and not all_outcomes:
+                report["observed_failure_kind"] = _observed_failure_kind(all_receipts, use_receipts=True)
+            else:
+                report["observed_failure_kind"] = _observed_failure_kind(all_outcomes)
     else:
         report["scenario_category"] = "happy_path"
         report["simulated"] = False
