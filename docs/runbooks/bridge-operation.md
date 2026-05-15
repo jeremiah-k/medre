@@ -100,16 +100,15 @@ Each receipt carries `attempt_number` and `parent_receipt_id` forming an explici
 
 Retry responsibility falls to different components depending on where the failure occurs:
 
-| Failure kind | Who owns the retry | Notes |
-|-------------|-------------------|-------|
-| `PLANNER_FAILURE` | No retry — permanent | Route or plan misconfiguration. Fix the config. |
-| `RENDERER_FAILURE` | No retry — permanent | Deterministic rendering error. Fix the event or renderer. |
-| `ADAPTER_TRANSIENT` | Pipeline retry via `RetryPolicy` | Timeout, connection reset, network unreachable. The pipeline schedules retries with exponential backoff up to `max_attempts`. |
-| `ADAPTER_PERMANENT` | No retry — permanent | The adapter determined the failure is not recoverable. |
-| `TIMEOUT` | Pipeline retry via `RetryPolicy` | Per-attempt timeout exceeded. |
-| `DEADLINE_EXCEEDED` | No retry — permanent | The delivery plan's absolute deadline has passed. |
+| Failure kind | Who owns retry | Notes |
+|---|---|---|
+| `PLANNER_FAILURE` | No retry — permanent | Config error |
+| `RENDERER_FAILURE` | No retry — permanent | Deterministic error |
+| `ADAPTER_TRANSIENT` | RetryWorker (new) | Bounded by RetryPolicy |
+| `ADAPTER_PERMANENT` | No retry — permanent | Adapter determined unrecoverable |
+| `DEADLINE_EXCEEDED` | No retry | Plan deadline passed |
 
-Adapters own their internal reconnect logic (e.g., Matrix sync reconnection, Meshtastic node reconnection). The pipeline owns retry scheduling for transient delivery failures. These are separate mechanisms operating at different layers.
+Adapters own their internal reconnect logic (e.g., Matrix sync reconnection, Meshtastic node reconnection). The RetryWorker owns retry scheduling for transient delivery failures. These are separate mechanisms operating at different layers.
 
 
 ## 5. Duplicate-Send Realities

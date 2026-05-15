@@ -104,6 +104,7 @@ CREATE TABLE IF NOT EXISTS delivery_receipts (
     route_id TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL,
     error TEXT,
+    failure_kind TEXT,
     adapter_message_id TEXT,
     next_retry_at TEXT,
     attempt_number INTEGER NOT NULL DEFAULT 1,
@@ -206,7 +207,7 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
     }),
     "delivery_receipts": frozenset({
         "sequence", "receipt_id", "event_id", "delivery_plan_id",
-        "target_adapter", "route_id", "status", "error",
+        "target_adapter", "route_id", "status", "error", "failure_kind",
         "adapter_message_id", "next_retry_at", "attempt_number",
         "parent_receipt_id", "source", "replay_run_id", "created_at",
     }),
@@ -254,9 +255,10 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 _INSERT_RECEIPT = """
 INSERT INTO delivery_receipts
     (receipt_id, event_id, delivery_plan_id, target_adapter,
-     route_id, status, error, adapter_message_id, next_retry_at,
-     attempt_number, parent_receipt_id, source, replay_run_id, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     route_id, status, error, failure_kind, adapter_message_id,
+     next_retry_at, attempt_number, parent_receipt_id, source,
+     replay_run_id, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 _SELECT_EVENT = "SELECT * FROM canonical_events WHERE event_id = ?"
@@ -392,6 +394,7 @@ def _row_to_receipt(row: dict[str, Any]) -> DeliveryReceipt:
         route_id=row.get("route_id", ""),
         status=row["status"],  # type: ignore[arg-type]
         error=row["error"],
+        failure_kind=row.get("failure_kind"),
         adapter_message_id=row["adapter_message_id"],
         next_retry_at=(
             datetime.fromisoformat(row["next_retry_at"])
@@ -1088,6 +1091,7 @@ class SQLiteStorage:
                 receipt.route_id,
                 receipt.status,
                 receipt.error,
+                receipt.failure_kind,
                 receipt.adapter_message_id,
                 receipt.next_retry_at.isoformat()
                 if receipt.next_retry_at
@@ -1159,6 +1163,38 @@ class SQLiteStorage:
             (event_id,),
         )
         return [_row_to_receipt(r) for r in rows]
+
+    async def list_due_retry_receipts(
+        self, now: datetime, limit: int = 50
+    ) -> list[DeliveryReceipt]:
+        """Return transient-failure receipts whose next_retry_at <= now,
+        ordered by next_retry_at ASC, sequence ASC, limited to *limit*.
+        Excludes receipts that have reached max_attempts or are dead_lettered."""
+        rows = await self._read_all(
+            """SELECT * FROM delivery_receipts
+             WHERE status = 'failed'
+               AND failure_kind = 'adapter_transient'
+               AND next_retry_at IS NOT NULL
+               AND next_retry_at <= ?
+               AND attempt_number < 3
+             ORDER BY next_retry_at ASC, sequence ASC
+             LIMIT ?""",
+            (now.isoformat(), limit),
+        )
+        return [_row_to_receipt(r) for r in rows]
+
+    async def count_pending_retry(self, now: datetime) -> int:
+        """Count transient-failure receipts due for retry."""
+        row = await self._read_one(
+            """SELECT COUNT(*) AS cnt FROM delivery_receipts
+             WHERE status = 'failed'
+               AND failure_kind = 'adapter_transient'
+               AND next_retry_at IS NOT NULL
+               AND next_retry_at <= ?
+               AND attempt_number < 3""",
+            (now.isoformat(),),
+        )
+        return row["cnt"] if row else 0
 
     async def list_native_refs_for_event(
         self,

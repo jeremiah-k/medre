@@ -24,6 +24,7 @@ from medre.config.model import (
     RuntimeLimits,
     LoggingConfig,
     StorageConfig,
+    RetryConfig,
     AdapterConfigSet,
     MatrixRuntimeConfig,
     MeshtasticRuntimeConfig,
@@ -220,6 +221,15 @@ def _parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
         path=storage_path,
     )
 
+    # [retry] section
+    retry_data = data.get("retry", {})
+    retry = RetryConfig(
+        enabled=retry_data.get("enabled", False),
+        interval_seconds=retry_data.get("interval_seconds", 10.0),
+        batch_size=retry_data.get("batch_size", 20),
+        max_attempts=retry_data.get("max_attempts", 3),
+    )
+
     # [adapters.*] sections
     adapters_data = data.get("adapters", {})
     adapters = AdapterConfigSet(
@@ -245,7 +255,7 @@ def _parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
 
     return RuntimeConfig(
         runtime=runtime, logging=logging, storage=storage, limits=limits,
-        adapters=adapters, routes=routes,
+        retry=retry, adapters=adapters, routes=routes,
     )
 
 

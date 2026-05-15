@@ -62,6 +62,7 @@ Every distinct query shape found across the audited files.
 | Q10 | `query() relations batch` | `event_relations` | `event_id IN (?)` | — | per-query (batch) | ✅ idx_relations_event_id | Batch fetch after Q9 |
 | Q11 | `count_events` | `canonical_events` | — | — | per-evidence | N/A | Full scan, acceptable |
 | Q12 | `count_receipts` | `delivery_receipts` | — | — | per-evidence | N/A | Full scan, acceptable |
+| Q13 | `list_due_retry_receipts` | `delivery_receipts` | `status = 'failed', failure_kind = 'adapter_transient', next_retry_at IS NOT NULL, next_retry_at <= ?` | `next_retry_at ASC` | per-RetryWorker-cycle | ⚠️ No dedicated index | RetryWorker polls this on each cycle; `idx_receipts_event` and `idx_receipts_plan` do not cover these columns |
 
 ---
 
@@ -117,13 +118,28 @@ Every distinct query shape found across the audited files.
 
 - All existing indexes serve distinct query shapes. No duplicates or fully-overlapping indexes.
 
-### F8: No unindexed JOIN foreign keys
+### F8: Missing index for RetryWorker query (Q13)
+
+- **Query affected:** Q13 (`list_due_retry_receipts`)
+- **WHERE:** `status = 'failed' AND failure_kind = 'adapter_transient' AND next_retry_at IS NOT NULL AND next_retry_at <= ?`
+- **ORDER BY:** `next_retry_at ASC`
+- **Current index coverage:** No existing index covers the retry query filter columns. The RetryWorker polls this on each cycle, requiring a scan filtered by `status`, `failure_kind`, and `next_retry_at`.
+- **Callers:** RetryWorker cycle loop
+- **Impact:** Scans `delivery_receipts` on each RetryWorker cycle. For small-to-moderate receipt volumes this is acceptable. For high-volume deployments with many pending retries, consider adding a partial index:
+  ```sql
+  CREATE INDEX IF NOT EXISTS idx_receipts_retry_due
+      ON delivery_receipts(next_retry_at)
+      WHERE status = 'failed' AND failure_kind = 'adapter_transient' AND next_retry_at IS NOT NULL;
+  ```
+- **Severity:** Low-Medium (depends on receipt volume and retry frequency)
+
+### F9: No unindexed JOIN foreign keys
 
 - `event_relations.event_id` → `canonical_events.event_id`: covered by `idx_relations_event_id`
 - `native_message_refs.event_id` → `canonical_events.event_id`: covered by `idx_nrefs_event_id` (and proposed replacement)
 - `delivery_receipts.event_id` → `canonical_events.event_id`: covered by `idx_receipts_event`
 
-### F9: No ORDER BY on unindexed columns in hot paths
+### F10: No ORDER BY on unindexed columns in hot paths
 
 - `timestamp ASC` on `canonical_events`: covered by `idx_events_timestamp`
 - `sequence ASC` on `delivery_receipts`: covered by PK or composite indexes

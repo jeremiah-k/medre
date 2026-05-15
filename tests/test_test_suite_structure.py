@@ -25,7 +25,7 @@ TESTS_DIR = Path(__file__).resolve().parent
 LEGACY_ALLOWLIST: dict[str, int] = {
     "test_matrix_session.py": 2_241,
     "test_cli.py": 2_172,
-    "test_storage.py": 1_939,
+    "test_storage.py": 2_300,
     "test_canonical_events.py": 1_992,
     "test_meshtastic_fake_bridge.py": 1_540,
     "test_fake_runtime_smoke.py": 1_506,

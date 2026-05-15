@@ -63,6 +63,7 @@ if TYPE_CHECKING:
     from medre.core.storage.sqlite import SQLiteStorage
     from medre.runtime.builder import AdapterBuildFailure
     from medre.runtime.capacity import CapacityController
+    from medre.runtime.retry import RetryWorker, RetryWorkerState
     from medre.runtime.route_engine import RouteEligibility, RouteStartupReadiness
 
 __all__ = ["MedreApp", "RuntimeState"]
@@ -168,6 +169,7 @@ class MedreApp:
     _state: RuntimeState = field(default=RuntimeState.INITIALIZED, init=False)
     _capacity_controller: CapacityController | None = field(default=None, init=False)
     _replay_engine: ReplayEngine | None = field(default=None, init=False)
+    _retry_worker: RetryWorker | None = field(default=None, init=False)
     _runtime_accounting: RuntimeAccounting | None = field(default=None, init=False)
     _startup_wall: str | None = field(default=None, init=False)
     _startup_monotonic: float | None = field(default=None, init=False)
@@ -221,6 +223,13 @@ class MedreApp:
         """Return the bounded runtime event buffer."""
         assert self._event_buffer is not None  # always set in __post_init__
         return self._event_buffer
+
+    @property
+    def retry_state(self) -> RetryWorkerState:
+        """Return the retry worker state, or a default disabled state."""
+        if self._retry_worker is not None:
+            return self._retry_worker.state
+        return RetryWorkerState()
 
     @property
     def adapter_states(self) -> dict[str, AdapterState]:
@@ -523,6 +532,21 @@ class MedreApp:
                 f"Failed to start pipeline runner: {exc}"
             ) from exc
 
+        # 2.5. Start the retry worker (if enabled).
+        if self.config.retry.enabled and self.storage is not None:
+            from medre.runtime.retry import RetryWorker as _RW
+
+            self._retry_worker = _RW(
+                storage=self.storage,
+                pipeline=self.pipeline_runner,
+                capacity_controller=self._capacity_controller,
+                enabled=self.config.retry.enabled,
+                interval_seconds=self.config.retry.interval_seconds,
+                batch_size=self.config.retry.batch_size,
+                max_attempts=self.config.retry.max_attempts,
+            )
+            await self._retry_worker.start()
+
         # 3. Start each adapter in deterministic order.
         #    Sort by adapter_id for reproducible startup sequence.
         adapter_ids = sorted(self.adapters.keys())
@@ -802,6 +826,14 @@ class MedreApp:
             _logger.info(
                 "Runtime stopping — replay engine present, capacity stopped"
             )
+
+        # Stop the retry worker before draining work.
+        if self._retry_worker is not None:
+            try:
+                await self._retry_worker.stop()
+            except Exception as exc:
+                _logger.error("Error stopping retry worker: %s", exc)
+
         _logger.info("Runtime stopping — accepting no new work")
 
         # Phase 2: Drain in-flight work with timeout.
@@ -1012,6 +1044,16 @@ class MedreApp:
         Logs but suppresses individual cleanup errors so that the original
         startup failure remains the raised exception.
         """
+        # Stop retry worker if it was started.
+        if self._retry_worker is not None:
+            try:
+                await self._retry_worker.stop()
+                _logger.info("Retry worker stopped during startup cleanup")
+            except Exception as exc:
+                _logger.error(
+                    "Error stopping retry worker during startup cleanup: %s", exc
+                )
+
         try:
             await self.pipeline_runner.stop()
             _logger.info("Pipeline runner stopped during startup cleanup")

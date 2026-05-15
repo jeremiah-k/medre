@@ -667,17 +667,27 @@ Backoff formula: `delay = min(backoff_base * 2 ** (attempt - 1), max_delay_secon
 
 Exhaustion check: `attempt_number >= policy.max_attempts`.
 
-### 16.3 Phase 1 Retry Semantics
+### 16.3 Retry Semantics
 
-**Phase 1 does not implement a background retry scheduler.**
+Retry is owned by the `RetryWorker`, a single-process background worker that polls for due retry receipts.
 
-Retry is synchronous/receipt-level only:
+**Auto-retried failures:**
 
-1. `deliver_to_target` records a `failed` receipt with `next_retry_at` populated.
-2. If `retry_policy` is set and `is_exhausted(attempt_number)` is true, a `dead_lettered` receipt is appended after the primary receipt.
-3. A future scheduler (or manual replay via `BEST_EFFORT` mode) re-invokes `deliver_to_target` with `previous_receipt` to perform the next attempt.
+- `ADAPTER_TRANSIENT` — timeout, connection error, `OSError` hierarchy. The RetryWorker picks up the failed receipt when `next_retry_at` is due and re-invokes delivery through the same planning path, incrementing `attempt_number`.
 
-This means: retry *decisions* and *receipt recording* are complete, but automatic timed retry execution is deferred.
+**Not auto-retried:**
+
+- `ADAPTER_PERMANENT`, `RENDERER_FAILURE`, `PLANNER_FAILURE`, `DEADLINE_EXCEEDED`, `ADAPTER_MISSING`, `TARGET_NOT_FOUND`, `CAPACITY_REJECTION`, `SHUTDOWN_REJECTION` — these are permanent or operational failures. No automatic retry is attempted.
+
+**Retry flow:**
+
+1. `deliver_to_target` records a `failed` receipt with `next_retry_at` populated and `failure_kind=ADAPTER_TRANSIENT`.
+2. `RetryWorker` loads due receipts (where `next_retry_at <= now` and `status = 'failed'` and `failure_kind = 'adapter_transient'`).
+3. The worker re-invokes delivery with the same `delivery_plan_id` and `event_id`, incrementing `attempt_number` and linking via `parent_receipt_id`.
+4. If `retry_policy` is set and `is_exhausted(attempt_number)` is true, a `dead_lettered` receipt is appended instead of retrying.
+5. Retry uses the same delivery planning pipeline. No special bypass path exists.
+
+Retry is bounded by `RetryPolicy` (max attempts, backoff). It is single-process and in-process. Persistent receipts with `next_retry_at` survive process restart; the RetryWorker loads due receipts on its next cycle.
 
 
 ## 17. Receipt Lineage

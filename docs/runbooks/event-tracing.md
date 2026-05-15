@@ -19,6 +19,7 @@ that only existed in memory.
 - Replay receipts (if the event was replayed) with `source='replay'` attribution
   and `replay_run_id` grouping. Trace output includes both live and replay
   receipts for the same `event_id` when applicable.
+- Retry receipts with `source='retry'` attribution, `parent_receipt_id` linking to the original failure, and `attempt_number` showing the retry count.
 - A timeline report reconstructing the event's lifecycle from stored evidence,
   showing both original delivery path and replay delivery path for replayed events.
 
@@ -143,7 +144,7 @@ cross-referencing with evidence bundles ([Bridge Evidence Bundle](bridge-evidenc
 | `failure_kind` | `str or null` | `"RENDERER_FAILURE"`, `"ADAPTER_PERMANENT"`, `"ADAPTER_TRANSIENT"`, `"DEADLINE_EXCEEDED"`, `"delivery_capacity_exceeded"`, `"delivery_rejected_shutdown"`, or `null` |
 | `attempt_number` | `int` | 1 for first attempt, increments on retry |
 | `parent_receipt_id` | `str or null` | Links to the previous receipt in a retry chain |
-| `source` | `str` | `"live"` for original delivery, `"replay"` for replay-attributed delivery |
+| `source` | `str` | `"live"` for original delivery, `"retry"` for RetryWorker-attempted delivery, `"replay"` for replay-attributed delivery |
 | `replay_run_id` | `str or null` | Unique run ID when `source == "replay"`; groups all receipts from one replay run |
 | `created_at` | `str` | ISO-8601 timestamp of receipt creation |
 
@@ -158,7 +159,7 @@ cross-referencing with evidence bundles ([Bridge Evidence Bundle](bridge-evidenc
 | `direction` | `str` | `"inbound"` (ingested from transport) or `"outbound"` (delivered to transport) |
 
 **Key distinction:** `source='live'` receipts are from normal pipeline
-delivery. `source='replay'` receipts are from operator-initiated replay
+delivery. `source='retry'` receipts are from the RetryWorker re-attempting a transient failure (same delivery lineage, linked via `parent_receipt_id`). `source='replay'` receipts are from operator-initiated replay
 (see [Replay Operation](replay-operation.md)). The `replay_run_id` field
 groups all receipts from a single replay invocation, enabling audit of
 which events were re-delivered in which run.
@@ -314,7 +315,7 @@ The timeline report reconstructs these phases from stored evidence:
 | `ingestion` | `canonical_events` table | Event stored from a source adapter |
 | `routing` | Inferred from receipt `route_id` | Route matched, delivery planned |
 | `delivery` | `delivery_receipts` table | Adapter delivery attempted; status recorded |
-| `retry` | `parent_receipt_id` chain | Transient failure triggered a retry |
+| `retry` | `parent_receipt_id` chain | Transient failure triggered a retry. Retry receipts are distinguishable by `source="retry"` and carry `parent_receipt_id` linking to the original failure. `attempt_number` shows the retry count. |
 | `replay` | `source='replay'` receipts | Event re-delivered via replay engine. Replay receipts are identifiable by `source="replay"` and `replay_run_id`. Trace for a replayed event shows the original delivery path plus the replay delivery path. |
 
 ### 2.2 Interpreting Timeline Gaps
@@ -328,7 +329,7 @@ Timeline phases are reconstructed from stored data. Gaps indicate:
   or when delivery was skipped (loop prevention, capacity exceeded without a
   receipt).
 - **Multiple delivery phases, same target:** Retry chain. Check
-  `attempt_number` and `parent_receipt_id` to trace the lineage.
+  `attempt_number` and `parent_receipt_id` to trace the lineage. Retry receipts have `source="retry"` and link back to the original failure via `parent_receipt_id`.
 - **Multiple delivery phases, different targets:** Fan-out. Multiple routes
   or multiple targets matched the event.
 - **Both `live` and `replay` phases for the same event:** The event was
@@ -595,11 +596,12 @@ not sorted by `created_at` (the storage insertion time) but by `timestamp`
 
 ### 5.5 Source Column Distinguishes Origin
 
-The `source` column on `delivery_receipts` has two values:
+The `source` column on `delivery_receipts` has three values:
 
 | Value | Meaning |
 |-------|---------|
 | `"live"` | Delivery produced by the normal runtime pipeline during operation |
+| `"retry"` | Delivery produced by the RetryWorker re-attempting a transient failure. Retry receipts carry `parent_receipt_id` linking to the original failure receipt and incremented `attempt_number`. |
 | `"replay"` | Delivery produced by an operator-initiated replay run |
 
 Do not use `replay_run_id IS NOT NULL` to detect replay receipts. Future

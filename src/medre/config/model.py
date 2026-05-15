@@ -129,6 +129,28 @@ class LoggingConfig:
 
 
 @dataclass(frozen=True)
+class RetryConfig:
+    """Retry worker configuration.
+
+    Attributes
+    ----------
+    enabled:
+        Whether the background retry worker is active.
+    interval_seconds:
+        Polling interval in seconds for checking due retry receipts.
+    batch_size:
+        Maximum number of retry receipts processed per polling cycle.
+    max_attempts:
+        Maximum total delivery attempts before dead-lettering.
+    """
+
+    enabled: bool = False
+    interval_seconds: float = 10.0
+    batch_size: int = 20
+    max_attempts: int = 3
+
+
+@dataclass(frozen=True)
 class StorageConfig:
     """Persistence / storage configuration."""
 
@@ -445,5 +467,6 @@ class RuntimeConfig:
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     storage: StorageConfig = field(default_factory=StorageConfig)
     limits: RuntimeLimits = field(default_factory=RuntimeLimits)
+    retry: RetryConfig = field(default_factory=RetryConfig)
     adapters: AdapterConfigSet = field(default_factory=AdapterConfigSet)
     routes: RouteConfigSet = field(default_factory=_default_route_config_set)

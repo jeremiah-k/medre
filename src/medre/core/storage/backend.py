@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import AsyncIterator, Protocol, runtime_checkable
+from typing import Any, AsyncIterator, Protocol, runtime_checkable
 
 from medre.core.events import (
     CanonicalEvent,
@@ -290,6 +290,22 @@ class StorageBackend(Protocol):
 
     async def count_replay_runs(self) -> int:
         """Return the number of distinct ``replay_run_id`` values."""
+        ...
+
+    # -- Retry --------------------------------------------------------------
+
+    async def list_due_retry_receipts(
+        self, now: datetime, limit: int = 50
+    ) -> list[Any]:
+        """Return transient-failure receipts whose next_retry_at <= now.
+
+        Ordered by next_retry_at ASC, sequence ASC, limited to *limit*.
+        Excludes receipts that have reached max_attempts or are dead_lettered.
+        """
+        ...
+
+    async def count_pending_retry(self, now: datetime) -> int:
+        """Count transient-failure receipts due for retry."""
         ...
 
     # -- Lifecycle ----------------------------------------------------------

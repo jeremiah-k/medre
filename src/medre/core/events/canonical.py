@@ -230,6 +230,7 @@ class DeliveryReceipt(msgspec.Struct, frozen=True):
         "dead_lettered",
     ] = "accepted"
     error: str | None = None
+    failure_kind: str | None = None
     adapter_message_id: str | None = None
     next_retry_at: datetime | None = None
     attempt_number: int = 1

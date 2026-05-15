@@ -15,6 +15,7 @@ and the decision tree for choosing the right recovery action.
 - Replay orphaned events through current routes.
 - Verify database integrity after a crash.
 - Assess adapter health and connectivity after restart.
+- Rely on the RetryWorker to automatically retry `ADAPTER_TRANSIENT` failures (bounded by `RetryPolicy`).
 
 **What recovery does NOT do:**
 
@@ -22,7 +23,7 @@ and the decision tree for choosing the right recovery action.
 - Resume interrupted replay runs (they must be re-initiated).
 - Automatically restart failed adapters (only full runtime restart).
 - Deduplicate replay deliveries.
-- Provide automatic retry scheduling.
+- Auto-retry permanent failures (`ADAPTER_PERMANENT`, `RENDERER_FAILURE`, `PLANNER_FAILURE`, `DEADLINE_EXCEEDED`). Only `ADAPTER_TRANSIENT` failures are auto-retried by the RetryWorker.
 
 
 ## 0. Complete Incident Workflow (End-to-End)
@@ -279,7 +280,20 @@ sqlite3 {state}/medre.sqlite "
   ORDER BY created_at DESC
   LIMIT 20;
 "
+
+# Check for pending retries that the RetryWorker will handle
+sqlite3 {state}/medre.sqlite "
+  SELECT receipt_id, event_id, attempt_number, next_retry_at
+  FROM delivery_receipts
+  WHERE target_adapter = '<adapter_id>'
+    AND status = 'failed'
+    AND failure_kind = 'adapter_transient'
+    AND next_retry_at IS NOT NULL
+  ORDER BY next_retry_at ASC;
+"
 ```
+
+If `failure_kind='adapter_transient'` and `next_retry_at` is set, the RetryWorker will automatically retry when the adapter recovers (after runtime restart). For other failure kinds, manual replay is required (see Section 8).
 
 ### 3.3 Recovery Steps
 
@@ -790,7 +804,58 @@ sqlite3 {state}/medre.sqlite "
 ```
 
 
-## 7. Recovery Commands Quick Reference
+## 7. Retry vs Replay
+
+MEDRE provides two mechanisms for re-delivering events that failed: **retry** (automatic) and **replay** (manual). They serve different purposes and have different side effects.
+
+### 7.1 Retry (Automatic, Same Delivery Lineage)
+
+When a delivery fails with `failure_kind='adapter_transient'` and a `RetryPolicy` is configured, the RetryWorker automatically re-attempts delivery:
+
+- **Trigger:** `ADAPTER_TRANSIENT` failures only (timeout, connection reset, `OSError` hierarchy).
+- **Owner:** `RetryWorker` — a single-process background worker.
+- **Lineage:** Each retry produces a new receipt linked to the previous via `parent_receipt_id`, with incremented `attempt_number`. The delivery lineage is a single chain.
+- **Persistence:** Pending retry state (`next_retry_at` on the failed receipt) survives process restart. The RetryWorker loads due receipts on its next cycle.
+- **Bounded by:** `RetryPolicy` (max attempts, backoff). When max attempts are exceeded, the receipt is marked `dead_lettered`.
+- **Native refs:** Only persisted on successful retry, not on the original failure.
+- **No duplicate risk:** Retry continues the same delivery attempt. The adapter receives one message per successful retry, same as if the original had succeeded.
+
+### 7.2 Replay (Manual, New Bridge Execution)
+
+When an operator invokes `medre replay --mode BEST_EFFORT`, events are re-delivered through a new execution:
+
+- **Trigger:** Operator-initiated via CLI.
+- **Owner:** Operator. No automatic scheduling.
+- **Lineage:** Replay creates new receipts with `source='replay'` and a unique `replay_run_id`. These are new delivery attempts, not linked to the original via `parent_receipt_id`.
+- **Persistence:** Replay results (receipts) are durable in SQLite. The `ReplaySummary` itself is not persisted.
+- **Duplicate risk:** **High.** Replaying an event that was already delivered (including by a successful retry) produces a second outbound message with no deduplication. Traceability (via `source`/`replay_run_id`) lets the operator identify duplicates after the fact, but does not prevent them.
+
+### 7.3 When to Use Which
+
+| Scenario | Use | Why |
+|----------|-----|-----|
+| Transient adapter failure (timeout, connection reset) | **Retry** (automatic) | RetryWorker handles this. No operator action needed. |
+| Retry exhausted (dead-lettered) | **Replay** (manual) | After fixing the underlying cause, replay the event. |
+| Event never delivered (orphaned by crash) | **Replay** (manual) | No receipt exists, so retry has nothing to chain from. |
+| Permanent failure | **Replay** (manual) | After fixing the underlying cause (e.g., auth, config). |
+| Retry disabled (no RetryPolicy) | **Replay** (manual) | Without a RetryPolicy, the RetryWorker does not pick up transient failures. |
+
+### 7.4 Checking Pending Retries
+
+To see events that have pending retries (the RetryWorker will handle them):
+
+```sql
+SELECT receipt_id, event_id, target_adapter, attempt_number, next_retry_at
+FROM delivery_receipts
+WHERE status = 'failed'
+  AND failure_kind = 'adapter_transient'
+  AND next_retry_at IS NOT NULL
+ORDER BY next_retry_at ASC;
+```
+
+If `next_retry_at` is in the past and the runtime is running, the RetryWorker should pick it up on its next cycle. If the runtime is stopped, these will be processed on restart.
+
+## 8. Recovery Commands Quick Reference
 
 | Scenario | Command | Purpose |
 |----------|---------|---------|
@@ -808,26 +873,24 @@ sqlite3 {state}/medre.sqlite "
 | Verify startup | `grep "Assembly complete" {state}/logs/medre.log \| tail -1` | Confirm all adapters started |
 
 
-## 8. Caveats
+## 9. Caveats
 
-1. **No automatic retry.** Recovery is entirely operator-initiated. MEDRE does
-   not automatically replay orphaned events, restart failed adapters, or retry
-   failed deliveries after restart.
+1. **Retry is limited to transient failures.** Only `ADAPTER_TRANSIENT` failures are auto-retried by the RetryWorker. Permanent failures (`ADAPTER_PERMANENT`, `RENDERER_FAILURE`, `PLANNER_FAILURE`, `DEADLINE_EXCEEDED`) require manual replay.
 
 2. **No per-adapter restart.** Only full runtime stop/start is supported. When
    one adapter fails, all adapters must restart together.
 
 3. **No deduplication.** Replay produces new outbound messages each time.
    Multiple BEST_EFFORT replays of the same events produce duplicates. This is
-   by design.
+   by design. Retry does not produce duplicates (same delivery lineage).
 
 4. **No active supervision.** There is no background health monitor, watchdog,
-   or orchestrator. Operators must detect failures externally (logs, process
+   or orchestrator beyond the RetryWorker. Operators must detect non-transient failures externally (logs, process
    supervisors, cron health checks).
 
- 5. **Counters reset on restart.** All runtime counters (capacity_rejections,
-   outbound_failed, RouteStats) reset to zero on every startup. There is no
-   persistent metrics store.
+  5. **Counters reset on restart.** All runtime counters (capacity_rejections,
+    outbound_failed, RouteStats, retry counters) reset to zero on every startup. There is no
+    persistent metrics store.
 
 6. **Single-machine only.** Recovery operates on the local SQLite database.
    There is no distributed coordination, shared state, or cross-instance
@@ -837,17 +900,17 @@ sqlite3 {state}/medre.sqlite "
    fire-and-forget. A `sent` receipt means the local radio accepted the packet,
    not that any remote node received it. Recovery cannot confirm radio delivery.
 
- 8. **Replay is not a durable job.** Replay runs do not resume after crash.
-    Completed deliveries from a crashed replay run are preserved (receipts in
-    SQLite). Remaining events must be re-replayed manually. Always run
-    DRY_RUN first to preview scope before BEST_EFFORT. Process-local
-    accounting resets after restart; only SQLite data survives.
+  8. **Replay is not a durable job.** Replay runs do not resume after crash.
+     Completed deliveries from a crashed replay run are preserved (receipts in
+     SQLite). Remaining events must be re-replayed manually. Always run
+     DRY_RUN first to preview scope before BEST_EFFORT. Process-local
+     accounting resets after restart; only SQLite data survives.
 
 9. **Pre-beta.** Recovery commands, SQL queries, and decision tree may change
    before beta. Always verify against the current code.
 
 
-## 9. Cross-References
+## 10. Cross-References
 
 - [Event Tracing](event-tracing.md) — tracing events and replay runs through
   the pipeline lifecycle, timeline reports, SQL queries.

@@ -693,6 +693,34 @@ def build_runtime_snapshot(
     else:
         runtime_events_snapshot = None
 
+    # -- Retry worker state ---------------------------------------------------
+    retry_state_obj: Any = getattr(app, "retry_state", None)
+    retry_snapshot: dict[str, Any]
+    if retry_state_obj is not None:
+        retry_snapshot = {
+            "dead_lettered": getattr(retry_state_obj, "dead_lettered", 0),
+            "enabled": getattr(retry_state_obj, "enabled", False),
+            "failed": getattr(retry_state_obj, "failed", 0),
+            "last_run_at": getattr(retry_state_obj, "last_run_at", None),
+            "live_refresh": False,
+            "processed": getattr(retry_state_obj, "processed", 0),
+            "running": getattr(retry_state_obj, "running", False),
+            "scope": "process_local",
+            "succeeded": getattr(retry_state_obj, "succeeded", 0),
+        }
+    else:
+        retry_snapshot = {
+            "dead_lettered": 0,
+            "enabled": False,
+            "failed": 0,
+            "last_run_at": None,
+            "live_refresh": False,
+            "processed": 0,
+            "running": False,
+            "scope": "process_local",
+            "succeeded": 0,
+        }
+
     # -- Assemble final sectioned snapshot (sorted keys) ---------------------
     snap: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
@@ -726,6 +754,7 @@ def build_runtime_snapshot(
             "available": replay_available,
             "counters": replay_counters,
         },
+        "retry": retry_snapshot,
         "routes": {
             "build_readiness": route_build_readiness_snapshot,
             "eligibility": route_eligibility_snapshot,

@@ -71,9 +71,10 @@ The following state survives process termination (crash, shutdown, or restart). 
 |-------|---------------|--------------|
 | Canonical events | Yes | During pipeline store step, before delivery |
 | Delivery receipts | Yes | After each delivery attempt completes |
+| Retry pending state (`next_retry_at`, `failure_kind` on failed receipts) | Yes | With the failed delivery receipt; RetryWorker reads these on next cycle |
 | Receipt traceability (`source`, `replay_run_id` on receipts) | Yes | With the delivery receipt |
 | Route attribution (`route_id` on receipts) | Yes | With the delivery receipt |
-| Native references (platform message IDs) | Yes | With the delivery receipt |
+| Native references (platform message IDs) | Yes | With the delivery receipt (only on successful delivery, including successful retry) |
 | Cross-adapter relationships | Yes | During pipeline store step |
 | Global runtime metadata (schema version) | Yes | On first creation and migration |
 | Matrix E2EE crypto keys | Yes | SDK-managed (see Contract 55 §2.2) |
@@ -108,6 +109,7 @@ The following state is **lost** on process termination (crash, shutdown, or rest
 | `CapacityController` internal gauges (`delivery_timeouts`, `delivery_rejections`, etc.) | In-memory counters | Reset to zero on every startup |
 | `RouteStats` per-route counters | In-memory counters | No historical route statistics |
 | `RuntimeAccounting` counters | In-memory counters | Reset to zero on every startup |
+| Retry snapshot counters (`retry_processed`, `retry_succeeded`, `retry_failed`, `retry_dead_lettered`) | In-memory counters | Reset to zero on every startup; reflect current run only |
 | Adapter health / connection state | In-memory | Adapters reconnect from scratch on restart |
 | `Diagnostician` counters | In-memory | Reset to zero on every startup |
 | `BootSummary` | In-memory | Recomputed on next startup |
@@ -134,6 +136,30 @@ All `CapacityController`, `RouteStats`, `RuntimeAccounting`, and `Diagnostician`
 - **Duplicate-send risk** applies to all adapter transports. Replaying an event that was previously delivered will produce a second delivery attempt with no storage-level deduplication.
 - **Native-ref dedup is independent of replay.** The replay engine does not interact with the native-ref dedup layer. Replay creates new delivery attempts for existing events — the events already have `event_id`s and may already have native refs from live delivery. The replay run does not create new events with new `event_id`s; it re-delivers existing events, and new native refs are created only if the adapter returns new transport-native IDs.
 - `RuntimeAccounting` remains process-local and is reset on restart. Receipt traceability fields (`source`, `replay_run_id`) are stored in the durable `DeliveryReceipt` record and survive crashes. Process-local accounting resets after restart — only SQLite data survives.
+
+
+## 4.4 Retry Persistence
+
+Transient-failure receipts with `next_retry_at` set survive process restart. The `RetryWorker` loads due receipts on its next cycle after restart.
+
+**Durable retry state (survives crash):**
+
+| State | Storage | Notes |
+|-------|---------|-------|
+| Failed receipts with `failure_kind='adapter_transient'` and `next_retry_at` set | `delivery_receipts` table | RetryWorker queries these on each cycle |
+| Retry lineage (`parent_receipt_id`, `attempt_number`) | `delivery_receipts` table | Each retry attempt produces a new receipt linked to the previous |
+| Dead-lettered receipts (exhausted retries) | `delivery_receipts` table | Final receipt in the chain with `status='dead_lettered'` |
+
+**Process-local retry state (lost on restart):**
+
+| State | Nature | Impact of Loss |
+|-------|--------|----------------|
+| RetryWorker cycle timer | In-memory task | Next cycle resumes from persistent receipts |
+| Snapshot retry counters (`retry_processed`, `retry_succeeded`, `retry_failed`, `retry_dead_lettered`) | In-memory counters | Reset to zero on restart; reflect current run only |
+
+**Native refs on retry:** Native references (`NativeMessageRef`) are only persisted on successful retry delivery, not on the original transient failure. The original failure receipt has no native ref because the adapter did not produce a transport-level message ID.
+
+**Retry snapshot counters reflect the current process run, not cumulative history.** After restart, all retry counters reset to zero even though durable retry state (pending receipts) persists in SQLite. Operators must query `delivery_receipts` directly for cumulative retry history.
 
 
 ## 5. Degraded-Runtime Semantics

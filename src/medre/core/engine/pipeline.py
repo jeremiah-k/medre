@@ -978,6 +978,7 @@ class PipelineRunner:
                 route_id=route.id,
                 status="failed",
                 error=f"Adapter {adapter_id!r} not registered",
+                failure_kind=DeliveryFailureKind.ADAPTER_MISSING.value,
                 created_at=now,
                 attempt_number=attempt_number,
                 parent_receipt_id=parent_receipt_id,
@@ -1002,6 +1003,7 @@ class PipelineRunner:
                 route_id=route.id,
                 status="failed",
                 error="Delivery deadline exceeded",
+                failure_kind=DeliveryFailureKind.DEADLINE_EXCEEDED.value,
                 created_at=now,
                 attempt_number=attempt_number,
                 parent_receipt_id=parent_receipt_id,
@@ -1042,6 +1044,7 @@ class PipelineRunner:
                 route_id=route.id,
                 status="failed",
                 error=rendering_error,
+                failure_kind=DeliveryFailureKind.RENDERER_FAILURE.value,
                 created_at=now,
                 attempt_number=attempt_number,
                 parent_receipt_id=parent_receipt_id,
@@ -1069,6 +1072,7 @@ class PipelineRunner:
                 route_id=route.id,
                 status="failed",
                 error=no_deliver_error,
+                failure_kind=DeliveryFailureKind.ADAPTER_PERMANENT.value,
                 created_at=now,
                 attempt_number=attempt_number,
                 parent_receipt_id=parent_receipt_id,
@@ -1123,6 +1127,12 @@ class PipelineRunner:
         )
 
         # Record receipt.
+        _receipt_failure_kind: str | None = None
+        if status == "failed" and delivery_exc is not None:
+            _receipt_failure_kind = RetryExecutor.classify_failure(
+                delivery_exc,
+                adapter_registered=True,
+            ).value
         receipt = DeliveryReceipt(
             sequence=0,
             receipt_id=receipt_id,
@@ -1132,6 +1142,7 @@ class PipelineRunner:
             route_id=route.id,
             status=status,
             error=error,
+            failure_kind=_receipt_failure_kind,
             created_at=now,
             attempt_number=attempt_number,
             parent_receipt_id=parent_receipt_id,

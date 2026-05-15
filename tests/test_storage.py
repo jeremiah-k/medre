@@ -2127,3 +2127,127 @@ class TestPublicCountMethods:
     ) -> None:
         """count_receipts_by_source returns 0 for a source that has no matches."""
         assert await temp_storage.count_receipts_by_source("nonexistent") == 0
+
+
+# ===================================================================
+# list_due_retry_receipts / count_pending_retry — real SQL integration
+# ===================================================================
+
+
+class TestListDueRetryReceiptsIntegration:
+    """Integration tests for list_due_retry_receipts and count_pending_retry
+    against REAL SQLite (no mocks). Validates that failure_kind is stored
+    and the SQL query correctly filters by failure_kind='adapter_transient'.
+    """
+
+    async def test_transient_failure_due_for_retry_returned(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """A failed receipt with failure_kind='adapter_transient', next_retry_at
+        in the past, and attempt_number=1 is returned by list_due_retry_receipts."""
+        event = _make_event(event_id="evt-retry-1")
+        await temp_storage.append(event)
+
+        past = datetime(2025, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+        now = datetime(2025, 1, 2, 0, 0, 0, tzinfo=timezone.utc)
+
+        receipt = DeliveryReceipt(
+            receipt_id="rcpt-retry-1",
+            event_id="evt-retry-1",
+            delivery_plan_id="plan-retry-1",
+            target_adapter="adapter_a",
+            status="failed",
+            error="ConnectionError: timeout",
+            failure_kind="adapter_transient",
+            next_retry_at=past,
+            attempt_number=1,
+        )
+        await temp_storage.append_receipt(receipt)
+
+        results = await temp_storage.list_due_retry_receipts(now)
+        assert len(results) == 1
+        assert results[0].receipt_id == "rcpt-retry-1"
+        assert results[0].failure_kind == "adapter_transient"
+
+    async def test_permanent_failure_excluded(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """A failed receipt with failure_kind='adapter_permanent' is NOT
+        returned by list_due_retry_receipts."""
+        event = _make_event(event_id="evt-retry-2")
+        await temp_storage.append(event)
+
+        past = datetime(2025, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+        now = datetime(2025, 1, 2, 0, 0, 0, tzinfo=timezone.utc)
+
+        receipt = DeliveryReceipt(
+            receipt_id="rcpt-retry-2",
+            event_id="evt-retry-2",
+            delivery_plan_id="plan-retry-2",
+            target_adapter="adapter_b",
+            status="failed",
+            error="InvalidPayload: rejected",
+            failure_kind="adapter_permanent",
+            next_retry_at=past,
+            attempt_number=1,
+        )
+        await temp_storage.append_receipt(receipt)
+
+        results = await temp_storage.list_due_retry_receipts(now)
+        assert len(results) == 0
+
+    async def test_max_attempts_exhausted(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """A transient failure with attempt_number >= 3 is NOT returned
+        (retries exhausted)."""
+        event = _make_event(event_id="evt-retry-3")
+        await temp_storage.append(event)
+
+        past = datetime(2025, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+        now = datetime(2025, 1, 2, 0, 0, 0, tzinfo=timezone.utc)
+
+        receipt = DeliveryReceipt(
+            receipt_id="rcpt-retry-3",
+            event_id="evt-retry-3",
+            delivery_plan_id="plan-retry-3",
+            target_adapter="adapter_c",
+            status="failed",
+            error="TimeoutError",
+            failure_kind="adapter_transient",
+            next_retry_at=past,
+            attempt_number=3,
+        )
+        await temp_storage.append_receipt(receipt)
+
+        results = await temp_storage.list_due_retry_receipts(now)
+        assert len(results) == 0
+
+    async def test_count_pending_retry_matches_query(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """count_pending_retry returns the same count as len(list_due_retry_receipts)."""
+        event = _make_event(event_id="evt-count-retry")
+        await temp_storage.append(event)
+
+        past = datetime(2025, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+        now = datetime(2025, 1, 2, 0, 0, 0, tzinfo=timezone.utc)
+
+        for i in range(2):
+            receipt = DeliveryReceipt(
+                receipt_id=f"rcpt-cnt-{i}",
+                event_id="evt-count-retry",
+                delivery_plan_id=f"plan-cnt-{i}",
+                target_adapter=f"adapter_{i}",
+                status="failed",
+                error="TimeoutError",
+                failure_kind="adapter_transient",
+                next_retry_at=past,
+                attempt_number=1,
+            )
+            await temp_storage.append_receipt(receipt)
+
+        count = await temp_storage.count_pending_retry(now)
+        results = await temp_storage.list_due_retry_receipts(now)
+        assert count == 2
+        assert len(results) == 2

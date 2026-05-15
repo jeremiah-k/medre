@@ -130,9 +130,9 @@ Any MEDRE feature that assumes ordered, persistent, or confirmed delivery will w
 | Backoff strategy | Exponential (client SDK) | Fixed interval (firmware) | Configurable timeout | Reticulum adaptive |
 | Dedup on retry | Yes (idempotent `txn_id`) | No | No | Content-hash naturally deduplicates |
 
-**What MEDRE provides:** `RetryExecutor` computes backoff timing and records `next_retry_at` on failed delivery receipts. This is stateless. No code acts on `next_retry_at` in Phase 1.
+**What MEDRE provides:** `RetryExecutor` computes backoff timing and records `next_retry_at` on failed delivery receipts. `RetryWorker` (a single-process background worker) automatically picks up due receipts for `ADAPTER_TRANSIENT` failures and re-invokes delivery. Retry is bounded by `RetryPolicy`, survives process restart through persistent receipts, and uses the same delivery planning path.
 
-**What MEDRE does not provide:** Automatic retry scheduling, retry budgets, per-adapter retry rate limiting, or deduplication of retried deliveries. See Contract 21, Section 11.
+**What MEDRE does not provide:** Per-adapter retry rate limiting, retry budgets, deduplication of retried deliveries, or automatic retry for non-transient failure kinds (`ADAPTER_PERMANENT`, `RENDERER_FAILURE`, `PLANNER_FAILURE`, `DEADLINE_EXCEEDED`). See Contract 04, Section 16.3.
 
 ### 4.5 Queueing and Offline Behavior
 
@@ -276,27 +276,33 @@ This section consolidates the queue and reliability model across all four transp
 | ACK-driven | Not needed | Optional | Default | Possible | Never (pipeline does not wait for ACKs) |
 | Best-effort | N/A (server confirms) | Default for broadcast | Possible | N/A (store-and-forward) | Default |
 
-### 10.2 Runtime Non-Ownership
+### 10.2 Runtime Ownership
 
-The MEDRE runtime does not own:
+The MEDRE runtime owns:
+
+1. **Retry scheduling.** `RetryWorker` loads due receipts (where `next_retry_at <= now` and `failure_kind = 'adapter_transient'`) and re-invokes delivery. Retry is single-process, bounded by `RetryPolicy`, and survives process restart through persistent receipts.
+
+The MEDRE runtime does **not** own:
 
 1. **Outbound queues.** These are adapter internals.
-2. **Retry scheduling.** `RetryExecutor` is stateless. No background worker acts on `next_retry_at`.
-3. **Deduplication.** No duplicate detection at the delivery level.
-4. **Transport health monitoring.** The runtime reads health state. The adapter sets it.
-5. **Connection management.** Connect, disconnect, and reconnect are adapter-owned.
+2. **Deduplication.** No duplicate detection at the delivery level.
+3. **Transport health monitoring.** The runtime reads health state. The adapter sets it.
+4. **Connection management.** Connect, disconnect, and reconnect are adapter-owned.
 
-### 10.3 Future Scheduler Boundaries
+### 10.3 Retry Ownership by Failure Kind
 
-When a retry scheduler is implemented:
+| Failure kind | Retry owner | Auto-retried? |
+|---|---|---|
+| `ADAPTER_TRANSIENT` | `RetryWorker` | Yes — same delivery lineage, bounded by `RetryPolicy` |
+| `ADAPTER_PERMANENT` | None | No |
+| `RENDERER_FAILURE` | None | No |
+| `PLANNER_FAILURE` | None | No |
+| `DEADLINE_EXCEEDED` | None | No |
+| `ADAPTER_MISSING` | None | No |
+| `CAPACITY_REJECTION` | None | No |
+| `SHUTDOWN_REJECTION` | None | No |
 
-- It reads `next_retry_at` from receipt storage.
-- It re-submits a `RenderingResult` to `deliver()`.
-- It does not bypass the adapter.
-- It does not implement transport-specific retry logic.
-- It respects the same ownership boundaries defined in Contract 21.
-
-No scheduler implementation exists. This boundary is documented so it remains clean when the scheduler arrives.
+> Retry is single-process, in-process, bounded by `RetryPolicy`, and survives process restart through persistent receipts. Retry is not replay: retry continues the same delivery lineage (linked via `parent_receipt_id`), while replay creates a new bridge execution with duplicate-send risk.
 
 
 ## 11. Implications

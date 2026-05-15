@@ -25,6 +25,19 @@ complement the existing per-route `RouteStats` and per-route
 | `loop_prevented`       | `record_loop_prevented()`      | Events blocked by the self-loop guard          |
 | `capacity_rejections`  | `record_capacity_rejection()`  | Operations rejected by the capacity controller (both pipeline delivery and replay) |
 
+### Retry Snapshot Counters
+
+These counters appear under the `"retry"` key in the runtime diagnostic snapshot (not as `RuntimeAccounting` counters). They track RetryWorker activity:
+
+| Counter | Meaning |
+|---------|---------|
+| `retry_processed` | Total retry attempts executed by the RetryWorker |
+| `retry_succeeded` | Retry attempts that produced a successful delivery |
+| `retry_failed` | Retry attempts that failed again (transient) |
+| `retry_dead_lettered` | Retry attempts that exceeded `max_attempts` and were dead-lettered |
+
+These are process-local like all `RuntimeAccounting` counters — they reset on restart. Durable retry state (which events have pending retries) persists in the `delivery_receipts` table via `next_retry_at` and `failure_kind` columns.
+
 ## Guarantees
 
 ### Process-local only
