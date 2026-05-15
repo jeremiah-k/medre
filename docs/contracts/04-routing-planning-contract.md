@@ -512,6 +512,10 @@ CREATE TABLE delivery_receipts (
     parent_receipt_id TEXT,
     source TEXT NOT NULL DEFAULT 'live',
     replay_run_id TEXT,
+    retry_max_attempts INTEGER,
+    retry_backoff_base REAL,
+    retry_max_delay REAL,
+    retry_jitter INTEGER,
     created_at TEXT NOT NULL
 );
 ```
@@ -702,6 +706,12 @@ Retry is owned by the `RetryWorker`, a single-process background worker that pol
 
 Retry is bounded by `RetryPolicy` (max attempts, backoff). It is single-process and in-process. Persistent receipts with `next_retry_at` survive process restart; the RetryWorker loads due receipts on its next cycle.
 
+**Retry policy persistence:** When a delivery first fails with `failure_kind='adapter_transient'` and a `RetryPolicy` is configured, the policy parameters (`max_attempts`, `backoff_base`, `backoff_max`, `jitter`) are persisted as columns on the failure receipt (`retry_max_attempts`, `retry_backoff_base`, `retry_max_delay`, `retry_jitter`). The `RetryWorker` reads these values from the stored receipt rather than re-reading route configuration. This ensures the retry policy is frozen at first failure: subsequent route or `RetryPolicy` configuration changes do not affect in-flight retry behavior.
+
+**Frozen target metadata:** Retry uses the `target_adapter` and `target_channel` from the original failed receipt, not the current route configuration. Route targets, channel assignments, and adapter mappings may change between the original failure and a retry attempt, but the retry continues to target the originally recorded adapter and channel. Before executing the retry, the `RetryWorker` validates that the target adapter still exists at runtime (adapter instance registered). If the adapter has been removed, the retry is not attempted and the receipt is dead-lettered. This validation prevents retries against non-existent adapters while preserving the original targeting decision.
+
+**Capacity rejection:** When the `RetryWorker` cannot acquire delivery capacity (the `CapacityController` semaphore is full), it does not create a new receipt. Instead, it advances the existing receipt's `next_retry_at` by one backoff interval using the stored retry policy metadata. Capacity rejection does not advance `attempt_number` and does not count toward `RetryPolicy` exhaustion. The `RetryWorker` retries capacity acquisition on its next cycle.
+
 **Production retry properties:**
 
 | Property | Detail |
@@ -711,6 +721,9 @@ Retry is bounded by `RetryPolicy` (max attempts, backoff). It is single-process 
 | Dead-letter lineage | When retries are exhausted, the chain ends with a `dead_lettered` receipt linked via `parent_receipt_id` (Section 17.4) |
 | Capacity rejection | If delivery semaphore is full, no new receipt is created; the existing receipt is rescheduled for the next cycle |
 | Opt-in | Retry requires an explicit `RetryPolicy` on the route or delivery plan; without it, no automatic retry occurs |
+| Policy persistence | Retry policy parameters are stored on the first failure receipt and used by the RetryWorker on subsequent attempts |
+| Frozen target metadata | Retry targets the `target_adapter` and `target_channel` from the original failed receipt; route config changes do not affect in-flight retries |
+| Adapter existence validation | Before retry, the RetryWorker checks that the target adapter is still registered; missing adapters are dead-lettered |
 
 
 ## 17. Receipt Lineage

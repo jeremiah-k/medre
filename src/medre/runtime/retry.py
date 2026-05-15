@@ -198,10 +198,12 @@ class RetryWorker:
                             RetryPolicy,
                             RetryExecutor,
                         )
+                        # Reconstruct policy from receipt metadata.
                         policy = RetryPolicy(
-                            max_attempts=self._max_attempts,
-                            backoff_base=self._interval,
-                            jitter=False,
+                            max_attempts=receipt.retry_max_attempts or self._max_attempts,
+                            backoff_base=receipt.retry_backoff_base or 2.0,
+                            max_delay_seconds=receipt.retry_max_delay or 60.0,
+                            jitter=receipt.retry_jitter if receipt.retry_jitter is not None else False,
                         )
                         backoff = RetryExecutor(policy).compute_backoff(
                             receipt.attempt_number,
@@ -252,7 +254,12 @@ class RetryWorker:
                 event_id=receipt.event_id,
                 target=target,
                 primary_strategy=DeliveryStrategy(method="direct"),
-                retry_policy=RetryPolicy(max_attempts=self._max_attempts),
+                retry_policy=RetryPolicy(
+                    max_attempts=receipt.retry_max_attempts or self._max_attempts,
+                    backoff_base=receipt.retry_backoff_base or 2.0,
+                    max_delay_seconds=receipt.retry_max_delay or 60.0,
+                    jitter=receipt.retry_jitter if receipt.retry_jitter is not None else False,
+                ),
             )
 
             self._emit("retry_attempted", {

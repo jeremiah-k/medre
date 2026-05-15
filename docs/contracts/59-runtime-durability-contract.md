@@ -147,8 +147,12 @@ Transient-failure receipts with `next_retry_at` set survive process restart. The
 | State | Storage | Notes |
 |-------|---------|-------|
 | Failed receipts with `failure_kind='adapter_transient'` and `next_retry_at` set | `delivery_receipts` table | RetryWorker queries these on each cycle |
+| Retry policy metadata (`retry_max_attempts`, `retry_backoff_base`, `retry_max_delay`, `retry_jitter`) | `delivery_receipts` table | Persisted on first failure receipt; RetryWorker reads policy from stored receipt, not route config |
 | Retry lineage (`parent_receipt_id`, `attempt_number`) | `delivery_receipts` table | Each retry attempt produces a new receipt linked to the previous |
 | Dead-lettered receipts (exhausted retries) | `delivery_receipts` table | Final receipt in the chain with `status='dead_lettered'` |
+| Frozen target metadata (`target_adapter`, `target_channel`) | `delivery_receipts` table | Retry targets the adapter/channel from the original failure, not current route config |
+
+**Retry policy persistence:** The first failure receipt captures the `RetryPolicy` parameters from the active route as `retry_max_attempts`, `retry_backoff_base`, `retry_max_delay`, and `retry_jitter` columns. The `RetryWorker` reads these values from the stored receipt on each cycle, not from the current route configuration. This ensures that route or `RetryPolicy` changes after the original failure do not affect in-flight retry behavior. The retry policy is frozen at first failure.
 
 **Process-local retry state (lost on restart):**
 

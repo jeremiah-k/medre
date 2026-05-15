@@ -237,6 +237,10 @@ class DeliveryReceipt(msgspec.Struct, frozen=True):
     parent_receipt_id: str | None = None
     source: str = "live"
     replay_run_id: str | None = None
+    retry_max_attempts: int | None = None
+    retry_backoff_base: float | None = None
+    retry_max_delay: float | None = None
+    retry_jitter: bool | None = None
     created_at: datetime = msgspec.field(default_factory=lambda: datetime.now(timezone.utc))
 
 

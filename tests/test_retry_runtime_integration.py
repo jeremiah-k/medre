@@ -811,3 +811,257 @@ class TestRetryRuntimeIntegration:
             assert retry_sent[0].attempt_number == 2
         finally:
             await runner.stop()
+
+    # ------------------------------------------------------------------
+    # Route/config change semantics
+    # ------------------------------------------------------------------
+
+    async def test_retry_after_adapter_removed(self, temp_storage):
+        """When adapter is removed between runs, retry produces ADAPTER_MISSING
+        failure — no crash."""
+        adapter = _TransientThenSucceedAdapter(
+            adapter_id="target-a", fail_count=999,
+        )
+        event = _make_event()
+        route = Route(
+            id="route-a",
+            source=RouteSource(
+                adapter="fake_source",
+                event_kinds=("message.created",), channel=None,
+            ),
+            targets=[RouteTarget(adapter="target-a")],
+        )
+        router = Router(routes=[route])
+        accounting = RuntimeAccounting()
+        adapters = {"target-a": adapter}
+
+        retry_policy = RetryPolicy(max_attempts=5)
+        resolver = _FallbackResolverWithRetry(retry_policy)
+        runner = _build_runner(
+            temp_storage, adapters, router, accounting,
+            fallback_resolver=resolver,
+        )
+        await _start_adapters(adapters)
+        await runner.start()
+
+        try:
+            # First delivery: transient failure
+            outcomes = await runner.handle_ingress(event)
+            assert len(outcomes) == 1
+            assert outcomes[0].status == "transient_failure"
+
+            receipts = await temp_storage.list_receipts_for_event(event.event_id)
+            original = [r for r in receipts if r.status == "failed"][0]
+            assert original.failure_kind == "adapter_transient"
+            # Verify retry policy persisted
+            assert original.retry_max_attempts == 5
+        finally:
+            await runner.stop()
+
+        # Second runtime WITHOUT adapter "target-a"
+        adapters_b: dict = {}
+        runner_b = _build_runner(
+            temp_storage, adapters_b, router, RuntimeAccounting(),
+            fallback_resolver=resolver,
+        )
+        await runner_b.start()
+        try:
+            failed = [
+                r for r in
+                await temp_storage.list_receipts_for_event(event.event_id)
+                if r.status == "failed"
+            ]
+            assert len(failed) >= 1
+            temp_storage.list_due_retry_receipts = AsyncMock(
+                return_value=failed,
+            )
+
+            policy = RetryPolicy(max_attempts=5)
+            worker = _RetryWorker(
+                temp_storage, runner_b, policy,
+                accounting=RuntimeAccounting(),
+            )
+            # This should NOT crash despite adapter missing
+            processed = await worker._process_due(datetime.now(timezone.utc))
+            assert processed == 1
+            assert worker.state.failed == 1
+
+            # Verify an ADAPTER_MISSING receipt was created
+            all_receipts = await temp_storage.list_receipts_for_event(
+                event.event_id,
+            )
+            adapter_missing = [
+                r for r in all_receipts
+                if r.failure_kind == "adapter_missing"
+            ]
+            assert len(adapter_missing) >= 1
+        finally:
+            await runner_b.stop()
+
+    async def test_retry_preserves_target_channel_after_route_change(self, temp_storage):
+        """Retry uses stored target_channel, not current route config."""
+        adapter = _TransientThenSucceedAdapter(
+            adapter_id="target-a", fail_count=1,
+        )
+        event = _make_event()
+        original_channel = "!room:1"
+        route = Route(
+            id="channel-route",
+            source=RouteSource(
+                adapter="fake_source",
+                event_kinds=("message.created",), channel=None,
+            ),
+            targets=[RouteTarget(adapter="target-a", channel=original_channel)],
+        )
+        router = Router(routes=[route])
+        accounting = RuntimeAccounting()
+        adapters = {"target-a": adapter}
+
+        retry_policy = RetryPolicy(max_attempts=3)
+        resolver = _FallbackResolverWithRetry(retry_policy)
+        runner = _build_runner(
+            temp_storage, adapters, router, accounting,
+            fallback_resolver=resolver,
+        )
+        await _start_adapters(adapters)
+        await runner.start()
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+            assert len(outcomes) == 1
+            assert outcomes[0].status == "transient_failure"
+
+            receipts = await temp_storage.list_receipts_for_event(event.event_id)
+            original = [r for r in receipts if r.status == "failed"][0]
+            assert original.target_channel == original_channel
+            assert original.retry_max_attempts == 3
+        finally:
+            await runner.stop()
+
+        # Second runtime with route changed to a different channel
+        new_channel = "!room:2"
+        changed_route = Route(
+            id="channel-route",
+            source=RouteSource(
+                adapter="fake_source",
+                event_kinds=("message.created",), channel=None,
+            ),
+            targets=[RouteTarget(adapter="target-a", channel=new_channel)],
+        )
+        router_b = Router(routes=[changed_route])
+        adapter_b = FakePresentationAdapter(adapter_id="target-a")
+        adapters_b = {"target-a": adapter_b}
+        runner_b = _build_runner(
+            temp_storage, adapters_b, router_b, RuntimeAccounting(),
+            fallback_resolver=resolver,
+        )
+        await _start_adapters(adapters_b)
+        await runner_b.start()
+
+        try:
+            failed = [
+                r for r in
+                await temp_storage.list_receipts_for_event(event.event_id)
+                if r.status == "failed"
+            ]
+            assert len(failed) >= 1
+            temp_storage.list_due_retry_receipts = AsyncMock(
+                return_value=failed,
+            )
+
+            policy = RetryPolicy(max_attempts=5)
+            worker = _RetryWorker(
+                temp_storage, runner_b, policy,
+                accounting=RuntimeAccounting(),
+            )
+            processed = await worker._process_due(datetime.now(timezone.utc))
+            assert processed == 1
+            assert worker.state.succeeded == 1
+
+            # Verify retry used stored target_channel, not route's new one
+            all_receipts = await temp_storage.list_receipts_for_event(
+                event.event_id,
+            )
+            retry_receipts = [
+                r for r in all_receipts
+                if r.parent_receipt_id == original.receipt_id
+            ]
+            assert len(retry_receipts) >= 1
+            assert retry_receipts[0].target_channel == original_channel
+            assert retry_receipts[0].target_channel != new_channel
+        finally:
+            await runner_b.stop()
+
+    async def test_retry_policy_reconstructed_from_receipt(self, temp_storage):
+        """RetryWorker reconstructs RetryPolicy from receipt metadata,
+        not from its own defaults."""
+        custom_policy = RetryPolicy(
+            max_attempts=7,
+            backoff_base=5.0,
+            max_delay_seconds=120.0,
+            jitter=False,
+        )
+        adapter = _TransientThenSucceedAdapter(
+            adapter_id="policy_target", fail_count=1,
+        )
+        event = _make_event()
+        route = Route(
+            id="policy-route",
+            source=RouteSource(
+                adapter="fake_source",
+                event_kinds=("message.created",), channel=None,
+            ),
+            targets=[RouteTarget(adapter="policy_target")],
+        )
+        router = Router(routes=[route])
+        accounting = RuntimeAccounting()
+        adapters = {"policy_target": adapter}
+
+        resolver = _FallbackResolverWithRetry(custom_policy)
+        runner = _build_runner(
+            temp_storage, adapters, router, accounting,
+            fallback_resolver=resolver,
+        )
+        await _start_adapters(adapters)
+        await runner.start()
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+            assert len(outcomes) == 1
+            assert outcomes[0].status == "transient_failure"
+
+            receipts = await temp_storage.list_receipts_for_event(event.event_id)
+            original = [r for r in receipts if r.status == "failed"][0]
+
+            # Verify custom policy persisted on receipt
+            assert original.retry_max_attempts == 7
+            assert original.retry_backoff_base == 5.0
+            assert original.retry_max_delay == 120.0
+            assert original.retry_jitter is False
+
+            # Retry using the real RetryWorker with DIFFERENT defaults
+            from medre.runtime.retry import RetryWorker
+            from medre.runtime.capacity import CapacityController
+            from medre.config.model import RuntimeLimits
+
+            limits = RuntimeLimits(
+                max_inflight_deliveries=10,
+                max_inflight_replay_events=10,
+                shutdown_drain_timeout_seconds=5,
+                delivery_acquire_timeout_seconds=0.5,
+            )
+            capacity = CapacityController(limits)
+            # max_attempts=3 is DIFFERENT from the stored 7
+            worker = RetryWorker(
+                temp_storage, runner, capacity,
+                enabled=True, interval_seconds=10.0, batch_size=20,
+                max_attempts=3,
+            )
+
+            future_now = original.next_retry_at + timedelta(seconds=1)
+            await worker._process_due(future_now)
+
+            assert worker.state.succeeded == 1
+            assert worker.state.processed == 1
+        finally:
+            await runner.stop()

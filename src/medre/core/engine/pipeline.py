@@ -609,8 +609,7 @@ class PipelineRunner:
             Paired routes and their per-target delivery plans, as
             returned by :meth:`route_event`.
         source:
-            Origin of delivery: ``"live"`` for normal pipeline,
-            ``"replay"`` for replay-originated delivery.
+            Origin of delivery: ``"live"``, ``"retry"``, or ``"replay"``.
         replay_run_id:
             When ``source="replay"``, the replay run identifier.
 
@@ -986,6 +985,18 @@ class PipelineRunner:
                 parent_receipt_id=parent_receipt_id,
                 source=source,
                 replay_run_id=replay_run_id,
+                retry_max_attempts=(
+                    plan.retry_policy.max_attempts if plan.retry_policy else None
+                ),
+                retry_backoff_base=(
+                    plan.retry_policy.backoff_base if plan.retry_policy else None
+                ),
+                retry_max_delay=(
+                    plan.retry_policy.max_delay_seconds if plan.retry_policy else None
+                ),
+                retry_jitter=(
+                    plan.retry_policy.jitter if plan.retry_policy else None
+                ),
             )
             await self._config.storage.append_receipt(receipt)
             raise _AdapterDeliveryError(
@@ -1013,6 +1024,18 @@ class PipelineRunner:
                 parent_receipt_id=parent_receipt_id,
                 source=source,
                 replay_run_id=replay_run_id,
+                retry_max_attempts=(
+                    plan.retry_policy.max_attempts if plan.retry_policy else None
+                ),
+                retry_backoff_base=(
+                    plan.retry_policy.backoff_base if plan.retry_policy else None
+                ),
+                retry_max_delay=(
+                    plan.retry_policy.max_delay_seconds if plan.retry_policy else None
+                ),
+                retry_jitter=(
+                    plan.retry_policy.jitter if plan.retry_policy else None
+                ),
             )
             await self._config.storage.append_receipt(receipt)
             raise _AdapterDeliveryError(
@@ -1056,6 +1079,18 @@ class PipelineRunner:
                 parent_receipt_id=parent_receipt_id,
                 source=source,
                 replay_run_id=replay_run_id,
+                retry_max_attempts=(
+                    plan.retry_policy.max_attempts if plan.retry_policy else None
+                ),
+                retry_backoff_base=(
+                    plan.retry_policy.backoff_base if plan.retry_policy else None
+                ),
+                retry_max_delay=(
+                    plan.retry_policy.max_delay_seconds if plan.retry_policy else None
+                ),
+                retry_jitter=(
+                    plan.retry_policy.jitter if plan.retry_policy else None
+                ),
             )
             await self._config.storage.append_receipt(receipt)
             raise _RendererDeliveryError(adapter_id or "", rendering_error) from None
@@ -1086,6 +1121,18 @@ class PipelineRunner:
                 parent_receipt_id=parent_receipt_id,
                 source=source,
                 replay_run_id=replay_run_id,
+                retry_max_attempts=(
+                    plan.retry_policy.max_attempts if plan.retry_policy else None
+                ),
+                retry_backoff_base=(
+                    plan.retry_policy.backoff_base if plan.retry_policy else None
+                ),
+                retry_max_delay=(
+                    plan.retry_policy.max_delay_seconds if plan.retry_policy else None
+                ),
+                retry_jitter=(
+                    plan.retry_policy.jitter if plan.retry_policy else None
+                ),
             )
             await self._config.storage.append_receipt(receipt)
             raise _AdapterDeliveryError(
@@ -1173,6 +1220,18 @@ class PipelineRunner:
             parent_receipt_id=parent_receipt_id,
             source=source,
             replay_run_id=replay_run_id,
+            retry_max_attempts=(
+                plan.retry_policy.max_attempts if plan.retry_policy else None
+            ),
+            retry_backoff_base=(
+                plan.retry_policy.backoff_base if plan.retry_policy else None
+            ),
+            retry_max_delay=(
+                plan.retry_policy.max_delay_seconds if plan.retry_policy else None
+            ),
+            retry_jitter=(
+                plan.retry_policy.jitter if plan.retry_policy else None
+            ),
         )
         await self._config.storage.append_receipt(receipt)
 

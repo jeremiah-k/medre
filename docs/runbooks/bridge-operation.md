@@ -110,6 +110,10 @@ Retry responsibility falls to different components depending on where the failur
 | `ADAPTER_PERMANENT` | No retry — permanent | Adapter determined unrecoverable |
 | `DEADLINE_EXCEEDED` | No retry | Plan deadline passed |
 
+**Frozen target semantics:** Retry uses the `target_adapter` and `target_channel` from the original failed receipt, not the current route config. Route targets, channel assignments, and adapter mappings may change between the original failure and a retry attempt, but the retry continues to target the originally recorded adapter and channel. Before executing the retry, the RetryWorker validates that the target adapter still exists at runtime. If the adapter has been removed from the configuration, the retry is not attempted and the receipt is dead-lettered. This ensures route config changes do not silently redirect in-flight retries while still guarding against retrying to a non-existent adapter.
+
+**Retry policy persistence:** The first failure receipt captures the `RetryPolicy` parameters as `retry_max_attempts`, `retry_backoff_base`, `retry_max_delay`, and `retry_jitter` columns. The RetryWorker reads these values from the stored receipt, not from the current route configuration. Route or policy changes after the original failure do not affect in-flight retry behavior. The policy is frozen at first failure.
+
 Adapters own their internal reconnect logic (e.g., Matrix sync reconnection, Meshtastic node reconnection). The RetryWorker owns retry scheduling for transient delivery failures. These are separate mechanisms operating at different layers. **Retry does NOT restart adapters.** Adapter lifecycle is independent — adapters reconnect on their own schedule. The RetryWorker only re-attempts the delivery through the same planning pipeline.
 
 **Retry does NOT guarantee final delivery ACK.** The adapter confirms transport acceptance only. Whether the remote side actually received the message depends on the transport (see Section 2). A `sent` receipt from a retry means the same thing as a `sent` receipt from the original delivery.

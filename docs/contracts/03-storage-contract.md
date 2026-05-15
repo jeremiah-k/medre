@@ -121,6 +121,11 @@ class StorageBackend(Protocol):
 
         Ordered by next_retry_at ASC, sequence ASC, limited to *limit*.
         Excludes receipts that have reached *max_attempts* or are dead_lettered.
+
+        The returned receipts carry retry policy metadata
+        (retry_max_attempts, retry_backoff_base, retry_max_delay,
+        retry_jitter) from the original failure, allowing the RetryWorker
+        to continue the same policy without re-reading route configuration.
         """
         ...
 
@@ -282,6 +287,10 @@ CREATE TABLE delivery_receipts (
     parent_receipt_id TEXT,
     source TEXT NOT NULL DEFAULT 'live',  -- "live" for normal deliveries, "retry" for RetryWorker-attempted deliveries, "replay" for replay deliveries
     replay_run_id TEXT,                   -- Set to the replay run_id when source='replay'; NULL for live
+    retry_max_attempts INTEGER,           -- RetryPolicy.max_attempts snapshot at first failure; NULL when no retry policy
+    retry_backoff_base REAL,              -- RetryPolicy.backoff_base snapshot at first failure; NULL when no retry policy
+    retry_max_delay REAL,                 -- RetryPolicy.backoff_max snapshot at first failure; NULL when no retry policy
+    retry_jitter INTEGER,                 -- RetryPolicy.jitter enabled flag snapshot at first failure; NULL when no retry policy
     created_at TEXT NOT NULL
 );
 ```
@@ -304,6 +313,8 @@ Status values are `accepted`, `queued`, `sent`, `confirmed`, `failed`, `dead_let
 
 `replay_run_id` is `NULL` for live deliveries. When `source='replay'`, this field carries the `run_id` of the replay that produced the delivery. This allows operators to trace which receipts came from a specific replay run. It is for traceability only — it does not prevent duplicate sends.
 
+`retry_max_attempts`, `retry_backoff_base`, `retry_max_delay`, and `retry_jitter` are snapshots of the `RetryPolicy` parameters at the time of the first failure receipt. They are persisted so that the `RetryWorker` can continue the same retry policy after process restart without re-reading route configuration. These fields are `NULL` on receipts that have no retry policy (e.g., successful first-attempt deliveries, deliveries without a configured `RetryPolicy`, or replay receipts). Once set on the first failure receipt, subsequent retry receipts in the same lineage inherit the same policy values. This ensures retry policy is frozen at first failure: route config changes after the original failure do not affect in-flight retry behavior.
+
 **Native message refs are NOT source-tagged.** `NativeMessageRef` rows do not carry `source` or `replay_run_id` fields. This is intentional: native refs created during replay can be correlated to their replay origin through the associated `DeliveryReceipt` (which carries `source` and `replay_run_id`), then via the receipt's `delivery_plan_id` / `event_id` flow. Adding source tagging to native refs would increase schema complexity without proportional benefit, since the receipt → native ref linkage already provides full traceability.
 
 Receipts are **append-only records**. The "current status" of a delivery is a **projection**: the latest receipt for a given `(delivery_plan_id, target_adapter)` tuple, provided by the `delivery_status` view (Section 3.5). No code path writes to the view directly. To change the "current status", append a new receipt row.
@@ -325,7 +336,9 @@ CREATE VIEW IF NOT EXISTS delivery_status AS
 SELECT dr.sequence, dr.receipt_id, dr.event_id, dr.delivery_plan_id,
        dr.target_adapter, dr.target_channel, dr.route_id, dr.status, dr.error,
        dr.failure_kind, dr.adapter_message_id, dr.next_retry_at, dr.attempt_number,
-       dr.parent_receipt_id, dr.source, dr.replay_run_id, dr.created_at
+       dr.parent_receipt_id, dr.source, dr.replay_run_id,
+       dr.retry_max_attempts, dr.retry_backoff_base, dr.retry_max_delay, dr.retry_jitter,
+       dr.created_at
 FROM delivery_receipts dr
 JOIN (
     SELECT delivery_plan_id, target_adapter, MAX(sequence) AS max_seq

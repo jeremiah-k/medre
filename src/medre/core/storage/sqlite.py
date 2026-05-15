@@ -112,6 +112,10 @@ CREATE TABLE IF NOT EXISTS delivery_receipts (
     parent_receipt_id TEXT,
     source TEXT NOT NULL DEFAULT 'live',
     replay_run_id TEXT,
+    retry_max_attempts INTEGER,
+    retry_backoff_base REAL,
+    retry_max_delay REAL,
+    retry_jitter INTEGER,
     created_at TEXT NOT NULL
 );
 
@@ -119,7 +123,9 @@ CREATE VIEW IF NOT EXISTS delivery_status AS
 SELECT dr.sequence, dr.receipt_id, dr.event_id, dr.delivery_plan_id,
        dr.target_adapter, dr.target_channel, dr.route_id, dr.status, dr.error,
        dr.adapter_message_id, dr.next_retry_at, dr.attempt_number,
-       dr.parent_receipt_id, dr.source, dr.replay_run_id, dr.created_at
+       dr.parent_receipt_id, dr.source, dr.replay_run_id,
+       dr.retry_max_attempts, dr.retry_backoff_base,
+       dr.retry_max_delay, dr.retry_jitter, dr.created_at
 FROM delivery_receipts dr
 JOIN (
     SELECT delivery_plan_id, target_adapter, MAX(sequence) AS max_seq
@@ -214,7 +220,9 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
         "sequence", "receipt_id", "event_id", "delivery_plan_id",
         "target_adapter", "target_channel", "route_id", "status", "error", "failure_kind",
         "adapter_message_id", "next_retry_at", "attempt_number",
-        "parent_receipt_id", "source", "replay_run_id", "created_at",
+        "parent_receipt_id", "source", "replay_run_id",
+        "retry_max_attempts", "retry_backoff_base", "retry_max_delay", "retry_jitter",
+        "created_at",
     }),
     "plugin_state": frozenset({
         "plugin_id", "key", "value", "updated_at",
@@ -262,8 +270,9 @@ INSERT INTO delivery_receipts
     (receipt_id, event_id, delivery_plan_id, target_adapter,
      target_channel, route_id, status, error, failure_kind, adapter_message_id,
      next_retry_at, attempt_number, parent_receipt_id, source,
-     replay_run_id, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     replay_run_id, retry_max_attempts, retry_backoff_base,
+     retry_max_delay, retry_jitter, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 _SELECT_EVENT = "SELECT * FROM canonical_events WHERE event_id = ?"
@@ -390,6 +399,11 @@ def _row_to_relation(row: dict[str, Any]) -> EventRelation:
 
 def _row_to_receipt(row: dict[str, Any]) -> DeliveryReceipt:
     """Map a ``delivery_receipts`` row to a :class:`DeliveryReceipt`."""
+    # Map SQLite INTEGER (0/1) to Python bool for retry_jitter.
+    raw_jitter = row.get("retry_jitter")
+    jitter_val: bool | None = None
+    if raw_jitter is not None:
+        jitter_val = bool(raw_jitter)
     return DeliveryReceipt(
         sequence=row["sequence"],
         receipt_id=row["receipt_id"],
@@ -411,6 +425,10 @@ def _row_to_receipt(row: dict[str, Any]) -> DeliveryReceipt:
         parent_receipt_id=row.get("parent_receipt_id"),
         source=row.get("source", "live"),
         replay_run_id=row.get("replay_run_id"),
+        retry_max_attempts=row.get("retry_max_attempts"),
+        retry_backoff_base=row.get("retry_backoff_base"),
+        retry_max_delay=row.get("retry_max_delay"),
+        retry_jitter=jitter_val,
         created_at=datetime.fromisoformat(row["created_at"]),
     )
 
@@ -1107,6 +1125,10 @@ class SQLiteStorage:
                 receipt.parent_receipt_id,
                 receipt.source,
                 receipt.replay_run_id,
+                receipt.retry_max_attempts,
+                receipt.retry_backoff_base,
+                receipt.retry_max_delay,
+                1 if receipt.retry_jitter is True else (0 if receipt.retry_jitter is False else None),
                 receipt.created_at.isoformat(),
             ),
         )

@@ -551,3 +551,166 @@ class TestRetryShutdownRealPipeline:
             assert snap["capacity_rejections"] == 1
         finally:
             await runner.stop()
+
+
+class TestRetryCapacityRejectionBackoff:
+    """Capacity rejection backoff policy tests using the real RetryWorker."""
+
+    async def test_retry_capacity_rejection_backoff(self, temp_storage):
+        """When capacity always rejects:
+        1. retry_failed event emitted
+        2. next_retry_at updated (backoff applied)
+        3. attempt_number unchanged (capacity rejection ≠ delivery attempt)
+        4. Monotonic backoff across two rejection cycles
+        5. Snapshot counters correct
+        """
+        from medre.core.events.bus import EventBus
+        from medre.core.observability.metrics import Diagnostician
+        from medre.core.planning.fallback_resolution import FallbackResolver
+        from medre.core.planning.relation_resolution import RelationResolver
+        from medre.core.rendering.renderer import RenderingPipeline
+        from medre.core.rendering.text import TextRenderer
+        from medre.core.routing.router import Router
+        from medre.core.routing.stats import RouteStats
+        from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
+        from medre.core.runtime.accounting import RuntimeAccounting
+        from medre.runtime.events import EventBuffer, RuntimeEventType
+        from medre.runtime.retry import RetryWorker
+
+        event_buffer = EventBuffer(maxlen=64)
+        event = _make_event()
+        await temp_storage.append(event)
+
+        # Create a failed receipt directly in storage with known next_retry_at
+        now = datetime.now(timezone.utc)
+        receipt_id = f"rcpt-{uuid.uuid4()}"
+        failed_receipt = DeliveryReceipt(
+            receipt_id=receipt_id,
+            event_id=event.event_id,
+            delivery_plan_id="plan-cap-backoff",
+            target_adapter="target_a",
+            route_id="route-cap-backoff",
+            status="failed",
+            error="ConnectionError: timeout",
+            failure_kind="adapter_transient",
+            next_retry_at=now - timedelta(seconds=1),  # due now
+            attempt_number=1,
+            created_at=now,
+        )
+        await temp_storage.append_receipt(failed_receipt)
+
+        # Pipeline needed for RetryWorker but capacity=0 means it never gets called
+        render_pipe = RenderingPipeline()
+        render_pipe.register(TextRenderer(), priority=100)
+
+        config = PipelineConfig(
+            storage=temp_storage,
+            router=Router(routes=[]),
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters={},
+            event_bus=EventBus(),
+            rendering_pipeline=render_pipe,
+            diagnostician=Diagnostician(),
+            route_stats=RouteStats(),
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        # Capacity controller that always rejects
+        limits = _make_limits(max_inflight_deliveries=0)
+        capacity = CapacityController(limits)
+
+        worker = RetryWorker(
+            storage=temp_storage,
+            pipeline=runner,
+            capacity_controller=capacity,
+            enabled=True,
+            interval_seconds=5.0,
+            max_attempts=3,
+            event_buffer=event_buffer,
+        )
+
+        try:
+            # === Cycle 1: capacity rejection ===
+            cycle1_now = datetime.now(timezone.utc)
+            await worker._process_due(cycle1_now)
+
+            # Assert: retry_failed event emitted with capacity_rejection
+            events = list(event_buffer)
+            event_types = [e.event_type for e in events]
+            assert RuntimeEventType.RETRY_FAILED in event_types, (
+                f"Expected retry_failed event, got: {[e.value for e in event_types]}"
+            )
+            failed_events = [
+                e for e in events
+                if e.event_type == RuntimeEventType.RETRY_FAILED
+            ]
+            assert len(failed_events) >= 1
+            assert failed_events[0].detail["status"] == "capacity_rejection"
+
+            # Assert: next_retry_at was updated (pushed forward)
+            receipts_after = await temp_storage.list_receipts_for_event(
+                event.event_id,
+            )
+            updated = [r for r in receipts_after if r.receipt_id == receipt_id]
+            assert len(updated) == 1
+            updated_rcpt = updated[0]
+            assert updated_rcpt.next_retry_at is not None
+            assert updated_rcpt.next_retry_at > cycle1_now, (
+                f"next_retry_at should be pushed past {cycle1_now}, "
+                f"got {updated_rcpt.next_retry_at}"
+            )
+            first_backoff_retry_at = updated_rcpt.next_retry_at
+
+            # Assert: attempt_number unchanged (capacity rejection doesn't increment)
+            assert updated_rcpt.attempt_number == 1, (
+                f"attempt_number should remain 1, "
+                f"got {updated_rcpt.attempt_number}"
+            )
+
+            # Assert: worker snapshot shows correct counters
+            state = worker.state
+            assert state.failed == 1
+            assert state.processed == 0
+            assert state.succeeded == 0
+
+            # === Cycle 2: capacity still rejecting ===
+            cycle2_now = first_backoff_retry_at + timedelta(seconds=1)
+            await worker._process_due(cycle2_now)
+
+            receipts_after_2 = await temp_storage.list_receipts_for_event(
+                event.event_id,
+            )
+            updated_2 = [
+                r for r in receipts_after_2
+                if r.receipt_id == receipt_id
+            ]
+            assert len(updated_2) == 1
+            updated_2_rcpt = updated_2[0]
+
+            # Assert: next_retry_at advanced monotonically
+            assert updated_2_rcpt.next_retry_at is not None
+            assert updated_2_rcpt.next_retry_at > first_backoff_retry_at, (
+                f"Second backoff ({updated_2_rcpt.next_retry_at}) must be "
+                f"later than first ({first_backoff_retry_at})"
+            )
+
+            # Assert: attempt_number still unchanged
+            assert updated_2_rcpt.attempt_number == 1
+
+            # Assert: snapshot counters reflect 2 rejections
+            assert state.failed == 2
+            assert state.processed == 0
+            assert state.succeeded == 0
+
+            # Assert: second retry_failed event
+            events_2 = list(event_buffer)
+            failed_events_2 = [
+                e for e in events_2
+                if e.event_type == RuntimeEventType.RETRY_FAILED
+            ]
+            assert len(failed_events_2) >= 2
+        finally:
+            await worker.stop()
+            await runner.stop()

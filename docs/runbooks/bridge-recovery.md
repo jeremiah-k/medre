@@ -850,7 +850,8 @@ When a delivery fails with `failure_kind='adapter_transient'` and a `RetryPolicy
 - **Bounded by:** `RetryPolicy` (max attempts, backoff). When max attempts are exceeded, the receipt is marked `dead_lettered`.
 - **Native refs:** Only persisted on successful retry, not on the original failure.
 - **No duplicate risk:** Retry continues the same delivery attempt. The adapter receives one message per successful retry, same as if the original had succeeded.
-- **Capacity rejection:** If the RetryWorker cannot acquire the delivery semaphore, it emits a `retry_failed` event and reschedules the receipt for the next worker interval. No new receipt is created — the original failed receipt remains due.
+- **Frozen target metadata:** Retry uses the `target_adapter` and `target_channel` from the original failed receipt, not the current route configuration. Route config changes after the original failure do not affect in-flight retry targeting. The RetryWorker validates that the target adapter still exists at runtime before attempting delivery; if the adapter has been removed, the retry is dead-lettered.
+- **Capacity rejection:** If the RetryWorker cannot acquire the delivery semaphore, it emits a `retry_failed` event and reschedules the receipt for the next worker interval. No new receipt is created — the original failed receipt remains due with its `next_retry_at` advanced by one backoff interval using the stored retry policy metadata. Capacity rejection does not advance `attempt_number` and does not count toward `RetryPolicy` exhaustion.
 
 **Retry states an operator should distinguish:**
 

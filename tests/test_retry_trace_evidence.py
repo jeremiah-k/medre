@@ -799,3 +799,173 @@ class TestRetryTraceEvidence:
         finally:
             await retry_worker.stop()
             await runner.stop()
+
+    async def test_full_retry_lifecycle_trace_evidence(self, temp_storage):
+        """Full retry lifecycle trace/evidence: live fail → retry fail
+        → dead-lettered → replay.  Timeline shows all receipts with correct
+        sources, lineage chains, replay metadata, and trace features."""
+        # Build 5 receipts manually for a single event covering the full
+        # retry lifecycle.  Fixed timestamps give deterministic ordering.
+        t0 = datetime(2026, 3, 1, 10, 0, 0, tzinfo=timezone.utc)
+        event = _make_event()
+        await temp_storage.append(event)
+
+        # (a) Live failed transient — source=live, attempt 1
+        live_rcpt = DeliveryReceipt(
+            receipt_id="rcpt-live",
+            event_id=event.event_id,
+            delivery_plan_id="plan-lifecycle",
+            target_adapter="target_a",
+            route_id="route-lifecycle",
+            status="failed",
+            error="ConnectionError: timeout",
+            failure_kind="adapter_transient",
+            next_retry_at=t0 + timedelta(seconds=2),
+            attempt_number=1,
+            parent_receipt_id=None,
+            source="live",
+            created_at=t0,
+        )
+        await temp_storage.append_receipt(live_rcpt)
+
+        # (b) Capacity rejection does not create a new receipt — it only
+        # pushes next_retry_at forward.  We simulate by appending a retry
+        # receipt with status "failed" and failure_kind "capacity_rejection"
+        # to represent the capacity rejection event in the timeline.
+        cap_rcpt = DeliveryReceipt(
+            receipt_id="rcpt-cap-rej",
+            event_id=event.event_id,
+            delivery_plan_id="plan-lifecycle",
+            target_adapter="target_a",
+            route_id="route-lifecycle",
+            status="failed",
+            error="delivery capacity not available",
+            failure_kind="capacity_rejection",
+            next_retry_at=t0 + timedelta(seconds=5),
+            attempt_number=1,
+            parent_receipt_id="rcpt-live",
+            source="retry",
+            created_at=t0 + timedelta(seconds=3),
+        )
+        await temp_storage.append_receipt(cap_rcpt)
+
+        # (c) Retry failed transient — source=retry, attempt 2
+        retry_fail_rcpt = DeliveryReceipt(
+            receipt_id="rcpt-retry-fail",
+            event_id=event.event_id,
+            delivery_plan_id="plan-lifecycle",
+            target_adapter="target_a",
+            route_id="route-lifecycle",
+            status="failed",
+            error="ConnectionError: timeout again",
+            failure_kind="adapter_transient",
+            next_retry_at=t0 + timedelta(seconds=7),
+            attempt_number=2,
+            parent_receipt_id="rcpt-live",
+            source="retry",
+            created_at=t0 + timedelta(seconds=6),
+        )
+        await temp_storage.append_receipt(retry_fail_rcpt)
+
+        # (d) Retry dead-lettered — source=retry, attempt 3 (exhausted)
+        dead_rcpt = DeliveryReceipt(
+            receipt_id="rcpt-dead",
+            event_id=event.event_id,
+            delivery_plan_id="plan-lifecycle",
+            target_adapter="target_a",
+            route_id="route-lifecycle",
+            status="dead_lettered",
+            error="Retry exhausted",
+            attempt_number=3,
+            parent_receipt_id="rcpt-retry-fail",
+            source="retry",
+            created_at=t0 + timedelta(seconds=8),
+        )
+        await temp_storage.append_receipt(dead_rcpt)
+
+        # (e) Manual BEST_EFFORT replay receipt
+        replay_run_id = "replay-lifecycle-001"
+        replay_rcpt = DeliveryReceipt(
+            receipt_id="rcpt-replay",
+            event_id=event.event_id,
+            delivery_plan_id="plan-replay-lifecycle",
+            target_adapter="target_a",
+            route_id="route-lifecycle",
+            status="sent",
+            attempt_number=1,
+            parent_receipt_id=None,
+            source="replay",
+            replay_run_id=replay_run_id,
+            created_at=t0 + timedelta(seconds=10),
+        )
+        await temp_storage.append_receipt(replay_rcpt)
+
+        # === Timeline assembly ===
+        timeline = await assemble_event_timeline(
+            temp_storage, event.event_id,
+        )
+        assert timeline is not None
+
+        tl_receipts = timeline["receipts"]
+        # 5 receipts: live fail, cap rejection, retry fail, dead-lettered, replay
+        assert len(tl_receipts) == 5, (
+            f"Expected 5 receipts, got {len(tl_receipts)}: "
+            f"{[r.receipt_id for r in tl_receipts]}"
+        )
+
+        # === Sources ===
+        tl_sources = [r.source for r in tl_receipts]
+        assert tl_sources[0] == "live"
+        assert tl_sources[1] == "retry"  # capacity rejection
+        assert tl_sources[2] == "retry"  # failed transient
+        assert tl_sources[3] == "retry"  # dead-lettered
+        assert tl_sources[4] == "replay"
+
+        # === Retry lineage: parent_receipt_id chains ===
+        by_id = {r.receipt_id: r for r in tl_receipts}
+
+        # (a) live → no parent
+        assert by_id["rcpt-live"].parent_receipt_id is None
+
+        # (b) cap rejection → parent is live
+        assert by_id["rcpt-cap-rej"].parent_receipt_id == "rcpt-live"
+
+        # (c) retry fail → parent is live (first retry from original)
+        assert by_id["rcpt-retry-fail"].parent_receipt_id == "rcpt-live"
+
+        # (d) dead-lettered → parent is retry-fail (chained retry)
+        assert by_id["rcpt-dead"].parent_receipt_id == "rcpt-retry-fail"
+
+        # (e) replay → no parent_receipt_id (independent chain)
+        assert by_id["rcpt-replay"].parent_receipt_id is None
+
+        # === Replay: replay_run_id present, no parent ===
+        assert by_id["rcpt-replay"].replay_run_id == replay_run_id
+        assert by_id["rcpt-replay"].parent_receipt_id is None
+
+        # === Trace shows retry exhausted state ===
+        dead_lettered = [r for r in tl_receipts if r.status == "dead_lettered"]
+        assert len(dead_lettered) == 1
+        assert dead_lettered[0].attempt_number == 3
+
+        # === Timeline source is mixed ===
+        assert timeline["source"] == "mixed"
+
+        # === Replay duplicate-risk warning present ===
+        from medre.runtime.trace import (
+            assemble_replay_timeline as _trace_replay_tl,
+        )
+        replay_receipts = [
+            r for r in tl_receipts
+            if r.replay_run_id == replay_run_id
+        ]
+        event_cache = {event.event_id: event}
+        replay_tl = _trace_replay_tl(
+            replay_run_id, replay_receipts, event_cache,
+        )
+        assert "duplicate_send_caveat" in replay_tl
+        assert replay_tl["duplicate_send_caveat"] is not None
+
+        # === Replay run grouping ===
+        assert replay_run_id in timeline["replay_runs"]
+        assert len(timeline["replay_runs"][replay_run_id]) >= 1
