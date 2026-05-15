@@ -644,7 +644,7 @@ These values are process-local and non-durable. Without `--snapshot-on-shutdown`
 
 **Caveats:**
 - The snapshot is a point-in-time capture, not a continuous log. It reflects the state after graceful shutdown completes (`lifecycle.runtime_state` will be `"stopped"`).
-- There is no automatic retry scheduler. No final ACK guarantee. Runtime events are process-local.
+- The RetryWorker is an opt-in background task that polls for transient-failure receipts with `next_retry_at` set. Retry receipts carry `source="retry"`. No final ACK guarantee. Runtime events are process-local.
 - Replay is manual and duplicate-risky. The snapshot may show replay receipts from earlier runs, but cannot tell you which delivery actually reached the remote side.
 
 ### Run-Time Evidence vs Post-Run Evidence

@@ -201,11 +201,11 @@ class RetryExecutor:
     delays, detecting retry exhaustion, and building the appropriate
     receipt for a retry attempt or dead-letter transition.
 
-    Phase 1 does **not** implement a background retry scheduler.  Retry
-    is synchronous / receipt-level only: the pipeline records the
-    failure receipt with ``next_retry_at`` populated, and a future
-    scheduler (or manual replay) re-invokes ``deliver_to_target`` using
-    the plan and the latest receipt's ``attempt_number``.
+    Phase 1 implements a background retry scheduler via RetryWorker (opt-in).
+    When RetryWorker is not enabled, retry is synchronous / receipt-level only:
+    the pipeline records the failure receipt with ``next_retry_at`` populated,
+    and a future scheduler (or manual replay) re-invokes ``deliver_to_target``
+    using the plan and the latest receipt's ``attempt_number``.
 
     Parameters
     ----------

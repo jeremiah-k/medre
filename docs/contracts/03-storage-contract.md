@@ -242,14 +242,16 @@ CREATE TABLE delivery_receipts (
     event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
     delivery_plan_id TEXT NOT NULL,
     target_adapter TEXT NOT NULL,
+    target_channel TEXT,
     route_id TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL,             -- "accepted", "queued", "sent", "confirmed", "failed", "dead_lettered"
     error TEXT,
+    failure_kind TEXT,
     adapter_message_id TEXT,
     next_retry_at TEXT,
     attempt_number INTEGER NOT NULL DEFAULT 1,
     parent_receipt_id TEXT,
-    source TEXT NOT NULL DEFAULT 'live',  -- "live" for normal deliveries, "replay" for replay deliveries
+    source TEXT NOT NULL DEFAULT 'live',  -- "live" for normal deliveries, "retry" for RetryWorker-attempted deliveries, "replay" for replay deliveries
     replay_run_id TEXT,                   -- Set to the replay run_id when source='replay'; NULL for live
     created_at TEXT NOT NULL
 );
@@ -265,7 +267,7 @@ Status values are `accepted`, `queued`, `sent`, `confirmed`, `failed`, `dead_let
 
 `parent_receipt_id` is the receipt ID of the preceding attempt in this delivery chain. `NULL` for the first attempt. Together with `attempt_number` this provides explicit receipt lineage.
 
-`source` indicates the origin of the delivery: `"live"` for normal pipeline deliveries, `"replay"` for deliveries produced during replay. Every receipt has this field set; it defaults to `"live"` so receipts from normal pipeline operation are always explicitly tagged.
+`source` indicates the origin of the delivery: `"live"` for normal pipeline deliveries, `"retry"` for RetryWorker-attempted deliveries, `"replay"` for deliveries produced during replay. Every receipt has this field set; it defaults to `"live"` so receipts from normal pipeline operation are always explicitly tagged.
 
 `replay_run_id` is `NULL` for live deliveries. When `source='replay'`, this field carries the `run_id` of the replay that produced the delivery. This allows operators to trace which receipts came from a specific replay run. It is for traceability only — it does not prevent duplicate sends.
 
@@ -288,8 +290,8 @@ The current delivery status for any plan is a projection: the latest receipt row
 ```sql
 CREATE VIEW IF NOT EXISTS delivery_status AS
 SELECT dr.sequence, dr.receipt_id, dr.event_id, dr.delivery_plan_id,
-       dr.target_adapter, dr.route_id, dr.status, dr.error,
-       dr.adapter_message_id, dr.next_retry_at, dr.attempt_number,
+       dr.target_adapter, dr.target_channel, dr.route_id, dr.status, dr.error,
+       dr.failure_kind, dr.adapter_message_id, dr.next_retry_at, dr.attempt_number,
        dr.parent_receipt_id, dr.source, dr.replay_run_id, dr.created_at
 FROM delivery_receipts dr
 JOIN (
@@ -486,7 +488,7 @@ Key points:
 - Inserts a new row into `delivery_receipts`.
 - Never updates an existing row. Every call creates a new row with a new `sequence` value.
 - The current status of a delivery is read from the `delivery_status` view, not from any single row.
-- The `source` field defaults to `"live"` for normal pipeline deliveries. Replay deliveries set `source='replay'` and populate `replay_run_id` with the replay run ID.
+- The `source` field defaults to `"live"` for normal pipeline deliveries. Retry deliveries set `source='retry'`. Replay deliveries set `source='replay'` and populate `replay_run_id` with the replay run ID.
 
 ### 5.7a list_receipts_by_replay_run(run_id)
 
@@ -511,7 +513,7 @@ The delivery pipeline creates delivery receipts through the `build_retry_receipt
 
 **`build_retry_receipt`** accepts the following parameters beyond the standard receipt fields:
 
-- `source` (default `"live"`) — Matches the `DeliveryReceipt.source` field. Set to `"replay"` when the receipt is produced during a replay run. Normal pipeline deliveries leave this as `"live"`.
+- `source` (default `"live"`) — Matches the `DeliveryReceipt.source` field. Set to `"retry"` when the receipt is produced by the RetryWorker, `"replay"` when the receipt is produced during a replay run. Normal pipeline deliveries leave this as `"live"`.
 - `replay_run_id` (default `None`) — Matches the `DeliveryReceipt.replay_run_id` field. When `source="replay"`, this carries the `run_id` of the replay that produced the delivery. `None` for live deliveries.
 
 These parameters ensure that receipts created by `RetryExecutor` carry the same traceability fields as receipts from the normal delivery pipeline, enabling operators to distinguish live deliveries from replay deliveries without inspecting the call site.

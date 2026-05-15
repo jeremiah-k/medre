@@ -132,7 +132,10 @@ class RetryWorker:
         return Route(
             id=receipt.route_id or "retry-route",
             source=RouteSource(adapter=None, event_kinds=(), channel=None),
-            targets=[RouteTarget(adapter=receipt.target_adapter)],
+            targets=[RouteTarget(
+                adapter=receipt.target_adapter,
+                channel=getattr(receipt, "target_channel", None),
+            )],
         )
 
     @staticmethod
@@ -142,7 +145,10 @@ class RetryWorker:
         return DeliveryPlan(
             plan_id=receipt.delivery_plan_id,
             event_id=receipt.event_id,
-            target=RouteTarget(adapter=receipt.target_adapter),
+            target=RouteTarget(
+                adapter=receipt.target_adapter,
+                channel=getattr(receipt, "target_channel", None),
+            ),
             primary_strategy=DeliveryStrategy(method="direct"),
         )
 

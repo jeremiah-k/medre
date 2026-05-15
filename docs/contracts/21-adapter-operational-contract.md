@@ -268,7 +268,7 @@ Every fake adapter must:
 
 ## 11. Retry and Dedup: Runtime Non-Ownership
 
-Phase 1 explicitly does not implement automatic retry scheduling or deduplication. This section records the boundary so it is not accidentally crossed.
+Phase 1 implements automatic retry scheduling via RetryWorker (opt-in). Deduplication is not implemented. This section records the boundary so it is not accidentally crossed.
 
 ### 11.1 Retry
 
@@ -278,7 +278,7 @@ The `RetryExecutor` computes backoff timing and exhaustion checks. It is statele
 - `attempt_number`: 1-indexed count of delivery attempts.
 - `parent_receipt_id`: Links this receipt to the previous attempt's receipt.
 
-No code exists to read `next_retry_at` and trigger a re-delivery. This is by design. The receipt records the intent. A future scheduler will act on it.
+No code existed to read `next_retry_at` and trigger a re-delivery prior to RetryWorker. RetryWorker now acts on `next_retry_at` by polling for due retry receipts. The receipt records the intent, and RetryWorker executes it when enabled.
 
 Adapters must not implement their own retry loops. If `deliver()` fails, it raises. The pipeline records the failure. Period.
 

@@ -101,6 +101,7 @@ CREATE TABLE IF NOT EXISTS delivery_receipts (
     event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
     delivery_plan_id TEXT NOT NULL,
     target_adapter TEXT NOT NULL,
+    target_channel TEXT,
     route_id TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL,
     error TEXT,
@@ -116,7 +117,7 @@ CREATE TABLE IF NOT EXISTS delivery_receipts (
 
 CREATE VIEW IF NOT EXISTS delivery_status AS
 SELECT dr.sequence, dr.receipt_id, dr.event_id, dr.delivery_plan_id,
-       dr.target_adapter, dr.route_id, dr.status, dr.error,
+       dr.target_adapter, dr.target_channel, dr.route_id, dr.status, dr.error,
        dr.adapter_message_id, dr.next_retry_at, dr.attempt_number,
        dr.parent_receipt_id, dr.source, dr.replay_run_id, dr.created_at
 FROM delivery_receipts dr
@@ -209,7 +210,7 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
     }),
     "delivery_receipts": frozenset({
         "sequence", "receipt_id", "event_id", "delivery_plan_id",
-        "target_adapter", "route_id", "status", "error", "failure_kind",
+        "target_adapter", "target_channel", "route_id", "status", "error", "failure_kind",
         "adapter_message_id", "next_retry_at", "attempt_number",
         "parent_receipt_id", "source", "replay_run_id", "created_at",
     }),
@@ -257,10 +258,10 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 _INSERT_RECEIPT = """
 INSERT INTO delivery_receipts
     (receipt_id, event_id, delivery_plan_id, target_adapter,
-     route_id, status, error, failure_kind, adapter_message_id,
+     target_channel, route_id, status, error, failure_kind, adapter_message_id,
      next_retry_at, attempt_number, parent_receipt_id, source,
      replay_run_id, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 _SELECT_EVENT = "SELECT * FROM canonical_events WHERE event_id = ?"
@@ -393,6 +394,7 @@ def _row_to_receipt(row: dict[str, Any]) -> DeliveryReceipt:
         event_id=row["event_id"],
         delivery_plan_id=row["delivery_plan_id"],
         target_adapter=row["target_adapter"],
+        target_channel=row.get("target_channel"),
         route_id=row.get("route_id", ""),
         status=row["status"],  # type: ignore[arg-type]
         error=row["error"],
@@ -1090,6 +1092,7 @@ class SQLiteStorage:
                 receipt.event_id,
                 receipt.delivery_plan_id,
                 receipt.target_adapter,
+                receipt.target_channel,
                 receipt.route_id,
                 receipt.status,
                 receipt.error,

@@ -180,6 +180,8 @@ class RetryWorker:
             )
             return
 
+        parent_receipt_id = receipt.receipt_id
+
         # Acquire delivery capacity.
         if self._capacity is not None:
             try:
@@ -190,6 +192,18 @@ class RetryWorker:
                         "RetryWorker: capacity rejected for receipt %s",
                         receipt.receipt_id,
                     )
+                    self._emit("retry_failed", {
+                        "receipt_id": parent_receipt_id,
+                        "parent_receipt_id": parent_receipt_id,
+                        "retry_receipt_id": None,
+                        "event_id": receipt.event_id,
+                        "target_adapter": receipt.target_adapter,
+                        "attempt_number": receipt.attempt_number,
+                        "status": "capacity_rejection",
+                        "failure_kind": "capacity_rejection",
+                        "error": "delivery capacity not available",
+                        "next_retry_at": None,
+                    })
                     return
             except Exception:
                 self.state.failed += 1
@@ -203,7 +217,7 @@ class RetryWorker:
             # Reconstruct minimal Route and DeliveryPlan from receipt metadata.
             target = RouteTarget(
                 adapter=receipt.target_adapter,
-                channel=getattr(receipt, "target_channel", None),
+                channel=receipt.target_channel,
             )
             route = Route(
                 id=receipt.route_id or "",
@@ -219,11 +233,12 @@ class RetryWorker:
             )
 
             self._emit("retry_attempted", {
-                "receipt_id": receipt.receipt_id,
+                "receipt_id": parent_receipt_id,
+                "parent_receipt_id": parent_receipt_id,
+                "retry_receipt_id": None,
                 "event_id": receipt.event_id,
                 "target_adapter": receipt.target_adapter,
                 "attempt_number": receipt.attempt_number,
-                "parent_receipt_id": receipt.parent_receipt_id,
             })
 
             result_receipt = await self._pipeline.deliver_to_target(
@@ -237,42 +252,73 @@ class RetryWorker:
 
             # Success path — deliver_to_target returns a receipt.
             self.state.processed += 1
-            if result_receipt.status == "sent":
-                self.state.succeeded += 1
-                self._emit("retry_succeeded", {
-                    "receipt_id": receipt.receipt_id,
-                    "event_id": receipt.event_id,
-                    "target_adapter": receipt.target_adapter,
-                    "attempt_number": receipt.attempt_number,
-                })
-            else:
-                self.state.failed += 1
-                if result_receipt.status == "dead_lettered":
-                    self.state.dead_lettered += 1
-                    self._emit("retry_dead_lettered", {
-                        "receipt_id": receipt.receipt_id,
-                        "event_id": receipt.event_id,
-                        "target_adapter": receipt.target_adapter,
-                        "attempt_number": receipt.attempt_number,
-                    })
-                else:
-                    self._emit("retry_failed", {
-                        "receipt_id": receipt.receipt_id,
-                        "event_id": receipt.event_id,
-                        "target_adapter": receipt.target_adapter,
-                        "attempt_number": receipt.attempt_number,
-                    })
+            self.state.succeeded += 1
+            self._emit("retry_succeeded", {
+                "receipt_id": result_receipt.receipt_id,
+                "parent_receipt_id": parent_receipt_id,
+                "retry_receipt_id": result_receipt.receipt_id,
+                "event_id": receipt.event_id,
+                "target_adapter": receipt.target_adapter,
+                "attempt_number": result_receipt.attempt_number,
+            })
         except asyncio.CancelledError:
             raise
         except Exception:
             self.state.processed += 1
             self.state.failed += 1
-            self._emit("retry_failed", {
-                "receipt_id": receipt.receipt_id,
-                "event_id": receipt.event_id,
-                "target_adapter": receipt.target_adapter,
-                "attempt_number": receipt.attempt_number,
-            })
+            # Check if a dead-lettered receipt was appended by the pipeline.
+            # FIX 2: guard storage calls so errors don't swallow the original.
+            try:
+                is_dead_lettered = await self._check_dead_lettered(
+                    receipt.event_id, receipt.target_adapter,
+                )
+            except Exception:
+                _logger.exception(
+                    "RetryWorker: error checking dead-lettered for %s/%s",
+                    receipt.event_id, receipt.target_adapter,
+                )
+                is_dead_lettered = False
+
+            if is_dead_lettered:
+                self.state.dead_lettered += 1
+                try:
+                    dl_receipt_id = await self._find_dead_letter_receipt_id(
+                        receipt.event_id, receipt.target_adapter,
+                    )
+                except Exception:
+                    _logger.exception(
+                        "RetryWorker: error finding dead-letter receipt for %s/%s",
+                        receipt.event_id, receipt.target_adapter,
+                    )
+                    dl_receipt_id = None
+                self._emit("retry_dead_lettered", {
+                    "receipt_id": dl_receipt_id or parent_receipt_id,
+                    "parent_receipt_id": parent_receipt_id,
+                    "retry_receipt_id": dl_receipt_id,
+                    "event_id": receipt.event_id,
+                    "target_adapter": receipt.target_adapter,
+                    "attempt_number": receipt.attempt_number + 1,
+                })
+            else:
+                # FIX 1: look up the failed receipt for retry_receipt_id.
+                try:
+                    new_receipt = await self._find_failed_receipt(
+                        receipt.event_id, receipt.target_adapter,
+                    )
+                except Exception:
+                    _logger.exception(
+                        "RetryWorker: error finding failed receipt for %s/%s",
+                        receipt.event_id, receipt.target_adapter,
+                    )
+                    new_receipt = None
+                self._emit("retry_failed", {
+                    "receipt_id": parent_receipt_id,
+                    "parent_receipt_id": parent_receipt_id,
+                    "retry_receipt_id": new_receipt.receipt_id if new_receipt else None,
+                    "event_id": receipt.event_id,
+                    "target_adapter": receipt.target_adapter,
+                    "attempt_number": receipt.attempt_number,
+                })
             _logger.debug(
                 "RetryWorker: delivery failed for receipt %s",
                 receipt.receipt_id,
@@ -281,3 +327,37 @@ class RetryWorker:
         finally:
             if self._capacity is not None:
                 await self._capacity.release_delivery()
+
+    async def _check_dead_lettered(
+        self, event_id: str, target_adapter: str,
+    ) -> bool:
+        """Check if a dead-lettered receipt exists for this event/target."""
+        receipts = await self._storage.list_receipts_for_event(event_id)
+        return any(
+            r.status == "dead_lettered" and r.target_adapter == target_adapter
+            for r in receipts
+        )
+
+    async def _find_dead_letter_receipt_id(
+        self, event_id: str, target_adapter: str,
+    ) -> str | None:
+        """Return the receipt_id of the dead-lettered receipt, if any."""
+        receipts = await self._storage.list_receipts_for_event(event_id)
+        for r in receipts:
+            if r.status == "dead_lettered" and r.target_adapter == target_adapter:
+                return r.receipt_id
+        return None
+
+    async def _find_failed_receipt(
+        self, event_id: str, target_adapter: str,
+    ) -> Any | None:
+        """Return the latest failed receipt for this event/target, if any."""
+        receipts = await self._storage.list_receipts_for_event(event_id)
+        failed = [
+            r for r in receipts
+            if r.status == "failed" and r.target_adapter == target_adapter
+        ]
+        if not failed:
+            return None
+        # Return the one with the highest sequence (most recent).
+        return max(failed, key=lambda r: r.sequence)

@@ -679,7 +679,7 @@ The snapshot is written to `{state_dir}/shutdown-snapshot.json` (resolved accord
 - The snapshot is captured **after** adapters are stopped. `lifecycle.runtime_state` will be `"stopped"`. Adapter health reflects the stopped state.
 - Counters and stats in the snapshot are **process-local and non-durable**. They represent the in-memory state at the moment of capture. The same counters reset to zero on the next startup.
 - Runtime events (`diagnostics.runtime_events`) are **process-local**. They are not persisted to SQLite and do not survive the process exiting. The shutdown snapshot is the only way to capture them.
-- There is **no automatic retry scheduler** and **no final ACK guarantee** for any transport. The snapshot records what the runtime observed, not what the remote side confirmed.
+- The RetryWorker is an opt-in background task for transient delivery failures, but there is **no final ACK guarantee** for any transport. The snapshot records what the runtime observed, not what the remote side confirmed.
 
 ### Signal Handling (Ctrl-C / SIGTERM)
 

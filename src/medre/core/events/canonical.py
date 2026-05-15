@@ -207,10 +207,11 @@ class DeliveryReceipt(msgspec.Struct, frozen=True):
         ``attempt_number`` this provides an explicit receipt lineage.
     source:
         Origin of this receipt: ``"live"`` for normal pipeline delivery,
+        ``"retry"`` for RetryWorker-attempted delivery,
         ``"replay"`` for replay-originated delivery.
     replay_run_id:
         When ``source="replay"``, the ``run_id`` of the replay execution
-        that produced this receipt.  ``None`` for live deliveries.
+        that produced this receipt.  ``None`` for live and retry deliveries.
     created_at:
         Timestamp when this receipt was created.
     """
@@ -220,6 +221,7 @@ class DeliveryReceipt(msgspec.Struct, frozen=True):
     event_id: str = ""
     delivery_plan_id: str = ""
     target_adapter: str = ""
+    target_channel: str | None = None
     route_id: str = ""
     status: Literal[
         "accepted",

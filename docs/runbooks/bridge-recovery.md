@@ -36,7 +36,7 @@ correctly.
 **Caveat:** Traceability is not deduplication. This workflow shows you what
 happened and lets you re-deliver, but it cannot tell you whether a duplicate
 reached the remote side. BEST_EFFORT sends real messages. There is no final
-ACK guarantee for radio transports. There is no active retry scheduler — every
+ACK guarantee for radio transports. The RetryWorker is an opt-in background task for transient failures, but replay is operator-initiated — every
 step below is operator-initiated. Runtime events and counters are process-local
 and reset on restart.
 
@@ -403,7 +403,7 @@ WHERE r.event_id IS NULL
 ### 4.3 Replay Workflow for Orphans
 
 After a crash, operators can replay orphan events to re-deliver them. Replay
-is **manual** — there is no automatic retry scheduler, no background replay
+is **manual** — the RetryWorker is an opt-in background task for transient failures (receipts with `source="retry"`), but replay for orphaned events is operator-initiated, there is no background replay
 daemon, and no resume mechanism. Each replay run is a one-shot operator action.
 
 **Storage remains durable:** events, receipts, and native refs in SQLite

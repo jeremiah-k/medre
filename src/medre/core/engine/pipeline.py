@@ -926,10 +926,10 @@ class PipelineRunner:
            compute the next retry state.  If retries are exhausted, record
            a ``dead_lettered`` receipt.
 
-        **Phase 1 does not implement a background retry scheduler.**
-        Retry is synchronous/receipt-level only: this method records the
-        failure receipt with ``next_retry_at`` populated.  A future
-        scheduler or manual replay re-invokes this method with the
+        **Phase 1 implements a background retry scheduler via RetryWorker (opt-in).**
+        When RetryWorker is not enabled, retry is synchronous/receipt-level only:
+        this method records the failure receipt with ``next_retry_at`` populated.
+        A future scheduler or manual replay re-invokes this method with the
         ``previous_receipt`` parameter.
 
         Parameters
@@ -975,6 +975,7 @@ class PipelineRunner:
                 event_id=event.event_id,
                 delivery_plan_id=plan.plan_id,
                 target_adapter=adapter_id or "",
+                target_channel=target.channel,
                 route_id=route.id,
                 status="failed",
                 error=f"Adapter {adapter_id!r} not registered",
@@ -1001,6 +1002,7 @@ class PipelineRunner:
                 event_id=event.event_id,
                 delivery_plan_id=plan.plan_id,
                 target_adapter=adapter_id or "",
+                target_channel=target.channel,
                 route_id=route.id,
                 status="failed",
                 error="Delivery deadline exceeded",
@@ -1043,6 +1045,7 @@ class PipelineRunner:
                 event_id=event.event_id,
                 delivery_plan_id=plan.plan_id,
                 target_adapter=adapter_id or "",
+                target_channel=target.channel,
                 route_id=route.id,
                 status="failed",
                 error=rendering_error,
@@ -1072,6 +1075,7 @@ class PipelineRunner:
                 event_id=event.event_id,
                 delivery_plan_id=plan.plan_id,
                 target_adapter=adapter_id or "",
+                target_channel=target.channel,
                 route_id=route.id,
                 status="failed",
                 error=no_deliver_error,
@@ -1157,6 +1161,7 @@ class PipelineRunner:
             event_id=event.event_id,
             delivery_plan_id=plan.plan_id,
             target_adapter=adapter_id or "",
+            target_channel=target.channel,
             route_id=route.id,
             status=status,
             error=error,

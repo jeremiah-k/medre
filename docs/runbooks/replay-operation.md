@@ -262,8 +262,8 @@ is critical for incident investigation and duplicate risk assessment:
 
 | Field | Purpose | Values |
 |-------|---------|--------|
-| `source` | **Origin classification** — was this delivery from the live pipeline or from a replay run? | `"live"` or `"replay"` |
-| `replay_run_id` | **Run grouping** — which specific replay invocation produced this receipt? | Unique run ID string when `source == "replay"`, `null` when `source == "live"` |
+| `source` | **Origin classification** — was this delivery from the live pipeline, a RetryWorker retry, or a replay run? | `"live"`, `"retry"`, or `"replay"` |
+| `replay_run_id` | **Run grouping** — which specific replay invocation produced this receipt? | Unique run ID string when `source == "replay"`, `null` when `source == "live"` or `source == "retry"` |
 
 **Practical use:**
 
@@ -327,7 +327,7 @@ again. Options:
 
 There is no automatic stale data detection in the replay engine. The
 operator is responsible for assessing duplicate risk before each BEST_EFFORT
-run. There is no active retry scheduler; replay is a one-shot operator
+run. The RetryWorker handles transient failures automatically when enabled, but does not trigger replay; replay is a one-shot operator
 action. BEST_EFFORT sends real messages.
 
 ### 4.5 Replay Cancellation and Shutdown

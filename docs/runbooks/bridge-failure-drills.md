@@ -865,7 +865,7 @@ This cross-check workflow applies to all drills in this runbook:
 **Caveat:** Drill trace data uses fake adapters — it proves pipeline
 correctness, not real transport behavior. Traceability is not deduplication.
 BEST_EFFORT replay sends real messages. There is no final ACK guarantee for
-radio transports. There is no active retry scheduler. Runtime events and
+radio transports. The RetryWorker is an opt-in background task for transient failures, but does not re-deliver orphaned events. Runtime events and
 counters are process-local and reset on restart.
 
 See [Bridge Recovery](bridge-recovery.md) for the complete incident workflow,

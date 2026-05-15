@@ -402,14 +402,20 @@ class TestRetryTraceEvidence:
             plan = DeliveryPlan(
                 plan_id=original.delivery_plan_id,
                 event_id=event.event_id,
-                target=RouteTarget(adapter="trace_target"),
+                target=RouteTarget(
+                    adapter="trace_target",
+                    channel=getattr(original, "target_channel", None),
+                ),
                 primary_strategy=DeliveryStrategy(method="direct"),
                 retry_policy=RetryPolicy(max_attempts=3),
             )
             route_obj = Route(
                 id=original.route_id,
                 source=RouteSource(adapter=None, event_kinds=(), channel=None),
-                targets=[RouteTarget(adapter="trace_target")],
+                targets=[RouteTarget(
+                    adapter="trace_target",
+                    channel=getattr(original, "target_channel", None),
+                )],
             )
             retry_receipt = await runner.deliver_to_target(
                 event, route_obj, plan,

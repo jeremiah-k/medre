@@ -219,7 +219,8 @@ class StorageBackend(Protocol):
 
         The receipt's ``source`` field indicates the origin (``"live"`` or
         ``"replay"``); ``replay_run_id`` is populated when
-        ``source="replay"``.
+        ``source="replay"``.  The ``target_channel`` field records the
+        channel the event was delivered to, enabling retry reconstruction.
         """
         ...
 

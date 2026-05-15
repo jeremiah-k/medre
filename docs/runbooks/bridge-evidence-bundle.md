@@ -471,8 +471,7 @@ replay trace report produced by `medre trace replay`.
 **Caveat:** Traceability is not deduplication. The trace sections show all
 receipts including duplicates from replay, but cannot tell you which delivery
 actually reached the remote side. BEST_EFFORT sends real messages. There is
-no final ACK guarantee for radio transports. There is no active retry
-scheduler. Runtime events and counters are process-local.
+no final ACK guarantee for radio transports. The RetryWorker is an opt-in background task for transient failures, but does not re-deliver orphaned events. Runtime events and counters are process-local.
 
 The evidence bundle includes replay receipts alongside live receipts when
 applicable. The `replay_run_id` field distinguishes which replay run produced

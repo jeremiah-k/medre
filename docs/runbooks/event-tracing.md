@@ -251,7 +251,8 @@ Entry types: `[receipt]` (status, target, event ID) and `[event_summary]`
 
 **Caveat:** The `duplicate_risk` field is informational only — it does not
 prevent duplicates. BEST_EFFORT replay sends real messages regardless. There
-is no active retry scheduler; replay is operator-initiated and one-shot.
+is no active retry scheduler for replay; replay is operator-initiated and one-shot.
+The RetryWorker handles transient delivery failures automatically when enabled (receipts carry `source="retry"`), but does not re-deliver orphaned events.
 Runtime events are process-local — if the process crashed during replay,
 completed deliveries are preserved (receipts in SQLite) but remaining events
 must be re-replayed manually.
@@ -572,7 +573,7 @@ same timestamp (which happens frequently in fast pipelines).
 Replay receipts are stored in the same `delivery_receipts` table as live
 receipts. They are interleaved in `sequence` order. A replay receipt will have
 a higher `sequence` value than any live receipt that preceded it, because it
-was inserted later. The `source` column (`"live"` vs `"replay"`) distinguishes
+was inserted later. The `source` column (`"live"`, `"retry"`, or `"replay"`) distinguishes
 origin. The `replay_run_id` column groups receipts from the same replay
 invocation.
 
@@ -663,7 +664,7 @@ seq 171-176:  replay receipts (3 events * 2 targets, run_id=interleave-001)
 seq 177-186:  phase-C live receipts (5 new events * 2 targets)
 ```
 
-The `source` column (`"live"` vs `"replay"`) is the authoritative filter.  Do
+The `source` column (`"live"`, `"retry"`, or `"replay"`) is the authoritative filter.  Do
 not use `replay_run_id IS NOT NULL` to detect replay receipts.
 
 ### 6.3 Evidence Bundle Matches Trace Ordering

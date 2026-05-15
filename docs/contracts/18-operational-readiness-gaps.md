@@ -233,7 +233,7 @@ Contract 05 defines a complete plugin API: `Plugin` protocol, `PluginContext`, `
 
 ### 8.2 What Is Missing
 
-- **No background retry scheduler.** The pipeline records `next_retry_at` on failed receipts but never acts on it. No timer, no background task, no event-driven mechanism re-attempts delivery. Manual replay via BEST_EFFORT mode is the only retry path.
+- **Background retry scheduler exists via RetryWorker (opt-in).** The pipeline records `next_retry_at` on failed receipts and `RetryWorker` (when enabled) polls for due receipts and re-attempts delivery. Manual replay via BEST_EFFORT mode remains available as an alternative retry path.
 - **No dead-letter queue management.** Dead-lettered events are recorded as receipts. No admin interface, no reprocessing UI, no listing or querying of dead-lettered events exists outside of raw SQL.
 - **No retry budget.** No per-adapter or per-plan retry rate limiting. An adapter with persistent failures could accumulate unlimited dead-letter receipts.
 - **No receipt deduplication.** Replaying events with existing successful receipts duplicates them.
