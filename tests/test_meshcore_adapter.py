@@ -1147,3 +1147,139 @@ class TestRepeatedStartStop:
         delivery2 = await adapter.deliver(result2)
         assert delivery2 is not None
         assert delivery2.native_message_id == "2"
+
+
+# ===================================================================
+# _on_sdk_event boundary test
+# ===================================================================
+
+
+class TestMeshCoreSessionOnSdkEvent:
+    """Boundary test: _on_sdk_event normalizes SDK Event objects to clean
+    dicts and invokes _message_callback with the correct payload shape.
+    """
+
+    async def test_on_sdk_event_with_contact_msg_event(self) -> None:
+        """_on_sdk_event extracts payload from SDK Event and forwards to callback."""
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        config = _make_config(connection_type="fake")
+        session = MeshCoreSession(config=config, adapter_id="mc-test")
+        collected: list[dict] = []
+        session._message_callback = AsyncMock(side_effect=lambda p: collected.append(p))
+
+        sdk_event = SimpleNamespace(
+            type="CONTACT_MSG_RECV",
+            payload={
+                "text": "hello from sdk",
+                "pubkey_prefix": "abc123",
+                "sender_timestamp": 99,
+                "type": "CHAN",
+                "txt_type": 0,
+            },
+        )
+
+        await session._on_sdk_event(sdk_event)
+
+        assert len(collected) == 1
+        payload = collected[0]
+        assert payload["text"] == "hello from sdk"
+        assert payload["pubkey_prefix"] == "abc123"
+        assert payload["sender_timestamp"] == 99
+        assert payload["type"] == "CHAN"
+        assert payload["txt_type"] == 0
+
+    async def test_on_sdk_event_with_channel_msg_event(self) -> None:
+        """_on_sdk_event handles channel messages with channel_idx."""
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        config = _make_config(connection_type="fake")
+        session = MeshCoreSession(config=config, adapter_id="mc-test")
+        collected: list[dict] = []
+        session._message_callback = AsyncMock(side_effect=lambda p: collected.append(p))
+
+        sdk_event = SimpleNamespace(
+            type="CHANNEL_MSG_RECV",
+            payload={
+                "text": "channel msg",
+                "channel_idx": 2,
+                "sender_timestamp": 200,
+                "type": "CHAN",
+                "txt_type": 0,
+                "pubkey_prefix": "chan_peer",
+            },
+        )
+
+        await session._on_sdk_event(sdk_event)
+
+        assert len(collected) == 1
+        assert collected[0]["channel_idx"] == 2
+        assert collected[0]["pubkey_prefix"] == "chan_peer"
+
+    async def test_on_sdk_event_no_callback_is_noop(self) -> None:
+        """_on_sdk_event returns silently when no callback registered."""
+        config = _make_config(connection_type="fake")
+        session = MeshCoreSession(config=config, adapter_id="mc-test")
+        # _message_callback is None by default
+        assert session._message_callback is None
+
+        from types import SimpleNamespace
+        sdk_event = SimpleNamespace(
+            type="CONTACT_MSG_RECV",
+            payload={"text": "should not crash"},
+        )
+        # Must not raise
+        await session._on_sdk_event(sdk_event)
+
+    async def test_on_sdk_event_dict_passthrough(self) -> None:
+        """_on_sdk_event passes dict events through without transformation."""
+        from unittest.mock import AsyncMock
+
+        config = _make_config(connection_type="fake")
+        session = MeshCoreSession(config=config, adapter_id="mc-test")
+        collected: list[dict] = []
+        session._message_callback = AsyncMock(side_effect=lambda p: collected.append(p))
+
+        raw_dict = {"text": "raw dict", "pubkey_prefix": "xyz", "sender_timestamp": 1}
+        await session._on_sdk_event(raw_dict)
+
+        assert len(collected) == 1
+        assert collected[0] is raw_dict
+
+    async def test_on_sdk_event_updates_last_message_time(self) -> None:
+        """_on_sdk_event updates session diagnostics last_message_time."""
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        config = _make_config(connection_type="fake")
+        session = MeshCoreSession(config=config, adapter_id="mc-test")
+        session._message_callback = AsyncMock()
+
+        assert session.last_message_time is None
+
+        sdk_event = SimpleNamespace(
+            type="CONTACT_MSG_RECV",
+            payload={"text": "timecheck"},
+        )
+        await session._on_sdk_event(sdk_event)
+
+        assert session.last_message_time is not None
+
+    async def test_on_sdk_event_handles_missing_payload(self) -> None:
+        """_on_sdk_event handles Event objects without .payload gracefully."""
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        config = _make_config(connection_type="fake")
+        session = MeshCoreSession(config=config, adapter_id="mc-test")
+        collected: list[dict] = []
+        session._message_callback = AsyncMock(side_effect=lambda p: collected.append(p))
+
+        # Event with no .payload attribute
+        sdk_event = SimpleNamespace(type="CONTACT_MSG_RECV")
+        await session._on_sdk_event(sdk_event)
+
+        assert len(collected) == 1
+        assert collected[0] == {}

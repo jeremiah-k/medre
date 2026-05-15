@@ -195,9 +195,19 @@ For the same stored event and route configuration, replay attribution is identic
 
 ### 6.1 Live Routing
 
-The `Router` does **not** enforce loop prevention. Live routing trusts that route configuration is non-circular. Route configuration validation may warn about obvious loops at config-load time, but runtime enforcement is minimal.
+The `Router` does **not** enforce loop prevention. Live routing trusts that route configuration is non-circular. Route configuration validation may warn about obvious loops at config-load time, but runtime enforcement operates per-delivery and per-ingress, not per-route-topology.
 
-### 6.2 Replay
+### 6.2 Runtime Pipeline Guards
+
+In addition to the startup-time `check_route_loops` warning, three runtime pipeline guards prevent loop propagation during live delivery:
+
+1. **Native-ref duplicate suppression** — `PipelineRunner.handle_ingress` Stage 1.5 checks inbound events against stored native message references. If the event's `source_native_ref` matches a previously seen ref, the event is dropped. This prevents echo from re-delivered or duplicate packets at the pipeline boundary.
+
+2. **Self-loop guard** — `PipelineRunner._execute_single_delivery` checks whether `target_adapter == event.source_adapter` for each delivery target. If true, the delivery is skipped with `status="skipped"` and `error="loop_prevented"`.
+
+3. **Route-trace guard** — `PipelineRunner._execute_single_delivery` checks the `route_trace` counter on the event's `RoutingMetadata`. If a route ID appears more than once in the trace (indicating a cycle), the delivery is skipped.
+
+### 6.3 Replay
 
 Loop prevention is explicitly owned by `_filter_replay_loops` in `medre.core.storage.replay`. It detects:
 
@@ -206,13 +216,23 @@ Loop prevention is explicitly owned by `_filter_replay_loops` in `medre.core.sto
 
 Looping routes are **skipped** (not erroring). A `loop_warnings` tuple is attached to the `ReplayRouteAttribution`.
 
-### 6.3 Ownership Summary
+### 6.4 Ownership Summary
 
 | Context | Loop prevention owner |
 |---------|-----------------------|
 | Live routing | Config validation (load time) |
 | Replay | `_filter_replay_loops` in `medre.core.storage.replay` |
 | Runtime startup | `RouteConfigSet` validation (config load) |
+
+### 6.5 Loop-Prevention Taxonomy
+
+| Mechanism | Owner | Layer | When | Effect |
+|---|---|---|---|---|
+| `check_route_loops` | `route_engine` | Config | Startup | Log warning |
+| Native-ref dedup | `PipelineRunner.handle_ingress` | Pipeline | Per-ingress | Drop event |
+| Self-loop guard | `PipelineRunner._execute_single_delivery` | Pipeline | Per-delivery | Skip target |
+| Route-trace guard | `PipelineRunner._execute_single_delivery` | Pipeline | Per-delivery | Skip target |
+| `_filter_replay_loops` | `medre.core.storage.replay` | Replay | Per-replay event | Skip + warn |
 
 
 ## 7. Route Diagnostics Expectations

@@ -207,6 +207,169 @@ class TestSelfMessagePrevention:
         assert snap["loop_prevented"] == 0
         assert len(fake_target.delivered_payloads) == 2
 
+    async def test_null_channel_id_dedup_works(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """NativeRef with None channel_id is still deduplicated."""
+        fake_target = FakeMeshtasticAdapter(
+            MeshtasticConfig(adapter_id="nullch-target")
+        )
+
+        route = Route(
+            id="nullch-route",
+            source=RouteSource(
+                adapter="nullch-src",
+                event_kinds=("message.created",),
+                channel=None,
+            ),
+            targets=[RouteTarget(adapter="nullch-target", channel="0")],
+        )
+        router = Router(routes=[route])
+
+        rp = RenderingPipeline()
+        rp.register(TextRenderer(), priority=100)
+
+        accounting = RuntimeAccounting()
+        config = make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={"nullch-target": fake_target},
+            rendering_pipeline=rp,
+            accounting=accounting,
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        # First event with NativeRef(native_channel_id=None)
+        first_event = CanonicalEvent(
+            event_id=f"nullch-{uuid.uuid4()}",
+            event_kind=EventKind.MESSAGE_CREATED,
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="nullch-src",
+            source_transport_id="nullch-src",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"body": "first with null channel"},
+            metadata=EventMetadata(),
+            source_native_ref=NativeRef(
+                adapter="nullch-src",
+                native_channel_id=None,
+                native_message_id="null-ch-test",
+            ),
+        )
+        outcomes_first = await runner.handle_ingress(first_event)
+
+        # First event accepted
+        assert len(outcomes_first) == 1
+        assert accounting.snapshot()["inbound_accepted"] == 1
+
+        # Second event with same None-channel ref → suppressed
+        second_event = CanonicalEvent(
+            event_id=f"nullch-dup-{uuid.uuid4()}",
+            event_kind=EventKind.MESSAGE_CREATED,
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="nullch-src",
+            source_transport_id="nullch-src",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"body": "duplicate with null channel"},
+            metadata=EventMetadata(),
+            source_native_ref=NativeRef(
+                adapter="nullch-src",
+                native_channel_id=None,
+                native_message_id="null-ch-test",
+            ),
+        )
+        outcomes_second = await runner.handle_ingress(second_event)
+
+        # Second event suppressed
+        assert outcomes_second == []
+
+        # Only one event in storage
+        all_events = await temp_storage._read_all(
+            "SELECT event_id FROM canonical_events"
+        )
+        assert len(all_events) == 1
+
+        snap = accounting.snapshot()
+        assert snap["loop_prevented"] == 1
+
+        await runner.stop()
+
+    async def test_empty_string_native_message_id_passes_through(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """native_message_id="" (falsy) bypasses dedup."""
+        fake_target = FakeMeshtasticAdapter(
+            MeshtasticConfig(adapter_id="emptymid-target")
+        )
+
+        route = Route(
+            id="emptymid-route",
+            source=RouteSource(
+                adapter="emptymid-src",
+                event_kinds=("message.created",),
+                channel=None,
+            ),
+            targets=[RouteTarget(adapter="emptymid-target", channel="0")],
+        )
+        router = Router(routes=[route])
+
+        rp = RenderingPipeline()
+        rp.register(TextRenderer(), priority=100)
+
+        accounting = RuntimeAccounting()
+        config = make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={"emptymid-target": fake_target},
+            rendering_pipeline=rp,
+            accounting=accounting,
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        # Inject two events with native_message_id="" (falsy)
+        for i in range(2):
+            event = CanonicalEvent(
+                event_id=f"emptymid-{i}",
+                event_kind=EventKind.MESSAGE_CREATED,
+                schema_version=1,
+                timestamp=datetime.now(timezone.utc),
+                source_adapter="emptymid-src",
+                source_transport_id="emptymid-src",
+                source_channel_id="ch-0",
+                parent_event_id=None,
+                lineage=(),
+                relations=(),
+                payload={"body": f"msg {i}"},
+                metadata=EventMetadata(),
+                source_native_ref=NativeRef(
+                    adapter="emptymid-src",
+                    native_channel_id="ch-0",
+                    native_message_id="",
+                ),
+            )
+            await runner.handle_ingress(event)
+
+        await runner.stop()
+
+        # Both events accepted (empty string bypasses dedup)
+        all_events = await temp_storage._read_all(
+            "SELECT event_id FROM canonical_events"
+        )
+        assert len(all_events) == 2
+
+        snap = accounting.snapshot()
+        assert snap["inbound_accepted"] == 2
+        assert snap["loop_prevented"] == 0
+
 
 class TestLoopPreventionExistingRef:
     """Outbound produces native ref. Simulate that native ref reappearing

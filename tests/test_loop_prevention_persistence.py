@@ -21,6 +21,7 @@ from medre.adapters.meshtastic.config import MeshtasticConfig
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.events import CanonicalEvent, EventMetadata, NativeRef
 from medre.core.events.kinds import EventKind
+from medre.core.events.metadata import RoutingMetadata
 from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, RouteSource, RouteTarget, Router
@@ -186,6 +187,79 @@ class TestLoopPreventionHardening:
 
         # No delivery
         assert len(fake_mesh.delivered_payloads) == 0
+
+    async def test_route_trace_single_occurrence_passes_through(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """route_trace with count=1 (first occurrence) does NOT trigger guard."""
+        fake_mesh = FakeMeshtasticAdapter(
+            MeshtasticConfig(adapter_id="pass-mesh")
+        )
+
+        route = Route(
+            id="pass-route",
+            source=RouteSource(
+                adapter="pass-src",
+                event_kinds=("message.created",),
+                channel=None,
+            ),
+            targets=[RouteTarget(adapter="pass-mesh", channel="0")],
+        )
+        router = Router(routes=[route])
+
+        rp = RenderingPipeline()
+        rp.register(TextRenderer(), priority=100)
+
+        accounting = RuntimeAccounting()
+        route_stats = RouteStats()
+        config = make_pipeline_config(
+            storage=temp_storage,
+            router=router,
+            adapters={"pass-mesh": fake_mesh},
+            rendering_pipeline=rp,
+            accounting=accounting,
+            route_stats=route_stats,
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        # Event with no prior route_trace; pipeline will set
+        # route_trace=("pass-route",) — single occurrence, count=1.
+        event = CanonicalEvent(
+            event_id=f"pass-{uuid.uuid4()}",
+            event_kind=EventKind.MESSAGE_CREATED,
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="pass-src",
+            source_transport_id="pass-src",
+            source_channel_id="ch-0",
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"body": "pass-through test"},
+            metadata=EventMetadata(
+                routing=RoutingMetadata(route_trace=()),
+            ),
+        )
+        outcomes = await runner.handle_ingress(event)
+
+        await runner.stop()
+
+        # Event is delivered (not skipped)
+        assert len(outcomes) == 1
+        assert outcomes[0].status == "success"
+
+        snap = accounting.snapshot()
+        assert snap["loop_prevented"] == 0
+        assert snap["inbound_accepted"] == 1
+
+        # Delivery happened
+        assert len(fake_mesh.delivered_payloads) == 1
+
+        # Route stats show delivered, not loop_prevented
+        stats = route_stats.snapshot()
+        assert stats["pass-route"]["delivered"] == 1
+        assert stats["pass-route"]["loop_prevented"] == 0
 
     async def test_native_ref_cycle_detection(
         self, temp_storage: SQLiteStorage
