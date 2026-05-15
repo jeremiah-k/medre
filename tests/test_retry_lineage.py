@@ -597,3 +597,170 @@ class TestRetryLineage:
             assert len(chain_a_dead) == 1
         finally:
             await runner.stop()
+
+    async def test_retry_replay_distinction(self, temp_storage):
+        """For the same event, produce live-failed, retry-success, and
+        replay-success receipts.  Assert sources are distinct, retry is
+        linked by parent_receipt_id, replay by replay_run_id, timeline
+        shows all 3 correctly ordered, and evidence distinguishes them."""
+        from medre.runtime.timeline import assemble_event_timeline
+        from medre.observability.classification import (
+            failure_category,
+            recommended_commands,
+        )
+
+        adapter = _TransientThenSucceedAdapter(
+            adapter_id="distinction_target", fail_count=1,
+        )
+        event = _make_event()
+        route = Route(
+            id="distinction-route",
+            source=RouteSource(
+                adapter="fake_source",
+                event_kinds=("message.created",),
+                channel=None,
+            ),
+            targets=[RouteTarget(adapter="distinction_target")],
+        )
+        router = Router(routes=[route])
+        accounting = RuntimeAccounting()
+        adapters = {"distinction_target": adapter}
+
+        default_retry_policy = RetryPolicy(max_attempts=3)
+        resolver = _FallbackResolverWithRetry(default_retry_policy)
+        runner = _build_runner(
+            temp_storage, adapters, router, accounting,
+            fallback_resolver=resolver,
+        )
+        await _start_adapters(adapters)
+        await runner.start()
+
+        try:
+            # === 1. Live delivery: fails transiently (source="live") ===
+            outcomes = await runner.handle_ingress(event)
+            assert len(outcomes) == 1
+            assert outcomes[0].status == "transient_failure"
+
+            receipts = await temp_storage.list_receipts_for_event(
+                event.event_id,
+            )
+            live_failed = [r for r in receipts if r.status == "failed"]
+            assert len(live_failed) == 1
+            live_rcpt = live_failed[0]
+            assert live_rcpt.source == "live"
+            assert live_rcpt.failure_kind == "adapter_transient"
+            assert live_rcpt.next_retry_at is not None
+            assert live_rcpt.parent_receipt_id is None
+
+            # === 2. Retry: succeeds (source="retry", parent_receipt_id set) ===
+            now_retry = live_rcpt.next_retry_at + timedelta(seconds=1)
+            policy = RetryPolicy(max_attempts=3)
+            worker = _RetryWorker(
+                temp_storage, runner, policy, accounting=accounting,
+            )
+            processed = await worker._process_due(now_retry)
+            assert processed == 1
+            assert worker.state.succeeded == 1
+
+            receipts = await temp_storage.list_receipts_for_event(
+                event.event_id,
+            )
+            retry_sent = [
+                r for r in receipts
+                if r.source == "retry" and r.status == "sent"
+            ]
+            assert len(retry_sent) == 1
+            retry_rcpt = retry_sent[0]
+            assert retry_rcpt.source == "retry"
+            assert retry_rcpt.parent_receipt_id == live_rcpt.receipt_id
+            assert retry_rcpt.replay_run_id is None
+
+            # === 3. BEST_EFFORT replay: succeeds (source="replay",
+            #         replay_run_id set, NOT parent_receipt_id) ===
+            replay_run_id = "replay-run-distinct-001"
+            replay_route = Route(
+                id="distinction-route",
+                source=RouteSource(adapter=None, event_kinds=(), channel=None),
+                targets=[RouteTarget(adapter="distinction_target")],
+            )
+            replay_plan = DeliveryPlan(
+                plan_id="replay-plan-1",
+                event_id=event.event_id,
+                target=RouteTarget(adapter="distinction_target"),
+                primary_strategy=DeliveryStrategy(method="direct"),
+                retry_policy=RetryPolicy(max_attempts=3),
+            )
+            replay_rcpt = await runner.deliver_to_target(
+                event, replay_route, replay_plan,
+                source="replay",
+                replay_run_id=replay_run_id,
+            )
+            assert replay_rcpt.source == "replay"
+            assert replay_rcpt.replay_run_id == replay_run_id
+            # Replay does NOT link via parent_receipt_id to the live/retry chain
+            assert replay_rcpt.parent_receipt_id is None
+
+            # === Assert all 3 sources are distinct ===
+            all_receipts = await temp_storage.list_receipts_for_event(
+                event.event_id,
+            )
+            sources = {r.source for r in all_receipts}
+            assert sources == {"live", "retry", "replay"}
+
+            # === Assert timeline shows all 3 receipts ===
+            timeline = await assemble_event_timeline(
+                temp_storage, event.event_id,
+            )
+            assert timeline is not None
+            tl_receipts = timeline["receipts"]
+            assert len(tl_receipts) >= 3
+
+            tl_sources = [r.source for r in tl_receipts]
+            assert "live" in tl_sources
+            assert "retry" in tl_sources
+            assert "replay" in tl_sources
+            assert timeline["source"] == "mixed"
+
+            # === Assert timeline ordering: live < retry < replay ===
+            by_source = {r.source: r for r in tl_receipts}
+            assert (
+                by_source["live"].created_at
+                <= by_source["retry"].created_at
+                <= by_source["replay"].created_at
+            )
+
+            # === Assert replay_run_id grouping ===
+            replay_runs = timeline["replay_runs"]
+            assert replay_run_id in replay_runs
+            assert len(replay_runs[replay_run_id]) >= 1
+
+            # === Assert evidence distinguishes them ===
+            live_from_tl = by_source["live"]
+            retry_from_tl = by_source["retry"]
+            replay_from_tl = by_source["replay"]
+
+            # Retry linked by parent_receipt_id
+            assert retry_from_tl.parent_receipt_id == live_from_tl.receipt_id
+            # Replay linked by replay_run_id, NOT parent_receipt_id
+            assert replay_from_tl.replay_run_id == replay_run_id
+            assert replay_from_tl.parent_receipt_id is None
+
+            # === Assert recover notes duplicate-risk for replay, not retry ===
+            # The trace-layer replay timeline includes duplicate_send_caveat
+            from medre.runtime.trace import (
+                assemble_replay_timeline as _trace_replay_tl,
+            )
+            replay_receipts = [
+                r for r in all_receipts
+                if r.replay_run_id == replay_run_id
+            ]
+            event_cache = {event.event_id: event}
+            replay_tl = _trace_replay_tl(
+                replay_run_id, replay_receipts, event_cache,
+            )
+            assert "duplicate_send_caveat" in replay_tl
+            assert replay_tl["duplicate_send_caveat"] is not None
+            # The event timeline does NOT carry this caveat
+            assert "duplicate_send_caveat" not in timeline
+        finally:
+            await runner.stop()

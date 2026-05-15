@@ -1189,6 +1189,7 @@ class PipelineRunner:
                 error=error or "Retry exhausted",
                 source=source,
                 replay_run_id=replay_run_id,
+                target_channel=target.channel,
             )
             await self._config.storage.append_receipt(dead_receipt)
 

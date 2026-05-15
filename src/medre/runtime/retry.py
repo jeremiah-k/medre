@@ -192,6 +192,29 @@ class RetryWorker:
                         "RetryWorker: capacity rejected for receipt %s",
                         receipt.receipt_id,
                     )
+                    # Back off: update next_retry_at to prevent hot-looping.
+                    try:
+                        from medre.core.planning.delivery_plan import (
+                            RetryPolicy,
+                            RetryExecutor,
+                        )
+                        policy = RetryPolicy(
+                            max_attempts=self._max_attempts,
+                            backoff_base=self._interval,
+                            jitter=False,
+                        )
+                        backoff = RetryExecutor(policy).compute_backoff(
+                            receipt.attempt_number,
+                        )
+                        await self._storage.update_retry_due(
+                            receipt.receipt_id,
+                            datetime.now(timezone.utc) + backoff,
+                        )
+                    except Exception:
+                        _logger.exception(
+                            "RetryWorker: failed to backoff receipt %s",
+                            receipt.receipt_id,
+                        )
                     self._emit("retry_failed", {
                         "receipt_id": parent_receipt_id,
                         "parent_receipt_id": parent_receipt_id,
@@ -306,6 +329,7 @@ class RetryWorker:
                 try:
                     new_receipt = await self._find_failed_receipt(
                         receipt.event_id, receipt.target_adapter,
+                        parent_receipt_id,
                     )
                 except Exception:
                     _logger.exception(
@@ -357,15 +381,13 @@ class RetryWorker:
         return None
 
     async def _find_failed_receipt(
-        self, event_id: str, target_adapter: str,
+        self, event_id: str, target_adapter: str, parent_receipt_id: str,
     ) -> Any | None:
-        """Return the latest failed receipt for this event/target, if any."""
+        """Find the latest failed receipt for this retry lineage."""
         receipts = await self._storage.list_receipts_for_event(event_id)
-        failed = [
-            r for r in receipts
-            if r.status == "failed" and r.target_adapter == target_adapter
-        ]
-        if not failed:
-            return None
-        # Return the one with the highest sequence (most recent).
-        return max(failed, key=lambda r: r.sequence)
+        for r in reversed(receipts):
+            if (r.status == "failed"
+                and r.target_adapter == target_adapter
+                and r.parent_receipt_id == parent_receipt_id):
+                return r
+        return None

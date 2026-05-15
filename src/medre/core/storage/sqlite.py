@@ -1213,6 +1213,15 @@ class SQLiteStorage:
         )
         return row["cnt"] if row else 0
 
+    async def update_retry_due(
+        self, receipt_id: str, next_retry_at: datetime,
+    ) -> None:
+        """Update next_retry_at on a receipt (for capacity rejection backoff)."""
+        await self._write(
+            "UPDATE delivery_receipts SET next_retry_at = ? WHERE receipt_id = ?",
+            (next_retry_at.isoformat(), receipt_id),
+        )
+
     async def list_native_refs_for_event(
         self,
         event_id: str,

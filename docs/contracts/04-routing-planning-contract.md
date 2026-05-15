@@ -470,12 +470,17 @@ class DeliveryReceipt:
     event_id: str = ""                     # The canonical event being delivered
     delivery_plan_id: str = ""             # Delivery plan this receipt belongs to
     target_adapter: str = ""               # Name of the target adapter
+    target_channel: str | None = None      # Target channel/room from RouteTarget
+    route_id: str = ""                     # Route that produced this delivery
     status: Literal["accepted", "queued", "sent", "confirmed", "failed", "dead_lettered"] = "accepted"
     error: str | None = None               # Error message if delivery failed
+    failure_kind: str | None = None        # DeliveryFailureKind value (e.g., "adapter_transient")
     adapter_message_id: str | None = None  # Platform-specific message ID (e.g., Matrix event ID)
     next_retry_at: datetime | None = None  # Scheduled time for next retry attempt
     attempt_number: int = 1                # 1-indexed attempt number
     parent_receipt_id: str | None = None   # Receipt ID of preceding attempt
+    source: str = "live"                   # "live", "retry", or "replay"
+    replay_run_id: str | None = None       # Replay run ID when source="replay"
     created_at: datetime = ...             # Timestamp when this receipt was created
 ```
 
@@ -496,12 +501,17 @@ CREATE TABLE delivery_receipts (
     event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
     delivery_plan_id TEXT NOT NULL,
     target_adapter TEXT NOT NULL,
+    target_channel TEXT,
+    route_id TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL,
     error TEXT,
+    failure_kind TEXT,
     adapter_message_id TEXT,
     next_retry_at TEXT,
     attempt_number INTEGER NOT NULL DEFAULT 1,
     parent_receipt_id TEXT,
+    source TEXT NOT NULL DEFAULT 'live',
+    replay_run_id TEXT,
     created_at TEXT NOT NULL
 );
 ```
@@ -669,9 +679,11 @@ Exhaustion check: `attempt_number >= policy.max_attempts`.
 
 ### 16.3 Retry Semantics
 
+Retry is **opt-in** — it is disabled by default. The `RetryWorker` only activates when a `RetryPolicy` is configured on the route or delivery plan. Without a `RetryPolicy`, transient failures are not automatically retried; they remain as `failed` receipts.
+
 Retry is owned by the `RetryWorker`, a single-process background worker that polls for due retry receipts.
 
-**Auto-retried failures:**
+**Auto-retried failures (when `RetryPolicy` is configured):**
 
 - `ADAPTER_TRANSIENT` — timeout, connection error, `OSError` hierarchy. The RetryWorker picks up the failed receipt when `next_retry_at` is due and re-invokes delivery through the same planning path, incrementing `attempt_number`.
 
@@ -681,13 +693,24 @@ Retry is owned by the `RetryWorker`, a single-process background worker that pol
 
 **Retry flow:**
 
-1. `deliver_to_target` records a `failed` receipt with `next_retry_at` populated and `failure_kind=ADAPTER_TRANSIENT`.
-2. `RetryWorker` loads due receipts (where `next_retry_at <= now` and `status = 'failed'` and `failure_kind = 'adapter_transient'`).
-3. The worker re-invokes delivery with the same `delivery_plan_id` and `event_id`, incrementing `attempt_number` and linking via `parent_receipt_id`.
-4. If `retry_policy` is set and `is_exhausted(attempt_number)` is true, a `dead_lettered` receipt is appended instead of retrying.
-5. Retry uses the same delivery planning pipeline. No special bypass path exists.
+1. `deliver_to_target` records a `failed` receipt with `next_retry_at` populated and `failure_kind=ADAPTER_TRANSIENT`. The receipt carries `target_channel` from the `RouteTarget`.
+2. `RetryWorker` loads due receipts (where `next_retry_at <= now` and `status = 'failed'` and `failure_kind = 'adapter_transient'`). The query excludes dead-lettered receipts (`NOT EXISTS` subquery for receipts with `status='dead_lettered'` sharing the same delivery lineage).
+3. The worker attempts to acquire delivery capacity. If capacity is unavailable, the worker emits a `retry_failed` event, updates `next_retry_at` on the existing receipt to the next cycle, and moves on. No new receipt is created for capacity rejection — the original failed receipt remains due.
+4. If capacity is acquired, the worker re-invokes delivery with the same `delivery_plan_id` and `event_id`, incrementing `attempt_number` and linking via `parent_receipt_id`. The retry receipt carries `source='retry'`, `target_channel`, and `route_id` from the original delivery context.
+5. If `retry_policy` is set and `is_exhausted(attempt_number)` is true, a `dead_lettered` receipt is appended instead of retrying. This is the final receipt in the chain — see Section 17.4.
+6. Retry uses the same delivery planning pipeline. No special bypass path exists.
 
 Retry is bounded by `RetryPolicy` (max attempts, backoff). It is single-process and in-process. Persistent receipts with `next_retry_at` survive process restart; the RetryWorker loads due receipts on its next cycle.
+
+**Production retry properties:**
+
+| Property | Detail |
+|----------|--------|
+| `target_channel` | Retry receipts carry the same `target_channel` as the original delivery, preserving route target addressing |
+| NOT EXISTS exclusion | The RetryWorker's query excludes receipts that already have a `dead_lettered` successor in the same lineage |
+| Dead-letter lineage | When retries are exhausted, the chain ends with a `dead_lettered` receipt linked via `parent_receipt_id` (Section 17.4) |
+| Capacity rejection | If delivery semaphore is full, no new receipt is created; the existing receipt is rescheduled for the next cycle |
+| Opt-in | Retry requires an explicit `RetryPolicy` on the route or delivery plan; without it, no automatic retry occurs |
 
 
 ## 17. Receipt Lineage

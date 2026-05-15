@@ -598,3 +598,190 @@ class TestRetryRestart:
                 await storage_b.close()
         finally:
             os.unlink(db_path)
+
+    async def test_restart_dead_letter_preserves_target_channel(self):
+        """Dead-letter receipt carries target_channel across restart."""
+        from medre.adapters.base import AdapterDeliveryResult
+
+        db_path = _persistent_storage()
+        call_counter = [0]
+        target_ch = "#mesh:example.com"
+
+        class _AlwaysTransientAdapter(_FailsThenSucceedsAdapter):
+            """Always raises ConnectionError regardless of call count."""
+            async def deliver(self, result):
+                raise ConnectionError("permanent transient for dead-letter test")
+
+        try:
+            storage_a = SQLiteStorage(db_path=db_path)
+            await storage_a.initialize()
+            adapter_a = _AlwaysTransientAdapter(
+                adapter_id="dl_target",
+                fail_count=999,
+                call_counter=call_counter,
+            )
+            event = _make_event()
+            route = Route(
+                id="dl-route",
+                source=RouteSource(
+                    adapter="fake_source",
+                    event_kinds=("message.created",), channel=None,
+                ),
+                targets=[RouteTarget(adapter="dl_target", channel=target_ch)],
+            )
+            router = Router(routes=[route])
+            accounting_a = RuntimeAccounting()
+            adapters_a = {"dl_target": adapter_a}
+            runner_a = _build_runner(storage_a, adapters_a, router, accounting_a)
+            await _start_adapters(adapters_a)
+            await runner_a.start()
+            outcomes = await runner_a.handle_ingress(event)
+            assert len(outcomes) == 1
+            assert outcomes[0].status == "transient_failure"
+            await runner_a.stop()
+            await storage_a.close()
+
+            storage_b = SQLiteStorage(db_path=db_path)
+            await storage_b.initialize()
+            adapter_b = _AlwaysTransientAdapter(
+                adapter_id="dl_target",
+                fail_count=999,
+                call_counter=call_counter,
+            )
+            accounting_b = RuntimeAccounting()
+            adapters_b = {"dl_target": adapter_b}
+            runner_b = _build_runner(storage_b, adapters_b, router, accounting_b)
+            await _start_adapters(adapters_b)
+            await runner_b.start()
+            try:
+                # Verify the original failed receipt has target_channel
+                receipts = await storage_b.list_receipts_for_event(event.event_id)
+                original = [r for r in receipts if r.status == "failed"][0]
+                assert original.target_channel == target_ch
+                assert original.failure_kind == "adapter_transient"
+
+                # Retry via worker — will fail again, exhausting retries
+                policy = RetryPolicy(max_attempts=1)
+                worker = _RetryWorker(
+                    storage_b, runner_b, policy, accounting=accounting_b,
+                )
+                storage_b.list_due_retry_receipts = AsyncMock(
+                    return_value=[original],
+                )
+                processed = await worker._process_due(datetime.now(timezone.utc))
+                assert processed == 1
+                assert worker.state.dead_lettered == 1
+
+                # Verify dead-letter receipt has target_channel
+                all_receipts = await storage_b.list_receipts_for_event(
+                    event.event_id,
+                )
+                dead = [r for r in all_receipts if r.status == "dead_lettered"]
+                assert len(dead) >= 1
+                assert dead[0].target_channel == target_ch
+
+                # Verify NO native ref persisted (never succeeded)
+                native_refs = await storage_b.list_native_refs_for_event(
+                    event.event_id,
+                )
+                assert len(native_refs) == 0
+
+                # Verify accounting from runner B is clean (no inbound)
+                snap = accounting_b.snapshot()
+                assert snap["inbound_accepted"] == 0
+            finally:
+                await runner_b.stop()
+                await storage_b.close()
+        finally:
+            os.unlink(db_path)
+
+    async def test_restart_original_excluded_after_retry_child(self):
+        """After retry produces a child receipt, the original is excluded
+        from subsequent due-receipt queries (NOT EXISTS guard)."""
+        db_path = _persistent_storage()
+        call_counter = [0]
+        target_ch = "!room:restart.org"
+
+        try:
+            storage_a = SQLiteStorage(db_path=db_path)
+            await storage_a.initialize()
+            adapter_a = _FailsThenSucceedsAdapter(
+                adapter_id="excl_target", fail_count=1,
+                call_counter=call_counter,
+            )
+            event = _make_event()
+            route = Route(
+                id="excl-route",
+                source=RouteSource(
+                    adapter="fake_source",
+                    event_kinds=("message.created",), channel=None,
+                ),
+                targets=[RouteTarget(adapter="excl_target", channel=target_ch)],
+            )
+            router = Router(routes=[route])
+            accounting_a = RuntimeAccounting()
+            adapters_a = {"excl_target": adapter_a}
+            runner_a = _build_runner(storage_a, adapters_a, router, accounting_a)
+            await _start_adapters(adapters_a)
+            await runner_a.start()
+            outcomes = await runner_a.handle_ingress(event)
+            assert len(outcomes) == 1
+            assert outcomes[0].status == "transient_failure"
+
+            receipts_a = await storage_a.list_receipts_for_event(event.event_id)
+            original = [r for r in receipts_a if r.status == "failed"][0]
+            assert original.target_channel == target_ch
+            await runner_a.stop()
+            await storage_a.close()
+
+            storage_b = SQLiteStorage(db_path=db_path)
+            await storage_b.initialize()
+            adapter_b = _FailsThenSucceedsAdapter(
+                adapter_id="excl_target", fail_count=1,
+                call_counter=call_counter,
+            )
+            accounting_b = RuntimeAccounting()
+            adapters_b = {"excl_target": adapter_b}
+            runner_b = _build_runner(storage_b, adapters_b, router, accounting_b)
+            await _start_adapters(adapters_b)
+            await runner_b.start()
+            try:
+                # Retry succeeds using real storage query
+                future_now = original.next_retry_at + timedelta(seconds=1)
+                due = await storage_b.list_due_retry_receipts(future_now)
+                assert len(due) >= 1
+
+                policy = RetryPolicy(max_attempts=5)
+                worker = _RetryWorker(
+                    storage_b, runner_b, policy, accounting=accounting_b,
+                )
+                processed = await worker._process_due(future_now)
+                assert processed == 1
+                assert worker.state.succeeded == 1
+
+                # Now the original should be excluded from due queries
+                due_after = await storage_b.list_due_retry_receipts(future_now)
+                original_ids = {r.receipt_id for r in due_after}
+                assert original.receipt_id not in original_ids
+
+                # Verify native ref persisted only on retry success
+                native_refs = await storage_b.list_native_refs_for_event(
+                    event.event_id,
+                )
+                assert len(native_refs) >= 1
+
+                # Verify target_channel preserved on retry receipt
+                all_receipts = await storage_b.list_receipts_for_event(
+                    event.event_id,
+                )
+                retry = [
+                    r for r in all_receipts
+                    if r.parent_receipt_id == original.receipt_id
+                ]
+                assert len(retry) >= 1
+                assert retry[0].target_channel == target_ch
+            finally:
+                await runner_b.stop()
+                await storage_b.close()
+        finally:
+            os.unlink(db_path)

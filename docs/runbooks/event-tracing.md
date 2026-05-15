@@ -316,7 +316,7 @@ The timeline report reconstructs these phases from stored evidence:
 | `ingestion` | `canonical_events` table | Event stored from a source adapter |
 | `routing` | Inferred from receipt `route_id` | Route matched, delivery planned |
 | `delivery` | `delivery_receipts` table | Adapter delivery attempted; status recorded |
-| `retry` | `parent_receipt_id` chain | Transient failure triggered a retry. Retry receipts are distinguishable by `source="retry"` and carry `parent_receipt_id` linking to the original failure. `attempt_number` shows the retry count. |
+| `retry` | `parent_receipt_id` chain | Transient failure triggered a retry (opt-in — requires `RetryPolicy`). Retry receipts linked by `parent_receipt_id`. Each retry attempt increments `attempt_number`. Retry receipts are distinguishable by `source="retry"`. If the RetryWorker cannot acquire delivery capacity, no new receipt is created; the original failed receipt is rescheduled for the next cycle. |
 | `replay` | `source='replay'` receipts | Event re-delivered via replay engine. Replay receipts are identifiable by `source="replay"` and `replay_run_id`. Trace for a replayed event shows the original delivery path plus the replay delivery path. |
 
 ### 2.2 Interpreting Timeline Gaps
@@ -602,7 +602,7 @@ The `source` column on `delivery_receipts` has three values:
 | Value | Meaning |
 |-------|---------|
 | `"live"` | Delivery produced by the normal runtime pipeline during operation |
-| `"retry"` | Delivery produced by the RetryWorker re-attempting a transient failure. Retry receipts carry `parent_receipt_id` linking to the original failure receipt and incremented `attempt_number`. |
+| `"retry"` | Delivery produced by the RetryWorker re-attempting a transient failure (opt-in — requires `RetryPolicy` configured). Retry receipts carry `parent_receipt_id` linking to the original failure receipt and incremented `attempt_number`. |
 | `"replay"` | Delivery produced by an operator-initiated replay run |
 
 Do not use `replay_run_id IS NOT NULL` to detect replay receipts. Future

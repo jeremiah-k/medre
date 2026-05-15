@@ -297,6 +297,31 @@ sqlite3 {state}/medre.sqlite "
 
 If `failure_kind='adapter_transient'` and `next_retry_at` is set, the RetryWorker will automatically retry when the adapter recovers (after runtime restart). For other failure kinds, manual replay is required (see Section 8).
 
+**Retry state interpretation for adapter failures:**
+
+```sql
+-- Retry pending: will be auto-retried by RetryWorker
+SELECT receipt_id, event_id, attempt_number, next_retry_at
+FROM delivery_receipts
+WHERE target_adapter = '<adapter_id>'
+  AND status = 'failed'
+  AND failure_kind = 'adapter_transient'
+  AND next_retry_at IS NOT NULL;
+
+-- Retry exhausted (dead-lettered): manual replay required
+SELECT receipt_id, event_id, attempt_number
+FROM delivery_receipts
+WHERE target_adapter = '<adapter_id>'
+  AND status = 'dead_lettered';
+
+-- Successful retries (delivery eventually succeeded)
+SELECT r.receipt_id, r.event_id, r.attempt_number, r.status, r.parent_receipt_id
+FROM delivery_receipts r
+WHERE r.target_adapter = '<adapter_id>'
+  AND r.source = 'retry'
+  AND r.status IN ('sent', 'confirmed');
+```
+
 ### 3.3 Recovery Steps
 
 ```bash
@@ -808,9 +833,13 @@ sqlite3 {state}/medre.sqlite "
 
 ## 7. Retry vs Replay
 
-MEDRE provides two mechanisms for re-delivering events that failed: **retry** (automatic) and **replay** (manual). They serve different purposes and have different side effects.
+MEDRE provides two mechanisms for re-delivering events that failed: **retry** (automatic, opt-in) and **replay** (manual). They serve different purposes and have different side effects.
+
+**Key distinction:** Retry is delivery lineage — each attempt is linked by `parent_receipt_id`. Replay is a new bridge execution — receipts have `replay_run_id`, not `parent_receipt_id`.
 
 ### 7.1 Retry (Automatic, Same Delivery Lineage)
+
+Retry is **opt-in** — disabled by default. The `RetryWorker` only runs when a `RetryPolicy` is configured. Without a `RetryPolicy`, transient failures are not automatically retried.
 
 When a delivery fails with `failure_kind='adapter_transient'` and a `RetryPolicy` is configured, the RetryWorker automatically re-attempts delivery:
 
@@ -821,6 +850,15 @@ When a delivery fails with `failure_kind='adapter_transient'` and a `RetryPolicy
 - **Bounded by:** `RetryPolicy` (max attempts, backoff). When max attempts are exceeded, the receipt is marked `dead_lettered`.
 - **Native refs:** Only persisted on successful retry, not on the original failure.
 - **No duplicate risk:** Retry continues the same delivery attempt. The adapter receives one message per successful retry, same as if the original had succeeded.
+- **Capacity rejection:** If the RetryWorker cannot acquire the delivery semaphore, it emits a `retry_failed` event and reschedules the receipt for the next worker interval. No new receipt is created — the original failed receipt remains due.
+
+**Retry states an operator should distinguish:**
+
+| State | `status` | `next_retry_at` | `failure_kind` | Meaning |
+|-------|----------|-----------------|----------------|---------|
+| Pending retry | `failed` | Set (future time) | `adapter_transient` | RetryWorker will re-attempt on next cycle |
+| Exhausted | `dead_lettered` | `NULL` | `adapter_transient` | Max retries exceeded; manual intervention needed |
+| Successful retry | `sent` or `confirmed` | `NULL` | `NULL` | A retry receipt succeeded; check `parent_receipt_id` to trace back |
 
 ### 7.2 Replay (Manual, New Bridge Execution)
 

@@ -99,6 +99,18 @@ class _TransientThenSucceedAdapter(FakePresentationAdapter):
         return self._call_count
 
 
+class _AlwaysPermanentFailAdapter(FakePresentationAdapter):
+    """Always raises ValueError (permanent failure, not retryable)."""
+
+    def __init__(self, adapter_id: str = "permanent_fail_adapter") -> None:
+        super().__init__(adapter_id=adapter_id)
+
+    async def deliver(self, result) -> AdapterDeliveryResult | None:
+        raise ValueError(
+            f"Permanent failure from {self.adapter_id}: bad payload"
+        )
+
+
 # ---------------------------------------------------------------------------
 # RetryWorker (integration variant — uses real pipeline.deliver_to_target)
 # ---------------------------------------------------------------------------
@@ -570,7 +582,7 @@ class TestRetryRuntimeIntegration:
                 r for r in all_receipts
                 if r.parent_receipt_id == original_receipt.receipt_id
             ]
-            assert len(retry_receipts) >= 1
+            assert len(receipts) >= 1
             retry_rcpt = retry_receipts[0]
             assert retry_rcpt.attempt_number == 2
             assert retry_rcpt.parent_receipt_id == original_receipt.receipt_id
@@ -580,5 +592,222 @@ class TestRetryRuntimeIntegration:
                 event.event_id,
             )
             assert len(native_refs) >= 1
+        finally:
+            await runner.stop()
+
+    async def test_retry_fanout_correctness(self, temp_storage):
+        """One event fans out to 3 targets: A succeeds, B transient then retry
+        succeeds, C permanent failure (not retried).  Verifies correct receipt
+        counts, retryability, and accounting totals."""
+        adapter_a = FakePresentationAdapter(adapter_id="target_a")
+        adapter_b = _TransientThenSucceedAdapter(
+            adapter_id="target_b", fail_count=1,
+        )
+        adapter_c = _AlwaysPermanentFailAdapter(adapter_id="target_c")
+
+        event = _make_event()
+        route = Route(
+            id="fanout-3-route",
+            source=RouteSource(
+                adapter="fake_source",
+                event_kinds=("message.created",),
+                channel=None,
+            ),
+            targets=[
+                RouteTarget(adapter="target_a"),
+                RouteTarget(adapter="target_b"),
+                RouteTarget(adapter="target_c"),
+            ],
+        )
+        router = Router(routes=[route])
+        accounting = RuntimeAccounting()
+        adapters = {
+            "target_a": adapter_a,
+            "target_b": adapter_b,
+            "target_c": adapter_c,
+        }
+
+        default_retry_policy = RetryPolicy(max_attempts=3)
+        resolver = _FallbackResolverWithRetry(default_retry_policy)
+        runner = _build_runner(
+            temp_storage, adapters, router, accounting,
+            fallback_resolver=resolver,
+        )
+        await _start_adapters(adapters)
+        await runner.start()
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+            assert len(outcomes) == 3
+            statuses = {o.target_adapter: o.status for o in outcomes}
+            assert statuses["target_a"] == "success"
+            assert statuses["target_b"] == "transient_failure"
+            assert statuses["target_c"] == "permanent_failure"
+
+            all_receipts = await temp_storage.list_receipts_for_event(
+                event.event_id,
+            )
+
+            # --- Target A: 1 sent receipt, no retry ---
+            a_receipts = [r for r in all_receipts if r.target_adapter == "target_a"]
+            assert len(a_receipts) == 1
+            assert a_receipts[0].status == "sent"
+            assert a_receipts[0].next_retry_at is None
+
+            # --- Target B: 1 failed receipt with next_retry_at ---
+            b_failed = [
+                r for r in all_receipts
+                if r.target_adapter == "target_b" and r.status == "failed"
+            ]
+            assert len(b_failed) == 1
+            b_original = b_failed[0]
+            assert b_original.failure_kind == "adapter_transient"
+            assert b_original.next_retry_at is not None
+
+            # --- Target C: 1 failed receipt, NOT retryable ---
+            c_receipts = [r for r in all_receipts if r.target_adapter == "target_c"]
+            c_failed = [
+                r for r in c_receipts if r.status == "failed"
+            ]
+            assert len(c_failed) >= 1
+            c_orig = c_failed[0]
+            assert c_orig.failure_kind not in (
+                None, "adapter_transient",
+            ), "Target C should have permanent failure_kind, not transient"
+            assert c_orig.next_retry_at is None, (
+                "Permanent failure should not have next_retry_at"
+            )
+
+            # --- Retry only B's receipt ---
+            policy = RetryPolicy(max_attempts=3)
+            worker = _RetryWorker(
+                temp_storage, runner, policy, accounting=accounting,
+            )
+            temp_storage.list_due_retry_receipts = AsyncMock(
+                return_value=[b_original],
+            )
+            processed = await worker._process_due(
+                b_original.next_retry_at + timedelta(seconds=1),
+            )
+            assert processed == 1
+            assert worker.state.succeeded == 1
+
+            # --- Verify total receipts ---
+            all_receipts = await temp_storage.list_receipts_for_event(
+                event.event_id,
+            )
+            a_total = [r for r in all_receipts if r.target_adapter == "target_a"]
+            b_total = [r for r in all_receipts if r.target_adapter == "target_b"]
+            c_total = [r for r in all_receipts if r.target_adapter == "target_c"]
+
+            assert len(a_total) == 1
+            assert len(b_total) == 2  # original failed + retry succeeded
+            b_sent = [r for r in b_total if r.status == "sent"]
+            assert len(b_sent) == 1
+            assert b_sent[0].parent_receipt_id == b_original.receipt_id
+
+            # Accounting: original fanout counted by handle_ingress
+            snap = accounting.snapshot()
+            assert snap["inbound_accepted"] == 1
+            assert snap["outbound_attempts"] == 3
+            assert snap["outbound_delivered"] == 1  # target_a only
+            assert snap["outbound_failed"] == 2  # target_b + target_c
+            assert snap["loop_prevented"] == 0
+        finally:
+            await runner.stop()
+
+    async def test_real_bridge_retry_integration(self, temp_storage):
+        """Full bridge retry: real pipeline, real storage query, native ref
+        on retry success, original failed excluded from next due query."""
+        from medre.runtime.retry import RetryWorker
+        from medre.runtime.capacity import CapacityController
+        from medre.config.model import RuntimeLimits
+
+        adapter = _TransientThenSucceedAdapter(
+            adapter_id="bridge_target", fail_count=1,
+        )
+        event = _make_event()
+        route = Route(
+            id="bridge-route",
+            source=RouteSource(
+                adapter="fake_source",
+                event_kinds=("message.created",), channel=None,
+            ),
+            targets=[RouteTarget(adapter="bridge_target")],
+        )
+        router = Router(routes=[route])
+        accounting = RuntimeAccounting()
+        adapters = {"bridge_target": adapter}
+
+        default_retry_policy = RetryPolicy(max_attempts=3)
+        resolver = _FallbackResolverWithRetry(default_retry_policy)
+        runner = _build_runner(
+            temp_storage, adapters, router, accounting,
+            fallback_resolver=resolver,
+        )
+        await _start_adapters(adapters)
+        await runner.start()
+
+        try:
+            # Inject event → adapter raises ConnectionError → transient failure
+            outcomes = await runner.handle_ingress(event)
+            assert len(outcomes) == 1
+            assert outcomes[0].status == "transient_failure"
+
+            # Get the failed receipt from storage
+            receipts = await temp_storage.list_receipts_for_event(event.event_id)
+            failed = [r for r in receipts if r.status == "failed"]
+            assert len(failed) == 1
+            original_receipt = failed[0]
+            assert original_receipt.failure_kind == "adapter_transient"
+            assert original_receipt.next_retry_at is not None
+
+            # Advance time past next_retry_at
+            future_now = original_receipt.next_retry_at + timedelta(seconds=1)
+
+            # Use the real RetryWorker with same storage and pipeline
+            limits = RuntimeLimits(
+                max_inflight_deliveries=10,
+                max_inflight_replay_events=10,
+                shutdown_drain_timeout_seconds=5,
+                delivery_acquire_timeout_seconds=0.5,
+            )
+            capacity = CapacityController(limits)
+            worker = RetryWorker(
+                temp_storage, runner, capacity,
+                enabled=True, interval_seconds=10.0, batch_size=20,
+                max_attempts=3,
+            )
+
+            # Process due receipts
+            await worker._process_due(future_now)
+
+            # Assert: retry succeeded
+            assert worker.state.succeeded == 1
+            assert worker.state.processed == 1
+
+            # Assert: native ref created on retry success
+            native_refs = await temp_storage.list_native_refs_for_event(
+                event.event_id,
+            )
+            assert len(native_refs) >= 1
+
+            # Assert: original failed receipt excluded from next due query
+            due_after = await temp_storage.list_due_retry_receipts(future_now)
+            original_ids = {r.receipt_id for r in due_after}
+            assert original_receipt.receipt_id not in original_ids
+
+            # Verify receipts: 1 original failed + 1 retry success
+            all_receipts = await temp_storage.list_receipts_for_event(
+                event.event_id,
+            )
+            failed_rcpts = [r for r in all_receipts if r.status == "failed"]
+            sent_rcpts = [r for r in all_receipts if r.status == "sent"]
+            assert len(failed_rcpts) == 1
+            assert len(sent_rcpts) >= 1
+            retry_sent = [r for r in sent_rcpts
+                          if r.parent_receipt_id == original_receipt.receipt_id]
+            assert len(retry_sent) == 1
+            assert retry_sent[0].attempt_number == 2
         finally:
             await runner.stop()

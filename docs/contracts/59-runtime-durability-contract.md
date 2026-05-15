@@ -161,6 +161,8 @@ Transient-failure receipts with `next_retry_at` set survive process restart. The
 
 **Retry snapshot counters reflect the current process run, not cumulative history.** After restart, all retry counters reset to zero even though durable retry state (pending receipts) persists in SQLite. Operators must query `delivery_receipts` directly for cumulative retry history.
 
+**Capacity rejection does not persist a receipt.** If the RetryWorker cannot acquire the delivery semaphore when processing a due retry, it emits a `retry_failed` runtime event and reschedules the existing receipt's `next_retry_at` to the next worker interval. No new `DeliveryReceipt` row is created for capacity rejection. The original failed receipt remains the only record. Capacity rejection is backpressure, not a delivery failure — it does not advance `attempt_number` and does not count toward `RetryPolicy` exhaustion.
+
 
 ## 5. Degraded-Runtime Semantics
 

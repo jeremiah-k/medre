@@ -350,6 +350,7 @@ class RetryExecutor:
         error: str,
         source: str = "live",
         replay_run_id: str | None = None,
+        target_channel: str | None = None,
     ) -> DeliveryReceipt:
         """Build a ``dead_lettered`` receipt after all retries are
         exhausted.
@@ -369,9 +370,11 @@ class RetryExecutor:
         error:
             Human-readable error description.
         source:
-            Origin of delivery: ``"live"`` or ``"replay"``.
+            Origin of delivery: ``"live"``, ``"retry"``, or ``"replay"``.
         replay_run_id:
             When ``source="replay"``, the replay run identifier.
+        target_channel:
+            Channel on the target adapter, if applicable.
 
         Returns
         -------
@@ -386,6 +389,7 @@ class RetryExecutor:
             event_id=event_id,
             delivery_plan_id=delivery_plan_id,
             target_adapter=target_adapter,
+            target_channel=target_channel,
             status="dead_lettered",
             error=error,
             next_retry_at=None,

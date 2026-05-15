@@ -523,3 +523,279 @@ class TestRetryTraceEvidence:
         ids_1 = [r.receipt_id for r in receipts]
         ids_2 = [r.receipt_id for r in receipts2]
         assert ids_1 == ids_2
+
+    async def test_retry_events_emitted(self, temp_storage):
+        """RetryWorker with event_buffer emits retry_attempted and
+        retry_succeeded events during a transient-failure → retry-succeed
+        cycle."""
+        from medre.adapters.base import AdapterContext
+        from medre.adapters.fake_presentation import FakePresentationAdapter
+        from medre.core.events.bus import EventBus
+        from medre.core.observability.metrics import Diagnostician
+        from medre.core.planning.delivery_plan import RetryPolicy
+        from medre.core.planning.fallback_resolution import (
+            FallbackResolver as _BaseFallback,
+        )
+        from medre.core.planning.relation_resolution import RelationResolver
+        from medre.core.rendering.renderer import RenderingPipeline
+        from medre.core.rendering.text import TextRenderer
+        from medre.core.routing.models import Route, RouteSource, RouteTarget
+        from medre.core.routing.router import Router
+        from medre.core.routing.stats import RouteStats
+        from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
+        from medre.core.runtime.accounting import RuntimeAccounting
+        from medre.runtime.events import EventBuffer, RuntimeEventType
+        from medre.runtime.retry import RetryWorker
+        from unittest.mock import AsyncMock
+
+        class _FallbackResolverWithRetry(_BaseFallback):
+            def __init__(self, retry_policy: RetryPolicy | None = None) -> None:
+                self._retry_policy = retry_policy or RetryPolicy(max_attempts=3)
+
+            def resolve_fallback(self, event, target, capabilities):
+                plan = super().resolve_fallback(event, target, capabilities)
+                plan.retry_policy = self._retry_policy
+                return plan
+
+        class _TransientOnceAdapter(FakePresentationAdapter):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self._call_count = 0
+
+            async def deliver(self, result):
+                self._call_count += 1
+                if self._call_count <= 1:
+                    raise ConnectionError("transient for events test")
+                return await super().deliver(result)
+
+        event_buffer = EventBuffer(maxlen=64)
+        adapter = _TransientOnceAdapter(adapter_id="events_target")
+        event = _make_event()
+
+        route = Route(
+            id="events-route",
+            source=RouteSource(
+                adapter="fake_source",
+                event_kinds=("message.created",),
+                channel=None,
+            ),
+            targets=[RouteTarget(adapter="events_target")],
+        )
+        router = Router(routes=[route])
+        accounting = RuntimeAccounting()
+        adapters = {"events_target": adapter}
+
+        render_pipe = RenderingPipeline()
+        render_pipe.register(TextRenderer(), priority=100)
+
+        config = PipelineConfig(
+            storage=temp_storage,
+            router=router,
+            fallback_resolver=_FallbackResolverWithRetry(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters=adapters,
+            event_bus=EventBus(),
+            rendering_pipeline=render_pipe,
+            diagnostician=Diagnostician(),
+            route_stats=RouteStats(),
+            runtime_accounting=accounting,
+        )
+        runner = PipelineRunner(config)
+
+        ctx = AdapterContext(
+            adapter_id="events_target",
+            event_bus=None,
+            publish_inbound=AsyncMock(),
+            logger=__import__("logging").getLogger("test.events_target"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=__import__("asyncio").Event(),
+        )
+        await adapter.start(ctx)
+        await runner.start()
+
+        retry_worker = RetryWorker(
+            storage=temp_storage,
+            pipeline=runner,
+            capacity_controller=None,
+            enabled=True,
+            interval_seconds=9999,  # won't actually poll
+            max_attempts=3,
+            event_buffer=event_buffer,
+        )
+
+        try:
+            # First delivery: fails transiently
+            outcomes = await runner.handle_ingress(event)
+            assert len(outcomes) == 1
+            assert outcomes[0].status == "transient_failure"
+
+            receipts = await temp_storage.list_receipts_for_event(
+                event.event_id,
+            )
+            failed = [r for r in receipts if r.status == "failed"]
+            assert len(failed) == 1
+            original = failed[0]
+
+            # Run _process_due to trigger the retry
+            future_now = original.next_retry_at + timedelta(seconds=1)
+            await retry_worker._process_due(future_now)
+
+            # Verify events were emitted
+            events = list(event_buffer)
+            event_types = [e.event_type for e in events]
+
+            assert RuntimeEventType.RETRY_ATTEMPTED in event_types, (
+                f"Expected retry_attempted event, got: {[e.value for e in event_types]}"
+            )
+            assert RuntimeEventType.RETRY_SUCCEEDED in event_types, (
+                f"Expected retry_succeeded event, got: {[e.value for e in event_types]}"
+            )
+
+            # Verify retry_attempted has correct receipt IDs
+            attempted = [
+                e for e in events
+                if e.event_type == RuntimeEventType.RETRY_ATTEMPTED
+            ]
+            assert len(attempted) >= 1
+            assert attempted[0].detail["receipt_id"] == original.receipt_id
+            assert attempted[0].detail["event_id"] == event.event_id
+            assert attempted[0].detail["target_adapter"] == "events_target"
+
+            # Verify retry_succeeded has correct receipt IDs
+            succeeded = [
+                e for e in events
+                if e.event_type == RuntimeEventType.RETRY_SUCCEEDED
+            ]
+            assert len(succeeded) >= 1
+            assert succeeded[0].detail["parent_receipt_id"] == original.receipt_id
+            assert succeeded[0].detail["retry_receipt_id"] is not None
+            assert succeeded[0].detail["event_id"] == event.event_id
+        finally:
+            await retry_worker.stop()
+            await runner.stop()
+
+    async def test_retry_snapshot_consistency(self, temp_storage):
+        """After retry succeeds, the RetryWorkerState snapshot shows
+        processed >= 1 and succeeded >= 1."""
+        from medre.adapters.base import AdapterContext
+        from medre.adapters.fake_presentation import FakePresentationAdapter
+        from medre.core.events.bus import EventBus
+        from medre.core.observability.metrics import Diagnostician
+        from medre.core.planning.delivery_plan import RetryPolicy
+        from medre.core.planning.fallback_resolution import (
+            FallbackResolver as _BaseFallback,
+        )
+        from medre.core.planning.relation_resolution import RelationResolver
+        from medre.core.rendering.renderer import RenderingPipeline
+        from medre.core.rendering.text import TextRenderer
+        from medre.core.routing.models import Route, RouteSource, RouteTarget
+        from medre.core.routing.router import Router
+        from medre.core.routing.stats import RouteStats
+        from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
+        from medre.core.runtime.accounting import RuntimeAccounting
+        from medre.runtime.retry import RetryWorker, RetryWorkerState
+        from unittest.mock import AsyncMock
+
+        class _FallbackResolverWithRetry(_BaseFallback):
+            def __init__(self, retry_policy: RetryPolicy | None = None) -> None:
+                self._retry_policy = retry_policy or RetryPolicy(max_attempts=3)
+
+            def resolve_fallback(self, event, target, capabilities):
+                plan = super().resolve_fallback(event, target, capabilities)
+                plan.retry_policy = self._retry_policy
+                return plan
+
+        class _TransientOnceAdapter(FakePresentationAdapter):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self._call_count = 0
+
+            async def deliver(self, result):
+                self._call_count += 1
+                if self._call_count <= 1:
+                    raise ConnectionError("transient for snapshot test")
+                return await super().deliver(result)
+
+        adapter = _TransientOnceAdapter(adapter_id="snapshot_target")
+        event = _make_event()
+
+        route = Route(
+            id="snapshot-route",
+            source=RouteSource(
+                adapter="fake_source",
+                event_kinds=("message.created",),
+                channel=None,
+            ),
+            targets=[RouteTarget(adapter="snapshot_target")],
+        )
+        router = Router(routes=[route])
+        accounting = RuntimeAccounting()
+        adapters = {"snapshot_target": adapter}
+
+        render_pipe = RenderingPipeline()
+        render_pipe.register(TextRenderer(), priority=100)
+
+        config = PipelineConfig(
+            storage=temp_storage,
+            router=router,
+            fallback_resolver=_FallbackResolverWithRetry(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters=adapters,
+            event_bus=EventBus(),
+            rendering_pipeline=render_pipe,
+            diagnostician=Diagnostician(),
+            route_stats=RouteStats(),
+            runtime_accounting=accounting,
+        )
+        runner = PipelineRunner(config)
+
+        ctx = AdapterContext(
+            adapter_id="snapshot_target",
+            event_bus=None,
+            publish_inbound=AsyncMock(),
+            logger=__import__("logging").getLogger("test.snapshot_target"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=__import__("asyncio").Event(),
+        )
+        await adapter.start(ctx)
+        await runner.start()
+
+        retry_worker = RetryWorker(
+            storage=temp_storage,
+            pipeline=runner,
+            capacity_controller=None,
+            enabled=True,
+            interval_seconds=9999,
+            max_attempts=3,
+        )
+
+        try:
+            # First delivery: fails transiently
+            outcomes = await runner.handle_ingress(event)
+            assert len(outcomes) == 1
+            assert outcomes[0].status == "transient_failure"
+
+            receipts = await temp_storage.list_receipts_for_event(
+                event.event_id,
+            )
+            failed = [r for r in receipts if r.status == "failed"]
+            assert len(failed) == 1
+            original = failed[0]
+
+            future_now = original.next_retry_at + timedelta(seconds=1)
+            await retry_worker._process_due(future_now)
+
+            # Verify snapshot retry section consistency
+            state = retry_worker.state
+            assert isinstance(state, RetryWorkerState)
+            assert state.processed >= 1, (
+                f"Expected processed >= 1, got {state.processed}"
+            )
+            assert state.succeeded >= 1, (
+                f"Expected succeeded >= 1, got {state.succeeded}"
+            )
+            assert state.failed == 0
+            assert state.dead_lettered == 0
+        finally:
+            await retry_worker.stop()
+            await runner.stop()

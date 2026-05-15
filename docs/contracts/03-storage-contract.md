@@ -111,6 +111,35 @@ class StorageBackend(Protocol):
     async def close(self) -> None:
         """Release all resources held by the backend."""
         ...
+
+    # -- Retry --------------------------------------------------------------
+
+    async def list_due_retry_receipts(
+        self, now: datetime, limit: int = 50, max_attempts: int = 3
+    ) -> list[Any]:
+        """Return transient-failure receipts whose next_retry_at <= now.
+
+        Ordered by next_retry_at ASC, sequence ASC, limited to *limit*.
+        Excludes receipts that have reached *max_attempts* or are dead_lettered.
+        """
+        ...
+
+    async def count_pending_retry(self, now: datetime, max_attempts: int = 3) -> int:
+        """Count transient-failure receipts due for retry."""
+        ...
+
+    async def update_retry_due(
+        self, receipt_id: str, next_retry_at: datetime,
+    ) -> None:
+        """Update next_retry_at on a receipt (for capacity rejection backoff).
+
+        This is the only mutation allowed on existing receipt rows -- all
+        other receipt updates are append-only. Used by the RetryWorker when
+        delivery capacity is unavailable: the existing failed receipt's
+        next_retry_at is advanced to the next cycle without creating a new
+        receipt row.
+        """
+        ...
 ```
 
 > **Note on `archive_raw` and `resolve_native_relation`:** These methods appear in the master spec (Section 12.4) but are not part of the Phase 1 `StorageBackend` protocol. Raw archiving is a future capability. Native relation resolution is handled through `resolve_native_ref` with the `native_relation_id` column index on `native_message_refs`.
@@ -262,6 +291,10 @@ CREATE TABLE delivery_receipts (
 Every delivery attempt produces a new row. Existing rows are never updated or deleted. A delivery that retried three times produces four rows.
 
 Status values are `accepted`, `queued`, `sent`, `confirmed`, `failed`, `dead_lettered`. Note: `confirmed` (not `acknowledged`) is the status for transport-level acknowledgement.
+
+`target_channel` carries the target channel/room/topic from the `RouteTarget`. This is the logical channel name resolved at delivery planning time. `NULL` if the route target does not specify a channel.
+
+`failure_kind` carries the `DeliveryFailureKind` value (e.g., `"adapter_transient"`, `"adapter_permanent"`, `"planner_failure"`, `"renderer_failure"`, `"deadline_exceeded"`, `"capacity_rejection"`, `"shutdown_rejection"`) when `status` is `failed`. `NULL` on successful deliveries. This field drives retry decisions and operator diagnosis.
 
 `attempt_number` is the 1-indexed attempt number for this receipt. The first delivery attempt is `1`; retries increment from there. Enables receipt lineage ordering without relying on timestamps.
 
@@ -502,6 +535,25 @@ Key points:
 - Returns all `DeliveryReceipt` rows whose `event_id` matches *event_id*, ordered by `sequence` ascending.
 - Used to inspect all delivery attempts (across all plans and adapters) for a given event.
 - Returns an empty list when no receipts match.
+
+### 5.7c list_due_retry_receipts(now, limit, max_attempts)
+
+- Returns failed `DeliveryReceipt` rows where `next_retry_at <= now`, `status = 'failed'`, and `failure_kind = 'adapter_transient'`.
+- Excludes receipts where `attempt_number >= max_attempts` or `status = 'dead_lettered'`.
+- Ordered by `next_retry_at ASC, sequence ASC`. Limited to `limit` rows.
+- Used by the `RetryWorker` to load receipts that are due for retry on each cycle.
+
+### 5.7d count_pending_retry(now, max_attempts)
+
+- Returns the count of transient-failure receipts due for retry.
+- Same filter criteria as `list_due_retry_receipts` but returns a count instead of rows.
+
+### 5.7e update_retry_due(receipt_id, next_retry_at)
+
+- Updates `next_retry_at` on an existing receipt row identified by `receipt_id`.
+- This is the **only** mutation allowed on an existing receipt row. All other receipt operations are append-only.
+- Used by the `RetryWorker` when delivery capacity is unavailable: instead of creating a new receipt, the worker advances `next_retry_at` on the existing failed receipt to the next cycle. This avoids creating spurious receipt rows for capacity rejection.
+- Capacity rejection does not advance `attempt_number` or count toward `RetryPolicy` exhaustion.
 
 ### 5.8 archive_raw(event_id, adapter, data) (Future)
 

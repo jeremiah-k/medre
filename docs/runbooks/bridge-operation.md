@@ -98,19 +98,25 @@ Each receipt carries `attempt_number` and `parent_receipt_id` forming an explici
 
 ## 4. Retry Ownership Boundaries
 
+Retry is **opt-in** — it is disabled by default. The `RetryWorker` only runs when a `RetryPolicy` is configured on the route or delivery plan. Without a `RetryPolicy`, transient failures are not automatically retried; they remain as `failed` receipts until an operator initiates manual replay.
+
 Retry responsibility falls to different components depending on where the failure occurs:
 
 | Failure kind | Who owns retry | Notes |
 |---|---|---|
 | `PLANNER_FAILURE` | No retry — permanent | Config error |
 | `RENDERER_FAILURE` | No retry — permanent | Deterministic error |
-| `ADAPTER_TRANSIENT` | RetryWorker (new) | Bounded by RetryPolicy; retry receipts carry `source="retry"` |
+| `ADAPTER_TRANSIENT` | RetryWorker (opt-in) | Requires `RetryPolicy`; bounded by max attempts and backoff; retry receipts carry `source="retry"` |
 | `ADAPTER_PERMANENT` | No retry — permanent | Adapter determined unrecoverable |
 | `DEADLINE_EXCEEDED` | No retry | Plan deadline passed |
 
-Adapters own their internal reconnect logic (e.g., Matrix sync reconnection, Meshtastic node reconnection). The RetryWorker owns retry scheduling for transient delivery failures. These are separate mechanisms operating at different layers.
+Adapters own their internal reconnect logic (e.g., Matrix sync reconnection, Meshtastic node reconnection). The RetryWorker owns retry scheduling for transient delivery failures. These are separate mechanisms operating at different layers. **Retry does NOT restart adapters.** Adapter lifecycle is independent — adapters reconnect on their own schedule. The RetryWorker only re-attempts the delivery through the same planning pipeline.
+
+**Retry does NOT guarantee final delivery ACK.** The adapter confirms transport acceptance only. Whether the remote side actually received the message depends on the transport (see Section 2). A `sent` receipt from a retry means the same thing as a `sent` receipt from the original delivery.
 
 **Retry receipt attribution:** Each retry attempt produces a new `DeliveryReceipt` with `source="retry"`, linked to the original failure via `parent_receipt_id` and carrying an incremented `attempt_number`. This makes retry receipts distinguishable from live deliveries (`source="live"`) and replay deliveries (`source="replay"`) at the storage layer. Operators can filter by `source` to isolate retry outcomes from normal delivery and replay.
+
+**Capacity rejection semantics:** If the RetryWorker cannot acquire delivery capacity (the delivery semaphore is full), it emits a `retry_failed` event and reschedules the receipt for the next worker interval. No durable receipt is created for capacity rejection — the original failed receipt remains due with its `next_retry_at` updated to the next interval. The RetryWorker retries capacity acquisition on its next cycle; it does not dead-letter on capacity rejection.
 
 
 ## 5. Duplicate-Send Realities
