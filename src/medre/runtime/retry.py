@@ -200,9 +200,9 @@ class RetryWorker:
                         )
                         # Reconstruct policy from receipt metadata.
                         policy = RetryPolicy(
-                            max_attempts=receipt.retry_max_attempts or self._max_attempts,
-                            backoff_base=receipt.retry_backoff_base or 2.0,
-                            max_delay_seconds=receipt.retry_max_delay or 60.0,
+                            max_attempts=receipt.retry_max_attempts if receipt.retry_max_attempts is not None else self._max_attempts,
+                            backoff_base=receipt.retry_backoff_base if receipt.retry_backoff_base is not None else 2.0,
+                            max_delay_seconds=receipt.retry_max_delay if receipt.retry_max_delay is not None else 60.0,
                             jitter=receipt.retry_jitter if receipt.retry_jitter is not None else False,
                         )
                         backoff = RetryExecutor(policy).compute_backoff(
@@ -255,9 +255,9 @@ class RetryWorker:
                 target=target,
                 primary_strategy=DeliveryStrategy(method="direct"),
                 retry_policy=RetryPolicy(
-                    max_attempts=receipt.retry_max_attempts or self._max_attempts,
-                    backoff_base=receipt.retry_backoff_base or 2.0,
-                    max_delay_seconds=receipt.retry_max_delay or 60.0,
+                    max_attempts=receipt.retry_max_attempts if receipt.retry_max_attempts is not None else self._max_attempts,
+                    backoff_base=receipt.retry_backoff_base if receipt.retry_backoff_base is not None else 2.0,
+                    max_delay_seconds=receipt.retry_max_delay if receipt.retry_max_delay is not None else 60.0,
                     jitter=receipt.retry_jitter if receipt.retry_jitter is not None else False,
                 ),
             )

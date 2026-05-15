@@ -838,6 +838,51 @@ class TestRetryExecutor:
         assert executor.policy is policy
         assert executor.policy.max_attempts == 7
 
+    def test_build_retry_receipt_has_target_channel(self) -> None:
+        """build_retry_receipt accepts and persists target_channel."""
+        policy = RetryPolicy(backoff_base=2.0, jitter=False, max_delay_seconds=60.0)
+        executor = RetryExecutor(policy)
+        receipt = executor.build_retry_receipt(
+            event_id="evt-ch",
+            delivery_plan_id="plan-ch",
+            target_adapter="adapter-ch",
+            previous_receipt_id=None,
+            attempt_number=1,
+            error="timeout",
+            target_channel="!room:test",
+        )
+        assert receipt.target_channel == "!room:test"
+
+    def test_build_retry_receipt_has_retry_policy_fields(self) -> None:
+        """build_retry_receipt includes retry policy fields from executor's policy."""
+        policy = RetryPolicy(
+            max_attempts=7,
+            backoff_base=3.0,
+            max_delay_seconds=90.0,
+            jitter=False,
+        )
+        executor = RetryExecutor(policy)
+        receipt = executor.build_retry_receipt(
+            event_id="evt-policy",
+            delivery_plan_id="plan-policy",
+            target_adapter="adapter-pol",
+            previous_receipt_id=None,
+            attempt_number=1,
+            error="timeout",
+        )
+        assert receipt.retry_max_attempts == 7
+        assert receipt.retry_backoff_base == 3.0
+        assert receipt.retry_max_delay == 90.0
+        assert receipt.retry_jitter is False
+
+    def test_build_retry_receipt_source_docstring(self) -> None:
+        """build_retry_receipt docstring mentions live, retry, and replay."""
+        doc = RetryExecutor.build_retry_receipt.__doc__
+        assert doc is not None
+        assert '"live"' in doc
+        assert '"retry"' in doc
+        assert '"replay"' in doc
+
 
 # ===================================================================
 # DeliveryOutcome with failure_kind

@@ -1065,3 +1065,151 @@ class TestRetryRuntimeIntegration:
             assert worker.state.processed == 1
         finally:
             await runner.stop()
+
+    # ------------------------------------------------------------------
+    # Full operator-visible workflow
+    # ------------------------------------------------------------------
+
+    async def test_retry_operator_workflow(self, temp_storage):
+        """Full operator-visible retry workflow exercising the complete
+        operator story: inject → transient failure → trace → retry → trace
+        again → recover (no pending) → evidence → inspect → snapshot.
+
+        Proves trace/recover/evidence consistency across the retry lifecycle.
+        """
+        from medre.runtime.timeline import (
+            assemble_event_timeline,
+            assemble_storage_summary,
+        )
+        from medre.runtime.retry import RetryWorker
+        from medre.runtime.capacity import CapacityController
+        from medre.config.model import RuntimeLimits
+
+        # --- 1. Bridge setup: fake matrix source → meshtastic target ---
+        adapter = _TransientThenSucceedAdapter(
+            adapter_id="mesh_target", fail_count=1,
+        )
+        event = _make_event()
+        route = Route(
+            id="mx_to_mesh",
+            source=RouteSource(
+                adapter="fake_source",
+                event_kinds=("message.created",),
+                channel=None,
+            ),
+            targets=[RouteTarget(adapter="mesh_target", channel="1")],
+        )
+        router = Router(routes=[route])
+        accounting = RuntimeAccounting()
+        adapters = {"mesh_target": adapter}
+
+        retry_policy = RetryPolicy(max_attempts=3)
+        resolver = _FallbackResolverWithRetry(retry_policy)
+        runner = _build_runner(
+            temp_storage, adapters, router, accounting,
+            fallback_resolver=resolver,
+        )
+        await _start_adapters(adapters)
+        await runner.start()
+
+        try:
+            # --- 2. Inject event → transient failure ---
+            outcomes = await runner.handle_ingress(event)
+            assert len(outcomes) == 1
+            assert outcomes[0].status == "transient_failure"
+
+            # --- 3. Get failed receipt from storage ---
+            receipts = await temp_storage.list_receipts_for_event(event.event_id)
+            failed = [r for r in receipts if r.status == "failed"]
+            assert len(failed) == 1
+            original_receipt = failed[0]
+            assert original_receipt.failure_kind == "adapter_transient"
+            assert original_receipt.next_retry_at is not None
+            assert original_receipt.attempt_number == 1
+            assert original_receipt.source == "live"
+
+            # --- 4. Trace shows the failed receipt ---
+            timeline = await assemble_event_timeline(
+                temp_storage, event.event_id,
+            )
+            assert timeline is not None
+            assert len(timeline["receipts"]) == 1
+            assert timeline["receipts"][0].status == "failed"
+            assert timeline["source"] == "live"
+
+            # --- 5. RetryWorker picks up due receipt and succeeds ---
+            future_now = original_receipt.next_retry_at + timedelta(seconds=1)
+
+            limits = RuntimeLimits(
+                max_inflight_deliveries=10,
+                max_inflight_replay_events=10,
+                shutdown_drain_timeout_seconds=5,
+                delivery_acquire_timeout_seconds=0.5,
+            )
+            capacity = CapacityController(limits)
+            worker = RetryWorker(
+                temp_storage, runner, capacity,
+                enabled=True, interval_seconds=10.0, batch_size=20,
+                max_attempts=3,
+            )
+            await worker._process_due(future_now)
+
+            # --- 6. Retry succeeded ---
+            assert worker.state.succeeded == 1
+            assert worker.state.processed == 1
+
+            # --- 7. Trace now shows both failed + success receipts ---
+            timeline_after = await assemble_event_timeline(
+                temp_storage, event.event_id,
+            )
+            assert timeline_after is not None
+            all_receipts_tl = timeline_after["receipts"]
+            assert len(all_receipts_tl) == 2
+            statuses = {r.status for r in all_receipts_tl}
+            assert statuses == {"failed", "sent"}
+
+            # Source classification is "mixed" (live failed + retry success)
+            assert timeline_after["source"] == "mixed"
+
+            # --- 8. Recover: no retry pending (all resolved) ---
+            due_after = await temp_storage.list_due_retry_receipts(future_now)
+            assert len(due_after) == 0, (
+                "No retry should be pending — all resolved"
+            )
+
+            # --- 9. Evidence: storage summary shows retry lineage ---
+            summary = await assemble_storage_summary(temp_storage)
+            assert summary["event_count"] == 1
+            assert summary["receipt_count"] == 2
+            assert summary["receipt_count_by_source"]["live"] == 1
+            assert summary["receipt_count_by_source"]["retry"] == 1
+
+            # --- 10. Inspect: receipts show correct sources ---
+            stored_receipts = await temp_storage.list_receipts_for_event(
+                event.event_id,
+            )
+            sources = {r.source for r in stored_receipts}
+            assert sources == {"live", "retry"}
+
+            live_rcpts = [r for r in stored_receipts if r.source == "live"]
+            retry_rcpts = [r for r in stored_receipts if r.source == "retry"]
+            assert len(live_rcpts) == 1
+            assert len(retry_rcpts) == 1
+
+            # Retry receipt linked to original
+            assert retry_rcpts[0].parent_receipt_id == original_receipt.receipt_id
+            assert retry_rcpts[0].attempt_number == 2
+
+            # --- 11. Final snapshot includes retry counters ---
+            assert worker.state.processed == 1
+            assert worker.state.succeeded == 1
+            assert worker.state.failed == 0
+            assert worker.state.dead_lettered == 0
+
+            # Native ref persisted on retry success
+            native_refs = await temp_storage.list_native_refs_for_event(
+                event.event_id,
+            )
+            assert len(native_refs) >= 1
+        finally:
+            await runner.stop()

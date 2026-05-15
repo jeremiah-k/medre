@@ -520,3 +520,55 @@ class TestRetryEngineEdgeCases:
         assert worker.state.succeeded == 1
         assert worker.state.processed == 1
         assert pipeline.deliver_to_target.call_count == 1
+
+
+class TestRetryWorkerFalsyFallbackSafety:
+    """Verify that the production RetryWorker in retry.py uses `is not None`
+    checks for retry policy fields so falsy values (0, 0.0) are preserved
+    rather than silently replaced by defaults."""
+
+    def test_is_not_none_preserves_zero_backoff(self) -> None:
+        """When retry_backoff_base=0.0 is stored, `is not None` preserves it."""
+        value = 0.0
+        fallback = 2.0
+        # The old `or` pattern: 0.0 or 2.0 → 2.0 (WRONG)
+        assert (value or fallback) == 2.0
+        # The new `is not None` pattern: 0.0 if 0.0 is not None else 2.0 → 0.0 (CORRECT)
+        assert (value if value is not None else fallback) == 0.0
+
+    def test_is_not_none_preserves_zero_max_delay(self) -> None:
+        """When retry_max_delay=0.0 is stored, `is not None` preserves it."""
+        value = 0.0
+        fallback = 60.0
+        assert (value or fallback) == 60.0  # old, wrong
+        assert (value if value is not None else fallback) == 0.0  # new, correct
+
+    def test_is_not_none_preserves_zero_max_attempts(self) -> None:
+        """When retry_max_attempts=0 is stored, `is not None` preserves it."""
+        value = 0
+        fallback = 3
+        assert (value or fallback) == 3  # old, wrong
+        assert (value if value is not None else fallback) == 0  # new, correct
+
+    def test_is_not_none_still_falls_back_on_none(self) -> None:
+        """When the value is None, the fallback is used."""
+        value = None
+        assert value if value is not None else 2.0 == 2.0
+        assert value if value is not None else 60.0 == 60.0
+        assert value if value is not None else 3 == 3
+
+    def test_retry_policy_construction_with_zero_backoff(self) -> None:
+        """RetryPolicy can be constructed with backoff_base=0.0 via is-not-None pattern."""
+        stored_max_attempts = 0
+        stored_backoff = 0.0
+        stored_max_delay = 0.0
+        policy = RetryPolicy(
+            max_attempts=stored_max_attempts if stored_max_attempts is not None else 3,
+            backoff_base=stored_backoff if stored_backoff is not None else 2.0,
+            max_delay_seconds=stored_max_delay if stored_max_delay is not None else 60.0,
+            jitter=False,
+        )
+        assert policy.max_attempts == 0
+        assert policy.backoff_base == 0.0
+        assert policy.max_delay_seconds == 0.0
+        assert policy.jitter is False

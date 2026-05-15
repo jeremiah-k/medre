@@ -290,6 +290,7 @@ class RetryExecutor:
         error: str,
         source: str = "live",
         replay_run_id: str | None = None,
+        target_channel: str | None = None,
     ) -> DeliveryReceipt:
         """Build a ``failed`` receipt for a retryable transient failure.
 
@@ -311,9 +312,11 @@ class RetryExecutor:
         error:
             Human-readable error description.
         source:
-            Origin of delivery: ``"live"`` or ``"replay"``.
+            Origin of delivery: ``"live"``, ``"retry"``, or ``"replay"``.
         replay_run_id:
             When ``source="replay"``, the replay run identifier.
+        target_channel:
+            Channel on the target adapter, if applicable.
 
         Returns
         -------
@@ -329,6 +332,7 @@ class RetryExecutor:
             event_id=event_id,
             delivery_plan_id=delivery_plan_id,
             target_adapter=target_adapter,
+            target_channel=target_channel,
             status="failed",
             error=error,
             next_retry_at=now + backoff,
@@ -337,6 +341,10 @@ class RetryExecutor:
             parent_receipt_id=previous_receipt_id,
             source=source,
             replay_run_id=replay_run_id,
+            retry_max_attempts=self._policy.max_attempts if self._policy is not None else None,
+            retry_backoff_base=self._policy.backoff_base if self._policy is not None else None,
+            retry_max_delay=self._policy.max_delay_seconds if self._policy is not None else None,
+            retry_jitter=self._policy.jitter if self._policy is not None else None,
         )
 
     def build_dead_letter_receipt(

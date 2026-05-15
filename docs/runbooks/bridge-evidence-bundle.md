@@ -237,7 +237,7 @@ When `--storage-path` is provided, the report includes:
   "limitations": [
     "Drill uses fake adapters \u2014 no real transport failure proven",
     "Failure injection is synchronous and deterministic",
-    "No background retry scheduler exercised",
+    "RetryWorker (opt-in, adapter_transient only) not exercised in drill",
     "No sustained failure or cascading failure proof"
   ]
 }

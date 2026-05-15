@@ -36,7 +36,7 @@ This document explicitly records what Phase 1 does **not** implement, what is re
 
 ### What Phase 1 Does NOT Implement for Delivery Failure
 
-- **No background retry scheduler.** Retry is synchronous/receipt-level only. The pipeline records `next_retry_at` on failed receipts but does not automatically re-attempt delivery. A future scheduler or manual replay via `BEST_EFFORT` mode is required.
+- **RetryWorker is opt-in only (disabled by default).** The `RetryWorker` background scheduler exists and handles `ADAPTER_TRANSIENT` failures when a `RetryPolicy` is configured on the route or delivery plan. Without a `RetryPolicy`, transient failures are not automatically retried. The RetryWorker does not restart failed adapters, does not attempt non-transient failure kinds, and does not confirm final delivery ACK from the remote side. Manual replay via `BEST_EFFORT` mode remains available for operator-initiated re-delivery.
 - **No retry budget or rate limiting.** No per-adapter or per-plan retry rate limiting.
 - **No dead-letter queue management.** Dead-lettered events are recorded as receipts but no admin interface or reprocessing UI exists.
 - **No receipt deduplication.** Replay against events with existing receipts may produce duplicate receipts.
@@ -247,7 +247,7 @@ The following do not exist anywhere in Phase 1. This list is exhaustive for Trac
 - No admin API or management interface
 - No plugin ecosystem beyond boundary scaffolding (see Section 5.3 of the plugin API contract)
 - No real transports, no webhook server, no auth framework
-- No background retry scheduler or automatic retry execution
+- RetryWorker is opt-in (disabled by default); no active adapter restart; no final delivery ACK
 - No receipt deduplication during replay
 
 ### 2.4 Verified Test Coverage

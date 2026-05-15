@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from medre.adapters.matrix.errors import MatrixConfigError
+from medre.config.errors import ConfigFileError
 from medre.config.loader import load_config
 from medre.runtime.builder import RuntimeBuilder
 
@@ -1067,3 +1068,93 @@ class TestFakeConfigRouteValidate:
                     f"Enabled route {route.route_id} not in registered: "
                     f"{sorted(registered_ids)}"
                 )
+
+
+# ===========================================================================
+# 12. Docker configs: clean errors for unresolved env var placeholders
+# ===========================================================================
+
+
+class TestDockerConfigsEnvVarValidation:
+    """Verify Docker configs with unresolved ``${ENV_VAR}`` placeholders
+    produce clean, operator-actionable errors — not raw tracebacks.
+
+    The loader's ``_expand_paths_in_dict`` treats ``{...}`` as path
+    placeholders.  When a config contains ``${MEDRE_HOMESERVER}``, the
+    ``{MEDRE_HOMESERVER}`` substring triggers path expansion.  Since
+    ``MEDRE_HOMESERVER`` is not a recognised path placeholder
+    (only ``{config}``, ``{state}``, etc. are valid), the loader raises
+    ``ConfigFileError`` wrapping ``MedrePathsError``.  This test verifies
+    the error message is clean and mentions the problematic field.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _medre_home(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
+
+    def test_docker_matrix_bridge_fails_cleanly_without_env_vars(self) -> None:
+        """Loading docker-matrix-bridge.toml without env vars produces a
+        ConfigFileError about the path placeholder, not a raw traceback."""
+        config_path = CONFIGS_DIR / "docker-matrix-bridge.toml"
+
+        # Step 1: TOML is valid (raw parse succeeds)
+        raw = _read(config_path)
+        data = tomllib.loads(raw)
+        assert isinstance(data, dict)
+
+        # Step 2: load_config fails with ConfigFileError
+        with pytest.raises(ConfigFileError) as exc_info:
+            load_config(str(config_path))
+
+        error_msg = str(exc_info.value)
+
+        # Step 3: Error mentions the placeholder problem
+        assert "placeholder" in error_msg.lower(), (
+            f"Expected error to mention 'placeholder', got: {error_msg}"
+        )
+
+        # Step 4: Error mentions the specific config field that caused it
+        assert any(
+            field in error_msg for field in ("homeserver", "user_id", "access_token")
+        ), (
+            f"Expected error to mention a config field (homeserver/user_id/access_token), "
+            f"got: {error_msg}"
+        )
+
+        # Step 5: Error mentions the env var name so operator knows what to set
+        assert any(
+            var in error_msg for var in ("MEDRE_HOMESERVER", "MEDRE_USER_ID", "MEDRE_ACCESS_TOKEN")
+        ), (
+            f"Expected error to mention an env var name, got: {error_msg}"
+        )
+
+        # Step 6: No raw traceback — error is clean
+        assert "Traceback" not in error_msg
+        assert "File " not in error_msg
+
+    def test_docker_meshtastic_bridge_fails_cleanly_without_env_vars(self) -> None:
+        """Loading docker-meshtastic-bridge.toml without env vars produces
+        a ConfigFileError about the host placeholder."""
+        config_path = CONFIGS_DIR / "docker-meshtastic-bridge.toml"
+
+        # TOML is valid
+        raw = _read(config_path)
+        data = tomllib.loads(raw)
+        assert isinstance(data, dict)
+
+        # load_config fails with ConfigFileError
+        with pytest.raises(ConfigFileError) as exc_info:
+            load_config(str(config_path))
+
+        error_msg = str(exc_info.value)
+
+        # Error is clean and actionable
+        assert "placeholder" in error_msg.lower(), (
+            f"Expected error to mention 'placeholder', got: {error_msg}"
+        )
+        assert any(
+            field in error_msg for field in ("host", "MESHTASTIC_HOST")
+        ), (
+            f"Expected error to mention 'host' or 'MESHTASTIC_HOST', got: {error_msg}"
+        )
+        assert "Traceback" not in error_msg
