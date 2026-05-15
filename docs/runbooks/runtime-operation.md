@@ -1010,7 +1010,7 @@ boundaries:
 
 | Command | Storage | Starts adapters | Output | Persistence |
 |---------|---------|----------------|--------|-------------|
-| ``medre smoke`` | In-memory by default; SQLite with ``--storage-path`` | Yes (fake only) | PASS/FAIL JSON report | Ephemeral by default; SQLite persists with ``--storage-path`` |
+| ``medre smoke`` | In-memory by default; SQLite with ``--storage-path`` | Yes (fake only) | pass/fail JSON report | Ephemeral by default; SQLite persists with ``--storage-path`` |
 | ``medre evidence`` | Per config (memory or SQLite) | Fake only (or real with ``--include-refresh-health``) | Full evidence bundle JSON | Per config |
 | ``medre diagnostics`` | None (build-time) | No | Build-time snapshot | N/A (no data written) |
 | ``medre diagnostics --refresh-health`` | None | Yes (real or fake) | Live health snapshot | Ephemeral — lost on exit |

@@ -43,7 +43,7 @@ the bundle archive.
 
 ```bash
 PYTHONPATH=src medre smoke --json > bundle-smoke.json
-# Exit code: 0 = PASS, 1 = FAIL
+# Exit code: 0 = pass, 1 = fail
 ```
 
 ### 1.2 Persistent Smoke (inspectable after exit)
@@ -104,10 +104,10 @@ PYTHONPATH=src medre inspect receipts --replay-run <run_id> --config my-bridge.t
 
 | Command | Storage | Starts adapters | Output | Exit codes |
 |---------|---------|----------------|--------|------------|
-| `medre smoke --json` | In-memory | Fake only | PASS/FAIL JSON | 0=PASS, 1=FAIL |
-| `medre smoke --storage-path <db> --json` | SQLite | Fake only | PASS/FAIL JSON + DB | 0=PASS, 1=FAIL |
-| `medre smoke --drill <name> --json` | In-memory | Fake only | Drill report JSON | 0=PASS, 1=FAIL |
-| `medre smoke --drill <name> --storage-path <db> --json` | SQLite | Fake only | Drill report JSON + DB | 0=PASS, 1=FAIL |
+| `medre smoke --json` | In-memory | Fake only | pass/fail JSON | 0=pass, 1=fail |
+| `medre smoke --storage-path <db> --json` | SQLite | Fake only | pass/fail JSON + DB | 0=pass, 1=fail |
+| `medre smoke --drill <name> --json` | In-memory | Fake only | Drill report JSON | 0=pass, 1=fail |
+| `medre smoke --drill <name> --storage-path <db> --json` | SQLite | Fake only | Drill report JSON + DB | 0=pass, 1=fail |
 | `medre evidence --config <path> --json` | Per config (memory or SQLite) | Fake only (or real with `--include-refresh-health`) | Full bundle JSON | 0=ok/partial, 2=config error |
 | `medre evidence --config <path> --event <id> --json` | Per config (memory or SQLite) | No | Bundle with event/receipt lookup | 0=ok/partial, 2=config error |
 | `medre evidence --config <path> --include-refresh-health --json` | Per config (memory or SQLite) | Yes (real or fake) | Full bundle + live health JSON | 0=ok/partial, 2=config error |
@@ -126,8 +126,13 @@ PYTHONPATH=src medre inspect receipts --replay-run <run_id> --config my-bridge.t
 
 ```json
 {
-  "status": "PASS",
+  "status": "pass",
   "evidence_level": "fake_bridge",
+  "scenario_category": "smoke",
+  "simulated": true,
+  "command": "smoke",
+  "commands_argv": ["medre", "smoke", "--json"],
+  "commands_text": "medre smoke --json",
   "timestamp": "2026-05-14T10:30:00+00:00",
   "config_source": "default",
   "storage_backend": "memory",
@@ -185,8 +190,10 @@ When the smoke **fails**, the report adds a `fail_reasons` array:
 
 ```json
 {
-  "status": "FAIL",
+  "status": "fail",
   "evidence_level": "fake_bridge",
+  "scenario_category": "smoke",
+  "simulated": true,
   "fail_reasons": [
     "No receipt with status 'sent'",
     "Accounting outbound_delivered < 1"
@@ -207,8 +214,14 @@ When `--storage-path` is provided, the report includes:
 
 ```json
 {
-  "status": "PASS",
+  "status": "pass",
   "evidence_level": "drill",
+  "scenario_category": "drill",
+  "simulated": true,
+  "simulation_method": "failure_injection",
+  "command": "smoke",
+  "commands_argv": ["medre", "smoke", "--drill", "renderer_failure", "--json"],
+  "commands_text": "medre smoke --drill renderer_failure --json",
   "drill_name": "renderer_failure",
   "timestamp": "2026-05-14T10:30:00+00:00",
   "config_source": "default",
@@ -623,9 +636,9 @@ See [Event Tracing](event-tracing.md) for the full trace report shapes and
 
 | Status | Meaning | Operator action |
 |--------|---------|-----------------|
-| `ok` / `PASS` | All criteria met at the reported evidence level | Proceed to live runtime with caution. The bundle proves pipeline correctness, not live connectivity. |
+| `ok` / `pass` | All criteria met at the reported evidence level | Proceed to live runtime with caution. The bundle proves pipeline correctness, not live connectivity. |
 | `partial` | Some adapters/routes/drills failed but the runtime stayed up | Inspect `fail_reasons` and per-adapter `.error` fields. Individual drill failures may be acceptable depending on the scenario (e.g., a degraded health drill expects failure). |
-| `error` / `FAIL` | A required criterion was not met | Do not proceed to live runtime. Inspect `fail_reasons`, fix the config or environment, re-collect the bundle. |
+| `error` / `fail` | A required criterion was not met | Do not proceed to live runtime. Inspect `fail_reasons`, fix the config or environment, re-collect the bundle. |
 
 ### 4.2 Why `--include-refresh-health` Starts Adapters
 

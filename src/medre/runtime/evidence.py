@@ -18,17 +18,19 @@ Report shape
 The top-level dict contains:
 
 * ``schema_version`` — ``1`` (frozen during pre-release).
-* ``status`` — ``"ok"`` | ``"partial"`` | ``"error"``.
+* ``status`` — ``"passed"`` | ``"partial"`` | ``"error"``.
 * ``collected_at`` — ISO-8601 UTC timestamp.
 * ``medre_version`` — installed package version.
 * ``config_source`` — how the config file was found.
+* ``command`` — ``"evidence"`` (the CLI command that produced the report).
+* ``generated_at`` — ISO-8601 UTC timestamp (same as ``collected_at``).
 * ``runtime_started`` — ``true`` only when ``--include-refresh-health``
   was used and the runtime actually started.
 * ``sections`` — grouped evidence (each with its own ``status``).
 * ``errors`` — flat list of bounded error strings across all sections.
 * ``limitations`` — honest list of what the evidence does **not** prove.
 
-Section status values: ``"ok"``, ``"partial"``, ``"error"``, ``"skipped"``.
+Section status values: ``"passed"``, ``"partial"``, ``"error"``, ``"skipped"``.
 
 Public symbols
 --------------
@@ -97,7 +99,7 @@ def _fixed_mono() -> float:
 
 
 def _section_ok(data: Any) -> dict[str, Any]:
-    return {"status": "ok", "error": None, "data": data}
+    return {"status": "passed", "error": None, "data": data}
 
 
 def _section_partial(data: Any, error: str) -> dict[str, Any]:
@@ -116,9 +118,9 @@ def _compute_overall_status(sections: dict[str, dict[str, Any]]) -> str:
     """Compute overall status from per-section statuses."""
     statuses = {s.get("status") for s in sections.values()}
     if not statuses or statuses == {"skipped"}:
-        return "ok"
-    if statuses <= {"ok", "skipped"}:
-        return "ok"
+        return "passed"
+    if statuses <= {"passed", "skipped"}:
+        return "passed"
     if "error" in statuses and all(s in ("error", "skipped") for s in statuses):
         # All attempted sections errored.
         return "partial"
@@ -581,8 +583,10 @@ async def collect_evidence_bundle(
     except Exception as exc:
         return {
             "collected_at": _now().isoformat(),
+            "command": "evidence",
             "config_source": None,
             "errors": [sanitize_error(str(exc))],
+            "generated_at": _now().isoformat(),
             "limitations": _LIMITATIONS,
             "medre_version": _get_version(),
             "runtime_started": False,
@@ -618,7 +622,7 @@ async def collect_evidence_bundle(
         # Mark runtime as started if the section isn't an outright error
         # from the build phase (build errors mean it never started).
         lh_status = sections["live_health"].get("status")
-        if lh_status in ("ok", "partial"):
+        if lh_status in ("passed", "partial"):
             runtime_started = True
         if sections["live_health"]["error"]:
             errors.append(sections["live_health"]["error"])
@@ -639,8 +643,10 @@ async def collect_evidence_bundle(
 
     return {
         "collected_at": _now().isoformat(),
+        "command": "evidence",
         "config_source": source.value,
         "errors": errors,
+        "generated_at": _now().isoformat(),
         "limitations": _LIMITATIONS,
         "medre_version": _get_version(),
         "runtime_started": runtime_started,

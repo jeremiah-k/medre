@@ -262,7 +262,7 @@ The ``medre smoke`` command provides a single-command Docker-free bridge
 validation.  It loads a config (default: ``examples/configs/fake-bridge-smoke.toml``),
 builds and starts the runtime with fake adapters, injects one ``message.text``
 event through the full pipeline, inspects every evidence surface, stops
-cleanly, and prints a compact PASS/FAIL report.
+cleanly, and prints a compact pass/fail report.
 
 ```bash
 # Default: uses shipped fake-bridge-smoke.toml
@@ -277,16 +277,41 @@ PYTHONPATH=src medre smoke --config examples/configs/fake-bridge-smoke.toml
 # Custom message text
 PYTHONPATH=src medre smoke --message "operator check $(date -Iseconds)"
 
-# Exit codes: 0 = PASS, 1 = FAIL
+# Exit codes: 0 = pass, 1 = fail
 PYTHONPATH=src medre smoke --json; echo "exit: $?"
 ```
+
+**Scenario flag:**
+
+The ``--scenario`` flag selects a named scenario configuration for the smoke
+run. Scenarios define pre-wired adapter topologies and message patterns
+without requiring a custom config file:
+
+```bash
+# List available scenarios
+PYTHONPATH=src medre smoke --scenario list
+
+# Run a specific scenario
+PYTHONPATH=src medre smoke --scenario <name> --json
+
+# Scenario with custom config overrides
+PYTHONPATH=src medre smoke --scenario <name> --config my-bridge.toml --json
+```
+
+When ``--scenario`` is provided, the report includes ``scenario_category``
+set to ``"smoke"`` and ``simulated`` set to ``true``.
 
 **Report fields:**
 
 | Field | Type | Description |
 |-------|------|-------------|
-| ``status`` | ``PASS`` / ``FAIL`` | Overall result |
+| ``status`` | ``pass`` / ``fail`` | Overall result (lowercase) |
 | ``evidence_level`` | ``fake_bridge`` | What the report proves |
+| ``scenario_category`` | ``"smoke"`` | Report category for classification |
+| ``command`` | ``str`` | CLI subcommand that produced this report (e.g. ``"smoke"``) |
+| ``simulated`` | ``bool`` | ``true`` for fake-adapter runs |
+| ``commands_argv`` | ``list[str]`` | Full argv of the invocation |
+| ``commands_text`` | ``str`` | Human-readable command string |
 | ``source_adapter`` | str | Adapter that sourced the test event |
 | ``target_adapters`` | list[str] | Adapters that received delivery |
 | ``event_id`` | str | Canonical event ID |
@@ -330,7 +355,7 @@ The underlying function ``run_fake_bridge_smoke()`` in
 ```python
 from medre.runtime.smoke import run_fake_bridge_smoke
 report = await run_fake_bridge_smoke("path/to/config.toml")
-assert report["status"] == "PASS"
+assert report["status"] == "pass"
 ```
 
 **Note:** ``run_fake_bridge_smoke()`` also uses in-memory storage by default.
@@ -406,12 +431,12 @@ PYTHONPATH=src medre evidence --config my-bridge.toml --event <event_id> --json 
 See [Bridge Evidence Bundle](bridge-evidence-bundle.md) for the full collection
 workflow, report shapes, and bug report attachment guidance.
 
-### Expected fake bridge PASS output
+### Expected fake bridge pass output
 
 ```bash
 PYTHONPATH=src pytest tests/test_fake_bridge_smoke.py -v
 # Expected: 30+ passed in under 30 seconds
-# Key test classes that must PASS:
+# Key test classes that must pass:
 #   TestMatrixToMeshtastic, TestMeshtasticToMatrix,
 #   TestBidirectionalBridge, TestFanoutDelivery,
 #   TestLoopPrevention, TestReplyRelationPreservation,
@@ -419,7 +444,7 @@ PYTHONPATH=src pytest tests/test_fake_bridge_smoke.py -v
 #   TestRouteConfigThroughRuntime
 ```
 
-### Expected Docker bridge smoke PASS output
+### Expected Docker bridge smoke pass output
 
 ```bash
 PYTHONPATH=src pytest tests/integration/test_synapse_bridge_smoke.py -m docker -v

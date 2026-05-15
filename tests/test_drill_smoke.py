@@ -64,7 +64,7 @@ class TestSmokeStoragePath:
         report = await run_fake_bridge_smoke(
             config_path, storage_path=db_path,
         )
-        assert report["status"] == "PASS", report.get("fail_reasons", [])
+        assert report["status"] == "passed", report.get("fail_reasons", [])
         assert Path(db_path).is_file()
 
     @pytest.mark.asyncio
@@ -140,7 +140,7 @@ class TestSmokeStoragePath:
 
         assert exc_info.value.code == 0
         report = json.loads(stdout_capture.getvalue())
-        assert report["status"] == "PASS"
+        assert report["status"] == "passed"
         assert report["storage_path"] == db_path
         assert report["storage_backend"] == "sqlite"
 
@@ -178,7 +178,7 @@ class TestDrillInfrastructure:
     async def test_unknown_drill_returns_fail(self) -> None:
         """Unknown drill name returns FAIL report."""
         report = await run_drill("nonexistent_drill")
-        assert report["status"] == "FAIL"
+        assert report["status"] == "failed"
         assert report["evidence_level"] == "drill"
         assert "Unknown drill" in report["fail_reasons"][0]
 
@@ -217,7 +217,7 @@ class TestDrillInfrastructure:
 
         assert exc_info.value.code == 0
         report = json.loads(stdout_capture.getvalue())
-        assert report["status"] == "PASS"
+        assert report["status"] == "passed"
         assert report["drill_name"] == "renderer_failure"
 
     def test_cli_drill_human_readable(self) -> None:
@@ -256,7 +256,7 @@ class TestDrillInfrastructure:
 
         assert exc_info.value.code == 1
         report = json.loads(stdout_capture.getvalue())
-        assert report["status"] == "FAIL"
+        assert report["status"] == "failed"
 
 
 # ---------------------------------------------------------------------------
@@ -270,7 +270,7 @@ class TestRendererFailureDrill:
     @pytest.mark.asyncio
     async def test_pass(self) -> None:
         report = await run_drill("renderer_failure", config_path=_smoke_config_path())
-        assert report["status"] == "PASS", report.get("fail_reasons", [])
+        assert report["status"] == "passed", report.get("fail_reasons", [])
         assert report["drill_name"] == "renderer_failure"
         assert report["evidence_level"] == "drill"
         assert "event_id" in report
@@ -304,7 +304,7 @@ class TestAdapterPermanentFailureDrill:
         report = await run_drill(
             "adapter_permanent_failure", config_path=_smoke_config_path(),
         )
-        assert report["status"] == "PASS", report.get("fail_reasons", [])
+        assert report["status"] == "passed", report.get("fail_reasons", [])
 
     @pytest.mark.asyncio
     async def test_outcome_is_permanent(self) -> None:
@@ -334,7 +334,7 @@ class TestAdapterTransientFailureDrill:
         report = await run_drill(
             "adapter_transient_failure", config_path=_smoke_config_path(),
         )
-        assert report["status"] == "PASS", report.get("fail_reasons", [])
+        assert report["status"] == "passed", report.get("fail_reasons", [])
 
     @pytest.mark.asyncio
     async def test_outcome_is_transient(self) -> None:
@@ -403,7 +403,7 @@ class TestCapacityRejectionDrill:
         report = await run_drill(
             "capacity_rejection", config_path=_smoke_config_path(),
         )
-        assert report["status"] == "PASS", report.get("fail_reasons", [])
+        assert report["status"] == "passed", report.get("fail_reasons", [])
 
     @pytest.mark.asyncio
     async def test_no_receipt_for_rejected(self) -> None:
@@ -434,7 +434,7 @@ class TestShutdownRejectionDrill:
         report = await run_drill(
             "shutdown_rejection", config_path=_smoke_config_path(),
         )
-        assert report["status"] == "PASS", report.get("fail_reasons", [])
+        assert report["status"] == "passed", report.get("fail_reasons", [])
 
     @pytest.mark.asyncio
     async def test_no_receipt_for_rejected(self) -> None:
@@ -479,7 +479,7 @@ class TestReplayDuplicateRiskDrill:
         report = await run_drill(
             "replay_duplicate_risk", config_path=_smoke_config_path(),
         )
-        assert report["status"] == "PASS", report.get("fail_reasons", [])
+        assert report["status"] == "passed", report.get("fail_reasons", [])
 
     @pytest.mark.asyncio
     async def test_duplicate_receipts_created(self) -> None:
@@ -524,7 +524,7 @@ class TestDegradedLiveHealthDrill:
         report = await run_drill(
             "degraded_live_health", config_path=_smoke_config_path(),
         )
-        assert report["status"] == "PASS", report.get("fail_reasons", [])
+        assert report["status"] == "passed", report.get("fail_reasons", [])
 
     @pytest.mark.asyncio
     async def test_degraded_observed(self) -> None:
@@ -574,7 +574,7 @@ class TestBadRouteConfigDrill:
     @pytest.mark.asyncio
     async def test_pass(self) -> None:
         report = await run_drill("bad_route_config")
-        assert report["status"] == "PASS", report.get("fail_reasons", [])
+        assert report["status"] == "passed", report.get("fail_reasons", [])
         assert report["drill_name"] == "bad_route_config"
         assert report["evidence_level"] == "drill"
 
@@ -628,7 +628,7 @@ class TestBadRouteConfigDrill:
 
         assert exc_info.value.code == 0
         report = json.loads(stdout_capture.getvalue())
-        assert report["status"] == "PASS"
+        assert report["status"] == "passed"
         assert report["drill_name"] == "bad_route_config"
 
 
@@ -638,7 +638,7 @@ class TestAllAdaptersBuildFailDrill:
     @pytest.mark.asyncio
     async def test_pass(self) -> None:
         report = await run_drill("all_adapters_build_fail")
-        assert report["status"] == "PASS", report.get("fail_reasons", [])
+        assert report["status"] == "passed", report.get("fail_reasons", [])
         assert report["drill_name"] == "all_adapters_build_fail"
 
     @pytest.mark.asyncio
@@ -691,7 +691,7 @@ class TestAllAdaptersBuildFailDrill:
 
         assert exc_info.value.code == 0
         report = json.loads(stdout_capture.getvalue())
-        assert report["status"] == "PASS"
+        assert report["status"] == "passed"
 
 
 class TestPartialDegradedStartupDrill:
@@ -700,7 +700,7 @@ class TestPartialDegradedStartupDrill:
     @pytest.mark.asyncio
     async def test_pass(self) -> None:
         report = await run_drill("partial_degraded_startup")
-        assert report["status"] == "PASS", report.get("fail_reasons", [])
+        assert report["status"] == "passed", report.get("fail_reasons", [])
 
     @pytest.mark.asyncio
     async def test_outcome_is_partial(self) -> None:
@@ -754,7 +754,7 @@ class TestPartialDegradedStartupDrill:
 
         assert exc_info.value.code == 0
         report = json.loads(stdout_capture.getvalue())
-        assert report["status"] == "PASS"
+        assert report["status"] == "passed"
 
 
 class TestAllAdaptersStartFailDrill:
@@ -763,7 +763,7 @@ class TestAllAdaptersStartFailDrill:
     @pytest.mark.asyncio
     async def test_pass(self) -> None:
         report = await run_drill("all_adapters_start_fail")
-        assert report["status"] == "PASS", report.get("fail_reasons", [])
+        assert report["status"] == "passed", report.get("fail_reasons", [])
 
     @pytest.mark.asyncio
     async def test_outcome_is_total_failure(self) -> None:
@@ -823,7 +823,7 @@ class TestAllAdaptersStartFailDrill:
 
         assert exc_info.value.code == 0
         report = json.loads(stdout_capture.getvalue())
-        assert report["status"] == "PASS"
+        assert report["status"] == "passed"
 
 
 class TestDrillCrossCutting:
@@ -844,7 +844,7 @@ class TestDrillCrossCutting:
     async def test_report_passes(self, drill_name: str) -> None:
         """Every drill produces a PASS report."""
         report = await run_drill(drill_name, config_path=_smoke_config_path())
-        assert report["status"] == "PASS", (
+        assert report["status"] == "passed", (
             f"Drill {drill_name} failed: {report.get('fail_reasons', [])}"
         )
 
@@ -882,7 +882,7 @@ class TestDrillCrossCutting:
             config_path=_smoke_config_path(),
             storage_path=db_path,
         )
-        assert report["status"] == "PASS", (
+        assert report["status"] == "passed", (
             f"Drill {drill_name} with storage_path failed: "
             f"{report.get('fail_reasons', [])}"
         )
@@ -1007,7 +1007,7 @@ class TestDrillStorageCrossCheck:
         """``medre trace event`` finds the drill-generated event in storage."""
         db_path = str(tmp_path / f"{drill_name}-trace.db")
         report = self._run_drill_sync(drill_name, storage_path=db_path)
-        assert report["status"] == "PASS", report.get("fail_reasons", [])
+        assert report["status"] == "passed", report.get("fail_reasons", [])
         event_id = report["event_id"]
 
         config_path = _write_crosscheck_config(tmp_path, db_path)
@@ -1032,7 +1032,7 @@ class TestDrillStorageCrossCheck:
         """``medre inspect receipts`` finds at least one receipt."""
         db_path = str(tmp_path / f"{drill_name}-rcpt.db")
         report = self._run_drill_sync(drill_name, storage_path=db_path)
-        assert report["status"] == "PASS", report.get("fail_reasons", [])
+        assert report["status"] == "passed", report.get("fail_reasons", [])
         event_id = report["event_id"]
 
         config_path = _write_crosscheck_config(tmp_path, db_path)
@@ -1055,7 +1055,7 @@ class TestDrillStorageCrossCheck:
         """Rejection drills produce zero receipts (event still stored)."""
         db_path = str(tmp_path / f"{drill_name}-reject.db")
         report = self._run_drill_sync(drill_name, storage_path=db_path)
-        assert report["status"] == "PASS", report.get("fail_reasons", [])
+        assert report["status"] == "passed", report.get("fail_reasons", [])
         event_id = report["event_id"]
 
         config_path = _write_crosscheck_config(tmp_path, db_path)
@@ -1089,7 +1089,7 @@ class TestDrillStorageCrossCheck:
         """``medre evidence --event`` retrieves the drill event from storage."""
         db_path = str(tmp_path / f"{drill_name}-ev.db")
         report = self._run_drill_sync(drill_name, storage_path=db_path)
-        assert report["status"] == "PASS", report.get("fail_reasons", [])
+        assert report["status"] == "passed", report.get("fail_reasons", [])
         event_id = report["event_id"]
 
         config_path = _write_crosscheck_config(tmp_path, db_path)
@@ -1100,7 +1100,7 @@ class TestDrillStorageCrossCheck:
         evidence = json.loads(output)
         assert evidence["schema_version"] == 1
         storage_section = evidence["sections"]["storage"]
-        assert storage_section["status"] == "ok"
+        assert storage_section["status"] == "passed"
         assert storage_section["data"]["db_exists"] is True
         assert storage_section["data"]["event"] is not None
         assert storage_section["data"]["event"]["event_id"] == event_id
@@ -1112,7 +1112,7 @@ class TestDrillStorageCrossCheck:
         for drill_name in _CROSSCHECK_DRILLS:
             db_path = str(tmp_path / f"all-{drill_name}.db")
             report = self._run_drill_sync(drill_name, storage_path=db_path)
-            assert report["status"] == "PASS", (
+            assert report["status"] == "passed", (
                 f"Drill {drill_name} failed: {report.get('fail_reasons', [])}"
             )
             event_id = report["event_id"]
@@ -1153,5 +1153,5 @@ class TestDrillStorageCrossCheck:
                 "--event", event_id,
             )
             evidence = json.loads(ev_output)
-            assert evidence["sections"]["storage"]["status"] == "ok"
+            assert evidence["sections"]["storage"]["status"] == "passed"
             assert evidence["sections"]["storage"]["data"]["db_exists"] is True

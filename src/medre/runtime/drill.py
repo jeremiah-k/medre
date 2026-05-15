@@ -12,7 +12,7 @@ Drill report shape
 ------------------
 Every drill report contains at minimum:
 
-* ``status``        — ``"PASS"`` or ``"FAIL"`` (PASS = drill observed
+* ``status``        — ``"passed"`` or ``"failed"`` (passed = drill observed
   the expected failure behavior).
 * ``evidence_level`` — always ``"drill"``.
 * ``drill_name``    — the drill identifier.
@@ -166,7 +166,8 @@ def _base_report(
 ) -> dict[str, Any]:
     """Return the common report skeleton for a drill."""
     report: dict[str, Any] = {
-        "status": "PASS",
+        "status": "passed",
+        "command": "drill",
         "evidence_level": "drill",
         "drill_name": drill_name,
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -261,7 +262,7 @@ async def _drill_renderer_failure(
     try:
         app, preflight, cs, _ = await _build_smoke_runtime(config_path, storage_path)
     except Exception as exc:
-        report["status"] = "FAIL"
+        report["status"] = "failed"
         report["fail_reasons"] = [str(exc)]
         return report
 
@@ -285,7 +286,7 @@ async def _drill_renderer_failure(
 
         # Expect exactly one outcome with RENDERER_FAILURE.
         if not outcomes:
-            report["status"] = "FAIL"
+            report["status"] = "failed"
             report["fail_reasons"] = ["No delivery outcomes returned"]
         else:
             outcome = outcomes[0]
@@ -317,7 +318,7 @@ async def _drill_renderer_failure(
                 has_failed_receipt=has_failed_receipt,
             ))
             if failure_kind != "renderer_failure" or not has_failed_receipt:
-                report["status"] = "FAIL"
+                report["status"] = "failed"
                 report["fail_reasons"] = []
                 if failure_kind != "renderer_failure":
                     report["fail_reasons"].append(
@@ -327,7 +328,7 @@ async def _drill_renderer_failure(
                     report["fail_reasons"].append("No failed receipt persisted")
 
     except Exception as exc:
-        report["status"] = "FAIL"
+        report["status"] = "failed"
         report["fail_reasons"] = [f"Unexpected error: {exc}"]
     finally:
         await _clean_stop(app)
@@ -349,7 +350,7 @@ async def _drill_adapter_permanent_failure(
     try:
         app, preflight, cs, _ = await _build_smoke_runtime(config_path, storage_path)
     except Exception as exc:
-        report["status"] = "FAIL"
+        report["status"] = "failed"
         report["fail_reasons"] = [str(exc)]
         return report
 
@@ -384,7 +385,7 @@ async def _drill_adapter_permanent_failure(
                 break
 
         if patched_aid is None:
-            report["status"] = "FAIL"
+            report["status"] = "failed"
             report["fail_reasons"] = ["No target adapter to patch"]
             report["drill_steps"] = steps
             await _clean_stop(app)
@@ -404,7 +405,7 @@ async def _drill_adapter_permanent_failure(
                 break
 
         if target_outcome is None:
-            report["status"] = "FAIL"
+            report["status"] = "failed"
             report["fail_reasons"] = [
                 f"No outcome for patched adapter {patched_aid}"
             ]
@@ -453,13 +454,13 @@ async def _drill_adapter_permanent_failure(
             ))
 
             if target_outcome.status != "permanent_failure":
-                report["status"] = "FAIL"
+                report["status"] = "failed"
                 report["fail_reasons"] = [
                     f"Expected permanent_failure, got {target_outcome.status}"
                 ]
 
     except Exception as exc:
-        report["status"] = "FAIL"
+        report["status"] = "failed"
         report["fail_reasons"] = [f"Unexpected error: {exc}"]
     finally:
         await _clean_stop(app)
@@ -481,7 +482,7 @@ async def _drill_adapter_transient_failure(
     try:
         app, preflight, cs, _ = await _build_smoke_runtime(config_path, storage_path)
     except Exception as exc:
-        report["status"] = "FAIL"
+        report["status"] = "failed"
         report["fail_reasons"] = [str(exc)]
         return report
 
@@ -521,7 +522,7 @@ async def _drill_adapter_transient_failure(
                 break
 
         if patched_aid is None:
-            report["status"] = "FAIL"
+            report["status"] = "failed"
             report["fail_reasons"] = ["No target adapter to patch"]
             report["drill_steps"] = steps
             await _clean_stop(app)
@@ -548,7 +549,7 @@ async def _drill_adapter_transient_failure(
                 break
 
         if target_outcome is None:
-            report["status"] = "FAIL"
+            report["status"] = "failed"
             report["fail_reasons"] = [
                 f"No outcome for patched adapter {patched_aid}"
             ]
@@ -640,7 +641,7 @@ async def _drill_adapter_transient_failure(
             }
 
             if target_outcome.status != "transient_failure" or not is_retryable:
-                report["status"] = "FAIL"
+                report["status"] = "failed"
                 report["fail_reasons"] = []
                 if target_outcome.status != "transient_failure":
                     report["fail_reasons"].append(
@@ -650,7 +651,7 @@ async def _drill_adapter_transient_failure(
                     report["fail_reasons"].append("Failure kind not marked retryable")
 
     except Exception as exc:
-        report["status"] = "FAIL"
+        report["status"] = "failed"
         report["fail_reasons"] = [f"Unexpected error: {exc}"]
     finally:
         await _clean_stop(app)
@@ -674,7 +675,7 @@ async def _drill_capacity_rejection(
             config_path, storage_path,
         )
     except Exception as exc:
-        report["status"] = "FAIL"
+        report["status"] = "failed"
         report["fail_reasons"] = [str(exc)]
         return report
 
@@ -685,7 +686,7 @@ async def _drill_capacity_rejection(
     try:
         cc = app._capacity_controller
         if cc is None:
-            report["status"] = "FAIL"
+            report["status"] = "failed"
             report["fail_reasons"] = ["No capacity controller wired"]
             report["drill_steps"] = steps
             await _clean_stop(app)
@@ -748,11 +749,11 @@ async def _drill_capacity_rejection(
         ))
 
         if not has_cap_rejection:
-            report["status"] = "FAIL"
+            report["status"] = "failed"
             report["fail_reasons"] = ["No CAPACITY_REJECTION observed"]
 
     except Exception as exc:
-        report["status"] = "FAIL"
+        report["status"] = "failed"
         report["fail_reasons"] = [f"Unexpected error: {exc}"]
     finally:
         await _clean_stop(app)
@@ -772,7 +773,7 @@ async def _drill_shutdown_rejection(
     try:
         app, preflight, cs, _ = await _build_smoke_runtime(config_path, storage_path)
     except Exception as exc:
-        report["status"] = "FAIL"
+        report["status"] = "failed"
         report["fail_reasons"] = [str(exc)]
         return report
 
@@ -786,7 +787,7 @@ async def _drill_shutdown_rejection(
     try:
         cc = app._capacity_controller
         if cc is None:
-            report["status"] = "FAIL"
+            report["status"] = "failed"
             report["fail_reasons"] = ["No capacity controller wired"]
             report["drill_steps"] = steps
             await _clean_stop(app)
@@ -858,11 +859,11 @@ async def _drill_shutdown_rejection(
         }
 
         if not has_shutdown:
-            report["status"] = "FAIL"
+            report["status"] = "failed"
             report["fail_reasons"] = ["No SHUTDOWN_REJECTION observed"]
 
     except Exception as exc:
-        report["status"] = "FAIL"
+        report["status"] = "failed"
         report["fail_reasons"] = [f"Unexpected error: {exc}"]
     finally:
         await _clean_stop(app)
@@ -884,7 +885,7 @@ async def _drill_replay_duplicate_risk(
     try:
         app, preflight, cs, _ = await _build_smoke_runtime(config_path, storage_path)
     except Exception as exc:
-        report["status"] = "FAIL"
+        report["status"] = "failed"
         report["fail_reasons"] = [str(exc)]
         return report
 
@@ -925,7 +926,7 @@ async def _drill_replay_duplicate_risk(
         # Replay BEST_EFFORT.
         replay_engine = app._replay_engine
         if replay_engine is None:
-            report["status"] = "FAIL"
+            report["status"] = "failed"
             report["fail_reasons"] = ["No replay engine wired"]
             report["drill_steps"] = steps
             await _clean_stop(app)
@@ -974,13 +975,13 @@ async def _drill_replay_duplicate_risk(
         }
 
         if new_receipts <= 0:
-            report["status"] = "FAIL"
+            report["status"] = "failed"
             report["fail_reasons"] = [
                 "Expected duplicate receipts from replay, got none"
             ]
 
     except Exception as exc:
-        report["status"] = "FAIL"
+        report["status"] = "failed"
         report["fail_reasons"] = [f"Unexpected error: {exc}"]
     finally:
         await _clean_stop(app)
@@ -1000,7 +1001,7 @@ async def _drill_degraded_live_health(
     try:
         app, preflight, cs, _ = await _build_smoke_runtime(config_path, storage_path)
     except Exception as exc:
-        report["status"] = "FAIL"
+        report["status"] = "failed"
         report["fail_reasons"] = [str(exc)]
         return report
 
@@ -1019,7 +1020,7 @@ async def _drill_degraded_live_health(
             break
 
         if target_aid is None:
-            report["status"] = "FAIL"
+            report["status"] = "failed"
             report["fail_reasons"] = ["No adapter available"]
             report["drill_steps"] = steps
             await _clean_stop(app)
@@ -1099,13 +1100,13 @@ async def _drill_degraded_live_health(
         }
 
         if observed_health != "degraded":
-            report["status"] = "FAIL"
+            report["status"] = "failed"
             report["fail_reasons"] = [
                 f"Expected degraded health for {target_aid}, got {observed_health}"
             ]
 
     except Exception as exc:
-        report["status"] = "FAIL"
+        report["status"] = "failed"
         report["fail_reasons"] = [f"Unexpected error: {exc}"]
     finally:
         await _clean_stop(app)
@@ -1224,7 +1225,7 @@ async def _drill_bad_route_config(
             caught_error = exc
 
         if caught_error is None:
-            report["status"] = "FAIL"
+            report["status"] = "failed"
             report["fail_reasons"] = [
                 "Expected RouteValidationError but builder.build() succeeded"
             ]
@@ -1250,18 +1251,18 @@ async def _drill_bad_route_config(
             report["runtime_started"] = False
 
             if not isinstance(caught_error, RouteValidationError):
-                report["status"] = "FAIL"
+                report["status"] = "failed"
                 report["fail_reasons"] = [
                     f"Expected RouteValidationError, got {error_type}: {error_msg}"
                 ]
             elif not has_ghost:
-                report["status"] = "FAIL"
+                report["status"] = "failed"
                 report["fail_reasons"] = [
                     f"Error message does not mention ghost_adapter: {error_msg}"
                 ]
 
     except Exception as exc:
-        report["status"] = "FAIL"
+        report["status"] = "failed"
         report["fail_reasons"] = [f"Unexpected error: {exc}"]
 
     report["drill_steps"] = steps
@@ -1351,7 +1352,7 @@ async def _drill_all_adapters_build_fail(
         report["runtime_started"] = False
 
         if adapter_count != 0 or failure_count != 2:
-            report["status"] = "FAIL"
+            report["status"] = "failed"
             report["fail_reasons"] = []
             if adapter_count != 0:
                 report["fail_reasons"].append(
@@ -1363,7 +1364,7 @@ async def _drill_all_adapters_build_fail(
                 )
 
     except Exception as exc:
-        report["status"] = "FAIL"
+        report["status"] = "failed"
         report["fail_reasons"] = [f"Unexpected error: {exc}"]
 
     report["drill_steps"] = steps
@@ -1490,7 +1491,7 @@ async def _drill_partial_degraded_startup(
         report["boot_summary"] = boot.to_dict() if boot else None
 
         if not (is_running and is_partial and is_degraded and correct_counts):
-            report["status"] = "FAIL"
+            report["status"] = "failed"
             report["fail_reasons"] = []
             if not is_running:
                 report["fail_reasons"].append(
@@ -1508,7 +1509,7 @@ async def _drill_partial_degraded_startup(
                 )
 
     except Exception as exc:
-        report["status"] = "FAIL"
+        report["status"] = "failed"
         report["fail_reasons"] = [f"Unexpected error: {exc}"]
         # If app was built, attempt cleanup.
         if app is not None:
@@ -1668,7 +1669,7 @@ async def _drill_all_adapters_start_fail(
         if not (startup_error_caught and is_total_failure and is_failed_state
                 and no_started and all_failed
                 and pipeline_stop_called and storage_close_called):
-            report["status"] = "FAIL"
+            report["status"] = "failed"
             report["fail_reasons"] = []
             if not startup_error_caught:
                 report["fail_reasons"].append("RuntimeStartupError was not raised")
@@ -1683,7 +1684,7 @@ async def _drill_all_adapters_start_fail(
                 report["fail_reasons"].append("Storage was not closed")
 
     except Exception as exc:
-        report["status"] = "FAIL"
+        report["status"] = "failed"
         report["fail_reasons"] = [f"Unexpected error: {exc}"]
 
     report["drill_steps"] = steps
@@ -1730,7 +1731,8 @@ async def run_drill(
     runner = _DRILL_RUNNERS.get(drill_name)
     if runner is None:
         return {
-            "status": "FAIL",
+            "status": "failed",
+            "command": "drill",
             "evidence_level": "drill",
             "drill_name": drill_name,
             "timestamp": datetime.now(timezone.utc).isoformat(),

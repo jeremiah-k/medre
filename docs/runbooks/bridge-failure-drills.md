@@ -9,7 +9,7 @@ This runbook describes how to reproduce, interpret, and diagnose each failure
 category in the MEDRE runtime. Each drill provides:
 
 - A **command** to trigger or observe the failure.
-- The **expected PASS/FAIL report** (exit code, JSON fields, or log output).
+- The **expected pass/fail report** (exit code, JSON fields, or log output).
 - **What the operator should inspect next.**
 - **Caveats** specific to the drill.
 
@@ -154,7 +154,7 @@ PYTHONPATH=src medre smoke --drill bad_route_config --json
 - Route validation: exit code **2** (`EXIT_CONFIG`) — the runtime would reject this config.
 - stderr: `RouteValidationError` naming the unknown adapter
 - No adapter starts
-- Drill report: `status == "PASS"` — the drill itself exits 0 because the expected error was correctly observed
+- Drill report: `status == "pass"` — the drill itself exits 0 because the expected error was correctly observed
 
 **Inspect next:**
 
@@ -214,10 +214,14 @@ Run the pre-runtime build failure drill:
 PYTHONPATH=src medre smoke --drill all_adapters_build_fail --json
 ```
 
-**Expected PASS (drill catches the error correctly):**
+**Expected pass (drill catches the error correctly):**
 
 - Exit code: **0** (drill itself succeeds)
-- Drill report: `status == "PASS"`
+- Drill report: `status == "pass"`
+- Drill report includes `simulation_method` (e.g. `"config_injection"`,
+  `"failure_injection"`, `"fake_adapter"`) documenting how the failure
+  scenario was produced.
+- Drill report includes `simulated: true` and `scenario_category: "drill"`.
 - Drill steps include config construction, build attempt, and exit code
   verification
 - The drill proves that the runtime exits with code 3 when all adapters fail

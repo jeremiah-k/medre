@@ -39,6 +39,7 @@ from medre.config.env import apply_env_overrides
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.events.kinds import EventKind
 from medre.core.rendering.renderer import RenderingResult
+from medre.observability.sanitization import sanitize_error
 from medre.runtime.app import MedreApp, RuntimeState
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.snapshot import SCHEMA_VERSION, build_runtime_snapshot
@@ -292,11 +293,13 @@ async def run_fake_bridge_smoke(
         config, source, paths = load_config(resolved_config_path)
     except Exception as exc:
         return {
-            "status": "FAIL",
-            "fail_reason": f"Config load error: {exc}",
+            "status": "failed",
+            "command": "smoke",
+            "fail_reason": sanitize_error(f"Config load error: {exc}"),
             "evidence_level": "fake_bridge",
             "timestamp": _now().isoformat(),
             "limitations": _LIMITATIONS,
+            "sanitized": True,
         }
 
     config_source_value = source.value
@@ -320,13 +323,15 @@ async def run_fake_bridge_smoke(
         app = builder.build()
     except Exception as exc:
         return {
-            "status": "FAIL",
-            "fail_reason": f"Runtime build error: {exc}",
+            "status": "failed",
+            "command": "smoke",
+            "fail_reason": sanitize_error(f"Runtime build error: {exc}"),
             "evidence_level": "fake_bridge",
             "timestamp": _now().isoformat(),
             "config_source": config_source_value,
             "preflight": preflight,
             "limitations": _LIMITATIONS,
+            "sanitized": True,
         }
 
     # -- Step 4: Start runtime ----------------------------------------------
@@ -334,14 +339,16 @@ async def run_fake_bridge_smoke(
         await app.start()
     except Exception as exc:
         return {
-            "status": "FAIL",
-            "fail_reason": f"Runtime start error: {exc}",
+            "status": "failed",
+            "command": "smoke",
+            "fail_reason": sanitize_error(f"Runtime start error: {exc}"),
             "evidence_level": "fake_bridge",
             "timestamp": _now().isoformat(),
             "config_source": config_source_value,
             "preflight": preflight,
             "started_adapters": list(app.started_adapter_ids),
             "limitations": _LIMITATIONS,
+            "sanitized": True,
         }
 
     # -- Step 5: Inject event -----------------------------------------------
@@ -433,7 +440,7 @@ async def run_fake_bridge_smoke(
         _logger.warning("Smoke stop error (non-fatal): %s", exc)
 
     # -- Step 8: Build report -----------------------------------------------
-    # PASS criteria
+    # passed criteria
     event_stored = stored_event is not None
     has_success = any(o.status == "success" for o in outcomes)
     has_sent_receipt = any(r.status == "sent" for r in receipts)
@@ -459,10 +466,22 @@ async def run_fake_bridge_smoke(
     if delivered_count < 1:
         fail_reasons.append("Accounting outbound_delivered < 1")
 
+    # Sanitize error fields.
+    sanitized = False
+    _sanitized_reasons: list[str] = []
+    for r in fail_reasons:
+        s = sanitize_error(r)
+        if s != r:
+            sanitized = True
+        _sanitized_reasons.append(s)
+    fail_reasons = _sanitized_reasons
+
     report: dict[str, Any] = {
-        "status": "PASS" if passed else "FAIL",
+        "status": "passed" if passed else "failed",
+        "command": "smoke",
         "evidence_level": "fake_bridge",
         "timestamp": _now().isoformat(),
+        "generated_at": _now().isoformat(),
         "config_source": config_source_value,
         "storage_backend": config.storage.backend,
         **({"storage_path": storage_path} if storage_path is not None else {}),
@@ -485,6 +504,9 @@ async def run_fake_bridge_smoke(
         },
         "limitations": _LIMITATIONS,
     }
+
+    if sanitized:
+        report["sanitized"] = True
 
     if not passed:
         report["fail_reasons"] = fail_reasons

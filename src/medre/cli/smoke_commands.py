@@ -76,7 +76,7 @@ async def _smoke(
         n_receipts = len(report.get("delivery_receipts", []))
         n_refs = len(report.get("native_refs", []))
 
-        if status == "PASS":
+        if status == "passed":
             print(f"Fake bridge smoke: PASS")
         else:
             print(f"Fake bridge smoke: FAIL")
@@ -103,7 +103,7 @@ async def _smoke(
         if limitations:
             print(f"  Note: {limitations[0]}")
 
-    sys.exit(0 if report["status"] == "PASS" else 1)
+    sys.exit(0 if report["status"] == "passed" else 1)
 
 
 async def _run_session(
@@ -155,7 +155,7 @@ async def _run_session(
         storage = report.get("storage_path", "N/A")
         snap_path = report.get("final_snapshot_path", "N/A")
 
-        if status == "PASS":
+        if status == "passed":
             print("Run session: PASS")
         else:
             print("Run session: FAIL")
@@ -186,7 +186,9 @@ async def _run_session(
             )
         if commands:
             print("  Commands:")
-            for label, cmd in commands.items():
+            # Commands may be a flat dict or nested with commands_text/commands_argv.
+            text_commands = commands.get("commands_text", commands)
+            for label, cmd in text_commands.items():
                 print(f"    {label}: {cmd}")
 
-    sys.exit(0 if report["status"] == "PASS" else 1)
+    sys.exit(0 if report["status"] == "passed" else 1)

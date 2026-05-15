@@ -30,7 +30,9 @@ modules translate user input into calls on `config/` or `runtime/`.
 
 ### `runtime/` — orchestration layer
 
-Owns adapter assembly, lifecycle management, and operational tooling.
+Owns adapter assembly, lifecycle management, and (currently) operational
+tooling. Operator tooling will move to `medre/operator/` when the import
+graph allows — see [Operator Tooling Boundary](operator-tooling-boundary.md).
 
 **Contents:** `builder.py` (`RuntimeBuilder`), `app.py` (`MedreApp`),
 `route_engine.py`, `routes.py`, `observability.py` (diagnostics collector),
@@ -93,6 +95,21 @@ Key invariants:
 | `runner.py` (top-level) | Deleted | Logic moved into `runtime/builder.py` and `runtime/app.py` |
 | `cli.py` (monolithic) | `cli/` package | Split into per-command modules for maintainability |
 | `_sanitize_error` (scattered) | `medre.observability.sanitization.sanitize_error` | Consolidated into user-facing observability package |
+
+## Operator Tooling Boundary
+
+Operator tools (smoke, drill, evidence, trace, recover, run_session) currently
+live in `runtime/` because they depend on `MedreApp`, `RuntimeBuilder`, and the
+runtime lifecycle. They should move to `medre/operator/` when the import graph
+allows it — specifically when `MedreApp` exposes a stable public API for
+start/stop/inject/snapshot without private-attribute access.
+
+**Invariant:** `runtime/` and `core/` must never import from operator tooling.
+Operator tools are consumers of the runtime, not dependencies of it.
+
+See [Operator Tooling Boundary](operator-tooling-boundary.md) for the full
+decision record, import invariants, and split criteria.
+
 
 ## Observability: Two Packages
 

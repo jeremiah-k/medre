@@ -66,7 +66,7 @@ class TestFakeBridgeSmokeReport:
         """Default shipped config produces PASS."""
         config_path = _smoke_config_path()
         report = await run_fake_bridge_smoke(config_path)
-        assert report["status"] == "PASS", (
+        assert report["status"] == "passed", (
             f"Expected PASS, got {report['status']}: "
             f"{report.get('fail_reasons', [])}"
         )
@@ -205,7 +205,7 @@ class TestFakeBridgeSmokeReport:
         assert isinstance(serialized, str)
         # Round-trip cleanly.
         parsed = json.loads(serialized)
-        assert parsed["status"] == "PASS"
+        assert parsed["status"] == "passed"
 
     @pytest.mark.asyncio
     async def test_smoke_report_deterministic_snapshot(self) -> None:
@@ -229,7 +229,7 @@ class TestFakeBridgeSmokeReport:
         report = await run_fake_bridge_smoke(
             config_path, message_text="custom operator check",
         )
-        assert report["status"] == "PASS"
+        assert report["status"] == "passed"
 
     @pytest.mark.asyncio
     async def test_smoke_fanout_produces_multiple_targets(self) -> None:
@@ -280,7 +280,7 @@ class TestSmokeCLI:
         assert exc_info.value.code == 0
         output = stdout_capture.getvalue()
         report = json.loads(output)
-        assert report["status"] == "PASS"
+        assert report["status"] == "passed"
 
     def test_smoke_cli_human_readable(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """``medre smoke`` (no --json) prints human-readable output."""
@@ -318,4 +318,4 @@ class TestSmokeCLI:
 
         assert exc_info.value.code == 0
         report = json.loads(stdout_capture.getvalue())
-        assert report["status"] == "PASS"
+        assert report["status"] == "passed"

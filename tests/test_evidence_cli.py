@@ -311,7 +311,7 @@ class TestEvidenceBundleCore:
         """Fake adapter config with no storage DB produces partial (missing DB)."""
         report = await collect_evidence_bundle(str(config_fake))
         assert report["schema_version"] == 1
-        assert report["status"] in ("ok", "partial")
+        assert report["status"] in ("passed", "partial")
         assert report["collected_at"] is not None
         assert report["medre_version"] is not None
         assert report["config_source"] is not None
@@ -342,7 +342,7 @@ class TestEvidenceBundleCore:
             include_refresh_health=True,
         )
         assert report["runtime_started"] is True
-        assert report["sections"]["live_health"]["status"] in ("ok", "partial")
+        assert report["sections"]["live_health"]["status"] in ("passed", "partial")
         assert report["sections"]["live_health"]["data"] is not None
 
     @pytest.mark.asyncio
@@ -440,7 +440,7 @@ class TestEvidenceStorage:
 
         report = await collect_evidence_bundle(str(config_fake))
         storage_section = report["sections"]["storage"]
-        assert storage_section["status"] == "ok"
+        assert storage_section["status"] == "passed"
         assert storage_section["data"]["db_exists"] is True
         assert storage_section["data"]["event_count"] == 1
         assert storage_section["data"]["receipt_count"] == 1
@@ -455,7 +455,7 @@ class TestEvidenceStorage:
             str(config_fake), event_id=event_id,
         )
         storage_section = report["sections"]["storage"]
-        assert storage_section["status"] == "ok"
+        assert storage_section["status"] == "passed"
         assert storage_section["data"]["event"] is not None
         assert storage_section["data"]["event"]["event_id"] == event_id
 
@@ -483,7 +483,7 @@ class TestEvidenceStorage:
         )
         storage_section = report["sections"]["storage"]
         # No receipts match, but the section itself is ok (storage worked).
-        assert storage_section["status"] in ("ok", "partial")
+        assert storage_section["status"] in ("passed", "partial")
         assert storage_section["data"]["replay_run_receipts"] is not None
         assert isinstance(storage_section["data"]["replay_run_receipts"], list)
 
@@ -508,7 +508,7 @@ class TestEvidenceRouteValidation:
         """Valid route config produces ok route_validation."""
         report = await collect_evidence_bundle(str(config_fake))
         rv = report["sections"]["route_validation"]
-        assert rv["status"] == "ok"
+        assert rv["status"] == "passed"
         assert rv["data"]["valid"] is True
         assert rv["data"]["route_count"] == 1
         assert rv["data"]["route_enabled"] == 1
@@ -536,7 +536,7 @@ class TestEvidenceDiagnosticsSnapshot:
         """Snapshot section has data with adapters."""
         report = await collect_evidence_bundle(str(config_fake))
         ds = report["sections"]["diagnostics_snapshot"]
-        assert ds["status"] == "ok"
+        assert ds["status"] == "passed"
         assert ds["data"] is not None
         assert "schema_version" in ds["data"]
 
@@ -563,7 +563,7 @@ class TestEvidenceOverallStatus:
         await _make_populated_db(db_path)
 
         report = await collect_evidence_bundle(str(config_fake))
-        assert report["status"] == "ok"
+        assert report["status"] == "passed"
 
     @pytest.mark.asyncio
     async def test_partial_when_storage_missing(self, config_fake: Path) -> None:

@@ -30,6 +30,7 @@ import asyncio
 import dataclasses
 import json
 import logging
+import shlex
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -44,6 +45,7 @@ from medre.config.loader import load_config
 from medre.config.env import apply_env_overrides
 from medre.core.events.canonical import CanonicalEvent, NativeMessageRef
 from medre.core.events.kinds import EventKind
+from medre.observability.sanitization import sanitize_error
 from medre.runtime.app import MedreApp, RuntimeState
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.snapshot import SCHEMA_VERSION, build_runtime_snapshot
@@ -199,10 +201,10 @@ async def _collect_native_refs(
         native_ref_records = await storage.list_native_refs_for_event(event_id)
     except (AttributeError, TypeError):
         # Storage backend may not implement list_native_refs_for_event in
-        # all test mocks; fall back gracefully.
+        # all test mocks; native refs will be empty but not fatal.
         _logger.debug(
             "Storage does not support list_native_refs_for_event; "
-            "falling back to per-adapter resolve_native_ref",
+            "native refs will be omitted from the report",
         )
     except Exception as exc:
         errors.append(f"Native ref lookup error: {exc}")
@@ -244,18 +246,43 @@ def _build_cross_linked_commands(
     event_id: str,
     config_path: str | None,
     snapshot_path: str | None,
-) -> dict[str, str]:
-    """Build cross-linked CLI command strings for the report."""
-    cfg_flag = f"--config {config_path}" if config_path else ""
-    return {
-        "trace": f"medre trace event {event_id} {cfg_flag}".strip(),
+) -> dict[str, Any]:
+    """Build cross-linked CLI command strings for the report.
+
+    Returns a dict with ``commands_text`` (shell-safe string) and
+    ``commands_argv`` (list form) for each command.
+    """
+    def _safe(val: str | None) -> str:
+        return shlex.quote(val) if val else ""
+
+    cfg_flag_text = f"--config {_safe(config_path)}" if config_path else ""
+    cfg_flag_argv: list[str] = []
+    if config_path:
+        cfg_flag_argv = ["--config", config_path]
+
+    trace_argv = ["medre", "trace", "event", event_id] + cfg_flag_argv
+    inspect_argv = ["medre", "inspect", "receipts", "--event", event_id] + cfg_flag_argv
+    evidence_argv = ["medre", "evidence", "--event", event_id] + cfg_flag_argv + ["--json"]
+
+    commands_text: dict[str, str] = {
+        "trace": f"medre trace event {shlex.quote(event_id)} {cfg_flag_text}".strip(),
         "inspect_receipts": (
-            f"medre inspect receipts --event {event_id} {cfg_flag}".strip()
+            f"medre inspect receipts --event {shlex.quote(event_id)} {cfg_flag_text}".strip()
         ),
         "evidence": (
-            f"medre evidence --event {event_id} {cfg_flag} --json".strip()
+            f"medre evidence --event {shlex.quote(event_id)} {cfg_flag_text} --json".strip()
         ),
-        "final_snapshot": f"cat {snapshot_path}" if snapshot_path else "(not saved)",
+        "final_snapshot": f"cat {_safe(snapshot_path)}" if snapshot_path else "(not saved)",
+    }
+    commands_argv: dict[str, list[str]] = {
+        "trace": trace_argv,
+        "inspect_receipts": inspect_argv,
+        "evidence": evidence_argv,
+        "final_snapshot": [],  # No medre CLI command — just a file path
+    }
+    return {
+        "commands_text": commands_text,
+        "commands_argv": commands_argv,
     }
 
 
@@ -265,13 +292,35 @@ def _build_cross_linked_commands(
 
 
 def _expected_failure_kind(scenario: str) -> str | None:
-    """Return the expected failure classification for a scenario."""
+    """Return the expected failure classification for a failure-kind scenario."""
     return {
         "renderer_failure": "renderer_failure",
         "adapter_permanent_failure": "adapter_permanent",
         "adapter_transient_failure": "adapter_transient",
         "capacity_rejection": "capacity_rejection",
-        "degraded_live_health": "degraded_health",
+    }.get(scenario)
+
+
+def _scenario_category(scenario: str) -> str:
+    """Return the scenario category for operator categorization."""
+    return {
+        "happy_path": "happy_path",
+        "renderer_failure": "delivery_failure",
+        "adapter_permanent_failure": "delivery_failure",
+        "adapter_transient_failure": "delivery_failure",
+        "capacity_rejection": "capacity",
+        "degraded_live_health": "health",
+    }.get(scenario, "unknown")
+
+
+def _simulation_method(scenario: str) -> str | None:
+    """Return the simulation method description for a scenario."""
+    return {
+        "renderer_failure": "cleared rendering pipeline renderers",
+        "adapter_permanent_failure": "monkeypatched adapter deliver method",
+        "adapter_transient_failure": "monkeypatched adapter deliver method",
+        "capacity_rejection": "exhausted capacity semaphore",
+        "degraded_live_health": "monkeypatched adapter health_check",
     }.get(scenario)
 
 
@@ -521,12 +570,14 @@ async def run_bridge_session(
         config, source, paths = load_config(resolved_config_path)
     except Exception as exc:
         return {
-            "status": "FAIL",
-            "fail_reason": f"Config load error: {exc}",
+            "status": "failed",
+            "command": "run_session",
+            "fail_reason": sanitize_error(f"Config load error: {exc}"),
             "evidence_level": "fake_run_session",
             "timestamp": _now().isoformat(),
             "storage_path": storage_path,
             "limitations": _LIMITATIONS,
+            "sanitized": True,
         }
 
     config_source_value = source.value
@@ -546,13 +597,15 @@ async def run_bridge_session(
         app = builder.build()
     except Exception as exc:
         return {
-            "status": "FAIL",
-            "fail_reason": f"Runtime build error: {exc}",
+            "status": "failed",
+            "command": "run_session",
+            "fail_reason": sanitize_error(f"Runtime build error: {exc}"),
             "evidence_level": "fake_run_session",
             "timestamp": _now().isoformat(),
             "config_source": config_source_value,
             "storage_path": storage_path,
             "limitations": _LIMITATIONS,
+            "sanitized": True,
         }
 
     # -- Step 3: Start runtime ----------------------------------------------
@@ -560,14 +613,16 @@ async def run_bridge_session(
         await app.start()
     except Exception as exc:
         return {
-            "status": "FAIL",
-            "fail_reason": f"Runtime start error: {exc}",
+            "status": "failed",
+            "command": "run_session",
+            "fail_reason": sanitize_error(f"Runtime start error: {exc}"),
             "evidence_level": "fake_run_session",
             "timestamp": _now().isoformat(),
             "config_source": config_source_value,
             "storage_path": storage_path,
             "started_adapters": list(app.started_adapter_ids),
             "limitations": _LIMITATIONS,
+            "sanitized": True,
         }
 
     # -- Step 4: Inject event -----------------------------------------------
@@ -691,20 +746,51 @@ async def run_bridge_session(
     )
 
     if is_failure_scenario:
-        # Failure scenarios: PASS means the expected failure was observed.
-        observed = _observed_failure_kind(outcomes)
-        expected = _expected_failure_kind(scenario)
-        passed = (
-            observed == expected
-            and scenario_error is None
-        )
-        fail_reasons: list[str] = []
-        if scenario_error is not None:
-            fail_reasons.append(f"Scenario setup failed: {scenario_error}")
-        if observed != expected:
-            fail_reasons.append(
-                f"Expected failure_kind={expected}, observed={observed}"
+        # Failure scenarios: passed means the expected failure was observed.
+        scenario_cat = _scenario_category(scenario)
+        sim_method = _simulation_method(scenario)
+
+        if scenario == "degraded_live_health":
+            # Health scenario — not a failure_kind scenario.
+            # Check if runtime is still running and health is degraded.
+            adapter_health_entries = snap.get("health", {}).get(
+                "live_health", {},
+            ).get("adapters", {})
+            observed_health = "degraded"
+            for _aid, entry in adapter_health_entries.items():
+                if entry.get("health") == "degraded":
+                    observed_health = "degraded"
+                    break
+            else:
+                # No degraded entry found — may still be OK if we patched it.
+                observed_health = "unknown"
+            passed = (
+                scenario_error is None
+                and observed_health == "degraded"
             )
+            fail_reasons: list[str] = []
+            if scenario_error is not None:
+                fail_reasons.append(f"Scenario setup failed: {scenario_error}")
+            if observed_health != "degraded":
+                fail_reasons.append(
+                    f"Expected health=degraded, observed={observed_health}"
+                )
+        else:
+            # Failure-kind scenarios (renderer, adapter permanent/transient,
+            # capacity).
+            observed = _observed_failure_kind(outcomes)
+            expected = _expected_failure_kind(scenario)
+            passed = (
+                observed == expected
+                and scenario_error is None
+            )
+            fail_reasons = []
+            if scenario_error is not None:
+                fail_reasons.append(f"Scenario setup failed: {scenario_error}")
+            if observed != expected:
+                fail_reasons.append(
+                    f"Expected failure_kind={expected}, observed={observed}"
+                )
     else:
         # Happy path: all steps must succeed.
         passed = (
@@ -746,10 +832,33 @@ async def run_bridge_session(
         event.event_id, resolved_config_path, snapshot_path,
     )
 
+    # -- Sanitize error fields -----------------------------------------------
+    sanitized = False
+
+    def _sanitize(text: str) -> str:
+        nonlocal sanitized
+        result = sanitize_error(text)
+        if result != text:
+            sanitized = True
+        return result
+
+    # Sanitize fail reasons.
+    fail_reasons = [_sanitize(r) for r in fail_reasons]
+
+    # Sanitize collection errors.
+    if collection_errors:
+        collection_errors = [_sanitize(e) for e in collection_errors]
+
+    # Sanitize injection error if present.
+    if injection_error is not None:
+        injection_error = _sanitize(injection_error)
+
     report: dict[str, Any] = {
-        "status": "PASS" if passed else "FAIL",
+        "status": "passed" if passed else "failed",
+        "command": "run_session",
         "evidence_level": "fake_run_session",
         "timestamp": _now().isoformat(),
+        "generated_at": _now().isoformat(),
         "config_source": config_source_value,
         "storage_path": storage_path,
         "storage_ephemeral": not storage_provided,
@@ -763,8 +872,12 @@ async def run_bridge_session(
         "accounting": accounting_display,
         "final_snapshot_checks": final_snapshot_checks,
         "commands": commands,
+        "errors": list(collection_errors) if collection_errors else [],
         "limitations": _LIMITATIONS,
     }
+
+    if sanitized:
+        report["sanitized"] = True
 
     if not passed:
         report["fail_reasons"] = fail_reasons
@@ -773,10 +886,32 @@ async def run_bridge_session(
         report["collection_errors"] = collection_errors
 
     # Scenario-specific report fields.
+    report["operator_interpretation"] = _operator_interpretation(scenario)
     if is_failure_scenario:
         report["scenario"] = scenario
-        report["expected_failure_kind"] = _expected_failure_kind(scenario)
-        report["observed_failure_kind"] = _observed_failure_kind(outcomes)
-        report["operator_interpretation"] = _operator_interpretation(scenario)
+        report["scenario_category"] = _scenario_category(scenario)
+        report["simulated"] = True
+        report["simulation_method"] = _simulation_method(scenario)
+
+        if scenario == "degraded_live_health":
+            # Health scenario — use health-specific fields instead of
+            # failure_kind fields.
+            adapter_health_entries = snap.get("health", {}).get(
+                "live_health", {},
+            ).get("adapters", {})
+            observed_health = "unknown"
+            for _aid, entry in adapter_health_entries.items():
+                if entry.get("health") == "degraded":
+                    observed_health = "degraded"
+                    break
+            report["expected_health"] = "degraded"
+            report["observed_health"] = observed_health
+        else:
+            # Failure-kind scenarios.
+            report["expected_failure_kind"] = _expected_failure_kind(scenario)
+            report["observed_failure_kind"] = _observed_failure_kind(outcomes)
+    else:
+        report["scenario_category"] = "happy_path"
+        report["simulated"] = False
 
     return report
