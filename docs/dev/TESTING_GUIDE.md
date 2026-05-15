@@ -30,7 +30,6 @@ split.
 |------|-------|--------|
 | `tests/test_matrix_session.py` | 2,241 | Allowlisted; pending split |
 | `tests/test_cli.py` | 2,172 | Allowlisted; pending split |
-| `tests/test_replay.py` | 1,850 | Allowlisted; pending split |
 | `tests/test_replay_routing.py` | 1,584 | Allowlisted; pending split |
 | `tests/test_storage.py` | 1,939 | Allowlisted; pending split |
 | `tests/test_canonical_events.py` | 1,992 | Allowlisted; pending split |
@@ -493,6 +492,7 @@ These files have been split by behavioral domain following the procedure above.
 | `tests/test_longrun_callback_bridge.py` | Split | 4 domain files |
 | `tests/test_operator_workflows.py` | Split | 7 domain files |
 | `tests/test_pipeline.py` | Split | 5 domain files (delivery, failure taxonomy, fanout, native refs, capacity) |
+| `tests/test_replay.py` | Split | 5 domain files (engine, policy, accounting, capacity, traceability) |
 
 
 ## Next Modernization Wave
@@ -500,7 +500,7 @@ These files have been split by behavioral domain following the procedure above.
 The following allowlisted files should be split by subdomain. The suggested
 split targets are starting points; actual domains may shift during analysis.
 
-### Priority splits (largest files first)
+### Priority splits (largest files first; test_replay.py completed)
 
 **`tests/test_cli.py` (2,172 lines)**
 
@@ -520,15 +520,6 @@ split targets are starting points; actual domains may shift during analysis.
 | `tests/test_matrix_session_sync_recovery.py` | Initial sync, reconnection, error recovery |
 | `tests/test_matrix_session_encryption.py` | E2EE setup, encrypted room handling |
 | `tests/test_matrix_session_delivery_retry.py` | Delivery attempts, retry budgets, failure handling |
-
-**`tests/test_replay.py` (1,850 lines)**
-
-| Target file | Domain |
-|-------------|--------|
-| `tests/test_replay_engine.py` | Replay engine core: event selection, re-injection |
-| `tests/test_replay_accounting.py` | Replay run tracking, receipt accounting |
-| `tests/test_replay_stress.py` | High-volume replay, concurrency, resource limits |
-| `tests/test_replay_policy.py` | Replay policy, filtering, deduplication behavior |
 
 **`tests/test_storage.py` (1,939 lines)**
 

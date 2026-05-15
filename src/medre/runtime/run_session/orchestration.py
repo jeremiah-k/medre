@@ -6,11 +6,12 @@ inject bridge message(s), poll for delivery, stop gracefully, write a
 final snapshot, and produce a cross-linked evidence report.
 
 Unlike :func:`~medre.runtime.smoke.run_fake_bridge_smoke` (which uses
-in-memory storage by default), the run-session path is designed
-for operators who need inspectable, persistent evidence artifacts.  The
-resulting SQLite database, snapshot file, and JSON report can be queried
-after the session completes using ``medre trace``, ``medre inspect``,
-``medre evidence``, and ``medre diagnostics`` commands.
+in-memory storage by default), the run-session path uses SQLite storage
+(temporary or user-provided) for all sessions.  This ensures every session
+produces inspectable, persistent evidence artifacts.  The resulting SQLite
+database, snapshot file, and JSON report can be queried after the session
+completes using ``medre trace``, ``medre inspect``, ``medre evidence``,
+and ``medre diagnostics`` commands.
 
 Package boundary decision
 -------------------------

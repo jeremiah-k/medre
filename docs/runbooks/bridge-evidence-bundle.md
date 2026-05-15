@@ -473,6 +473,11 @@ actually reached the remote side. BEST_EFFORT sends real messages. There is
 no final ACK guarantee for radio transports. There is no active retry
 scheduler. Runtime events and counters are process-local.
 
+The evidence bundle includes replay receipts alongside live receipts when
+applicable. The `replay_run_id` field distinguishes which replay run produced
+which receipts. Multiple BEST_EFFORT runs produce duplicate receipts — the
+evidence bundle reflects actual delivery attempts, not a deduplicated view.
+
 ```json
 {
   "storage": {
@@ -674,7 +679,7 @@ time. `live_health` reflects the moment of the refresh. They can differ.
 | `receipts` — status, failure_kind, attempt_number, parent_receipt_id | Traces the full delivery lifecycle. `attempt_number > 1` with `parent_receipt_id` chain indicates retry. |
 | `receipts` — route_id | Identifies which route triggered the delivery |
 | `native-ref` — native_message_id, canonical_event_id | Maps transport-native IDs to canonical events for cross-referencing |
-| `receipts --replay-run` — source="replay", replay_run_id | Distinguishes replay deliveries from live. Multiple entries for the same event = duplicate delivery risk. |
+| `receipts --replay-run` — source="replay", replay_run_id | Distinguishes replay deliveries from live. Multiple entries for the same event across different `replay_run_id` values = multiple BEST_EFFORT runs. The evidence bundle reflects all actual delivery attempts. |
 
 
 ## 5. Bug Report Artifact

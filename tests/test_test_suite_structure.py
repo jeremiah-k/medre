@@ -25,7 +25,6 @@ TESTS_DIR = Path(__file__).resolve().parent
 LEGACY_ALLOWLIST: dict[str, int] = {
     "test_matrix_session.py": 2_241,
     "test_cli.py": 2_172,
-    "test_replay.py": 1_850,
     "test_storage.py": 1_939,
     "test_canonical_events.py": 1_992,
     "test_meshtastic_fake_bridge.py": 1_540,
@@ -42,6 +41,7 @@ DELETED_MONOLITHS = (
     "test_longrun_callback_bridge",
     "test_operator_workflows",
     "test_pipeline",
+    "test_replay",
 )
 
 # New bridge / operator files — must not contain fixed asyncio.sleep(N) with N>0.
@@ -71,6 +71,7 @@ HELPER_FILES = [
     "helpers/matrix.py",
     "helpers/async_utils.py",
     "helpers/assertions.py",
+    "helpers/replay.py",
 ]
 
 

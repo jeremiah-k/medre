@@ -255,7 +255,7 @@ class TestOperatorBridgeSession:
 
     @pytest.mark.asyncio
     async def test_run_session_ephemeral_fallback(self) -> None:
-        """Without storage_path, run_session works in-memory and report notes this."""
+        """Without storage_path, run_session uses temporary SQLite storage and report notes this."""
         from medre.runtime.smoke import run_fake_bridge_smoke
 
         report = await run_fake_bridge_smoke(_smoke_config_path())

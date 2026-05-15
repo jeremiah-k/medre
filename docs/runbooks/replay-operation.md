@@ -32,7 +32,7 @@ historical data, and re-delivering events that were missed.
 |------|---------|-----------|-------------|----------|
 | `DRY_RUN` | Yes | Skip (no delivery) | None | Preview what replay would do without side effects. First step before any BEST_EFFORT. |
 | `RE_ROUTE` | Yes | No (read-only) | None | Re-evaluate route matching after a config change. Produces `ReplayRouteAttribution` showing which routes would match. No delivery. |
-| `BEST_EFFORT` | Yes | Yes | Real adapter delivery | Re-deliver historical events. Produces storage receipts with `source='replay'`. Use with caution — this sends real messages. |
+| `BEST_EFFORT` | Yes | Yes | Real adapter delivery | Re-deliver historical events. **BEST_EFFORT sends real messages** to adapters. Produces fresh storage receipts with `source='replay'` — replay is not dedupe; each run creates new receipts independently. Use with caution. |
 
 **Operational rule:** Always run `DRY_RUN` or `RE_ROUTE` first. Only use
 `BEST_EFFORT` when you have verified the route matching preview and accept the
@@ -224,6 +224,17 @@ fields:
 | `source` | `"replay"` | Distinguishes replay deliveries from live deliveries |
 | `replay_run_id` | Unique run identifier | Groups all receipts from the same replay run |
 
+**Key distinctions:**
+
+1. Replay receipts are distinguishable from live receipts via `source='replay'`
+   and `replay_run_id`. These fields are set on every BEST_EFFORT receipt.
+2. Replay is not dedupe — each BEST_EFFORT run produces fresh receipts
+   regardless of existing live or replay receipts for the same event.
+3. Native refs created during replay are **not** directly source-tagged. To
+   correlate a native ref back to a replay run, join through the associated
+   `DeliveryReceipt` (which carries `source` and `replay_run_id`), then via
+   the receipt's `event_id` linkage to the native ref.
+
 ### 4.2 Querying Replay Receipts
 
 ```bash
@@ -318,6 +329,62 @@ There is no automatic stale data detection in the replay engine. The
 operator is responsible for assessing duplicate risk before each BEST_EFFORT
 run. There is no active retry scheduler; replay is a one-shot operator
 action. BEST_EFFORT sends real messages.
+
+### 4.5 Replay Cancellation and Shutdown
+
+If the runtime shuts down during an active BEST_EFFORT replay, the behavior
+depends on what completed before shutdown:
+
+- **Completed events** — events that were fully delivered before shutdown
+  produce receipts that persist in SQLite. These receipts carry `source='replay'`
+  and the `replay_run_id` as normal.
+- **Remaining events** — events that had not yet been processed or were
+  in-flight when shutdown occurred are lost. No receipts are written.
+- **No automatic resume.** The operator must re-initiate a new replay run for
+  the remaining events. There is no resume mechanism, no replay run audit
+  table, and no persistent queue of pending replay events.
+- **Partial results are persisted.** The receipts from the completed portion
+  of the interrupted run are queryable via `source='replay'` and the
+  `replay_run_id`. This allows the operator to determine which events were
+  successfully replayed before the interruption.
+
+To assess the scope of an interrupted replay:
+
+```sql
+-- What did the interrupted replay complete?
+SELECT event_id, target_adapter, status
+FROM delivery_receipts
+WHERE source = 'replay' AND replay_run_id = '<interrupted_run_id>';
+
+-- What events still need replay? (events in scope with no replay receipt)
+SELECT e.event_id FROM canonical_events e
+LEFT JOIN delivery_receipts r ON e.event_id = r.event_id
+  AND r.source = 'replay' AND r.replay_run_id = '<interrupted_run_id>'
+WHERE r.event_id IS NULL
+ORDER BY e.created_at ASC;
+```
+
+### 4.6 Replay Under Bridge Conditions
+
+When replaying events that were originally delivered through a live bridge
+(i.e., events that already have `source='live'` receipts), the following
+applies:
+
+- **Both live and replay receipts exist for the same `event_id`.** This is
+  expected and correct. The `source` field distinguishes them: `source='live'`
+  for the original delivery, `source='replay'` for the replay delivery.
+- **Duplicate outbound messages occur.** The replay engine does not check
+  for existing live receipts before re-delivering. BEST_EFFORT sends real
+  messages regardless.
+- **The same event may have multiple replay receipt sets** if BEST_EFFORT was
+  run more than once. Each set has a different `replay_run_id`.
+- **Native refs are shared.** Live and replay deliveries of the same event
+  both create native refs. The native ref schema does not carry `source` or
+  `replay_run_id` — correlate via the receipt's `event_id`.
+
+This scenario is common during bridge recovery: the operator replays events
+that were partially delivered before a crash, resulting in duplicate receipts
+that together form the full delivery history.
 
 
 ## 5. Duplicate Risk Assessment
@@ -442,21 +509,25 @@ medre trace event evt_abc123 --config my-bridge.toml
    exist only in the CLI output.
 
  5. **Counters reset on restart.** Process-local counters (capacity_rejections)
-    reset on every runtime restart. Replay results should be
-   verified via SQLite queries, not counters.
+     reset on every runtime restart. Replay results should be
+    verified via SQLite queries, not counters.
 
-6. **Single-machine only.** Replay operates on the local SQLite database.
-   There is no distributed replay or cross-instance coordination.
+ 6. **Single-machine only.** Replay operates on the local SQLite database.
+    There is no distributed replay or cross-instance coordination.
 
-7. **No delivery order guarantee.** Replay processes events in storage order
-   but delivery concurrency means outbound messages may arrive out of order.
+ 7. **No delivery order guarantee.** Replay processes events in storage order
+    but delivery concurrency means outbound messages may arrive out of order.
 
-8. **Radio transports are fire-and-forget.** A `sent` receipt for a replayed
-   event means the local radio accepted the packet, not that the remote node
-   received it.
+ 8. **Radio transports are fire-and-forget.** A `sent` receipt for a replayed
+    event means the local radio accepted the packet, not that the remote node
+    received it.
 
-9. **Pre-beta.** Replay modes, CLI flags, receipt schemas, and result shapes
-   may change before beta. Always verify against the current code.
+ 9. **Shutdown during replay.** If the runtime shuts down during an active
+    BEST_EFFORT replay, completed events produce receipts; remaining events are
+    lost. No automatic resume. See §4.5.
+
+10. **Pre-beta.** Replay modes, CLI flags, receipt schemas, and result shapes
+    may change before beta. Always verify against the current code.
 
 
 ## 8. Cross-References

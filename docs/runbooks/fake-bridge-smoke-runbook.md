@@ -262,7 +262,7 @@ The ``medre smoke`` command provides a single-command Docker-free bridge
 validation.  It loads a config (default: ``examples/configs/fake-bridge-smoke.toml``),
 builds and starts the runtime with fake adapters, injects one ``message.text``
 event through the full pipeline, inspects every evidence surface, stops
-cleanly, and prints a compact pass/fail report.
+cleanly, and prints a compact passed/failed report.
 
 ```bash
 # Default: uses shipped fake-bridge-smoke.toml
@@ -277,7 +277,7 @@ PYTHONPATH=src medre smoke --config examples/configs/fake-bridge-smoke.toml
 # Custom message text
 PYTHONPATH=src medre smoke --message "operator check $(date -Iseconds)"
 
-# Exit codes: 0 = pass, 1 = fail
+# Exit codes: 0 = passed, 1 = failed
 PYTHONPATH=src medre smoke --json; echo "exit: $?"
 ```
 
@@ -305,7 +305,7 @@ set to ``"smoke"`` and ``simulated`` set to ``true``.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| ``status`` | ``pass`` / ``fail`` | Overall result (lowercase) |
+| ``status`` | ``passed`` / ``failed`` | Overall result (lowercase) |
 | ``evidence_level`` | ``fake_bridge`` | What the report proves |
 | ``scenario_category`` | ``"smoke"`` | Report category for classification |
 | ``command`` | ``str`` | CLI subcommand that produced this report (e.g. ``"smoke"``) |
@@ -324,7 +324,7 @@ set to ``"smoke"`` and ``simulated`` set to ``true``.
 | ``limitations`` | list[str] | What this does NOT prove |
 | ``preflight`` | dict | Config/route validation summary |
 
-**PASS criteria (all must be true):**
+**PASSED criteria (all must be true):**
 
 1. Event stored in storage (``storage.get(event_id)`` returns non-None).
 2. At least one ``DeliveryOutcome`` with ``status == "success"``.
@@ -355,7 +355,7 @@ The underlying function ``run_fake_bridge_smoke()`` in
 ```python
 from medre.runtime.smoke import run_fake_bridge_smoke
 report = await run_fake_bridge_smoke("path/to/config.toml")
-assert report["status"] == "pass"
+assert report["status"] == "passed"
 ```
 
 **Note:** ``run_fake_bridge_smoke()`` also uses in-memory storage by default.

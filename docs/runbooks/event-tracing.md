@@ -16,8 +16,11 @@ that only existed in memory.
 - All delivery receipts for that event (status, target adapter, route, attempt
   number, failure kind, retry lineage).
 - Native message refs mapping transport-native IDs to the canonical event.
-- Replay receipts (if the event was replayed) with `source='replay'` attribution.
-- A timeline report reconstructing the event's lifecycle from stored evidence.
+- Replay receipts (if the event was replayed) with `source='replay'` attribution
+  and `replay_run_id` grouping. Trace output includes both live and replay
+  receipts for the same `event_id` when applicable.
+- A timeline report reconstructing the event's lifecycle from stored evidence,
+  showing both original delivery path and replay delivery path for replayed events.
 
 **What tracing does NOT show you:**
 
@@ -312,7 +315,7 @@ The timeline report reconstructs these phases from stored evidence:
 | `routing` | Inferred from receipt `route_id` | Route matched, delivery planned |
 | `delivery` | `delivery_receipts` table | Adapter delivery attempted; status recorded |
 | `retry` | `parent_receipt_id` chain | Transient failure triggered a retry |
-| `replay` | `source='replay'` receipts | Event re-delivered via replay engine |
+| `replay` | `source='replay'` receipts | Event re-delivered via replay engine. Replay receipts are identifiable by `source="replay"` and `replay_run_id`. Trace for a replayed event shows the original delivery path plus the replay delivery path. |
 
 ### 2.2 Interpreting Timeline Gaps
 
@@ -328,6 +331,12 @@ Timeline phases are reconstructed from stored data. Gaps indicate:
   `attempt_number` and `parent_receipt_id` to trace the lineage.
 - **Multiple delivery phases, different targets:** Fan-out. Multiple routes
   or multiple targets matched the event.
+- **Both `live` and `replay` phases for the same event:** The event was
+  originally delivered through the live pipeline and later re-delivered via
+  replay. Both phases are shown in the timeline. Use the `source` field on
+  receipts to distinguish them: `source='live'` for original delivery,
+  `source='replay'` for replay delivery. The `replay_run_id` groups receipts
+  from the same replay invocation.
 
 ### 2.3 Drill Timeline Evidence
 

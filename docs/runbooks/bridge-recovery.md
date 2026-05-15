@@ -176,14 +176,16 @@ On hard crash (kill -9, OOM, power loss):
 
 | State | Survived? | Notes |
 |-------|-----------|-------|
-| Canonical events | **Yes** | Written to SQLite before delivery |
-| Delivery receipts | **Yes** | Written after each delivery attempt |
+| Canonical events | **Yes** | Written to SQLite before delivery. Storage remains durable across crashes. |
+| Delivery receipts | **Yes** | Written after each delivery attempt. SQLite persists. |
+| Native message refs | **Yes** | Persisted in SQLite alongside receipts. |
+| Receipt traceability (`source`, `replay_run_id`) | **Yes** | Stored on receipts in SQLite. Survives crash. |
 | Matrix E2EE crypto keys | **Yes** | On disk under adapter state root |
 | LXMF identity files | **Yes** | On disk under adapter state root |
 | Logs (pre-crash) | **Yes** | Appended to `{log_dir}/medre.log` |
 | In-flight deliveries | **No** | Lost — no receipt, no recovery |
-| Active replay runs | **No** | Lost — must re-initiate |
-| Runtime counters | **No** | All reset to zero on restart |
+| Active replay runs | **No** | Lost — must re-initiate manually |
+| Runtime counters (accounting) | **No** | Process-local accounting resets after restart. All `RuntimeAccounting`, `CapacityController`, `RouteStats`, and `Diagnostician` counters reset to zero. |
 | Adapter connection state | **No** | Adapters reconnect from scratch |
 
 ### 2.2 Crash Recovery Steps
@@ -386,6 +388,19 @@ WHERE r.event_id IS NULL
 
 ### 4.3 Replay Workflow for Orphans
 
+After a crash, operators can replay orphan events to re-deliver them. Replay
+is **manual** — there is no automatic retry scheduler, no background replay
+daemon, and no resume mechanism. Each replay run is a one-shot operator action.
+
+**Storage remains durable:** events, receipts, and native refs in SQLite
+survive crashes. Only process-local accounting counters reset. This means
+orphaned events are still in the database after restart, ready for manual
+replay.
+
+**Recommended workflow:** always run `DRY_RUN` first to preview what replay
+would do, then `BEST_EFFORT` to execute. Replay is not dedupe — BEST_EFFORT
+produces fresh receipts and sends real messages.
+
 ```bash
 # Step 1: Count and review orphans (see SQL above)
 
@@ -509,9 +524,11 @@ for the authoritative procedure.
    fire-and-forget. A `sent` receipt means the local radio accepted the packet,
    not that any remote node received it. Recovery cannot confirm radio delivery.
 
-8. **Replay is not a durable job.** Replay runs do not resume after crash.
-   Completed deliveries from a crashed replay run are preserved (receipts in
-   SQLite). Remaining events must be re-replayed manually.
+ 8. **Replay is not a durable job.** Replay runs do not resume after crash.
+    Completed deliveries from a crashed replay run are preserved (receipts in
+    SQLite). Remaining events must be re-replayed manually. Always run
+    DRY_RUN first to preview scope before BEST_EFFORT. Process-local
+    accounting resets after restart; only SQLite data survives.
 
 9. **Pre-beta.** Recovery commands, SQL queries, and decision tree may change
    before beta. Always verify against the current code.
