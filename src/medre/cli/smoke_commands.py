@@ -1,4 +1,4 @@
-"""Smoke CLI command: fake bridge smoke test and drill execution."""
+"""Smoke CLI command: fake bridge smoke test, drill execution, and run-session."""
 from __future__ import annotations
 
 import json as _json
@@ -102,5 +102,89 @@ async def _smoke(
         limitations = report.get("limitations", [])
         if limitations:
             print(f"  Note: {limitations[0]}")
+
+    sys.exit(0 if report["status"] == "PASS" else 1)
+
+
+async def _run_session(
+    config_path: str | None,
+    storage_path: str | None,
+    snapshot_dir: str | None,
+    json_output: bool,
+) -> None:
+    """Run a complete bridge session and print a cross-linked evidence report.
+
+    Starts runtime, injects one fake event, polls for delivery, stops
+    gracefully, writes final snapshot, and produces a report with
+    cross-linked CLI commands for further inspection.
+
+    Exit codes: 0 on PASS, 1 on FAIL.
+    """
+    if storage_path is None:
+        import tempfile
+        tmp = tempfile.NamedTemporaryFile(
+            suffix=".db", prefix="medre-session-", delete=False,
+        )
+        storage_path = tmp.name
+        tmp.close()
+        print(f"No --storage-path provided; using temporary database: {storage_path}")
+
+    from medre.runtime.run_session import run_bridge_session
+
+    report = await run_bridge_session(
+        config_path,
+        storage_path=storage_path,
+        snapshot_dir=snapshot_dir,
+    )
+
+    if json_output:
+        print(_json.dumps(report, sort_keys=True, indent=2))
+    else:
+        status = report["status"]
+        event_id = report.get("event_id", "N/A")
+        route_id = report.get("route_id", "N/A")
+        source = report.get("source_adapter", "N/A")
+        targets = report.get("target_adapters", [])
+        acc = report.get("accounting") or {}
+        receipts = report.get("delivery_receipts", [])
+        native_refs = report.get("native_refs", [])
+        snap_checks = report.get("final_snapshot_checks", {})
+        commands = report.get("commands", {})
+        storage = report.get("storage_path", "N/A")
+        snap_path = report.get("final_snapshot_path", "N/A")
+
+        if status == "PASS":
+            print("Run session: PASS")
+        else:
+            print("Run session: FAIL")
+            for r in report.get("fail_reasons", []):
+                print(f"  \u2717 {r}")
+
+        print(f"  Event:       {event_id}")
+        print(f"  Route:       {route_id}")
+        print(f"  Source:      {source}")
+        print(f"  Targets:     {', '.join(targets) if targets else '(none)'}")
+        print(f"  Receipts:    {len(receipts)}")
+        print(f"  Native refs: {len(native_refs)}")
+        print(f"  Storage:     {storage}")
+        print(f"  Snapshot:    {snap_path}")
+        if acc:
+            # Same 5 field names as run_commands.py accounting printer.
+            print(
+                f"  Accounting:  inbound={acc.get('inbound', 0)} "
+                f"outbound_delivered={acc.get('outbound_delivered', 0)} "
+                f"outbound_failed={acc.get('outbound_failed', 0)} "
+                f"loop_prevented={acc.get('loop_prevented', 0)} "
+                f"capacity_rejections={acc.get('capacity_rejections', 0)}"
+            )
+        if snap_checks:
+            print(
+                f"  Snapshot:    schema_version={snap_checks.get('schema_version', '?')} "
+                f"runtime_state={snap_checks.get('runtime_state', '?')}"
+            )
+        if commands:
+            print("  Commands:")
+            for label, cmd in commands.items():
+                print(f"    {label}: {cmd}")
 
     sys.exit(0 if report["status"] == "PASS" else 1)

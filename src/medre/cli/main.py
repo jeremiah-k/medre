@@ -17,7 +17,7 @@ from .trace_commands import _trace_event, _trace_replay
 from .replay_commands import _replay
 from .recover_commands import _recover
 from .run_commands import _run
-from .smoke_commands import _smoke
+from .smoke_commands import _smoke, _run_session
 from .evidence_commands import _evidence
 
 
@@ -98,6 +98,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Persist smoke evidence to SQLite at this path (default: in-memory)")
     smoke_p.add_argument("--drill", default=None, metavar="NAME",
         help="Run named failure drill instead of normal smoke")
+    smoke_p.add_argument(
+        "--run-session", action="store_true", default=False,
+        help="Run a complete bridge session: start→inject→poll→stop→snapshot→report",
+    )
+    smoke_p.add_argument(
+        "--snapshot-dir", default=None, metavar="DIR",
+        help="Directory for final snapshot JSON (run-session only; default: storage directory)",
+    )
     smoke_p.add_argument("--json", action="store_true", default=False, help="Output JSON report")
 
     # evidence
@@ -232,10 +240,20 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "smoke":
         import asyncio
 
-        asyncio.run(
-            _smoke(args.config, args.message, args.json,
-                   storage_path=args.storage_path, drill_name=args.drill)
-        )
+        if getattr(args, "run_session", False):
+            asyncio.run(
+                _run_session(
+                    args.config,
+                    storage_path=args.storage_path,
+                    snapshot_dir=getattr(args, "snapshot_dir", None),
+                    json_output=args.json,
+                )
+            )
+        else:
+            asyncio.run(
+                _smoke(args.config, args.message, args.json,
+                       storage_path=args.storage_path, drill_name=args.drill)
+            )
     elif args.command == "inspect":
         import asyncio
 

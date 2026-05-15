@@ -237,11 +237,12 @@ Run `medre diagnostics` to see resource limit gauges:
 
 | Counter | Description |
 |---------|-------------|
-| `delivery_rejections` | Delivery acquire attempts that failed immediately (shutdown or capacity exhausted) |
-| `delivery_timeouts` | Delivery acquire attempts that timed out waiting for a slot |
+| `inbound_accepted` | Inbound events accepted into the pipeline |
+| `outbound_delivered` | Outbound deliveries that succeeded |
+| `outbound_failed` | Outbound deliveries that failed |
+| `loop_prevented` | Events blocked by the self-loop guard |
+| `capacity_rejections` | Operations rejected by the capacity controller |
 | `delivery_current` / `delivery_limit` | Current / max concurrent delivery semaphore slots |
-| `replay_rejections` | Replay acquire attempts that failed immediately |
-| `replay_timeouts` | Replay acquire attempts that timed out waiting for a slot |
 | `replay_current` / `replay_limit` | Current / max concurrent replay semaphore slots |
 
 ### Example Configurations
@@ -645,7 +646,7 @@ INFO  medre.runtime: Shutdown complete in 70ms
 
 **Shutdown accounting counters:**
 
-The shutdown summary reports the number of adapters stopped and any errors encountered. Runtime accounting counters (`delivery_timeouts`, `delivery_rejections`, `replay_timeouts`, `replay_rejections`) **are printed at shutdown** as a compact one-line summary alongside the adapter stop and error counts. To capture the full counter breakdown (including per-route stats and capacity gauges) to a file, use `--snapshot-on-shutdown` (see below).
+The shutdown summary reports the number of adapters stopped and any errors encountered. Runtime accounting counters (`inbound_accepted`, `outbound_delivered`, `outbound_failed`, `loop_prevented`, `capacity_rejections`) **are printed at shutdown** as a compact one-line summary alongside the adapter stop and error counts. To capture the full counter breakdown (including per-route stats and capacity gauges) to a file, use `--snapshot-on-shutdown` (see below).
 
 ### Shutdown Snapshot (`--snapshot-on-shutdown`)
 
@@ -826,7 +827,7 @@ This section summarizes what MEDRE state survives restarts and what is lost. For
 |-------|--------|--------|
 | In-flight deliveries | Lost on crash or cancellation | No receipt, no retry, no recovery |
 | Active replay runs | Lost on crash or shutdown | Must re-initiate manually |
-| Runtime counters (`delivery_timeouts`, etc.) | Process-local only | Reset to zero on every startup |
+| Runtime counters (`inbound_accepted`, etc.) | Process-local only | Reset to zero on every startup |
 | RouteStats per-route counters | Process-local only | No historical route statistics |
 | CapacityController gauges | Process-local only | Reset on startup |
 | Adapter health/connection state | Process-local only | Adapters reconnect from scratch |
@@ -1248,7 +1249,7 @@ When capacity is exhausted:
 
 1. The delivery or replay acquire fails.
 2. The outcome records `status="permanent_failure"` with `error="delivery_capacity_exceeded"` (delivery) or `error="delivery_rejected_shutdown"` (delivery during shutdown). For replay, the result records `status="error"` with `error="replay_capacity_exceeded"` or `error="replay_rejected_shutdown"` (replay during shutdown).
-3. A diagnostic counter is incremented (`delivery_timeouts`, `delivery_rejections`, `replay_timeouts`, or `replay_rejections`).
+3. A diagnostic counter is incremented (`inbound_accepted`, `outbound_delivered`, `outbound_failed`, `loop_prevented`, or `capacity_rejections`).
 4. A WARNING log is emitted with the current vs. limit counts.
 5. **No retry.** The delivery is abandoned. The operator can re-trigger replay manually if needed.
 
@@ -1261,13 +1262,14 @@ Snapshot capacity fields (process-local, actively refreshed, bounded, non-durabl
 | Counter | What it tells you |
 |---------|-------------------|
 | `delivery_current` | How many deliveries are in-flight right now |
-| `delivery_timeouts` | How many deliveries timed out waiting for a slot (sign of sustained pressure) |
-| `delivery_rejections` | How many deliveries were rejected due to shutdown |
+| `inbound_accepted` | How many inbound events were accepted into the pipeline |
+| `outbound_delivered` | How many outbound deliveries succeeded |
+| `outbound_failed` | How many outbound deliveries failed |
+| `loop_prevented` | How many events were blocked by the self-loop guard |
+| `capacity_rejections` | How many operations were rejected by the capacity controller |
 | `replay_current` | How many replay events are in-flight right now |
-| `replay_timeouts` | How many replay events timed out waiting for a slot |
-| `replay_rejections` | How many replay events were rejected due to shutdown |
 
-Sustained growth in `delivery_timeouts` indicates the runtime is under more delivery pressure than its configured limits can handle. Consider increasing `max_inflight_deliveries` or reducing the number of active routes.
+Sustained growth in `capacity_rejections` indicates the runtime is under more delivery pressure than its configured limits can handle. Consider increasing `max_inflight_deliveries` or reducing the number of active routes.
 
 **Important:** Queue bounds prevent unbounded memory accumulation but do **not** prevent data loss under extreme pressure. MEDRE remains best-effort. No exactly-once guarantees. No transactional delivery guarantees.
 
