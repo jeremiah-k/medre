@@ -234,6 +234,23 @@ Looping routes are **skipped** (not erroring). A `loop_warnings` tuple is attach
 | Route-trace guard | `PipelineRunner._execute_single_delivery` | Pipeline | Per-delivery | Skip target |
 | `_filter_replay_loops` | `medre.core.storage.replay` | Replay | Per-replay event | Skip + warn |
 
+### 6.6 Supplier of Native IDs
+
+Native-ref duplicate suppression (Stage 1.5) depends on adapters providing a stable, unique `native_message_id` via `source_native_ref`. Adapters that return `None` or an empty string for `native_message_id` bypass dedup entirely — every inbound event from that adapter is treated as novel.
+
+| Adapter | Native ID field | Stability | Notes |
+|---------|----------------|-----------|-------|
+| Matrix | `event_id` | Stable | Synapse-assigned, globally unique per event. |
+| Meshtastic | `packet_id` | Stable per node | Small integer; may collide across sessions or nodes. Not globally unique. |
+| MeshCore | `sender_timestamp` | Stable per sender | Distinguishes messages from the same sender but not globally unique across senders. |
+| LXMF | `message_id` (hex of `message_id` bytes from packet) | Stable | Derived from source_hash + nonce at the protocol level. Unique per LXMF message. Codec normalises bytes to hex string. |
+
+**Consequences for adapters without stable native IDs:** If a transport or adapter configuration produces `native_message_id = None` or `""`, the native-ref dedup stage cannot suppress duplicates from that source. Events from such adapters always pass through to routing and delivery. Operators relying on dedup for a specific transport must verify that the adapter's codec populates `native_message_id` for the relevant packet types.
+
+### 6.7 Duplicate Suppression vs. Replay
+
+Duplicate suppression is **NOT** replay dedupe. Replay generates fresh canonical events with independent receipts and new `event_id` values. The native-ref dedup stage prevents echo from transport-layer re-delivery of the same physical packet — it does not suppress replay-originated events. Multiple `BEST_EFFORT` replays of the same original event produce additional deliveries, each with its own receipt lineage. See Contract 49 §5 (Replay Route Attribution) and the Bridge Operation Runbook §7.
+
 
 ## 7. Route Diagnostics Expectations
 
