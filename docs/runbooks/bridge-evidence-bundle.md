@@ -43,7 +43,8 @@ the bundle archive.
 
 ```bash
 PYTHONPATH=src medre smoke --json > bundle-smoke.json
-# Exit code: 0 = pass, 1 = fail
+# Exit code: 0 = passed, 1 = failed
+# JSON report status values are "passed"/"failed"; terminal output may print PASS/FAIL as human labels.
 ```
 
 ### 1.2 Persistent Smoke (inspectable after exit)
@@ -104,10 +105,10 @@ PYTHONPATH=src medre inspect receipts --replay-run <run_id> --config my-bridge.t
 
 | Command | Storage | Starts adapters | Output | Exit codes |
 |---------|---------|----------------|--------|------------|
-| `medre smoke --json` | In-memory | Fake only | pass/fail JSON | 0=pass, 1=fail |
-| `medre smoke --storage-path <db> --json` | SQLite | Fake only | pass/fail JSON + DB | 0=pass, 1=fail |
-| `medre smoke --drill <name> --json` | In-memory | Fake only | Drill report JSON | 0=pass, 1=fail |
-| `medre smoke --drill <name> --storage-path <db> --json` | SQLite | Fake only | Drill report JSON + DB | 0=pass, 1=fail |
+| `medre smoke --json` | In-memory | Fake only | passed/failed JSON | 0=passed (0), 1=failed (1) |
+| `medre smoke --storage-path <db> --json` | SQLite | Fake only | passed/failed JSON + DB | 0=passed (0), 1=failed (1) |
+| `medre smoke --drill <name> --json` | In-memory | Fake only | Drill report JSON | 0=passed (0), 1=failed (1) |
+| `medre smoke --drill <name> --storage-path <db> --json` | SQLite | Fake only | Drill report JSON + DB | 0=passed (0), 1=failed (1) |
 | `medre evidence --config <path> --json` | Per config (memory or SQLite) | Fake only (or real with `--include-refresh-health`) | Full bundle JSON | 0=ok/partial, 2=config error |
 | `medre evidence --config <path> --event <id> --json` | Per config (memory or SQLite) | No | Bundle with event/receipt lookup | 0=ok/partial, 2=config error |
 | `medre evidence --config <path> --include-refresh-health --json` | Per config (memory or SQLite) | Yes (real or fake) | Full bundle + live health JSON | 0=ok/partial, 2=config error |
@@ -126,7 +127,7 @@ PYTHONPATH=src medre inspect receipts --replay-run <run_id> --config my-bridge.t
 
 ```json
 {
-  "status": "pass",
+  "status": "passed",
   "evidence_level": "fake_bridge",
   "scenario_category": "smoke",
   "simulated": true,
@@ -190,7 +191,7 @@ When the smoke **fails**, the report adds a `fail_reasons` array:
 
 ```json
 {
-  "status": "fail",
+  "status": "failed",
   "evidence_level": "fake_bridge",
   "scenario_category": "smoke",
   "simulated": true,
@@ -214,7 +215,7 @@ When `--storage-path` is provided, the report includes:
 
 ```json
 {
-  "status": "pass",
+  "status": "passed",
   "evidence_level": "drill",
   "scenario_category": "drill",
   "simulated": true,
@@ -641,9 +642,9 @@ See [Event Tracing](event-tracing.md) for the full trace report shapes and
 
 | Status | Meaning | Operator action |
 |--------|---------|-----------------|
-| `ok` / `pass` | All criteria met at the reported evidence level | Proceed to live runtime with caution. The bundle proves pipeline correctness, not live connectivity. |
+| `ok` / `passed` | All criteria met at the reported evidence level | Proceed to live runtime with caution. The bundle proves pipeline correctness, not live connectivity. |
 | `partial` | Some adapters/routes/drills failed but the runtime stayed up | Inspect `fail_reasons` and per-adapter `.error` fields. Individual drill failures may be acceptable depending on the scenario (e.g., a degraded health drill expects failure). |
-| `error` / `fail` | A required criterion was not met | Do not proceed to live runtime. Inspect `fail_reasons`, fix the config or environment, re-collect the bundle. |
+| `error` / `failed` | A required criterion was not met | Do not proceed to live runtime. Inspect `fail_reasons`, fix the config or environment, re-collect the bundle. |
 
 ### 4.2 Why `--include-refresh-health` Starts Adapters
 

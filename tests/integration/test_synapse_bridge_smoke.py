@@ -28,14 +28,14 @@ Each inbound test produces a compact ``report`` dict containing at least:
 
 - ``transport``: ``"matrix"``
 - ``evidence_level``: ``"docker_sdk_boundary"``
-- ``inbound_path``: one of ``"sync_loop"`` or
+- ``ingress_path``: one of ``"sync_loop"`` or
   ``"direct_on_room_message_fallback"``
 - ``source_adapter``, ``target_adapter``, ``native_event_id``,
   ``route_id``, ``receipt_status``
 - ``accounting``: snapshot of ``RuntimeAccounting`` counters
 - ``limitations``: list of what this run does **not** prove
 
-The ``inbound_path`` field is critical for honest evidence reporting:
+The ``ingress_path`` field is critical for honest evidence reporting:
 
 - ``"sync_loop"`` — the real nio ``sync_forever`` callback fired and
   dispatched the event through the normal SDK path.  This proves the
@@ -103,8 +103,114 @@ _INBOUND_FALLBACK = "direct_on_room_message_fallback"
 
 
 # ---------------------------------------------------------------------------
+# Inbound path result
+# ---------------------------------------------------------------------------
+
+class IngressResult:
+    """Records which ingress path delivered the event and related metadata.
+
+    Attributes
+    ----------
+    ingress_path:
+        ``"sync_loop"`` if the real nio sync_forever callback delivered the
+        event, or ``"direct_on_room_message_fallback"`` if the fallback path
+        was used.
+    native_event_id:
+        The Synapse-assigned Matrix event_id (``$...``).
+    body_text:
+        The plain-text body of the test message.
+    """
+
+    __slots__ = ("ingress_path", "native_event_id", "body_text")
+
+    def __init__(
+        self,
+        ingress_path: str,
+        native_event_id: str,
+        body_text: str,
+    ) -> None:
+        self.ingress_path = ingress_path
+        self.native_event_id = native_event_id
+        self.body_text = body_text
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+async def _wait_for_sync_or_fallback(
+    *,
+    synapse_env: SynapseEnvironment,
+    matrix_adapter: MatrixAdapter,
+    fake_out: FakeMatrixAdapter,
+    body_text: str,
+    txn_id: str,
+    timeout: float = 15.0,
+    fallback_grace: float = 0.5,
+) -> IngressResult:
+    """Send a message and wait for delivery; return the ingress path used.
+
+    1. Sends a message as the test user via Synapse HTTP API.
+    2. Polls ``fake_out.delivered_payloads`` for up to *timeout* seconds.
+    3. If the sync loop delivers within *timeout*, returns
+       :pyattr:`ingress_path` ``"sync_loop"``.
+    4. Otherwise calls ``_on_room_message`` directly with a real Synapse
+       ``event_id`` and returns
+       :pyattr:`ingress_path` ``"direct_on_room_message_fallback"``.
+
+    The caller can inspect ``result.ingress_path`` to distinguish full
+    SDK-boundary proof from codec+pipeline-only proof.
+    """
+    # 1. Send via Synapse HTTP API.
+    native_event_id = _send_message_as_test_user(
+        synapse_env, body_text, txn_id,
+    )
+    assert native_event_id.startswith("$"), (
+        f"Synapse should return event_id starting with '$', "
+        f"got {native_event_id!r}"
+    )
+
+    # 2. Poll for the sync loop to deliver through the pipeline.
+    deadline = time.monotonic() + timeout
+    found = False
+    while time.monotonic() < deadline:
+        if len(fake_out.delivered_payloads) >= 1:
+            found = True
+            break
+        await asyncio.sleep(0.3)
+
+    # 3. Record which ingress path was used.
+    if found:
+        return IngressResult(
+            ingress_path=_INBOUND_SYNC_LOOP,
+            native_event_id=native_event_id,
+            body_text=body_text,
+        )
+
+    # 4. Fallback: direct _on_room_message with a real Synapse event_id.
+    from types import SimpleNamespace
+
+    room = SimpleNamespace(room_id=synapse_env.test_room_id)
+    event = SimpleNamespace(
+        sender=synapse_env.test_user_id,
+        event_id=native_event_id,
+        body=body_text,
+        source={
+            "content": {"msgtype": "m.text", "body": body_text},
+            "event_id": native_event_id,
+            "sender": synapse_env.test_user_id,
+            "type": "m.room.message",
+        },
+    )
+    await matrix_adapter._on_room_message(room, event)
+    await asyncio.sleep(fallback_grace)
+
+    return IngressResult(
+        ingress_path=_INBOUND_FALLBACK,
+        native_event_id=native_event_id,
+        body_text=body_text,
+    )
 
 
 def _make_matrix_config(env: SynapseEnvironment) -> MatrixConfig:
@@ -265,11 +371,11 @@ class TestSynapseBridgeSmoke:
         The test first attempts delivery through the real nio ``sync_forever``
         loop.  If the sync loop does not deliver within 15 seconds, a fallback
         path calls ``_on_room_message`` directly with the real Synapse
-        ``event_id``.  The ``report["inbound_path"]`` field records which
+        ``event_id``.  The ``report["ingress_path"]`` field records which
         path was used so that test output distinguishes sync-loop proof from
         codec+pipeline-only proof.
 
-        This is the strongest SDK-boundary proof when ``inbound_path`` is
+        This is the strongest SDK-boundary proof when ``ingress_path`` is
         ``"sync_loop"``:
 
         1. Real nio AsyncClient + sync_forever running against Docker Synapse.
@@ -283,7 +389,7 @@ class TestSynapseBridgeSmoke:
            ``outbound_delivered``.
         9. Adapter diagnostics counters reflect the inbound event.
 
-        When ``inbound_path`` is ``"direct_on_room_message_fallback"``, steps
+        When ``ingress_path`` is ``"direct_on_room_message_fallback"``, steps
         1 and 3 are skipped — the test proves codec + pipeline + storage but
         does NOT prove the real nio sync callback dispatch.
         ``test_synapse_connectivity.py`` proves the sync loop can start and
@@ -333,63 +439,29 @@ class TestSynapseBridgeSmoke:
         await fake_out.start(fake_ctx)
 
         try:
-            # 2. Send a message as the test user via HTTP API.
-            native_event_id = _send_message_as_test_user(
-                synapse_env, body_text, txn_id,
+            # 2. Send a message and wait for ingress — records which path
+            #    was used (sync_loop or fallback).
+            ingress = await _wait_for_sync_or_fallback(
+                synapse_env=synapse_env,
+                matrix_adapter=matrix_adapter,
+                fake_out=fake_out,
+                body_text=body_text,
+                txn_id=txn_id,
             )
-            assert native_event_id.startswith("$"), (
-                f"Synapse should return event_id starting with '$', "
-                f"got {native_event_id!r}"
-            )
+            native_event_id = ingress.native_event_id
+            inbound_path = ingress.ingress_path
 
-            # 3. Poll for the event to arrive through the real sync loop.
-            #    The real nio sync_forever receives the event and invokes
-            #    _on_room_message, which publishes into the pipeline.
-            deadline = time.monotonic() + 15.0
-            found = False
-            while time.monotonic() < deadline:
-                # Check if fake_out received a delivery.
-                if len(fake_out.delivered_payloads) >= 1:
-                    found = True
-                    break
-                await asyncio.sleep(0.3)
-
-            # 4. Record which inbound path was used — this is the critical
-            #    evidence distinction.
-            inbound_path: str
-            if found:
-                inbound_path = _INBOUND_SYNC_LOOP
-            else:
-                # Fallback: if sync didn't deliver in time, call
-                # _on_room_message directly with a real-Synapse-constructed
-                # event.  This still proves the SDK-boundary codec + pipeline
-                # + storage path with a genuine Synapse event_id.
-                #
-                # Limitation: the real nio sync callback path is NOT exercised
-                # by this fallback.  test_synapse_connectivity.py proves the
-                # sync loop can start and connect, but not that it reliably
-                # delivers inbound events under all timing conditions.
-                inbound_path = _INBOUND_FALLBACK
-
-                from types import SimpleNamespace
-
-                room = SimpleNamespace(room_id=synapse_env.test_room_id)
-                event = SimpleNamespace(
-                    sender=synapse_env.test_user_id,
-                    event_id=native_event_id,
-                    body=body_text,
-                    source={
-                        "content": {"msgtype": "m.text", "body": body_text},
-                        "event_id": native_event_id,
-                        "sender": synapse_env.test_user_id,
-                        "type": "m.room.message",
-                    },
+            # 3. If fallback was used, log a warning — sync_loop is the
+            #    preferred ingress path for full SDK-boundary proof.
+            if inbound_path == _INBOUND_FALLBACK:
+                logger.warning(
+                    "Matrix bridge smoke: sync loop did not deliver within "
+                    "timeout; used direct _on_room_message fallback. "
+                    "native_event_id=%s",
+                    native_event_id,
                 )
-                await matrix_adapter._on_room_message(room, event)
-                # Give the pipeline a moment to process.
-                await asyncio.sleep(0.5)
 
-            # 5. Assertions on the fake outbound adapter.
+            # 4. Assertions on the fake outbound adapter.
             assert len(fake_out.delivered_payloads) >= 1, (
                 "FakeMatrixAdapter should have received at least one "
                 "rendered payload via the pipeline"
@@ -400,7 +472,7 @@ class TestSynapseBridgeSmoke:
                 f"got {rendered.payload.get('body')!r}"
             )
 
-            # 6. Inbound NativeMessageRef — resolve via public API.
+            # 5. Inbound NativeMessageRef — resolve via public API.
             #    Maps the real Synapse event_id to the canonical event_id.
             canonical_id = await temp_storage.resolve_native_ref(
                 adapter="synapse-bridge-bot",
@@ -412,7 +484,7 @@ class TestSynapseBridgeSmoke:
                 f"in room {synapse_env.test_room_id!r}"
             )
 
-            # 7. DeliveryReceipt persisted — via public API.
+            # 6. DeliveryReceipt persisted — via public API.
             receipts = await temp_storage.list_receipts_for_event(
                 canonical_id,
             )
@@ -425,7 +497,7 @@ class TestSynapseBridgeSmoke:
                 f"Expected receipt status 'sent', got {receipt_status!r}"
             )
 
-            # 8. RuntimeAccounting counters incremented.
+            # 7. RuntimeAccounting counters incremented.
             counters = accounting.snapshot()
             assert counters["inbound_accepted"] >= 1, (
                 f"Expected inbound_accepted >= 1, got {counters['inbound_accepted']}"
@@ -435,14 +507,14 @@ class TestSynapseBridgeSmoke:
                 f"got {counters['outbound_delivered']}"
             )
 
-            # 9. Adapter diagnostics counters reflect inbound processing.
+            # 8. Adapter diagnostics counters reflect inbound processing.
             assert matrix_adapter._inbound_published >= 1
             diag = matrix_adapter.diagnostics()
             assert diag["inbound_published"] >= 1
 
-            # 10. Build and assert compact evidence report.
-            #     The inbound_path field is the key honesty mechanism:
-            #     it records whether sync_loop or fallback was used.
+            # 9. Build and assert compact evidence report.
+            #    The ingress_path field is the key honesty mechanism:
+            #    it records whether sync_loop or fallback was used.
             limitations = [
                 "Not a live-network proof (Docker loopback only).",
                 "Single message only (not a throughput test).",
@@ -456,7 +528,7 @@ class TestSynapseBridgeSmoke:
             report: dict[str, Any] = {
                 "transport": "matrix",
                 "evidence_level": "docker_sdk_boundary",
-                "inbound_path": inbound_path,
+                "ingress_path": inbound_path,
                 "source_adapter": "synapse-bridge-bot",
                 "target_adapter": "fake-out",
                 "native_event_id": native_event_id,
@@ -467,7 +539,7 @@ class TestSynapseBridgeSmoke:
                 "limitations": limitations,
             }
             # Assert report shape is well-formed.
-            assert report["inbound_path"] in (
+            assert report["ingress_path"] in (
                 _INBOUND_SYNC_LOOP, _INBOUND_FALLBACK,
             )
             assert report["evidence_level"] == "docker_sdk_boundary"
@@ -475,9 +547,9 @@ class TestSynapseBridgeSmoke:
             assert report["native_event_id"].startswith("$")
 
             logger.info(
-                "Matrix bridge smoke report: inbound_path=%s "
+                "Matrix bridge smoke report: ingress_path=%s "
                 "native_event_id=%s receipt_status=%s",
-                report["inbound_path"],
+                report["ingress_path"],
                 report["native_event_id"],
                 report["receipt_status"],
             )

@@ -91,7 +91,7 @@ correct: operator tools import from runtime, never the reverse.
 
 Operator tools that produce JSON reports follow a shared contract:
 
-- **Status values are lowercase:** `"pass"`, `"fail"`, `"ok"`, `"partial"`,
+- **Status values are lowercase:** `"passed"`, `"failed"`, `"ok"`, `"partial"`,
   `"error"`, `"skipped"`.
 - **Scenario category:** every report includes a `scenario_category` field
   (e.g., `"smoke"`, `"drill"`, `"evidence"`, `"trace"`, `"recovery"`).

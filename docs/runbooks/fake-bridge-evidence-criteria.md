@@ -33,13 +33,37 @@ live-network criteria are tracked separately per transport.
 | Adapter-wrapper | **Proven** | Per-transport adapter codec, renderer, session logic work with mocked transport |
 | Adapter-wrapper callback bridge | **Proven (MeshCore, LXMF)** | Real adapter callback path (simulate_inbound → codec → pipeline → fake outbound) exercises wrapper-to-pipeline boundary without Docker or live transport |
 | Docker SDK-boundary | **Proven** | Real SDK code paths exercise against containerized Synapse/meshtasticd |
-| Docker SDK-boundary bridge smoke | **Proven** | Real Matrix SDK codec + pipeline routing + storage + accounting with genuine Synapse event_ids |
+| Docker SDK-boundary (Meshtastic outbound + lifecycle) | **Proven** | MeshtasticAdapter creates real TCPInterface, subscribes to pubsub, sends via real sendText, reports healthy, stops cleanly |
+| Docker SDK-boundary (Meshtastic inbound via pubsub) | **Not proven** | meshtasticd simulation mode may not relay packets between TCP clients. Inbound always uses simulate_inbound, not real pubsub delivery |
+| Docker SDK-boundary bridge smoke (Matrix) | **Proven** | Real Matrix SDK codec + pipeline routing + storage + accounting with genuine Synapse event_ids |
 | Live network | **Not claimed** | No live cross-transport bridge test has been executed against real endpoints |
+
+### Meshtastic Docker SDK-Boundary Evidence Breakdown
+
+The Meshtastic Docker tests exercise two distinct paths. The evidence level differs
+by direction:
+
+| Path | Status | Tests | What is proven | What is not proven |
+|------|--------|-------|----------------|-------------------|
+| Fake callback (inbound) | **Proven** | `test_fake_bridge_smoke`, `test_meshtastic_fake_bridge` | `simulate_inbound` → codec → pipeline → fake outbound. Full codec/pipeline/accounting path with no SDK. | Does not exercise real SDK or pubsub subscription. |
+| Wrapper callback (inbound) | **Proven** | `test_meshtastic_wrapper_ingress` | Direct `_on_packet` invocation → classify → codec.decode → `publish_inbound`. Real adapter code with raw packet dicts. | Does not exercise real SDK pubsub callback chain. |
+| Docker SDK-boundary outbound | **Proven** | `test_outbound_send_one_through_real_session` | `deliver()` → enqueue → `send_one()` → real `sendText()` through `TCPInterface` to containerized meshtasticd. Returns real packet ID. | meshtasticd simulation mode (`-s`), not real LoRa. Fire-and-forget — remote receipt unconfirmed. |
+| Docker SDK-boundary lifecycle | **Proven** | `test_real_session_lifecycle_and_health`, `test_adapter_starts_and_reports_healthy` | Adapter creates real `TCPInterface`, subscribes to `meshtastic.receive` pubsub, reports `healthy`, stops cleanly with no orphaned state. | Does not prove packets arrive through the subscription. |
+| Docker SDK-boundary inbound (pubsub) | **Not proven** | `test_two_client_real_packet_injection` (xfail) | Would prove: second client sends → meshtasticd relays → pubsub fires → `_on_receive` → `_on_packet` → codec → `publish_inbound`. | meshtasticd simulation mode may not relay packets between TCP clients. Test is `xfail(strict=False)` — provides bonus evidence when it passes, but does not reliably pass. |
+| Live radio | **Not proven** | None | N/A | No live hardware smoke test recorded. |
+
+**Key limitation**: meshtasticd runs with `-s` (simulation mode) in Docker tests.
+Even if two-client relay worked, it would prove the SDK callback chain — not real
+LoRa radio interaction. The `test_simulate_inbound_bridge_to_fake_outbound` test
+proves the codec/pipeline/accounting path works while a real meshtasticd session
+is active, but inbound packets are injected via `simulate_inbound()`, not received
+through the `meshtastic.receive` pubsub callback.
 
 ### Per-Adapter Wrapper Callback Bridge Evidence
 
 | Adapter | Evidence level | What is proven | What is not proven |
 |---------|---------------|----------------|-------------------|
+| Meshtastic | `fake_pipeline` (wrapper callback bridge) | `simulate_inbound` / `_on_packet` → `MeshtasticCodec.decode` → pipeline routing → fake outbound delivery. Full callback-to-delivery path with real adapter code. Docker SDK-boundary outbound proven via containerized meshtasticd. | Docker SDK-boundary inbound (pubsub delivery from second client unconfirmed). Live radio validation. |
 | MeshCore | `fake_pipeline` (wrapper callback bridge) | `simulate_inbound` → `_on_message` → `MeshCoreCodec.decode` → pipeline routing → fake outbound delivery. Full callback-to-delivery path with real adapter code. | Docker SDK-boundary (no containerized MeshCore node). Live radio validation. |
 | LXMF | `fake_pipeline` (wrapper callback bridge) | `_on_packet` → `LxmfCodec.decode` → pipeline routing → fake outbound delivery. Full callback-to-delivery path with real adapter code. | Docker SDK-boundary (no containerized Reticulum/LXMF router). Live network validation. |
 
@@ -190,6 +214,23 @@ direction):
 6. **Duplicate rejection**: `RouteConfigSet` rejects duplicate route IDs.
 
 
+## Transport Evidence Matrix
+
+| Adapter | Fake callback | Wrapper callback | Docker SDK-boundary (outbound) | Docker SDK-boundary (inbound) | Live network/radio |
+|---------|:---:|:---:|:---:|:---:|:---:|
+| Matrix | ✅ | ✅ | ✅ | ✅ (sync_loop) | ✅ (Synapse) |
+| Meshtastic | ✅ | ✅ | ✅ | ❓ (inbound from 2nd client unconfirmed) | ❌ Not claimed |
+| MeshCore | ✅ | ✅ | ❌ No Docker setup | ❌ | ❌ |
+| LXMF | ✅ | ✅ | ❌ No Docker setup | ❌ | ❌ |
+
+Key:
+- ✅ = proven
+- ❌ = not proven / not claimed
+- ❓ = partial or unconfirmed
+
+Fake callback = simulate_inbound, Wrapper callback = adapter callback → pipeline → fake outbound, Docker SDK-boundary = real SDK against containerized service, Live = real endpoint/hardware.
+
+
 ## What Remains Unproven
 
 The evidence criteria above define what *must* be asserted to consider a
@@ -208,4 +249,5 @@ test at any tier and remain explicitly unproven:
 | Network resilience / reconnection | Not proven | No live failure/reconnect test |
 | Cross-instance loop prevention | Not proven | Loop prevention is local-process only |
 | Third-party Matrix inbound | Not proven | Bridge smoke uses HTTP API sender, not a second Matrix client |
+| Meshtastic Docker inbound via pubsub | Not proven | meshtasticd simulation mode may not relay between TCP clients; test_two_client_real_packet_injection is xfail |
 | Full cross-transport relay | Not proven | Bridge smoke routes real Matrix to fake outbound, not to a second real adapter |

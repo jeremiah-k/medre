@@ -1,0 +1,76 @@
+# MEDRE Example: Docker Matrix Bridge (SDK-boundary validation)
+#
+# Illustrative config for Docker-based Matrix bridge testing with ingress
+# path tracking.  Exercises the real Matrix adapter (mindroom-nio) against
+# a containerized Synapse homeserver, routing inbound Matrix messages to
+# a fake Meshtastic adapter.
+#
+# WHAT THIS CONFIG PROVES (when run against Docker Synapse):
+#   - Real Matrix adapter lifecycle: connect, sync, receive, deliver
+#   - Real nio SDK boundary (not mocked)
+#   - Config-to-runtime path with real connection parameters
+#   - Pipeline routing: Matrix source -> fake target
+#   - DeliveryReceipt persistence with genuine Synapse event_ids
+#   - NativeMessageRef inbound mapping
+#   - RuntimeAccounting counter increments
+#   - ingress_path tracking (sync_loop vs direct_on_room_message_fallback)
+#
+# WHAT THIS CONFIG DOES NOT PROVE:
+#   - Live network connectivity (Docker loopback only)
+#   - Sustained throughput or load
+#   - Cross-transport relay to a second real adapter
+#   - E2EE encryption (plaintext mode only)
+#   - Reconnect resilience or retry-against-live
+#
+# USAGE:
+#   This config cannot be used directly with `medre run` — credentials
+#   and room IDs must be provided via environment variables.  Docker
+#   integration tests (test_synapse_bridge_smoke.py,
+#   test_synapse_run_session.py) build configs programmatically from
+#   conftest.py fixtures that auto-register users and allocate ports.
+#
+# NOT for production.  NOT for direct `medre run` usage without Docker
+# Synapse running and environment variables set.
+
+[runtime]
+name = "docker-matrix-bridge"
+
+[storage]
+backend = "memory"
+
+[logging]
+level = "INFO"
+format = "text"
+
+# ---------------------------------------------------------------------------
+# Real Matrix adapter — points at Docker Synapse
+# ---------------------------------------------------------------------------
+# Credentials come from environment variables set by Docker integration
+# test fixtures (conftest.py).  No real secrets in this file.
+[adapters.matrix.synapse]
+enabled = true
+adapter_kind = "real"
+homeserver = "${MEDRE_HOMESERVER}"
+user_id = "${MEDRE_USER_ID}"
+access_token = "${MEDRE_ACCESS_TOKEN}"
+room_allowlist = ["${MEDRE_ROOM_ID}"]
+encryption_mode = "plaintext"
+
+# ---------------------------------------------------------------------------
+# Fake Meshtastic adapter — no SDK, no network, no hardware
+# ---------------------------------------------------------------------------
+[adapters.meshtastic.fake_out]
+enabled = true
+adapter_kind = "fake"
+connection_type = "fake"
+
+# ---------------------------------------------------------------------------
+# Route: Synapse (real Matrix) -> fake_out (fake Meshtastic)
+# ---------------------------------------------------------------------------
+[routes.synapse_to_fake]
+source_adapters = ["synapse"]
+dest_adapters = ["fake_out"]
+directionality = "source_to_dest"
+enabled = true
+source_room = "${MEDRE_ROOM_ID}"
+dest_channel = "1"

@@ -40,7 +40,7 @@ see [Routing Correctness](routing-correctness.md) and
 | Renderer failure | 0 | `failed` (RENDERER_FAILURE) | No | `medre inspect receipts`, RouteStats |
 | Adapter permanent | 0 | `failed` (ADAPTER_PERMANENT) | No | receipt lineage, adapter `diagnostics()` |
 | Adapter transient | 0 | `sent` (after retry) or `failed` | Yes (up to max_attempts) | receipt `attempt_number`, `parent_receipt_id` |
-| Capacity exceeded | 0 | `failed` (delivery_capacity_exceeded) | No | `capacity_rejections` counter, logs |
+| Capacity exceeded | 0 | `failed` (delivery_capacity_exceeded) | No | `capacity_rejections` counter (internal CapacityController gauge, not an operator-facing accounting field), logs |
 | Deadline exceeded | 0 | `failed` (DEADLINE_EXCEEDED) | No | delivery plan timestamps |
 | Shutdown rejection | 0 | `failed` (delivery_rejected_shutdown) | No | `outbound_failed` counter |
 | Replay capacity | 0 | `error` (replay_capacity_exceeded) | No | `capacity_rejections` counter |
@@ -154,7 +154,7 @@ PYTHONPATH=src medre smoke --drill bad_route_config --json
 - Route validation: exit code **2** (`EXIT_CONFIG`) — the runtime would reject this config.
 - stderr: `RouteValidationError` naming the unknown adapter
 - No adapter starts
-- Drill report: `status == "pass"` — the drill itself exits 0 because the expected error was correctly observed
+- Drill report: `status == "passed"` — the drill itself exits 0 because the expected error was correctly observed
 
 **Inspect next:**
 
@@ -217,7 +217,7 @@ PYTHONPATH=src medre smoke --drill all_adapters_build_fail --json
 **Expected pass (drill catches the error correctly):**
 
 - Exit code: **0** (drill itself succeeds)
-- Drill report: `status == "pass"`
+- Drill report: `status == "passed"`
 - Drill report includes `simulation_method` (e.g. `"config_injection"`,
   `"failure_injection"`, `"fake_adapter"`) documenting how the failure
   scenario was produced.

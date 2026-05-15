@@ -187,6 +187,22 @@ counter increments — all against a Docker-local Synapse homeserver. The
 outbound target is a fake adapter; real cross-transport delivery to a second
 real adapter is not proven.
 
+- **`ingress_path` tracking** — the Matrix Docker bridge test tracks whether
+  inbound events arrived via the real nio `sync_forever` callback
+  (`"sync_loop"`) or via direct `_on_room_message`
+  (`"direct_on_room_message_fallback"`). Only `sync_loop` proves full
+  Matrix adapter ingress through the real SDK sync path. When the fallback
+  path fires, the test logs a warning and the report records it in
+  `limitations`. See `test_synapse_bridge_smoke.py` for the `_wait_for_sync_or_fallback`
+  helper and `IngressResult` class that encode this distinction.
+
+- **Run-session test** — `test_synapse_run_session.py` exercises the full
+  MEDRE runtime lifecycle against Docker Synapse (start adapters, send
+  Matrix message, ingress through real sync path, canonical event persisted,
+  delivery to fake target, receipt status="sent") and produces a report
+  matching the `run_session` shape (status, event_id, receipts, native_refs,
+  ingress_path).
+
 | Provenance tier | Status | What is proven |
 |----------------|--------|---------------|
 | Fake bridge | **Proven** | Pipeline routing, rendering, receipts, accounting |
@@ -485,3 +501,86 @@ Bridge operators should distinguish between two categories of evidence:
 **Key distinction:** Run-time evidence (counters, gauges, events buffer) is process-local memory that is lost when the process exits unless captured via `--snapshot-on-shutdown`. Post-run evidence (receipts, events, refs) is persisted in SQLite and survives process termination.
 
 For the full shutdown snapshot schema, see [Runtime Operation — Shutdown Snapshot](runtime-operation.md#shutdown-snapshot---snapshot-on-shutdown). For the evidence bundle report shape, see [Bridge Evidence Bundle](bridge-evidence-bundle.md).
+
+
+## 15. Bridged Message Appearance
+
+This section documents what a message actually looks like when bridged from one
+transport to another. The rendering pipeline converts a `CanonicalEvent` into a
+target-adapter-ready payload via transport-specific renderers. The format differs
+per target transport.
+
+### Matrix → Meshtastic
+
+A message originating from Matrix is rendered by `MeshtasticRenderer` into a
+plain-text payload:
+
+```python
+{
+    "text": "<body text from Matrix event>",
+    "channel_index": 0,          # parsed from target_channel or default 0
+    "meshnet_name": "",          # placeholder (tranche 1)
+}
+```
+
+The `text` field is extracted from the event payload's `body` key (falling back
+to `text`). No Matrix formatting, HTML, or metadata is preserved in the
+Meshtastic output. The source adapter label is **not** included in the radio
+text. Truncation to Meshtastic's ~228-byte payload limit is **not** enforced in
+tranche 1 (noted as TODO).
+
+### Meshtastic → Matrix
+
+A message originating from Meshtastic is rendered by `MatrixRenderer` into an
+`m.room.message` content dict:
+
+```python
+{
+    "msgtype": "m.text",
+    "body": "<decoded text from Meshtastic packet>",
+    "medre": {
+        "envelope": {
+            "schema_version": 1,
+            "canonical_event_id": "<event_id>",
+            "source_adapter": "<source adapter name>",
+            "source_channel": "<source channel id>",
+            "metadata_mode": "safe",
+            ...
+        }
+    }
+}
+```
+
+The `body` is the decoded text from the Meshtastic packet. A MEDRE provenance
+envelope is embedded in the `medre.envelope` subtree recording the source
+adapter and channel. If the event carries a reply relation, the rendered output
+includes `m.relates_to` with `m.in_reply_to` referencing the original message
+ID, and the body is formatted with a quoted fallback prefix
+(`> <sender> original_text`).
+
+### Source adapter label
+
+The source adapter label (e.g. `"meshtastic-radio-1"`, `"matrix-src"`) is:
+
+- **Included** in Matrix renderer output via the `medre.envelope.source_adapter`
+  field.
+- **Included** in LXMF renderer output via the fields envelope
+  (`FIELD_MEDRE_ENVELOPE` / `0xFD`).
+- **Not included** in Meshtastic or MeshCore renderer output (these renderers
+  produce plain text payloads with no metadata envelope in tranche 1).
+
+### Reply threading
+
+Reply threading preservation depends on the target renderer:
+
+| Target renderer | Reply support | What happens |
+|----------------|--------------|-------------|
+| Matrix | ✅ Supported | `m.relates_to` with `m.in_reply_to` added; body includes quoted fallback |
+| Meshtastic | ❌ Not supported | Reply relations are ignored; only body text is rendered |
+| MeshCore | ❌ Not supported | Same as Meshtastic — plain text only |
+| LXMF | Partial | Relations are recorded in the fields envelope but not used for display formatting |
+
+Reply context that survives the bridge: Matrix ↔ Matrix (full `m.relates_to`),
+any → Matrix (reply relation rendered with fallback text). Reply context that
+does **not** survive: any → radio transport (Meshtastic, MeshCore) — the reply
+relation is dropped at rendering time.
