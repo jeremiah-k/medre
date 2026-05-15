@@ -53,6 +53,11 @@ ORDERING_GUARANTEES: dict[str, dict[str, str]] = {
         "deterministic": "true",
         "note": "Autoincrement PK on event_relations table.",
     },
+    "retry_due": {
+        "order": "next_retry_at ASC, sequence ASC",
+        "deterministic": "true",
+        "note": "Retry due query orders by scheduled retry time with sequence tiebreaker.",
+    },
     "timeline_entries": {
         "order": "timestamp ASC, ordinal ASC",
         "deterministic": "true",
@@ -84,8 +89,9 @@ async def assemble_event_timeline(
     - **relations**: ``list[EventRelation]`` ordered by ``id ASC``.
     - **replay_runs**: ``dict[str, list[DeliveryReceipt]]`` grouping
       ``replay_run_id`` → receipts belonging to that run.
-    - **source**: ``"live"`` | ``"replay"`` | ``"mixed"`` — whether
-      this event has live receipts, replay receipts, or both.
+    - **source**: ``"live"`` | ``"replay"`` | ``"retry"`` | ``"mixed"`` — whether
+      this event has live receipts, replay receipts, retry receipts, or
+      a combination.
     - **timeline_entries**: flat list built by
       :func:`medre.runtime.trace.assemble_event_timeline`.
     - **ordering_guarantees**: reference to :data:`ORDERING_GUARANTEES`.
@@ -103,24 +109,28 @@ async def assemble_event_timeline(
     relations = await storage.list_relations(event_id)
 
     # -- Source classification --
-    has_live = any(
-        getattr(r, "source", "live") == "live" for r in receipts
-    )
-    has_replay = any(
-        getattr(r, "source", "live") == "replay" for r in receipts
-    )
-    if has_live and has_replay:
+    sources = {getattr(r, "source", "live") for r in receipts}
+    has_live = "live" in sources
+    has_non_live = bool(sources - {"live"})
+    if has_live and has_non_live:
         source = "mixed"
-    elif has_replay:
-        source = "replay"
+    elif has_non_live:
+        # Use the first non-live source found.
+        for r in receipts:
+            s = getattr(r, "source", "live")
+            if s != "live":
+                source = s
+                break
+        else:
+            source = "live"
     else:
         source = "live"
 
     # -- Replay-run grouping --
     replay_runs: dict[str, list[DeliveryReceipt]] = {}
     for r in receipts:
-        run_id = getattr(r, "replay_run_id", None)
-        if run_id is not None and getattr(r, "source", "live") == "replay":
+        run_id = r.replay_run_id
+        if run_id is not None and r.source == "replay":
             replay_runs.setdefault(run_id, []).append(r)
 
     # -- Delegate timeline construction --
@@ -205,7 +215,7 @@ async def assemble_storage_summary(storage: StorageBackend) -> dict[str, Any]:
 
     - **event_count**: total events.
     - **receipt_count**: total receipts.
-    - **receipt_count_by_source**: ``{"live": int, "replay": int}``.
+    - **receipt_count_by_source**: ``{"live": int, "replay": int, "retry": int}``.
     - **native_ref_count**: total native message refs.
     - **replay_run_count**: distinct non-null ``replay_run_id`` values.
     - **ordering**: reference to :data:`ORDERING_GUARANTEES`.
@@ -213,10 +223,11 @@ async def assemble_storage_summary(storage: StorageBackend) -> dict[str, Any]:
     event_count = await storage.count_events()
     receipt_count = await storage.count_receipts()
 
-    # Receipt count by source (live vs replay).
+    # Receipt count by source (live vs replay vs retry).
     receipt_by_source: dict[str, int] = {
         "live": await storage.count_receipts_by_source("live"),
         "replay": await storage.count_receipts_by_source("replay"),
+        "retry": await storage.count_receipts_by_source("retry"),
     }
 
     # Native ref count.

@@ -146,6 +146,10 @@ class RetryWorker:
     def _is_retryable(receipt: DeliveryReceipt) -> bool:
         if receipt.status != "failed":
             return False
+        # Use the persisted failure_kind when available; fall back to
+        # error-pattern inference for receipts that lack it.
+        if receipt.failure_kind is not None:
+            return receipt.failure_kind == "adapter_transient"
         kind = infer_failure_kind(receipt.error, receipt.status)
         return kind == "adapter_transient"
 
@@ -182,9 +186,14 @@ def _make_failed_receipt(
     next_retry_at: datetime | None = None,
     route_id: str = "route-1",
     plan_id: str = "plan-1",
+    failure_kind: str | None = None,
 ) -> DeliveryReceipt:
     if next_retry_at is None:
         next_retry_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    # Infer failure_kind from error if not explicitly set.
+    if failure_kind is None:
+        kind = infer_failure_kind(error, "failed")
+        failure_kind = kind
     return DeliveryReceipt(
         receipt_id=receipt_id,
         event_id=event_id,
@@ -193,6 +202,7 @@ def _make_failed_receipt(
         route_id=route_id,
         status="failed",
         error=error,
+        failure_kind=failure_kind,
         next_retry_at=next_retry_at,
         attempt_number=attempt_number,
         created_at=datetime.now(timezone.utc),

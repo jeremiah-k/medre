@@ -57,7 +57,10 @@ def _make_failed_receipt(
     attempt_number: int = 1,
     parent_receipt_id: str | None = None,
     created_at: datetime | None = None,
+    failure_kind: str | None = None,
 ) -> DeliveryReceipt:
+    if failure_kind is None:
+        failure_kind = "adapter_transient"
     return DeliveryReceipt(
         receipt_id=receipt_id,
         event_id=event_id,
@@ -66,6 +69,7 @@ def _make_failed_receipt(
         route_id="route-1",
         status="failed",
         error="ConnectionError: timeout",
+        failure_kind=failure_kind,
         next_retry_at=datetime.now(timezone.utc) + timedelta(seconds=2),
         attempt_number=attempt_number,
         parent_receipt_id=parent_receipt_id,
@@ -293,3 +297,151 @@ class TestRetryTraceEvidence:
         assert len(cmds_b) > 0
         # Manual replay is the recommended action for exhausted retries
         assert any("replay" in c.lower() for c in cmds_b)
+
+    async def test_cross_surface_retry_consistency(self, temp_storage):
+        """Full pipeline: inject event → transient failure → retry succeeds.
+        Timeline assembly shows both receipts, correct lineage, and mixed source."""
+        from medre.adapters.base import AdapterContext
+        from medre.adapters.fake_presentation import FakePresentationAdapter
+        from medre.core.events.bus import EventBus
+        from medre.core.observability.metrics import Diagnostician
+        from medre.core.planning.delivery_plan import RetryPolicy
+        from medre.core.planning.fallback_resolution import FallbackResolver as _BaseFallback
+        from medre.core.planning.relation_resolution import RelationResolver
+        from medre.core.rendering.renderer import RenderingPipeline
+        from medre.core.rendering.text import TextRenderer
+        from medre.core.routing.models import Route, RouteSource, RouteTarget
+        from medre.core.routing.router import Router
+        from medre.core.routing.stats import RouteStats
+        from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
+        from medre.core.runtime.accounting import RuntimeAccounting
+        from unittest.mock import AsyncMock
+
+        class _FallbackResolverWithRetry(_BaseFallback):
+            """Injects a RetryPolicy into every delivery plan."""
+
+            def __init__(self, retry_policy: RetryPolicy | None = None) -> None:
+                self._retry_policy = retry_policy or RetryPolicy(max_attempts=3)
+
+            def resolve_fallback(self, event, target, capabilities):
+                plan = super().resolve_fallback(event, target, capabilities)
+                plan.retry_policy = self._retry_policy
+                return plan
+
+        class _TransientOnceAdapter(FakePresentationAdapter):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self._call_count = 0
+
+            async def deliver(self, result):
+                self._call_count += 1
+                if self._call_count <= 1:
+                    raise ConnectionError("transient for trace test")
+                return await super().deliver(result)
+
+        adapter = _TransientOnceAdapter(adapter_id="trace_target")
+        event = _make_event()
+
+        route = Route(
+            id="trace-route",
+            source=RouteSource(
+                adapter="fake_source",
+                event_kinds=("message.created",),
+                channel=None,
+            ),
+            targets=[RouteTarget(adapter="trace_target")],
+        )
+        router = Router(routes=[route])
+        accounting = RuntimeAccounting()
+        adapters = {"trace_target": adapter}
+
+        render_pipe = RenderingPipeline()
+        render_pipe.register(TextRenderer(), priority=100)
+
+        config = PipelineConfig(
+            storage=temp_storage,
+            router=router,
+            fallback_resolver=_FallbackResolverWithRetry(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters=adapters,
+            event_bus=EventBus(),
+            rendering_pipeline=render_pipe,
+            diagnostician=Diagnostician(),
+            route_stats=RouteStats(),
+            runtime_accounting=accounting,
+        )
+        runner = PipelineRunner(config)
+
+        ctx = AdapterContext(
+            adapter_id="trace_target",
+            event_bus=None,
+            publish_inbound=AsyncMock(),
+            logger=__import__("logging").getLogger("test.trace_target"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=__import__("asyncio").Event(),
+        )
+        await adapter.start(ctx)
+        await runner.start()
+
+        try:
+            # First delivery: fails transiently
+            outcomes = await runner.handle_ingress(event)
+            assert len(outcomes) == 1
+            assert outcomes[0].status == "transient_failure"
+
+            # Get the failed receipt
+            receipts = await temp_storage.list_receipts_for_event(event.event_id)
+            failed = [r for r in receipts if r.status == "failed"]
+            assert len(failed) == 1
+            original = failed[0]
+
+            # Retry through pipeline with previous_receipt and source="retry"
+            from medre.core.planning.delivery_plan import (
+                DeliveryPlan, DeliveryStrategy, RetryExecutor,
+            )
+            plan = DeliveryPlan(
+                plan_id=original.delivery_plan_id,
+                event_id=event.event_id,
+                target=RouteTarget(adapter="trace_target"),
+                primary_strategy=DeliveryStrategy(method="direct"),
+                retry_policy=RetryPolicy(max_attempts=3),
+            )
+            route_obj = Route(
+                id=original.route_id,
+                source=RouteSource(adapter=None, event_kinds=(), channel=None),
+                targets=[RouteTarget(adapter="trace_target")],
+            )
+            retry_receipt = await runner.deliver_to_target(
+                event, route_obj, plan,
+                previous_receipt=original,
+                source="retry",
+            )
+
+            # Now assemble the timeline
+            timeline = await assemble_event_timeline(temp_storage, event.event_id)
+            assert timeline is not None
+
+            # Both receipts present
+            timeline_receipts = timeline["receipts"]
+            assert len(timeline_receipts) >= 2
+
+            # Failed receipt
+            failed_tl = [r for r in timeline_receipts if r.status == "failed"]
+            assert len(failed_tl) == 1
+            assert failed_tl[0].failure_kind == "adapter_transient"
+            assert failed_tl[0].next_retry_at is not None
+            assert failed_tl[0].attempt_number == 1
+            assert failed_tl[0].source == "live"
+
+            # Success receipt (from retry)
+            sent_tl = [r for r in timeline_receipts if r.status == "sent"]
+            assert len(sent_tl) >= 1
+            retry_sent = sent_tl[0]
+            assert retry_sent.attempt_number == 2
+            assert retry_sent.parent_receipt_id == original.receipt_id
+            assert retry_sent.source == "retry"
+
+            # Timeline source reflects mixed (live + retry)
+            assert timeline["source"] == "mixed"
+        finally:
+            await runner.stop()

@@ -122,6 +122,8 @@ class RetryWorker:
     def _is_retryable(receipt: DeliveryReceipt) -> bool:
         if receipt.status != "failed":
             return False
+        if receipt.failure_kind is not None:
+            return receipt.failure_kind == "adapter_transient"
         kind = infer_failure_kind(receipt.error, receipt.status)
         return kind == "adapter_transient"
 
@@ -338,3 +340,208 @@ class TestRetryShutdown:
         assert worker.state.failed == 1
         snap = accounting.snapshot()
         assert snap["capacity_rejections"] == 1
+
+
+class TestRetryShutdownRealPipeline:
+    """Shutdown and capacity hardening with real PipelineRunner."""
+
+    async def test_shutdown_with_real_pipeline_and_due_receipt(self, temp_storage):
+        """Real pipeline creates due receipt, worker starts then stops cleanly."""
+        from medre.adapters.fake_presentation import FakePresentationAdapter
+        from medre.adapters.base import AdapterContext, AdapterDeliveryResult
+        from medre.core.events.bus import EventBus
+        from medre.core.events.metadata import EventMetadata
+        from medre.core.observability.metrics import Diagnostician
+        from medre.core.planning.fallback_resolution import FallbackResolver
+        from medre.core.planning.relation_resolution import RelationResolver
+        from medre.core.rendering.renderer import RenderingPipeline
+        from medre.core.rendering.text import TextRenderer
+        from medre.core.routing.router import Router
+        from medre.core.routing.stats import RouteStats
+        from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
+        import uuid
+
+        # Adapter that always fails transiently
+        class _AlwaysTransientAdapter(FakePresentationAdapter):
+            async def deliver(self, result):
+                raise ConnectionError("always transient")
+
+        adapter = _AlwaysTransientAdapter(adapter_id="shutdown_target")
+        event_id = f"evt-{uuid.uuid4()}"
+        event = CanonicalEvent(
+            event_id=event_id,
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="fake_source",
+            source_transport_id="node-1",
+            source_channel_id="ch-0",
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"body": "shutdown test"},
+            metadata=EventMetadata(),
+        )
+        route = Route(
+            id="shutdown-route",
+            source=RouteSource(
+                adapter="fake_source",
+                event_kinds=("message.created",),
+                channel=None,
+            ),
+            targets=[RouteTarget(adapter="shutdown_target")],
+        )
+        router = Router(routes=[route])
+        accounting = RuntimeAccounting()
+        adapters = {"shutdown_target": adapter}
+
+        render_pipe = RenderingPipeline()
+        render_pipe.register(TextRenderer(), priority=100)
+
+        config = PipelineConfig(
+            storage=temp_storage,
+            router=router,
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters=adapters,
+            event_bus=EventBus(),
+            rendering_pipeline=render_pipe,
+            diagnostician=Diagnostician(),
+            route_stats=RouteStats(),
+            runtime_accounting=accounting,
+        )
+        runner = PipelineRunner(config)
+
+        ctx = AdapterContext(
+            adapter_id="shutdown_target",
+            event_bus=None,
+            publish_inbound=AsyncMock(),
+            logger=__import__("logging").getLogger("test.shutdown_target"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+        )
+        await adapter.start(ctx)
+        await runner.start()
+
+        try:
+            # Inject event → transient failure
+            outcomes = await runner.handle_ingress(event)
+            assert len(outcomes) == 1
+            assert outcomes[0].status == "transient_failure"
+
+            # Verify due receipt exists
+            receipts = await temp_storage.list_receipts_for_event(event_id)
+            failed = [r for r in receipts if r.status == "failed"]
+            assert len(failed) == 1
+
+            # Create capacity controller and worker
+            limits = _make_limits(max_inflight_deliveries=1)
+            capacity = CapacityController(limits)
+            policy = RetryPolicy(max_attempts=3)
+
+            worker = RetryWorker(
+                temp_storage, runner, policy,
+                capacity_controller=capacity,
+                interval=300,
+            )
+
+            # Start and immediately stop
+            await worker.start()
+            await asyncio.sleep(0.05)
+            await worker.stop()
+
+            # Worker stops cleanly
+            assert worker.shutdown_event.is_set()
+            # No leaked capacity
+            assert capacity.delivery_current == 0
+            # No false success (the adapter always fails)
+            assert worker.state.succeeded == 0
+        finally:
+            await runner.stop()
+
+    async def test_capacity_rejection_during_real_retry(self, temp_storage):
+        """With capacity=0, retry worker fails without calling the pipeline."""
+        from medre.core.events.bus import EventBus
+        from medre.core.events.metadata import EventMetadata
+        from medre.core.observability.metrics import Diagnostician
+        from medre.core.planning.fallback_resolution import FallbackResolver
+        from medre.core.planning.relation_resolution import RelationResolver
+        from medre.core.rendering.renderer import RenderingPipeline
+        from medre.core.rendering.text import TextRenderer
+        from medre.core.routing.router import Router
+        from medre.core.routing.stats import RouteStats
+        from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
+        import uuid
+
+        event_id = f"evt-{uuid.uuid4()}"
+        event = CanonicalEvent(
+            event_id=event_id,
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="fake_source",
+            source_transport_id="node-1",
+            source_channel_id="ch-0",
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"body": "capacity test"},
+            metadata=EventMetadata(),
+        )
+
+        # Create a failed receipt directly in storage
+        failed_receipt = DeliveryReceipt(
+            receipt_id=f"rcpt-{uuid.uuid4()}",
+            event_id=event_id,
+            delivery_plan_id="plan-cap",
+            target_adapter="target_a",
+            route_id="route-cap",
+            status="failed",
+            error="ConnectionError: timeout",
+            failure_kind="adapter_transient",
+            next_retry_at=datetime.now(timezone.utc) - timedelta(seconds=1),
+            attempt_number=1,
+            created_at=datetime.now(timezone.utc),
+        )
+        await temp_storage.append_receipt(failed_receipt)
+
+        # Also store the event so the worker can look it up
+        await temp_storage.append(event)
+
+        # Build a real pipeline (but capacity=0 means it never gets called)
+        render_pipe = RenderingPipeline()
+        render_pipe.register(TextRenderer(), priority=100)
+
+        config = PipelineConfig(
+            storage=temp_storage,
+            router=Router(routes=[]),
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters={},
+            event_bus=EventBus(),
+            rendering_pipeline=render_pipe,
+            diagnostician=Diagnostician(),
+            route_stats=RouteStats(),
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        try:
+            limits = _make_limits(max_inflight_deliveries=0)
+            capacity = CapacityController(limits)
+            accounting = RuntimeAccounting()
+            policy = RetryPolicy(max_attempts=3)
+
+            worker = RetryWorker(
+                temp_storage, runner, policy,
+                capacity_controller=capacity,
+                accounting=accounting,
+            )
+            processed = await worker._process_due(datetime.now(timezone.utc))
+
+            assert processed == 0
+            assert worker.state.failed == 1
+            snap = accounting.snapshot()
+            assert snap["capacity_rejections"] == 1
+        finally:
+            await runner.stop()

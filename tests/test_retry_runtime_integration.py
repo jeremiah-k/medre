@@ -53,6 +53,23 @@ from medre.observability.classification import infer_failure_kind
 
 
 # ---------------------------------------------------------------------------
+# FallbackResolver that injects a retry_policy into every plan
+# ---------------------------------------------------------------------------
+
+
+class _FallbackResolverWithRetry(FallbackResolver):
+    """FallbackResolver that attaches a retry_policy to every DeliveryPlan."""
+
+    def __init__(self, retry_policy: RetryPolicy) -> None:
+        self._retry_policy = retry_policy
+
+    def resolve_fallback(self, event, target, capabilities):  # type: ignore[override]
+        plan = super().resolve_fallback(event, target, capabilities)
+        from dataclasses import replace
+        return replace(plan, retry_policy=self._retry_policy)
+
+
+# ---------------------------------------------------------------------------
 # Custom adapter: transient failure then succeed
 # ---------------------------------------------------------------------------
 
@@ -160,6 +177,7 @@ class _RetryWorker:
                 await self.pipeline.deliver_to_target(
                     event, route, plan,
                     previous_receipt=receipt,
+                    source="retry",
                 )
                 self.state.succeeded += 1
             except asyncio.CancelledError:
@@ -179,6 +197,10 @@ class _RetryWorker:
     def _is_retryable(receipt: DeliveryReceipt) -> bool:
         if receipt.status != "failed":
             return False
+        # Use the persisted failure_kind when available; fall back to
+        # error-pattern inference for receipts that lack it.
+        if receipt.failure_kind is not None:
+            return receipt.failure_kind == "adapter_transient"
         kind = infer_failure_kind(receipt.error, receipt.status)
         return kind == "adapter_transient"
 
@@ -210,6 +232,8 @@ def _build_runner(
     adapters: dict,
     router: Router,
     accounting: RuntimeAccounting,
+    *,
+    fallback_resolver: FallbackResolver | None = None,
 ) -> PipelineRunner:
     render_pipe = RenderingPipeline()
     render_pipe.register(TextRenderer(), priority=100)
@@ -221,7 +245,7 @@ def _build_runner(
     config = PipelineConfig(
         storage=storage,
         router=router,
-        fallback_resolver=FallbackResolver(),
+        fallback_resolver=fallback_resolver or FallbackResolver(),
         relation_resolver=RelationResolver(storage=storage),
         adapters=adapters,
         event_bus=EventBus(),
@@ -466,5 +490,89 @@ class TestRetryRuntimeIntegration:
             assert worker.state.succeeded == 1
             # Initial attempt was counted by the full pipeline path
             assert snap_after_retry["outbound_attempts"] == 1
+        finally:
+            await runner.stop()
+
+    async def test_real_transient_failure_produces_due_receipt(self, temp_storage):
+        """Real pipeline transient failure creates receipt with next_retry_at,
+        then retry through worker succeeds with correct lineage."""
+        adapter = _TransientThenSucceedAdapter(
+            adapter_id="due_target", fail_count=1,
+        )
+        event = _make_event()
+        route = Route(
+            id="due-route",
+            source=RouteSource(
+                adapter="fake_source",
+                event_kinds=("message.created",),
+                channel=None,
+            ),
+            targets=[RouteTarget(adapter="due_target")],
+        )
+        router = Router(routes=[route])
+        accounting = RuntimeAccounting()
+        adapters = {"due_target": adapter}
+
+        default_retry_policy = RetryPolicy(max_attempts=3)
+        resolver = _FallbackResolverWithRetry(default_retry_policy)
+        runner = _build_runner(
+            temp_storage, adapters, router, accounting,
+            fallback_resolver=resolver,
+        )
+        await _start_adapters(adapters)
+        await runner.start()
+
+        try:
+            # Inject event → adapter raises ConnectionError → transient failure
+            outcomes = await runner.handle_ingress(event)
+            assert len(outcomes) == 1
+            assert outcomes[0].status == "transient_failure"
+
+            # Get the failed receipt from storage
+            receipts = await temp_storage.list_receipts_for_event(event.event_id)
+            failed = [r for r in receipts if r.status == "failed"]
+            assert len(failed) == 1
+            original_receipt = failed[0]
+
+            # Assert receipt has all transient-failure markers
+            assert original_receipt.failure_kind == "adapter_transient"
+            assert original_receipt.next_retry_at is not None
+            assert original_receipt.attempt_number == 1
+            assert original_receipt.status == "failed"
+
+            # Advance time past next_retry_at and verify storage query finds it
+            future_now = original_receipt.next_retry_at + timedelta(seconds=1)
+            due = await temp_storage.list_due_retry_receipts(future_now)
+            assert len(due) >= 1
+            assert due[0].receipt_id == original_receipt.receipt_id
+
+            # Retry via worker (uses real storage query)
+            policy = RetryPolicy(max_attempts=3)
+            worker = _RetryWorker(
+                temp_storage, runner, policy, accounting=accounting,
+            )
+            processed = await worker._process_due(future_now)
+
+            assert processed == 1
+            assert worker.state.succeeded == 1
+
+            # Verify retry receipt lineage
+            all_receipts = await temp_storage.list_receipts_for_event(
+                event.event_id,
+            )
+            retry_receipts = [
+                r for r in all_receipts
+                if r.parent_receipt_id == original_receipt.receipt_id
+            ]
+            assert len(retry_receipts) >= 1
+            retry_rcpt = retry_receipts[0]
+            assert retry_rcpt.attempt_number == 2
+            assert retry_rcpt.parent_receipt_id == original_receipt.receipt_id
+
+            # Verify native ref persisted on retry success
+            native_refs = await temp_storage.list_native_refs_for_event(
+                event.event_id,
+            )
+            assert len(native_refs) >= 1
         finally:
             await runner.stop()

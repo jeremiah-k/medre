@@ -979,6 +979,7 @@ class PipelineRunner:
                 status="failed",
                 error=f"Adapter {adapter_id!r} not registered",
                 failure_kind=DeliveryFailureKind.ADAPTER_MISSING.value,
+                next_retry_at=None,
                 created_at=now,
                 attempt_number=attempt_number,
                 parent_receipt_id=parent_receipt_id,
@@ -1004,6 +1005,7 @@ class PipelineRunner:
                 status="failed",
                 error="Delivery deadline exceeded",
                 failure_kind=DeliveryFailureKind.DEADLINE_EXCEEDED.value,
+                next_retry_at=None,
                 created_at=now,
                 attempt_number=attempt_number,
                 parent_receipt_id=parent_receipt_id,
@@ -1045,6 +1047,7 @@ class PipelineRunner:
                 status="failed",
                 error=rendering_error,
                 failure_kind=DeliveryFailureKind.RENDERER_FAILURE.value,
+                next_retry_at=None,
                 created_at=now,
                 attempt_number=attempt_number,
                 parent_receipt_id=parent_receipt_id,
@@ -1073,6 +1076,7 @@ class PipelineRunner:
                 status="failed",
                 error=no_deliver_error,
                 failure_kind=DeliveryFailureKind.ADAPTER_PERMANENT.value,
+                next_retry_at=None,
                 created_at=now,
                 attempt_number=attempt_number,
                 parent_receipt_id=parent_receipt_id,
@@ -1133,6 +1137,20 @@ class PipelineRunner:
                 delivery_exc,
                 adapter_registered=True,
             ).value
+
+        # Compute next_retry_at for retryable transient failures.
+        # Only set when the plan declares an explicit retry_policy.
+        _next_retry_at: datetime | None = None
+        if (
+            status == "failed"
+            and _receipt_failure_kind == DeliveryFailureKind.ADAPTER_TRANSIENT.value
+            and plan.retry_policy is not None
+        ):
+            executor = RetryExecutor(plan.retry_policy)
+            if not executor.is_exhausted(attempt_number):
+                backoff = executor.compute_backoff(attempt_number)
+                _next_retry_at = now + backoff
+
         receipt = DeliveryReceipt(
             sequence=0,
             receipt_id=receipt_id,
@@ -1143,6 +1161,8 @@ class PipelineRunner:
             status=status,
             error=error,
             failure_kind=_receipt_failure_kind,
+            adapter_message_id=None,
+            next_retry_at=_next_retry_at,
             created_at=now,
             attempt_number=attempt_number,
             parent_receipt_id=parent_receipt_id,

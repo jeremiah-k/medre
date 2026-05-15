@@ -72,7 +72,7 @@ The following state survives process termination (crash, shutdown, or restart). 
 | Canonical events | Yes | During pipeline store step, before delivery |
 | Delivery receipts | Yes | After each delivery attempt completes |
 | Retry pending state (`next_retry_at`, `failure_kind` on failed receipts) | Yes | With the failed delivery receipt; RetryWorker reads these on next cycle |
-| Receipt traceability (`source`, `replay_run_id` on receipts) | Yes | With the delivery receipt |
+| Receipt traceability (`source` (`"live"`, `"retry"`, `"replay"`), `replay_run_id` on receipts) | Yes | With the delivery receipt |
 | Route attribution (`route_id` on receipts) | Yes | With the delivery receipt |
 | Native references (platform message IDs) | Yes | With the delivery receipt (only on successful delivery, including successful retry) |
 | Cross-adapter relationships | Yes | During pipeline store step |
@@ -127,8 +127,8 @@ All `CapacityController`, `RouteStats`, `RuntimeAccounting`, and `Diagnostician`
 
 `ReplayMode.BEST_EFFORT` is the only replay mode that produces storage side effects. Its behavior:
 
-- Every BEST_EFFORT delivery creates **new** `DeliveryReceipt` and `NativeMessageRef` records in storage. Replay produces new receipts — it is not dedupe. These are durable `DeliveryReceipt` records indistinguishable in schema from live receipts, but **distinguishable by origin** via the `source` and `replay_run_id` columns.
-- `source` is set to `"replay"` on replay-produced receipts (live deliveries use `"live"`). `replay_run_id` carries the replay run's ID, enabling operators to trace which receipts originated from a specific replay run. `replay_run_id` is for operator tracing only.
+- Every BEST_EFFORT delivery creates **new** `DeliveryReceipt` and `NativeMessageRef` records in storage. Replay produces new receipts — it is not dedupe. These are durable `DeliveryReceipt` records indistinguishable in schema from live receipts, but **distinguishable by origin** via the `source` column (`"live"`, `"retry"`, or `"replay"`) and the `replay_run_id` column.
+- `source` is set to `"replay"` on replay-produced receipts, `"retry"` on RetryWorker-attempted deliveries, and `"live"` on original pipeline deliveries. Retry receipts carry `parent_receipt_id` linking to the original failure and incremented `attempt_number`. Replay receipts carry `replay_run_id` for run-level grouping. All three sources share the same `DeliveryReceipt` schema.
 - **Traceability is not deduplication.** Replay may still produce duplicate sends — replaying an event that was previously delivered will produce a second delivery attempt with no storage-level deduplication. Traceability means the operator can identify which receipts came from replay using `source` and `replay_run_id`. The `replay_run_id` field supports post-incident investigation and manual mitigation only; it does not prevent or detect duplicate sends at delivery time.
 - **Native message refs created during replay are NOT tagged with `source` or `replay_run_id`.** The `NativeMessageRef` schema does not carry replay origin fields. Replay-produced native refs can be correlated to their replay origin through the associated `DeliveryReceipt` (which carries `source` and `replay_run_id`), then via the receipt's `delivery_plan_id` / `event_id` linkage to the native ref. This design avoids schema complexity on native refs while preserving full traceability through the receipt -> native ref flow.
 - `ReplaySummary` itself is **not durably persisted**. It is an in-memory dataclass returned to the caller. Process crash or restart loses it entirely; the replay must be re-run to regenerate the summary.

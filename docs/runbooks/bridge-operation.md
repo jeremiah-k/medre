@@ -93,7 +93,7 @@ accepted → queued → sent → confirmed
 | `failed` | Adapter reported a delivery failure. Classified by `DeliveryFailureKind`. |
 | `dead_lettered` | Delivery exhausted all retries and fallback strategies. Permanently failed. |
 
-Each receipt carries `attempt_number` and `parent_receipt_id` forming an explicit retry lineage. The first attempt is `attempt_number=1` with `parent_receipt_id=None`. Retries chain through the parent reference.
+Each receipt carries `attempt_number` and `parent_receipt_id` forming an explicit retry lineage. The first attempt is `attempt_number=1` with `parent_receipt_id=None`. Retries chain through the parent reference. The `source` column on each receipt distinguishes origin: `"live"` for original pipeline delivery, `"retry"` for RetryWorker-attempted delivery, and `"replay"` for operator-initiated replay delivery.
 
 
 ## 4. Retry Ownership Boundaries
@@ -104,11 +104,13 @@ Retry responsibility falls to different components depending on where the failur
 |---|---|---|
 | `PLANNER_FAILURE` | No retry — permanent | Config error |
 | `RENDERER_FAILURE` | No retry — permanent | Deterministic error |
-| `ADAPTER_TRANSIENT` | RetryWorker (new) | Bounded by RetryPolicy |
+| `ADAPTER_TRANSIENT` | RetryWorker (new) | Bounded by RetryPolicy; retry receipts carry `source="retry"` |
 | `ADAPTER_PERMANENT` | No retry — permanent | Adapter determined unrecoverable |
 | `DEADLINE_EXCEEDED` | No retry | Plan deadline passed |
 
 Adapters own their internal reconnect logic (e.g., Matrix sync reconnection, Meshtastic node reconnection). The RetryWorker owns retry scheduling for transient delivery failures. These are separate mechanisms operating at different layers.
+
+**Retry receipt attribution:** Each retry attempt produces a new `DeliveryReceipt` with `source="retry"`, linked to the original failure via `parent_receipt_id` and carrying an incremented `attempt_number`. This makes retry receipts distinguishable from live deliveries (`source="live"`) and replay deliveries (`source="replay"`) at the storage layer. Operators can filter by `source` to isolate retry outcomes from normal delivery and replay.
 
 
 ## 5. Duplicate-Send Realities

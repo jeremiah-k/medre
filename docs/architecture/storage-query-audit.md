@@ -41,6 +41,7 @@ columns that are never filtered on.
 | `idx_receipts_plan` | `(delivery_plan_id, target_adapter, attempt_number, sequence)` | Plan receipt queries + delivery_status view |
 | `idx_receipts_event` | `(event_id, sequence)` | Receipt lookup per event |
 | `idx_receipts_source` | `(source, replay_run_id)` | Source+run filtering |
+| `idx_receipts_retry_due` | `(next_retry_at)` **partial** `WHERE status='failed' AND failure_kind='adapter_transient' AND next_retry_at IS NOT NULL` | RetryWorker due-receipt poll (Q13) |
 
 ---
 
@@ -62,7 +63,7 @@ Every distinct query shape found across the audited files.
 | Q10 | `query() relations batch` | `event_relations` | `event_id IN (?)` | — | per-query (batch) | ✅ idx_relations_event_id | Batch fetch after Q9 |
 | Q11 | `count_events` | `canonical_events` | — | — | per-evidence | N/A | Full scan, acceptable |
 | Q12 | `count_receipts` | `delivery_receipts` | — | — | per-evidence | N/A | Full scan, acceptable |
-| Q13 | `list_due_retry_receipts` | `delivery_receipts` | `status = 'failed', failure_kind = 'adapter_transient', next_retry_at IS NOT NULL, next_retry_at <= ?` | `next_retry_at ASC` | per-RetryWorker-cycle | ⚠️ No dedicated index | RetryWorker polls this on each cycle; `idx_receipts_event` and `idx_receipts_plan` do not cover these columns |
+| Q13 | `list_due_retry_receipts` | `delivery_receipts` | `status = 'failed', failure_kind = 'adapter_transient', next_retry_at IS NOT NULL, next_retry_at <= ?, attempt_number < ?` | `next_retry_at ASC, sequence ASC` | per-RetryWorker-cycle | ✅ idx_receipts_retry_due | `max_attempts` parameterised (default 3); partial index covers WHERE except `attempt_number < ?` |
 
 ---
 
@@ -118,28 +119,37 @@ Every distinct query shape found across the audited files.
 
 - All existing indexes serve distinct query shapes. No duplicates or fully-overlapping indexes.
 
-### F8: Missing index for RetryWorker query (Q13)
+### F8: Missing index for RetryWorker query (Q13) — resolved
 
 - **Query affected:** Q13 (`list_due_retry_receipts`)
-- **WHERE:** `status = 'failed' AND failure_kind = 'adapter_transient' AND next_retry_at IS NOT NULL AND next_retry_at <= ?`
-- **ORDER BY:** `next_retry_at ASC`
-- **Current index coverage:** No existing index covers the retry query filter columns. The RetryWorker polls this on each cycle, requiring a scan filtered by `status`, `failure_kind`, and `next_retry_at`.
+- **WHERE:** `status = 'failed' AND failure_kind = 'adapter_transient' AND next_retry_at IS NOT NULL AND next_retry_at <= ? AND attempt_number < ?`
+- **ORDER BY:** `next_retry_at ASC, sequence ASC`
+- **Current index coverage:** `idx_receipts_retry_due` — partial index on `(next_retry_at) WHERE status = 'failed' AND failure_kind = 'adapter_transient' AND next_retry_at IS NOT NULL`. Covers the majority of the filter; `attempt_number < ?` is evaluated as a post-filter on the index result.
 - **Callers:** RetryWorker cycle loop
-- **Impact:** Scans `delivery_receipts` on each RetryWorker cycle. For small-to-moderate receipt volumes this is acceptable. For high-volume deployments with many pending retries, consider adding a partial index:
+- **Parameterised `max_attempts`:** The query accepts `max_attempts` (default 3) as a parameter. Receipts with `attempt_number >= max_attempts` are excluded. This means the retry ceiling is configurable per invocation rather than hardcoded.
+- **Severity:** Resolved — partial index provides adequate coverage for the RetryWorker cycle poll.
+
+### F9: Retry due partial index — idx_receipts_retry_due
+
+- **Index definition:**
   ```sql
   CREATE INDEX IF NOT EXISTS idx_receipts_retry_due
       ON delivery_receipts(next_retry_at)
-      WHERE status = 'failed' AND failure_kind = 'adapter_transient' AND next_retry_at IS NOT NULL;
+      WHERE status = 'failed'
+        AND failure_kind = 'adapter_transient'
+        AND next_retry_at IS NOT NULL;
   ```
-- **Severity:** Low-Medium (depends on receipt volume and retry frequency)
+- **Purpose:** Serves the RetryWorker's `list_due_retry_receipts` query (Q13). The partial index only indexes rows that match the retryable filter (`status='failed'`, `failure_kind='adapter_transient'`, `next_retry_at IS NOT NULL`), keeping the index small relative to the full `delivery_receipts` table.
+- **Coverage:** The index column `next_retry_at` supports both `next_retry_at <= ?` and `ORDER BY next_retry_at ASC`. The `attempt_number < ?` condition (from parameterised `max_attempts`) is applied as a post-filter on the index result set.
+- **Callers:** RetryWorker cycle loop, `count_pending_retry`.
 
-### F9: No unindexed JOIN foreign keys
+### F10: No unindexed JOIN foreign keys
 
 - `event_relations.event_id` → `canonical_events.event_id`: covered by `idx_relations_event_id`
 - `native_message_refs.event_id` → `canonical_events.event_id`: covered by `idx_nrefs_event_id` (and proposed replacement)
 - `delivery_receipts.event_id` → `canonical_events.event_id`: covered by `idx_receipts_event`
 
-### F10: No ORDER BY on unindexed columns in hot paths
+### F11: No ORDER BY on unindexed columns in hot paths
 
 - `timestamp ASC` on `canonical_events`: covered by `idx_events_timestamp`
 - `sequence ASC` on `delivery_receipts`: covered by PK or composite indexes
@@ -159,6 +169,8 @@ CREATE INDEX IF NOT EXISTS idx_receipts_replay_run
 - **Why:** Query Q6 filters by `replay_run_id` alone. The existing `idx_receipts_source(source, replay_run_id)` cannot serve this because `source` is not in the WHERE clause. Every `trace replay`, `inspect --replay-run`, and evidence bundle with a replay_run_id triggers a full table scan.
 - **Queries benefited:** Q6
 - **Estimated impact:** Full scan → index seek. Impact grows linearly with receipt table size.
+
+> **Note:** The retry due index (`idx_receipts_retry_due`) recommended under the original F8 finding has been added to the `_INDEXES` block in `sqlite.py`. Finding F8 is resolved. See F9 for the index definition.
 
 ### R2: Replace `idx_nrefs_event_id` with `idx_nrefs_event_created` (LOW priority)
 

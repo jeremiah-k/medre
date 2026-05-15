@@ -78,8 +78,8 @@ medre inspect native-ref --adapter <name> --message <native_id> \
 ```
 
 Look for:
-- `source` field: `"live"` means original delivery, `"replay"` means
-  re-delivered via replay engine.
+- `source` field: `"live"` means original delivery, `"retry"` means automatic
+  RetryWorker re-attempt, `"replay"` means re-delivered via replay engine.
 - `replay_run_id`: groups receipts from the same replay run.
 - `failure_kind`: tells you why delivery failed (if it did).
 - `attempt_number` and `parent_receipt_id`: traces the retry chain.
@@ -551,10 +551,10 @@ medre inspect receipts --event evt_abc123 --config my-bridge.toml
 
 ### 6.2 Interpreting Replay Receipts vs Live Receipts
 
-Replay receipts are interleaved with live receipts in storage, ordered by
+Replay receipts are interleaved with live and retry receipts in storage, ordered by
 `sequence` (the auto-increment primary key).  The `source` column distinguishes
-origin: `"live"` for pipeline deliveries, `"replay"` for replay-attributed
-deliveries.
+origin: `"live"` for pipeline deliveries, `"retry"` for RetryWorker-attempted
+deliveries, `"replay"` for replay-attributed deliveries.
 
 ```bash
 # An event that was delivered live and then replayed:
@@ -814,7 +814,7 @@ When a delivery fails with `failure_kind='adapter_transient'` and a `RetryPolicy
 
 - **Trigger:** `ADAPTER_TRANSIENT` failures only (timeout, connection reset, `OSError` hierarchy).
 - **Owner:** `RetryWorker` — a single-process background worker.
-- **Lineage:** Each retry produces a new receipt linked to the previous via `parent_receipt_id`, with incremented `attempt_number`. The delivery lineage is a single chain.
+- **Lineage:** Each retry produces a new receipt with `source='retry'`, linked to the previous via `parent_receipt_id`, with incremented `attempt_number`. The delivery lineage is a single chain.
 - **Persistence:** Pending retry state (`next_retry_at` on the failed receipt) survives process restart. The RetryWorker loads due receipts on its next cycle.
 - **Bounded by:** `RetryPolicy` (max attempts, backoff). When max attempts are exceeded, the receipt is marked `dead_lettered`.
 - **Native refs:** Only persisted on successful retry, not on the original failure.

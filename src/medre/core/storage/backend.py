@@ -295,16 +295,16 @@ class StorageBackend(Protocol):
     # -- Retry --------------------------------------------------------------
 
     async def list_due_retry_receipts(
-        self, now: datetime, limit: int = 50
+        self, now: datetime, limit: int = 50, max_attempts: int = 3
     ) -> list[Any]:
         """Return transient-failure receipts whose next_retry_at <= now.
 
         Ordered by next_retry_at ASC, sequence ASC, limited to *limit*.
-        Excludes receipts that have reached max_attempts or are dead_lettered.
+        Excludes receipts that have reached *max_attempts* or are dead_lettered.
         """
         ...
 
-    async def count_pending_retry(self, now: datetime) -> int:
+    async def count_pending_retry(self, now: datetime, max_attempts: int = 3) -> int:
         """Count transient-failure receipts due for retry."""
         ...
 

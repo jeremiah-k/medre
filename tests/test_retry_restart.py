@@ -152,6 +152,7 @@ class _RetryWorker:
                 await self.pipeline.deliver_to_target(
                     event, route, plan,
                     previous_receipt=receipt,
+                    source="retry",
                 )
                 self.state.succeeded += 1
             except asyncio.CancelledError:
@@ -171,6 +172,8 @@ class _RetryWorker:
     def _is_retryable(receipt: DeliveryReceipt) -> bool:
         if receipt.status != "failed":
             return False
+        if receipt.failure_kind is not None:
+            return receipt.failure_kind == "adapter_transient"
         kind = infer_failure_kind(receipt.error, receipt.status)
         return kind == "adapter_transient"
 
@@ -197,6 +200,23 @@ def _make_event(event_id: str | None = None) -> CanonicalEvent:
     )
 
 
+class _FallbackResolverWithRetry(FallbackResolver):
+    """FallbackResolver that injects a RetryPolicy into every delivery plan."""
+
+    def __init__(self, retry_policy: RetryPolicy | None = None) -> None:
+        self._retry_policy = retry_policy or RetryPolicy(max_attempts=3)
+
+    def resolve_fallback(
+        self,
+        event: CanonicalEvent,
+        target: RouteTarget,
+        capabilities: dict,
+    ) -> DeliveryPlan:
+        plan = super().resolve_fallback(event, target, capabilities)
+        plan.retry_policy = self._retry_policy
+        return plan
+
+
 def _build_runner(
     storage: SQLiteStorage,
     adapters: dict,
@@ -213,7 +233,7 @@ def _build_runner(
     config = PipelineConfig(
         storage=storage,
         router=router,
-        fallback_resolver=FallbackResolver(),
+        fallback_resolver=_FallbackResolverWithRetry(),
         relation_resolver=RelationResolver(storage=storage),
         adapters=adapters,
         event_bus=EventBus(),
@@ -446,6 +466,124 @@ class TestRetryRestart:
                 event_count_b = await storage_b.count_events()
                 assert event_count_b == event_count_a
                 assert event_count_b == 1
+            finally:
+                await runner_b.stop()
+                await storage_b.close()
+
+        finally:
+            os.unlink(db_path)
+
+    async def test_real_failure_retry_across_restart(self):
+        """Real pipeline failure creates due receipt; after restart with same
+        persistent storage, retry succeeds with correct lineage and source."""
+        db_path = _persistent_storage()
+        call_counter = [0]
+
+        try:
+            # --- Runner A: inject event, fail transiently ---
+            storage_a = SQLiteStorage(db_path=db_path)
+            await storage_a.initialize()
+
+            adapter_a = _FailsThenSucceedsAdapter(
+                adapter_id="restart_target",
+                fail_count=1,
+                call_counter=call_counter,
+            )
+            event = _make_event()
+            route = Route(
+                id="real-restart-route",
+                source=RouteSource(
+                    adapter="fake_source",
+                    event_kinds=("message.created",),
+                    channel=None,
+                ),
+                targets=[RouteTarget(adapter="restart_target")],
+            )
+            router = Router(routes=[route])
+            accounting_a = RuntimeAccounting()
+            adapters_a = {"restart_target": adapter_a}
+
+            runner_a = _build_runner(storage_a, adapters_a, router, accounting_a)
+            await _start_adapters(adapters_a)
+            await runner_a.start()
+
+            outcomes = await runner_a.handle_ingress(event)
+            assert len(outcomes) == 1
+            assert outcomes[0].status == "transient_failure"
+
+            # Capture the failed receipt
+            receipts_a = await storage_a.list_receipts_for_event(event.event_id)
+            failed = [r for r in receipts_a if r.status == "failed"]
+            assert len(failed) >= 1
+            original_receipt = failed[0]
+            assert original_receipt.attempt_number == 1
+            assert original_receipt.failure_kind == "adapter_transient"
+            assert original_receipt.next_retry_at is not None
+
+            await runner_a.stop()
+            await storage_a.close()
+
+            # --- Runner B: open same storage, retry ---
+            storage_b = SQLiteStorage(db_path=db_path)
+            await storage_b.initialize()
+
+            adapter_b = _FailsThenSucceedsAdapter(
+                adapter_id="restart_target",
+                fail_count=1,
+                call_counter=call_counter,
+            )
+            accounting_b = RuntimeAccounting()
+            adapters_b = {"restart_target": adapter_b}
+
+            runner_b = _build_runner(storage_b, adapters_b, router, accounting_b)
+            await _start_adapters(adapters_b)
+            await runner_b.start()
+
+            try:
+                # Advance time past next_retry_at and use real storage query
+                future_now = original_receipt.next_retry_at + timedelta(seconds=1)
+                due = await storage_b.list_due_retry_receipts(future_now)
+                assert len(due) >= 1
+
+                policy = RetryPolicy(max_attempts=5)
+                worker = _RetryWorker(
+                    storage_b, runner_b, policy, accounting=accounting_b,
+                )
+                processed = await worker._process_due(future_now)
+
+                assert processed == 1
+                assert worker.state.succeeded == 1
+
+                # Verify original failed receipt is unchanged
+                all_receipts = await storage_b.list_receipts_for_event(
+                    event.event_id,
+                )
+                orig = [r for r in all_receipts
+                        if r.receipt_id == original_receipt.receipt_id]
+                assert len(orig) == 1
+                assert orig[0].status == "failed"
+                assert orig[0].attempt_number == 1
+
+                # Verify retry receipt lineage
+                retry_receipts = [
+                    r for r in all_receipts
+                    if r.parent_receipt_id == original_receipt.receipt_id
+                ]
+                assert len(retry_receipts) >= 1
+                retry = retry_receipts[0]
+                assert retry.attempt_number == 2
+                assert retry.parent_receipt_id == original_receipt.receipt_id
+                assert retry.source == "retry"
+
+                # Verify native ref persisted on retry success
+                native_refs = await storage_b.list_native_refs_for_event(
+                    event.event_id,
+                )
+                assert len(native_refs) >= 1
+
+                # No duplicate canonical event
+                event_count = await storage_b.count_events()
+                assert event_count == 1
             finally:
                 await runner_b.stop()
                 await storage_b.close()

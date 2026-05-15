@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from medre.core.engine.pipeline import PipelineRunner
     from medre.core.storage.sqlite import SQLiteStorage
     from medre.runtime.capacity import CapacityController
+    from medre.runtime.events import EventBuffer
 
 __all__ = ["RetryWorker", "RetryWorkerState"]
 
@@ -58,6 +59,7 @@ class RetryWorker:
         interval_seconds: float = 10.0,
         batch_size: int = 20,
         max_attempts: int = 3,
+        event_buffer: EventBuffer | None = None,
     ) -> None:
         self._storage = storage
         self._pipeline = pipeline
@@ -66,9 +68,21 @@ class RetryWorker:
         self._interval = interval_seconds
         self._batch_size = batch_size
         self._max_attempts = max_attempts
+        self._event_buffer = event_buffer
         self._shutdown_event = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
         self.state = RetryWorkerState(enabled=enabled)
+
+    def _emit(self, event_type: str, detail: dict[str, Any]) -> None:
+        """Emit a runtime event if an event buffer is configured."""
+        if self._event_buffer is None:
+            return
+        from medre.runtime.events import RuntimeEventType
+        try:
+            rt = RuntimeEventType(event_type)
+        except ValueError:
+            return
+        self._event_buffer.emit(rt, detail)
 
     async def start(self) -> None:
         """Start the retry worker background task."""
@@ -85,6 +99,11 @@ class RetryWorker:
             self._batch_size,
             self._max_attempts,
         )
+        self._emit("retry_started", {
+            "interval": self._interval,
+            "batch_size": self._batch_size,
+            "max_attempts": self._max_attempts,
+        })
 
     async def stop(self) -> None:
         """Signal shutdown and wait for worker to finish."""
@@ -97,6 +116,12 @@ class RetryWorker:
             _logger.warning("RetryWorker did not stop within 5s")
         self._task = None
         self.state.running = False
+        self._emit("retry_stopped", {
+            "processed": self.state.processed,
+            "succeeded": self.state.succeeded,
+            "failed": self.state.failed,
+            "dead_lettered": self.state.dead_lettered,
+        })
         _logger.info("RetryWorker stopped")
 
     async def _run_loop(self) -> None:
@@ -119,7 +144,7 @@ class RetryWorker:
     async def _process_due(self, now: datetime) -> None:
         """Find and process due retry receipts."""
         receipts = await self._storage.list_due_retry_receipts(
-            now, self._batch_size,
+            now, self._batch_size, max_attempts=self._max_attempts,
         )
         if not receipts:
             return
@@ -193,6 +218,14 @@ class RetryWorker:
                 retry_policy=RetryPolicy(max_attempts=self._max_attempts),
             )
 
+            self._emit("retry_attempted", {
+                "receipt_id": receipt.receipt_id,
+                "event_id": receipt.event_id,
+                "target_adapter": receipt.target_adapter,
+                "attempt_number": receipt.attempt_number,
+                "parent_receipt_id": receipt.parent_receipt_id,
+            })
+
             result_receipt = await self._pipeline.deliver_to_target(
                 event=event,
                 route=route,
@@ -206,15 +239,40 @@ class RetryWorker:
             self.state.processed += 1
             if result_receipt.status == "sent":
                 self.state.succeeded += 1
+                self._emit("retry_succeeded", {
+                    "receipt_id": receipt.receipt_id,
+                    "event_id": receipt.event_id,
+                    "target_adapter": receipt.target_adapter,
+                    "attempt_number": receipt.attempt_number,
+                })
             else:
                 self.state.failed += 1
                 if result_receipt.status == "dead_lettered":
                     self.state.dead_lettered += 1
+                    self._emit("retry_dead_lettered", {
+                        "receipt_id": receipt.receipt_id,
+                        "event_id": receipt.event_id,
+                        "target_adapter": receipt.target_adapter,
+                        "attempt_number": receipt.attempt_number,
+                    })
+                else:
+                    self._emit("retry_failed", {
+                        "receipt_id": receipt.receipt_id,
+                        "event_id": receipt.event_id,
+                        "target_adapter": receipt.target_adapter,
+                        "attempt_number": receipt.attempt_number,
+                    })
         except asyncio.CancelledError:
             raise
         except Exception:
             self.state.processed += 1
             self.state.failed += 1
+            self._emit("retry_failed", {
+                "receipt_id": receipt.receipt_id,
+                "event_id": receipt.event_id,
+                "target_adapter": receipt.target_adapter,
+                "attempt_number": receipt.attempt_number,
+            })
             _logger.debug(
                 "RetryWorker: delivery failed for receipt %s",
                 receipt.receipt_id,

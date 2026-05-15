@@ -164,6 +164,8 @@ CREATE INDEX IF NOT EXISTS idx_receipts_replay_run
     ON delivery_receipts(replay_run_id);
 CREATE INDEX IF NOT EXISTS idx_receipts_source
     ON delivery_receipts(source, replay_run_id);
+CREATE INDEX IF NOT EXISTS idx_receipts_retry_due
+    ON delivery_receipts(status, failure_kind, next_retry_at);
 """
 
 # ---------------------------------------------------------------------------
@@ -1165,25 +1167,25 @@ class SQLiteStorage:
         return [_row_to_receipt(r) for r in rows]
 
     async def list_due_retry_receipts(
-        self, now: datetime, limit: int = 50
+        self, now: datetime, limit: int = 50, max_attempts: int = 3
     ) -> list[DeliveryReceipt]:
         """Return transient-failure receipts whose next_retry_at <= now,
         ordered by next_retry_at ASC, sequence ASC, limited to *limit*.
-        Excludes receipts that have reached max_attempts or are dead_lettered."""
+        Excludes receipts that have reached *max_attempts* or are dead_lettered."""
         rows = await self._read_all(
             """SELECT * FROM delivery_receipts
              WHERE status = 'failed'
                AND failure_kind = 'adapter_transient'
                AND next_retry_at IS NOT NULL
                AND next_retry_at <= ?
-               AND attempt_number < 3
+               AND attempt_number < ?
              ORDER BY next_retry_at ASC, sequence ASC
              LIMIT ?""",
-            (now.isoformat(), limit),
+            (now.isoformat(), max_attempts, limit),
         )
         return [_row_to_receipt(r) for r in rows]
 
-    async def count_pending_retry(self, now: datetime) -> int:
+    async def count_pending_retry(self, now: datetime, max_attempts: int = 3) -> int:
         """Count transient-failure receipts due for retry."""
         row = await self._read_one(
             """SELECT COUNT(*) AS cnt FROM delivery_receipts
@@ -1191,8 +1193,8 @@ class SQLiteStorage:
                AND failure_kind = 'adapter_transient'
                AND next_retry_at IS NOT NULL
                AND next_retry_at <= ?
-               AND attempt_number < 3""",
-            (now.isoformat(),),
+               AND attempt_number < ?""",
+            (now.isoformat(), max_attempts),
         )
         return row["cnt"] if row else 0
 

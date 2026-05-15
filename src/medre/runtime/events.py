@@ -66,6 +66,12 @@ class RuntimeEventType(str, enum.Enum):
     ROUTE_SKIPPED = "route_skipped"
     ROUTE_UNAVAILABLE = "route_unavailable"
     HEALTH_REFRESHED = "health_refreshed"
+    RETRY_STARTED = "retry_started"
+    RETRY_ATTEMPTED = "retry_attempted"
+    RETRY_SUCCEEDED = "retry_succeeded"
+    RETRY_FAILED = "retry_failed"
+    RETRY_DEAD_LETTERED = "retry_dead_lettered"
+    RETRY_STOPPED = "retry_stopped"
 
 
 # ---------------------------------------------------------------------------
