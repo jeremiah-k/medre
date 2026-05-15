@@ -538,7 +538,7 @@ medre inspect receipts --event evt_abc123 --config my-bridge.toml
 ### 6.2 Interpreting Replay Receipts vs Live Receipts
 
 Replay receipts are interleaved with live receipts in storage, ordered by
-`sequence` (the auto-increment primary key). The `source` column distinguishes
+`sequence` (the auto-increment primary key).  The `source` column distinguishes
 origin: `"live"` for pipeline deliveries, `"replay"` for replay-attributed
 deliveries.
 
@@ -567,6 +567,37 @@ medre inspect receipts --event evt_abc123 --config my-bridge.toml
 #     ...
 #   }
 # ]
+```
+
+Interpretation: the event was first delivered at `sequence=1` (live), then
+re-delivered at `sequence=42` (replay run `replay_xyz789`).  Both deliveries
+produced real outbound messages.  The `replay_run_id` groups all receipts from
+the same replay invocation.
+
+To isolate only replay receipts:
+
+```bash
+medre inspect receipts --replay-run replay_xyz789 --config my-bridge.toml
+```
+
+**Repeated replays of the same event are traceable through distinct run_ids.**
+Each `medre replay --mode BEST_EFFORT` invocation produces a unique
+`replay_run_id`, even when replaying the same event.  Replaying `evt_abc123`
+twice produces two separate sets of replay receipts, each grouped by a different
+`replay_run_id`.  Replay receipts from one run never overwrite or merge with
+replay receipts from a previous run.  All replay receipts are additive: the
+total receipt count grows with each replay invocation.  Use `replay_run_id` to
+isolate a specific run:
+
+```bash
+# Show all replay runs that touched this event:
+sqlite3 {state}/medre.sqlite "
+  SELECT replay_run_id, COUNT(*) AS receipt_count
+  FROM delivery_receipts
+  WHERE event_id = 'evt_abc123' AND source = 'replay'
+  GROUP BY replay_run_id
+  ORDER BY replay_run_id;
+"
 ```
 
 Interpretation: the event was first delivered at `sequence=1` (live), then

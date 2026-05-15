@@ -84,10 +84,15 @@ def sanitize_for_log(data: Mapping[str, Any] | dict[str, Any]) -> dict[str, Any]
 # Error-string sanitization (moved from medre.runtime.snapshot)
 # ---------------------------------------------------------------------------
 
+# NOTE: The third branch previously used a negative lookahead
+# ``(?!(.)\3{39,})`` to skip single-character-repeated strings, but this
+# caused catastrophic backtracking on long inputs.  The lookahead has been
+# removed; the trade-off is that uniform-character strings 40+ chars long
+# may be redacted unnecessarily — a safe default for a secret-filter.
 _TOKEN_RE: re.Pattern[str] = re.compile(
     r'(syt_[A-Za-z0-9]+)'
     r'|(MDAx[A-Za-z0-9+/=]{20,})'
-    r'|(?!(.)\3{39,})[A-Za-z0-9+/=]{40,}'
+    r'|([A-Za-z0-9+/=]{40,})'
     r'|(sk-[A-Za-z0-9]{20,})'
     r'|(api[_-]?key[=:]\s*\S+)'
     r'|(access_token[=:]\s*\S+)'

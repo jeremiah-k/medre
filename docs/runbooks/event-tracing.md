@@ -625,7 +625,64 @@ The `id` tiebreaker ensures deterministic ordering when multiple refs share the
 same timestamp.
 
 
-## 6. Limitations
+## 6. Long-Run Lineage Notes
+
+This section documents lineage properties verified by the long-run evidence
+integrity test suite (`tests/test_longrun_evidence_integrity.py`).
+
+### 6.1 Repeated Replays Produce Distinct run_ids
+
+Each `medre replay --mode BEST_EFFORT` invocation produces a unique
+`replay_run_id`, even when replaying the same event multiple times.  Replaying
+event `p1-0` three times produces three distinct sets of receipts, each grouped
+by a different `replay_run_id`.  The trace for the event shows one live receipt
+per target plus one replay receipt per target per run:
+
+```
+Event: p1-0 (message.created) from mx
+  Live deliveries:    2  (mesh, mc)
+  Replay run 001:     2  (mesh, mc)
+  Replay run 002:     2  (mesh, mc)
+  Replay run 003:     2  (mesh, mc)
+  Total receipts:     8
+```
+
+### 6.2 Interleaved Live and Replay Identifiable by Sequence
+
+When live events are injected between replay runs, the sequence ordering
+reflects the true insertion order.  Receipts are not grouped by source; they are
+interleaved in sequence order.  Use the `source` and `replay_run_id` fields to
+distinguish origin:
+
+```
+seq 1-160:    original live receipts
+seq 161-170:  phase-A live receipts (5 new events * 2 targets)
+seq 171-176:  replay receipts (3 events * 2 targets, run_id=interleave-001)
+seq 177-186:  phase-C live receipts (5 new events * 2 targets)
+```
+
+The `source` column (`"live"` vs `"replay"`) is the authoritative filter.  Do
+not use `replay_run_id IS NOT NULL` to detect replay receipts.
+
+### 6.3 Evidence Bundle Matches Trace Ordering
+
+The evidence bundle collects receipts in `sequence ASC` order.  This ordering
+matches the timeline produced by `medre trace event`.  When an event has both
+live and replay receipts, the evidence bundle lists them in insertion order, not
+grouped by source.  Use `source` and `replay_run_id` to filter within the
+bundle.
+
+### 6.4 Counter Resets Are Process-Local, Not Lineage Events
+
+Process-local counters (`RuntimeAccounting`, `RouteStats`, `CapacityController`)
+reset to zero on every restart.  These resets do not produce receipts, events,
+or native refs.  They are not visible in trace output or evidence bundles.
+After a restart, new receipts continue the auto-increment sequence from where
+the previous session left off.  Counter values in `medre diagnostics` reflect
+only the current process, not cumulative history.
+
+
+## 7. Limitations
 
 1. **No in-flight visibility.** Events that are currently being delivered have
    no receipt yet. If the runtime crashes mid-delivery, no receipt is written.
@@ -660,7 +717,7 @@ same timestamp.
    change before beta. Always verify against the current code.
 
 
-## 7. Cross-References
+## 8. Cross-References
 
 - [Replay Operation](replay-operation.md) — replay modes, command shape,
   receipt interpretation, duplicate risk assessment.

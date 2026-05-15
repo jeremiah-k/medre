@@ -163,6 +163,74 @@ CREATE INDEX IF NOT EXISTS idx_nrefs_event_created
 
 The N+1 patterns (F3, F5, F6) are in CLI and replay code paths that are not in the hot runtime delivery loop. They affect operator-facing commands (trace, evidence, replay) rather than per-event delivery. A batch `get_many()` method on `SQLiteStorage` would fix all three patterns simultaneously, but this is an optimization, not a correctness issue.
 
+## Section 5: Lineage Ordering Guarantees
+
+This section documents the deterministic ordering properties that underpin
+receipt lineage, event replay traceability, and evidence bundle assembly.
+
+### Receipts: ORDER BY sequence ASC (deterministic, append-only)
+
+`delivery_receipts.sequence` is an `INTEGER PRIMARY KEY AUTOINCREMENT`.  Every
+receipt is assigned a monotonically increasing sequence at INSERT time.  Ordering
+by `sequence ASC` is deterministic and stable across restarts: SQLite
+auto-increment never reuses a value from a previous session.  All receipt query
+paths use this ordering.
+
+### Events: ORDER BY timestamp ASC, event_id ASC tiebreaker
+
+Event queries use `ORDER BY timestamp ASC, event_id ASC`.  The `event_id`
+tiebreaker ensures deterministic ordering when two events share the same logical
+timestamp (set by the source adapter).  Events are ordered by their logical
+occurrence time, not by storage insertion time.
+
+### Native refs: ORDER BY created_at ASC, id ASC tiebreaker
+
+Native message refs for an event are ordered by `created_at ASC, id ASC`.  The
+`id` tiebreaker ensures deterministic ordering when multiple refs share the same
+timestamp.  Index `idx_nrefs_event_id(event_id)` covers the WHERE clause;
+recommendation R2 proposes extending it to cover the ORDER BY as well.
+
+### Replay receipts: grouped by replay_run_id
+
+Every replay receipt has `source='replay'` and a non-null `replay_run_id`.  All
+receipts produced by a single `medre replay --mode BEST_EFFORT` invocation share
+the same `replay_run_id`.  Multiple BEST_EFFORT runs of the same events produce
+different `replay_run_id` values.  The `replay_run_id` is unique per run, never
+null for replay receipts, and never shared across runs.  Replay receipts are not
+grouped in sequence space; they are interleaved with live receipts in append
+order.
+
+### Live/replay interleaving: determined by sequence (append order)
+
+Replay receipts are stored in the same `delivery_receipts` table as live
+receipts.  Because `sequence` is assigned at INSERT time, replay receipts always
+have a higher sequence than any receipt inserted before them.  When live events
+are injected between replay runs, the sequence ordering reflects true append
+order:
+
+```
+...original live (seq 1..160)...
+...replay run A (seq 161..166)...
+...new live events (seq 167..176)...
+...replay run B (seq 177..182)...
+```
+
+This ordering is deterministic across restart because `sequence` values are
+persistent in SQLite and never reused.
+
+### Ordering stability across restart
+
+`sequence` is an auto-increment integer stored in the SQLite database file.  It
+survives crashes and restarts.  After restart, new receipts continue from the
+next auto-increment value with no gap filling.  Gaps in the sequence indicate
+lost in-flight deliveries (no receipt was written).
+
+`replay_run_id` is an operator-assigned string (or auto-generated UUID).  It is
+stored on each replay receipt and persists across restarts.  Repeated replays of
+the same event produce distinct `replay_run_id` values, making each run
+independently traceable.
+
+
 ### Indexes NOT recommended
 
 | Column | Why not |

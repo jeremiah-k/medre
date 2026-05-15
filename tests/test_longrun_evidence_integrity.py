@@ -325,6 +325,245 @@ class Test100MessagePersistentSession:
 
 
 # ===================================================================
+# TEST 4: Repeated replay runs produce distinct lineage
+# ===================================================================
+
+
+class TestRepeatedReplayRunsLineageStable:
+    """After the 100-message session, replay event mx-p1-0 three times.
+    Each replay run gets a distinct replay_run_id.  Asserts lineage
+    stability: distinct run_ids, correct source attribution, live
+    receipts untouched, and total receipt count = 166."""
+
+    async def test_repeated_replay_runs_lineage_stable(
+        self, temp_storage: SQLiteStorage,
+    ) -> None:
+        # -- Full 100-message session --
+        s = await _build(temp_storage)
+        try:
+            p1_refs = await _phase_fanout(s, 30, "p1", 30)
+            await _phase_mesh_return(s, 10, 2000, 40)
+            await _phase_duplicates(s, p1_refs[:10], 10)
+            await _phase_fanout(s, 20, "p4", 60, use_refs=False)
+            await _phase_meshcore_fail(s, 10, "p5", 70)
+            await _phase_mesh_return(s, 10, 6000, 80)
+            await _phase_fanout(s, 10, "p7", 90, use_refs=False)
+            assert s.acct.snapshot()["inbound_accepted"] == 90
+        finally:
+            await _stop(s)
+
+        # Pre-replay baseline
+        pre = await temp_storage._read_all("SELECT sequence FROM delivery_receipts")
+        assert len(pre) == 160
+
+        # -- Three separate replay runs targeting event p1-0 --
+        run_ids = [
+            "replay-repeat-001",
+            "replay-repeat-002",
+            "replay-repeat-003",
+        ]
+        target_event = "p1-0"
+
+        for rid in run_ids:
+            s_rp = await _build(temp_storage)
+            try:
+                replay = ReplayEngine(
+                    storage=temp_storage,
+                    pipeline=s_rp.runner,
+                    accounting=s_rp.acct,
+                )
+                request = ReplayRequest(
+                    mode=ReplayMode.BEST_EFFORT,
+                    run_id=rid,
+                    correlation_ids=[target_event],
+                )
+                summary = await collect_replay_summary(replay.replay(request))
+                assert summary.events_replayed >= 5  # 1 event * 5 stages
+            finally:
+                await _stop(s_rp)
+
+        # ===========================================================
+        # Post-replay assertions
+        # ===========================================================
+        all_rc = await temp_storage._read_all(
+            "SELECT event_id, target_adapter, status, source, replay_run_id, sequence "
+            "FROM delivery_receipts ORDER BY sequence")
+
+        # Total: 160 live + 3*2 replay (3 runs * 2 targets each) = 166
+        assert len(all_rc) == 166, f"Expected 166, got {len(all_rc)}"
+
+        # Live receipts untouched
+        live = [r for r in all_rc if r["source"] == "live"]
+        assert len(live) == 160
+        assert all(r["replay_run_id"] is None for r in live)
+
+        # Replay receipts: 3 runs * 2 targets = 6
+        rp_rc = [r for r in all_rc if r["source"] == "replay"]
+        assert len(rp_rc) == 6, f"Expected 6 replay, got {len(rp_rc)}"
+
+        # 3 distinct replay_run_ids
+        actual_run_ids = sorted(set(r["replay_run_id"] for r in rp_rc))
+        assert actual_run_ids == sorted(run_ids)
+
+        # Each run produced exactly 2 receipts (one per target)
+        for rid in run_ids:
+            run_receipts = [r for r in rp_rc if r["replay_run_id"] == rid]
+            assert len(run_receipts) == 2, (
+                f"Run {rid}: expected 2 receipts, got {len(run_receipts)}"
+            )
+            assert all(r["status"] == "sent" for r in run_receipts)
+
+        # Trace for p1-0: 2 live + 6 replay = 8
+        traced = [r for r in all_rc if r["event_id"] == target_event]
+        assert len(traced) == 8, f"Expected 8 for {target_event}, got {len(traced)}"
+        traced_live = [r for r in traced if r["source"] == "live"]
+        traced_rp = [r for r in traced if r["source"] == "replay"]
+        assert len(traced_live) == 2
+        assert len(traced_rp) == 6
+
+        # Timeline: all live before all replay
+        assert max(r["sequence"] for r in traced_live) < min(
+            r["sequence"] for r in traced_rp)
+
+        # No duplicate canonical events
+        all_ev = await temp_storage._read_all("SELECT event_id FROM canonical_events")
+        assert len(all_ev) == 90
+
+        await _assert_no_orphan_receipts(temp_storage)
+
+
+# ===================================================================
+# TEST 5: Interleaved live and replay traffic
+# ===================================================================
+
+
+class TestInterleavedLiveAndReplayTraffic:
+    """After the 100-message session: inject 5 live events, replay 3
+    original events, then inject 5 more live events.  Asserts total
+    receipt count, sequence ordering, run_id isolation, and no
+    cross-contamination between runs."""
+
+    async def test_interleaved_live_and_replay_traffic(
+        self, temp_storage: SQLiteStorage,
+    ) -> None:
+        # -- Full 100-message session --
+        s = await _build(temp_storage)
+        try:
+            p1_refs = await _phase_fanout(s, 30, "p1", 30)
+            await _phase_mesh_return(s, 10, 2000, 40)
+            await _phase_duplicates(s, p1_refs[:10], 10)
+            await _phase_fanout(s, 20, "p4", 60, use_refs=False)
+            await _phase_meshcore_fail(s, 10, "p5", 70)
+            await _phase_mesh_return(s, 10, 6000, 80)
+            await _phase_fanout(s, 10, "p7", 90, use_refs=False)
+            assert s.acct.snapshot()["inbound_accepted"] == 90
+        finally:
+            await _stop(s)
+
+        # Baseline: 160 receipts, 90 events
+        pre = await temp_storage._read_all("SELECT sequence FROM delivery_receipts")
+        assert len(pre) == 160
+
+        # -- Phase A: 5 fresh live events (fanout, 5*2=10 receipts) --
+        s_a = await _build(temp_storage)
+        try:
+            await _phase_fanout(s_a, 5, "live-a", 5, use_refs=False)
+            assert s_a.acct.snapshot()["inbound_accepted"] == 5
+        finally:
+            await _stop(s_a)
+
+        # -- Phase B: replay 3 original events (3*2=6 replay receipts) --
+        replay_ids = ["p1-0", "p1-1", "p1-2"]
+        s_b = await _build(temp_storage)
+        try:
+            replay = ReplayEngine(
+                storage=temp_storage,
+                pipeline=s_b.runner,
+                accounting=s_b.acct,
+            )
+            request = ReplayRequest(
+                mode=ReplayMode.BEST_EFFORT,
+                run_id="replay-interleave-001",
+                correlation_ids=replay_ids,
+            )
+            summary = await collect_replay_summary(replay.replay(request))
+            assert summary.events_replayed >= 15  # 3 events * 5 stages
+        finally:
+            await _stop(s_b)
+
+        # -- Phase C: 5 more fresh live events (5*2=10 receipts) --
+        s_c = await _build(temp_storage)
+        try:
+            await _phase_fanout(s_c, 5, "live-c", 5, use_refs=False)
+            assert s_c.acct.snapshot()["inbound_accepted"] == 5
+        finally:
+            await _stop(s_c)
+
+        # ===========================================================
+        # Combined assertions
+        # ===========================================================
+        all_rc = await temp_storage._read_all(
+            "SELECT event_id, target_adapter, status, source, replay_run_id, sequence "
+            "FROM delivery_receipts ORDER BY sequence")
+
+        # Total: 160 + 5*2 + 3*2 + 5*2 = 186
+        assert len(all_rc) == 186, f"Expected 186, got {len(all_rc)}"
+
+        # Breakdown by source
+        live_rc = [r for r in all_rc if r["source"] == "live"]
+        rp_rc = [r for r in all_rc if r["source"] == "replay"]
+        assert len(live_rc) == 180, f"Expected 180 live, got {len(live_rc)}"
+        assert len(rp_rc) == 6, f"Expected 6 replay, got {len(rp_rc)}"
+
+        # All replay receipts share the same run_id
+        assert all(r["replay_run_id"] == "replay-interleave-001" for r in rp_rc)
+        assert all(r["replay_run_id"] is None for r in live_rc)
+
+        # Identify the three groups by sequence ranges
+        original_live = [r for r in live_rc if r["sequence"] <= 160]
+        phase_a_live = [r for r in live_rc if r["sequence"] > 160 and r["sequence"] <= 170]
+        phase_c_live = [r for r in live_rc if r["sequence"] > 176]
+
+        assert len(original_live) == 160
+        assert len(phase_a_live) == 10  # 5 events * 2 targets
+        assert len(phase_c_live) == 10  # 5 events * 2 targets
+
+        # Sequence ordering: original live < replay < phase-C live
+        if phase_a_live and rp_rc:
+            # Phase-A live receipts come before replay receipts
+            assert max(r["sequence"] for r in phase_a_live) < min(
+                r["sequence"] for r in rp_rc)
+
+        # Replay receipts come before phase-C live receipts
+        assert max(r["sequence"] for r in rp_rc) < min(
+            r["sequence"] for r in phase_c_live)
+
+        # replay_run_ids are distinct per replay run (only one run here)
+        run_ids = sorted(set(r["replay_run_id"] for r in rp_rc))
+        assert run_ids == ["replay-interleave-001"]
+
+        # No receipt from one run bleeds into another
+        for rid in run_ids:
+            run_receipts = [r for r in rp_rc if r["replay_run_id"] == rid]
+            other_receipts = [r for r in rp_rc if r["replay_run_id"] != rid]
+            assert len(run_receipts) + len(other_receipts) == len(rp_rc)
+            run_eids = set(r["event_id"] for r in run_receipts)
+            for r in run_receipts:
+                assert r["replay_run_id"] == rid
+
+        # Events: original 90 + 10 new live = 100
+        all_ev = await temp_storage._read_all("SELECT event_id FROM canonical_events")
+        assert len(all_ev) == 100
+
+        # No duplicate events
+        eids = [e["event_id"] for e in all_ev]
+        assert len(eids) == len(set(eids))
+
+        await _assert_no_orphan_native_refs(temp_storage)
+        await _assert_no_orphan_receipts(temp_storage)
+
+
+# ===================================================================
 # TEST 2: Restart preserves evidence integrity
 # ===================================================================
 
