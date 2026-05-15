@@ -192,6 +192,16 @@ class StorageBackend(Protocol):
         """
         ...
 
+    async def list_native_refs_for_event(
+        self,
+        event_id: str,
+    ) -> list[NativeMessageRef]:
+        """Return all native message refs for a specific event.
+
+        Native refs are ordered by ``created_at`` ascending.
+        """
+        ...
+
     # -- Relations ----------------------------------------------------------
 
     async def store_relation(self, event_id: str, relation: EventRelation) -> None:
@@ -258,6 +268,28 @@ class StorageBackend(Protocol):
         the chronological append order across all delivery plans and
         adapters for this event.
         """
+        ...
+
+    # -- Counts -------------------------------------------------------------
+
+    async def count_events(self) -> int:
+        """Return the total number of persisted canonical events."""
+        ...
+
+    async def count_receipts(self) -> int:
+        """Return the total number of delivery receipt rows."""
+        ...
+
+    async def count_native_refs(self) -> int:
+        """Return the total number of native message ref records."""
+        ...
+
+    async def count_receipts_by_source(self, source: str) -> int:
+        """Return the number of delivery receipts matching *source*."""
+        ...
+
+    async def count_replay_runs(self) -> int:
+        """Return the number of distinct ``replay_run_id`` values."""
         ...
 
     # -- Lifecycle ----------------------------------------------------------

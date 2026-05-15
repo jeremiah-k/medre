@@ -226,27 +226,9 @@ The authoritative evidence matrix for all transports and tiers is in
 This validates the core pipeline, codec, rendering, receipts, accounting, and
 loop prevention using fake adapters. No network, no Docker, no SDK dependencies.
 
-**Commands:**
+**Run the [Fake adapter bridge] or [Wrapper callback] path from §8.4.**
 
-```bash
-# Full unit test suite (includes fake bridge + wrapper callback tests)
-PYTHONPATH=src pytest -q
-
-# Run only fake bridge smoke tests (fastest validation)
-PYTHONPATH=src pytest tests/test_fake_bridge_smoke.py tests/test_matrix_fake_bridge.py tests/test_meshtastic_fake_bridge.py -q
-
-# Run wrapper callback ingress tests (proves adapter callback paths)
-PYTHONPATH=src pytest tests/test_matrix_wrapper_ingress.py tests/test_meshtastic_wrapper_ingress.py tests/test_meshcore_wrapper_ingress.py tests/test_lxmf_wrapper_ingress.py -q
-```
-
-**Expected evidence report:**
-
-- All tests pass (3200+ for full suite; ~10-20 for targeted runs).
-- No `ImportError` or `ModuleNotFoundError` for SDK packages (fake adapters
-  require zero optional dependencies).
-- Each fake bridge test asserts: inbound event persisted, route selected,
-  rendered outbound payload, `DeliveryReceipt` with `status == "sent"`,
-  `RuntimeAccounting` counters incremented.
+For a full unit test suite that covers both tiers: `PYTHONPATH=src pytest -q`
 
 **What passing proves:**
 
@@ -283,16 +265,9 @@ pip install -e ".[matrix,meshtastic,dev]"
 docker compose -f tests/integration/docker-compose.synapse.yml up -d
 ```
 
-**Commands:**
+**Run the [Docker Matrix] or [Docker Meshtastic] path from §8.4.**
 
-```bash
-# Matrix Docker tests (Synapse)
-PYTHONPATH=src pytest tests/integration/test_synapse_connectivity.py tests/integration/test_synapse_bridge_smoke.py tests/integration/test_synapse_run_session.py -q
-
-# Meshtastic Docker tests (meshtasticd)
-docker compose -f tests/integration/docker-compose.meshtasticd.yml up -d
-PYTHONPATH=src pytest tests/integration/test_meshtasticd_connectivity.py tests/integration/test_meshtasticd_sdk_bridge.py -q
-```
+For all Docker integration tests together: `PYTHONPATH=src pytest tests/integration/ -m docker -v`
 
 **Expected evidence report (Matrix):**
 
@@ -310,8 +285,6 @@ PYTHONPATH=src pytest tests/integration/test_meshtasticd_connectivity.py tests/i
 - `test_meshtasticd_sdk_bridge`: outbound delivery via real `sendText` returns
   real packet ID. SDK lifecycle proven. Inbound uses `simulate_inbound` (not
   real pubsub).
-- `test_two_client_real_packet_injection` is `xfail(strict=False)` — bonus
-  evidence if it passes, but do not rely on it.
 
 **What passing proves:**
 
@@ -360,14 +333,9 @@ export MATRIX_ACCESS_TOKEN=syt_...
 export MATRIX_ROOM_ID='!roomid:your-homeserver.org'
 ```
 
-**Commands:**
+**Run the [Live Matrix] path from §8.4.**
 
-```bash
-# Matrix live smoke (requires MATRIX_* env vars)
-PYTHONPATH=src pytest tests/test_matrix_live.py -m live --tb=short -q
-
-# No live test files exist for Meshtastic, MeshCore, or LXMF
-```
+No live test files exist for Meshtastic, MeshCore, or LXMF.
 
 **Expected evidence report (Matrix):**
 
@@ -394,6 +362,28 @@ PYTHONPATH=src pytest tests/test_matrix_live.py -m live --tb=short -q
 - Connection refused / timeout: homeserver unreachable, credentials invalid,
   or room does not exist. Verify the `MATRIX_*` values.
 - 401/403: access token expired or wrong user. Regenerate the token.
+
+
+### 8.4 Happy Path per Evidence Level
+
+For quick reference, each evidence level has **one** primary validation command.
+Use the table below to find the right command for the fidelity you need.
+
+| Evidence level | Primary command | What it proves | Limits |
+|---|---|---|---|
+| **Fake adapter bridge** | `PYTHONPATH=src medre smoke --json` | Full pipeline routing with zero dependencies | No real transports |
+| **Wrapper callback** | `pytest tests/test_matrix_wrapper_ingress.py -v` (or MeshCore/LXMF equivalents) | Adapter callback → pipeline → fake outbound | SDK is mocked; no real transport boundary |
+| **Docker Matrix** | `pytest tests/integration/test_synapse_bridge_smoke.py -m docker -v` | Real nio SDK against Synapse; sync-loop ingress tracked | Docker only; live Matrix claims not proven |
+| **Docker Meshtastic** | `pytest tests/integration/test_meshtasticd_sdk_bridge.py -m docker -v` | Real mtjk SDK lifecycle and outbound enqueue | Inbound pubsub unconfirmed; no real radio |
+| **Live Matrix** | `MEDRE_* env vars set; pytest tests/test_matrix_live.py -m live -v` | Real homeserver connectivity | Smoke only; not sustained throughput |
+| **Live Meshtastic** | Manual: requires real node | Not yet tested through MEDRE | No live radio evidence claimed |
+
+For the full list of validation scenarios, see
+[docs/architecture/transport-validation-matrix.md](../architecture/transport-validation-matrix.md).
+
+The sections below (§8.1–§8.3) describe each tier in depth — what passing
+proves, what failing means, and how to interpret results. The table above
+provides the single command to run for each level.
 
 
 ## 9. Operational Checklist

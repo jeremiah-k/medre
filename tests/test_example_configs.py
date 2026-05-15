@@ -34,6 +34,8 @@ REQUIRED_TOML_CONFIGS = [
     "fake-multi-adapter.toml",
     "fake-bridge-smoke.toml",
     "mixed-matrix-meshtastic.toml",
+    "docker-matrix-bridge.toml",
+    "docker-meshtastic-bridge.toml",
 ]
 
 # Configs with placeholder credentials that cannot be fully loaded.
@@ -594,4 +596,474 @@ class TestExampleHygiene:
                 assert kind in ("real", "fake"), (
                     f"{name}: adapters.{transport}.{inst_name} has "
                     f"invalid adapter_kind={kind!r}"
+                )
+
+
+# ===========================================================================
+# 9. Per-config parse + structure + adapter ID assertions
+# ===========================================================================
+
+
+class TestFakeBridgeSmokeDeep:
+    """Deep per-field assertions on fake-bridge-smoke.toml beyond the
+    existing smoke tests in TestFakeBridgeSmoke."""
+
+    CONFIG_PATH = CONFIGS_DIR / "fake-bridge-smoke.toml"
+
+    @pytest.fixture(autouse=True)
+    def _medre_home(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
+
+    def test_config_has_expected_top_level_sections(self) -> None:
+        """Parsed config exposes runtime, storage, adapters, routes."""
+        config, _, _ = load_config(str(self.CONFIG_PATH))
+        assert config.runtime is not None
+        assert config.storage is not None
+        assert config.adapters is not None
+        assert config.routes is not None
+
+    def test_config_adapter_ids_match_toml(self) -> None:
+        """Adapter IDs are exactly fake_matrix, fake_meshtastic, fake_meshcore."""
+        config, _, _ = load_config(str(self.CONFIG_PATH))
+        all_ids = [aid for _t, aid, _rtc in config.adapters.all_configs()]
+        assert "fake_matrix" in all_ids
+        assert "fake_meshtastic" in all_ids
+        assert "fake_meshcore" in all_ids
+        assert len(all_ids) == 3
+
+    def test_matrix_section_has_at_least_one_adapter(self) -> None:
+        """The matrix transport section contains at least one adapter."""
+        config, _, _ = load_config(str(self.CONFIG_PATH))
+        assert len(config.adapters.matrix) >= 1, (
+            "Expected at least one matrix adapter"
+        )
+        assert "fake_matrix" in config.adapters.matrix
+
+    def test_meshtastic_section_has_at_least_one_adapter(self) -> None:
+        config, _, _ = load_config(str(self.CONFIG_PATH))
+        assert len(config.adapters.meshtastic) >= 1
+        assert "fake_meshtastic" in config.adapters.meshtastic
+
+    def test_meshcore_section_has_at_least_one_adapter(self) -> None:
+        config, _, _ = load_config(str(self.CONFIG_PATH))
+        assert len(config.adapters.meshcore) >= 1
+        assert "fake_meshcore" in config.adapters.meshcore
+
+    def test_no_lxmf_adapters(self) -> None:
+        """fake-bridge-smoke does not include an LXMF adapter."""
+        config, _, _ = load_config(str(self.CONFIG_PATH))
+        assert len(config.adapters.lxmf) == 0
+
+
+class TestFakeBridgeSmokeTwoWayRoutes:
+    """Verify bidirectional route expansion in fake-bridge-smoke."""
+
+    CONFIG_PATH = CONFIGS_DIR / "fake-bridge-smoke.toml"
+
+    @pytest.fixture(autouse=True)
+    def _medre_home(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
+
+    def test_bidirectional_route_exists(self) -> None:
+        """mx_mesh_bidir is a declared route."""
+        config, _, _ = load_config(str(self.CONFIG_PATH))
+        route_ids = [r.route_id for r in config.routes.routes]
+        assert "mx_mesh_bidir" in route_ids
+
+    def test_bidirectional_route_directionality(self) -> None:
+        config, _, _ = load_config(str(self.CONFIG_PATH))
+        bidir = next(
+            r for r in config.routes.routes if r.route_id == "mx_mesh_bidir"
+        )
+        assert bidir.directionality.value == "bidirectional"
+        assert bidir.enabled is True
+
+    def test_bidirectional_expands_to_two_registered_routes(self) -> None:
+        """Bidirectional route registers forward + reverse in the runtime."""
+        config, _, paths = load_config(str(self.CONFIG_PATH))
+        builder = RuntimeBuilder(config, paths)
+        app = builder.build()
+        registered_ids = [r.id for r in app._registered_routes]
+        # mx_mesh_bidir expands to mx_mesh_bidir + mx_mesh_bidir__reverse
+        bidir_variants = [
+            rid for rid in registered_ids if rid.startswith("mx_mesh_bidir")
+        ]
+        assert len(bidir_variants) >= 2, (
+            f"Bidirectional route should expand to >=2 registered routes, "
+            f"got {bidir_variants}"
+        )
+
+
+class TestDockerMatrixBridgeConfig:
+    """docker-matrix-bridge.toml TOML structure validation.
+
+    This config uses ``${ENV_VAR}`` syntax for credentials and room IDs.
+    The loader's ``_expand_paths_in_dict`` treats ``{...}`` as path
+    placeholders, so ``load_config()`` cannot be used (it would try to
+    expand ``${MEDRE_HOMESERVER}`` as a path placeholder).  Tests validate
+    TOML structure and route shape only — same pattern as TestDockerBridgeSmoke.
+    """
+
+    CONFIG_PATH = CONFIGS_DIR / "docker-matrix-bridge.toml"
+
+    def test_toml_parseable(self) -> None:
+        raw = _read(self.CONFIG_PATH)
+        data = tomllib.loads(raw)
+        assert isinstance(data, dict)
+
+    def test_toml_structure_adapters(self) -> None:
+        raw = _read(self.CONFIG_PATH)
+        data = tomllib.loads(raw)
+        adapters = data["adapters"]
+        assert "matrix" in adapters
+        assert "meshtastic" in adapters
+        # Real Matrix adapter with env var placeholders
+        mx = adapters["matrix"]["synapse"]
+        assert mx["adapter_kind"] == "real"
+        assert mx["access_token"] == "${MEDRE_ACCESS_TOKEN}"
+        assert mx["homeserver"] == "${MEDRE_HOMESERVER}"
+        # Fake Meshtastic adapter
+        fake_out = adapters["meshtastic"]["fake_out"]
+        assert fake_out["adapter_kind"] == "fake"
+        assert fake_out["connection_type"] == "fake"
+
+    def test_expected_adapter_ids(self) -> None:
+        raw = _read(self.CONFIG_PATH)
+        data = tomllib.loads(raw)
+        adapter_ids: set[str] = set()
+        for _transport, instances in data["adapters"].items():
+            for inst_name in instances:
+                adapter_ids.add(inst_name)
+        assert "synapse" in adapter_ids
+        assert "fake_out" in adapter_ids
+        assert len(adapter_ids) == 2
+
+    def test_routes_section_structure(self) -> None:
+        raw = _read(self.CONFIG_PATH)
+        data = tomllib.loads(raw)
+        routes = data["routes"]
+        assert "synapse_to_fake" in routes
+        route = routes["synapse_to_fake"]
+        assert route["source_adapters"] == ["synapse"]
+        assert route["dest_adapters"] == ["fake_out"]
+        assert route["directionality"] == "source_to_dest"
+        assert route["enabled"] is True
+
+    def test_route_adapter_refs_valid(self) -> None:
+        """All route source/dest references name adapters that exist."""
+        raw = _read(self.CONFIG_PATH)
+        data = tomllib.loads(raw)
+        adapter_ids: set[str] = set()
+        for _transport, instances in data["adapters"].items():
+            for inst_name in instances:
+                adapter_ids.add(inst_name)
+        for _route_id, route in data["routes"].items():
+            for ref in route.get("source_adapters", []):
+                assert ref in adapter_ids, (
+                    f"Route '{_route_id}' references unknown source adapter '{ref}'"
+                )
+            for ref in route.get("dest_adapters", []):
+                assert ref in adapter_ids, (
+                    f"Route '{_route_id}' references unknown dest adapter '{ref}'"
+                )
+
+    def test_no_real_secrets(self) -> None:
+        text = _read(self.CONFIG_PATH)
+        hits = _has_real_secrets(text)
+        assert hits == [], f"Possible real secrets found: {hits}"
+
+
+class TestDockerMeshtasticBridgeConfig:
+    """docker-meshtastic-bridge.toml TOML structure validation.
+
+    This config uses ``${MESHTASTIC_HOST}`` which the loader treats as a
+    path placeholder.  Tests validate TOML structure and route shape only.
+    """
+
+    CONFIG_PATH = CONFIGS_DIR / "docker-meshtastic-bridge.toml"
+
+    def test_toml_parseable(self) -> None:
+        raw = _read(self.CONFIG_PATH)
+        data = tomllib.loads(raw)
+        assert isinstance(data, dict)
+
+    def test_toml_structure_adapters(self) -> None:
+        raw = _read(self.CONFIG_PATH)
+        data = tomllib.loads(raw)
+        adapters = data["adapters"]
+        assert "meshtastic" in adapters
+        assert "matrix" in adapters
+        # Real Meshtastic adapter with TCP connection
+        daemon = adapters["meshtastic"]["daemon"]
+        assert daemon["adapter_kind"] == "real"
+        assert daemon["connection_type"] == "tcp"
+        assert daemon["host"] == "${MESHTASTIC_HOST}"
+        assert daemon["tcp_port"] == 4403
+        # Fake Matrix adapter
+        fake_out = adapters["matrix"]["fake_out"]
+        assert fake_out["adapter_kind"] == "fake"
+
+    def test_expected_adapter_ids(self) -> None:
+        raw = _read(self.CONFIG_PATH)
+        data = tomllib.loads(raw)
+        adapter_ids: set[str] = set()
+        for _transport, instances in data["adapters"].items():
+            for inst_name in instances:
+                adapter_ids.add(inst_name)
+        assert "daemon" in adapter_ids
+        assert "fake_out" in adapter_ids
+        assert len(adapter_ids) == 2
+
+    def test_routes_section_structure(self) -> None:
+        raw = _read(self.CONFIG_PATH)
+        data = tomllib.loads(raw)
+        routes = data["routes"]
+        assert "daemon_to_matrix" in routes
+        route = routes["daemon_to_matrix"]
+        assert route["source_adapters"] == ["daemon"]
+        assert route["dest_adapters"] == ["fake_out"]
+        assert route["directionality"] == "source_to_dest"
+        assert route["enabled"] is True
+
+    def test_route_adapter_refs_valid(self) -> None:
+        """All route source/dest references name adapters that exist."""
+        raw = _read(self.CONFIG_PATH)
+        data = tomllib.loads(raw)
+        adapter_ids: set[str] = set()
+        for _transport, instances in data["adapters"].items():
+            for inst_name in instances:
+                adapter_ids.add(inst_name)
+        for _route_id, route in data["routes"].items():
+            for ref in route.get("source_adapters", []):
+                assert ref in adapter_ids, (
+                    f"Route '{_route_id}' references unknown source adapter '{ref}'"
+                )
+            for ref in route.get("dest_adapters", []):
+                assert ref in adapter_ids, (
+                    f"Route '{_route_id}' references unknown dest adapter '{ref}'"
+                )
+
+    def test_no_real_secrets(self) -> None:
+        text = _read(self.CONFIG_PATH)
+        hits = _has_real_secrets(text)
+        assert hits == [], f"Possible real secrets found: {hits}"
+
+
+# ===========================================================================
+# 10. Env var documentation cross-check
+# ===========================================================================
+
+
+# All configs in the examples/configs directory.
+_ALL_CONFIG_FILES = sorted(CONFIGS_DIR.glob("*.toml"))
+
+# Regex for ${ENV_VAR} references in TOML values.
+_ENV_VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+class TestEnvVarDocumentation:
+    """Extract all ${ENV_VAR} references from example configs and cross-check
+    against docker.env.example to ensure documented env vars are complete."""
+
+    def _extract_env_vars(self, path: Path) -> set[str]:
+        """Extract all ${VAR} references from a config file."""
+        text = _read(path)
+        return set(_ENV_VAR_RE.findall(text))
+
+    def test_all_env_vars_listed_in_docker_env(self) -> None:
+        """Every ${VAR} in docker-bridge-smoke.toml must appear in
+        docker.env.example.  Other configs (docker-matrix-bridge,
+        docker-meshtastic-bridge) are Docker integration test configs
+        whose env vars are set programmatically by conftest.py fixtures,
+        not by operators via docker.env.example."""
+        env_text = _read(DOCKER_ENV)
+        documented = set(_ENV_VAR_RE.findall(env_text))
+        # Also collect bare VAR= lines from the env file.
+        for line in env_text.splitlines():
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#") and "=" in stripped:
+                var_name = stripped.split("=", 1)[0].strip()
+                documented.add(var_name)
+
+        # Only check configs that operators are expected to use with
+        # docker.env.example.  docker-matrix-bridge and docker-meshtastic-bridge
+        # have their own env vars managed by Docker integration test fixtures.
+        operator_configs = [
+            CONFIGS_DIR / "docker-bridge-smoke.toml",
+        ]
+
+        undocumented: dict[str, list[str]] = {}
+        for config_path in operator_configs:
+            used = self._extract_env_vars(config_path)
+            missing = used - documented
+            for m in missing:
+                undocumented.setdefault(m, []).append(config_path.name)
+
+        if undocumented:
+            lines = [
+                f"  {var}: used in {', '.join(files)}"
+                for var, files in sorted(undocumented.items())
+            ]
+            pytest.fail(
+                "Undocumented env vars (not in docker.env.example):\n"
+                + "\n".join(lines)
+            )
+
+    def test_no_placeholder_secrets_in_env_refs(self) -> None:
+        """${VAR} values must not contain obvious placeholder patterns
+        like 'PLACEHOLDER' or 'CHANGEME' as the env var name."""
+        for config_path in _ALL_CONFIG_FILES:
+            text = _read(config_path)
+            for match in _ENV_VAR_RE.finditer(text):
+                var_name = match.group(1)
+                assert "PLACEHOLDER" not in var_name.upper(), (
+                    f"{config_path.name}: env var {var_name!r} contains "
+                    f"'PLACEHOLDER' — use a descriptive name instead"
+                )
+                assert "CHANGEME" not in var_name.upper(), (
+                    f"{config_path.name}: env var {var_name!r} contains "
+                    f"'CHANGEME' — use a descriptive name instead"
+                )
+
+    def test_env_var_summary(self) -> None:
+        """Print a summary of all env vars used across configs (informational)."""
+        all_vars: dict[str, list[str]] = {}
+        for config_path in _ALL_CONFIG_FILES:
+            for var in sorted(self._extract_env_vars(config_path)):
+                all_vars.setdefault(var, []).append(config_path.name)
+
+        # This test always passes — it's a documentation cross-check.
+        # The assertion just ensures the mapping is built correctly.
+        assert isinstance(all_vars, dict)
+        for var in all_vars:
+            assert len(all_vars[var]) >= 1
+
+
+# ===========================================================================
+# 11. Runtime build + route validation (deep)
+# ===========================================================================
+
+
+class TestFakeConfigBuildsRuntime:
+    """Build a full runtime from fake-bridge-smoke.toml and assert structure."""
+
+    CONFIG_PATH = CONFIGS_DIR / "fake-bridge-smoke.toml"
+
+    @pytest.fixture(autouse=True)
+    def _medre_home(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
+
+    def _build_app(self):
+        config, _, paths = load_config(str(self.CONFIG_PATH))
+        builder = RuntimeBuilder(config, paths)
+        return builder.build()
+
+    def test_build_succeeds_no_exception(self) -> None:
+        app = self._build_app()
+        assert app is not None
+
+    def test_adapter_count_matches_config(self) -> None:
+        app = self._build_app()
+        config, _, _ = load_config(str(self.CONFIG_PATH))
+        enabled_count = len([1 for _t, _a, rtc in config.adapters.all_configs() if rtc.enabled])
+        assert len(app.adapters) == enabled_count, (
+            f"Expected {enabled_count} adapters, got {len(app.adapters)}: "
+            f"{list(app.adapters.keys())}"
+        )
+
+    def test_no_build_failures(self) -> None:
+        app = self._build_app()
+        assert app.build_failures == [], (
+            f"Unexpected build failures: {app.build_failures}"
+        )
+
+    def test_storage_is_memory(self) -> None:
+        app = self._build_app()
+        assert app.storage is not None
+        assert str(app.storage._db_path) == ":memory:"
+
+    def test_adapter_ids_are_deterministic(self) -> None:
+        """Building twice produces the same adapter IDs in the same order."""
+        app1 = self._build_app()
+        app2 = self._build_app()
+        assert list(app1.adapters.keys()) == list(app2.adapters.keys())
+
+
+class TestFakeConfigRouteValidate:
+    """Route validation on fake-bridge-smoke: deterministic output, correct counts."""
+
+    CONFIG_PATH = CONFIGS_DIR / "fake-bridge-smoke.toml"
+
+    @pytest.fixture(autouse=True)
+    def _medre_home(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
+
+    def _build_app(self):
+        config, _, paths = load_config(str(self.CONFIG_PATH))
+        builder = RuntimeBuilder(config, paths)
+        return builder.build()
+
+    def test_expected_route_count(self) -> None:
+        """6 configured routes (including 1 disabled)."""
+        config, _, _ = load_config(str(self.CONFIG_PATH))
+        assert len(config.routes.routes) == 6
+
+    def test_enabled_route_count(self) -> None:
+        config, _, _ = load_config(str(self.CONFIG_PATH))
+        enabled = [r for r in config.routes.routes if r.enabled]
+        assert len(enabled) == 5
+
+    def test_disabled_route_count(self) -> None:
+        config, _, _ = load_config(str(self.CONFIG_PATH))
+        disabled = [r for r in config.routes.routes if not r.enabled]
+        assert len(disabled) == 1
+        assert disabled[0].route_id == "disabled_example"
+
+    def test_registered_routes_deterministic(self) -> None:
+        """Building twice produces identical registered route IDs."""
+        app1 = self._build_app()
+        app2 = self._build_app()
+        ids1 = [r.id for r in app1._registered_routes]
+        ids2 = [r.id for r in app2._registered_routes]
+        assert ids1 == ids2, (
+            f"Route registration is not deterministic: {ids1} != {ids2}"
+        )
+
+    def test_bidirectional_expands_to_two(self) -> None:
+        """mx_mesh_bidir (bidirectional) registers forward + reverse."""
+        app = self._build_app()
+        registered_ids = [r.id for r in app._registered_routes]
+        assert "mx_mesh_bidir" in registered_ids
+        # Reverse variant uses __rev_N naming convention.
+        bidir_variants = [
+            rid for rid in registered_ids
+            if rid.startswith("mx_mesh_bidir__rev")
+        ]
+        assert len(bidir_variants) >= 1, (
+            f"Bidirectional route should produce reverse variant, "
+            f"got {sorted(registered_ids)}"
+        )
+
+    def test_unidirectional_routes_have_no_reverse(self) -> None:
+        """Unidirectional routes do not produce __reverse variants."""
+        app = self._build_app()
+        registered_ids = [r.id for r in app._registered_routes]
+        for rid in registered_ids:
+            if rid == "mx_mesh_bidir" or rid == "mx_mesh_bidir__reverse":
+                continue
+            assert not rid.endswith("__reverse"), (
+                f"Unidirectional route should not have reverse: {rid}"
+            )
+
+    def test_all_enabled_route_ids_present(self) -> None:
+        """Every enabled route ID appears in registered routes."""
+        config, _, _ = load_config(str(self.CONFIG_PATH))
+        app = self._build_app()
+        registered_ids = {r.id for r in app._registered_routes}
+        for route in config.routes.routes:
+            if route.enabled:
+                # For bidirectional, the forward route has the original ID.
+                assert route.route_id in registered_ids, (
+                    f"Enabled route {route.route_id} not in registered: "
+                    f"{sorted(registered_ids)}"
                 )

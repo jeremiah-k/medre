@@ -6,7 +6,7 @@ to :mod:`medre.runtime.trace`; this module adds storage-backed async
 fetch, source classification (live/replay/mixed), replay-run grouping,
 and ordering guarantees.
 
-All functions accept a :class:`~medre.core.storage.sqlite.SQLiteStorage`
+All functions accept a :class:`~medre.core.storage.backend.StorageBackend`
 instance and return plain dicts — no DTO hierarchies, no ORM, no hidden
 SQL.
 """
@@ -20,6 +20,7 @@ from medre.core.events import (
     DeliveryReceipt,
     NativeMessageRef,
 )
+from medre.core.storage.backend import StorageBackend
 from medre.runtime.trace import (
     assemble_event_timeline as _assemble_event_entries,
     assemble_replay_timeline as _assemble_replay_entries,
@@ -67,7 +68,7 @@ ORDERING_GUARANTEES: dict[str, dict[str, str]] = {
 
 
 async def assemble_event_timeline(
-    storage: Any,
+    storage: StorageBackend,
     event_id: str,
 ) -> dict[str, Any] | None:
     """Fetch all data for *event_id* and assemble an enriched timeline.
@@ -145,7 +146,7 @@ async def assemble_event_timeline(
 
 
 async def assemble_replay_timeline(
-    storage: Any,
+    storage: StorageBackend,
     replay_run_id: str,
 ) -> dict[str, Any] | None:
     """Fetch all data for *replay_run_id* and assemble a replay timeline.
@@ -194,7 +195,7 @@ async def assemble_replay_timeline(
 # ---------------------------------------------------------------------------
 
 
-async def assemble_storage_summary(storage: Any) -> dict[str, Any]:
+async def assemble_storage_summary(storage: StorageBackend) -> dict[str, Any]:
     """Return aggregate counts and ordering documentation for *storage*.
 
     Uses existing public count methods where available; falls back to
