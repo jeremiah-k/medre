@@ -1,6 +1,6 @@
 # Transport Validation Matrix
 
-> Last updated: 2026-05-15
+> Last updated: 2026-05-16
 > Scope: Single authoritative source of truth for transport validation evidence
 > Status: Pre-beta. Evidence claims are honest per-transport.
 

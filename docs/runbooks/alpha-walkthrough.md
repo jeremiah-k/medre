@@ -13,6 +13,15 @@ is not part of the daily operator path.
 
 Prerequisites: Python >= 3.11, `pip install -e ".[dev]"`.
 
+> **Source-tree vs installed package:** This walkthrough uses
+> `examples/configs/fake-bridge-smoke.toml` from the source checkout. If you
+> installed medre as a package (not from a git clone), generate an equivalent
+> config with `medre config sample > /tmp/medre-alpha.toml` and substitute that
+> path wherever `examples/configs/fake-bridge-smoke.toml` appears below. The
+> sample config is designed for config validation; for smoke tests, you may
+> need to adjust adapter IDs and route declarations to match the smoke
+> framework's expectations.
+
 ---
 
 ## Preferred Product Path

@@ -855,3 +855,156 @@ class TestContractMetadataAlignment:
         assert "medre.cli:main" in content, (
             "contract 58 must mention the canonical entry point medre.cli:main"
         )
+
+
+# ===================================================================
+# 14. Explicit py.typed package-data config
+# ===================================================================
+
+
+class TestPackageDataConfig:
+    """Verify [tool.setuptools.package-data] explicitly includes py.typed.
+
+    setuptools >= 69 auto-includes py.typed only in experimental mode.
+    MEDRE requires setuptools >= 68, so the explicit config is required
+    to guarantee py.typed ships in the wheel regardless of setuptools version.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _load(self) -> None:
+        self._data = _load_pyproject()
+
+    def test_package_data_section_exists(self) -> None:
+        """[tool.setuptools.package-data] must be present in pyproject.toml."""
+        pkg_data = self._data.get("tool", {}).get("setuptools", {}).get("package-data")
+        assert pkg_data is not None, (
+            "pyproject.toml missing [tool.setuptools.package-data] section"
+        )
+
+    def test_medre_package_data_includes_py_typed(self) -> None:
+        """medre package must list py.typed in its package-data."""
+        pkg_data = (
+            self._data.get("tool", {})
+            .get("setuptools", {})
+            .get("package-data", {})
+        )
+        assert "medre" in pkg_data, (
+            "[tool.setuptools.package-data] missing 'medre' key"
+        )
+        medre_files = pkg_data["medre"]
+        assert "py.typed" in medre_files, (
+            f"[tool.setuptools.package-data] medre does not list 'py.typed': "
+            f"{medre_files}"
+        )
+
+    def test_py_typed_source_file_matches_config(self) -> None:
+        """The py.typed file referenced in config must exist on disk."""
+        marker = _REPO_ROOT / "src" / "medre" / "py.typed"
+        assert marker.is_file(), f"py.typed source file missing at {marker}"
+
+
+# ===================================================================
+# 15. CLI subpackage __main__.py
+# ===================================================================
+
+
+class TestCliMainModule:
+    """``python -m medre.cli`` must be supported by ``cli/__main__.py``."""
+
+    def test_cli_main_module_exists(self) -> None:
+        cli_main = _REPO_ROOT / "src" / "medre" / "cli" / "__main__.py"
+        assert cli_main.is_file(), f"cli/__main__.py missing at {cli_main}"
+
+    def test_cli_main_module_delegates(self) -> None:
+        cli_main = _REPO_ROOT / "src" / "medre" / "cli" / "__main__.py"
+        content = cli_main.read_text()
+        assert "medre.cli" in content, (
+            "cli/__main__.py must delegate to medre.cli"
+        )
+
+
+# ===================================================================
+# 16. Wheel artifact contract (opt-in via ``build`` availability)
+# ===================================================================
+
+
+class TestWheelArtifactContract:
+    """Build a wheel with ``--no-isolation`` and inspect its contents.
+
+    These tests require the ``build`` package. They are skipped
+    automatically when ``build`` is not installed so the default
+    test suite remains fast and network-free.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _check_build(self) -> None:
+        try:
+            import build  # noqa: F401
+        except ImportError:
+            pytest.skip("python 'build' package not installed")
+
+    @pytest.fixture(scope="class")
+    def _wheel_path(self: "TestWheelArtifactContract") -> object:
+        """Build wheel once per class and return its path."""
+        import build
+        import tempfile
+        from collections.abc import Generator
+
+        with tempfile.TemporaryDirectory(prefix="medre-wheel-test-") as tmpdir:
+            builder = build.ProjectBuilder(_REPO_ROOT)
+            wheel = builder.build(
+                distribution="wheel",
+                output_directory=tmpdir,
+                config_settings={"--no-isolation": ""},
+            )
+            yield Path(wheel)
+
+    def _wheel_names(self, wheel_path: Path) -> set[str]:
+        """Return the set of file names inside the wheel."""
+        import zipfile
+
+        with zipfile.ZipFile(wheel_path) as zf:
+            return set(zf.namelist())
+
+    def test_wheel_contains_py_typed(self, _wheel_path: Path) -> None:
+        names = self._wheel_names(_wheel_path)
+        assert "medre/py.typed" in names, (
+            f"wheel missing medre/py.typed. Found py.typed entries: "
+            f"{sorted(n for n in names if 'py.typed' in n)}"
+        )
+
+    def test_wheel_contains_main_module(self, _wheel_path: Path) -> None:
+        names = self._wheel_names(_wheel_path)
+        assert "medre/__main__.py" in names, (
+            "wheel missing medre/__main__.py"
+        )
+
+    def test_wheel_contains_cli_main_module(self, _wheel_path: Path) -> None:
+        names = self._wheel_names(_wheel_path)
+        assert "medre/cli/__main__.py" in names, (
+            "wheel missing medre/cli/__main__.py"
+        )
+
+    def test_wheel_excludes_tests(self, _wheel_path: Path) -> None:
+        names = self._wheel_names(_wheel_path)
+        test_files = [n for n in names if n.startswith("tests/") or "/tests/" in n]
+        assert not test_files, (
+            f"wheel should not contain tests/: {sorted(test_files)}"
+        )
+
+    def test_wheel_excludes_docs(self, _wheel_path: Path) -> None:
+        names = self._wheel_names(_wheel_path)
+        doc_files = [n for n in names if n.startswith("docs/") or "/docs/" in n]
+        assert not doc_files, (
+            f"wheel should not contain docs/: {sorted(doc_files)}"
+        )
+
+    def test_wheel_excludes_examples(self, _wheel_path: Path) -> None:
+        names = self._wheel_names(_wheel_path)
+        example_files = [
+            n for n in names
+            if n.startswith("examples/") or "/examples/" in n
+        ]
+        assert not example_files, (
+            f"wheel should not contain examples/: {sorted(example_files)}"
+        )

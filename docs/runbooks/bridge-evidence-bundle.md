@@ -12,12 +12,13 @@ artifacts that prove pipeline correctness at the fake-bridge and drill levels
 before an operator starts a live runtime. The bundle is also the recommended
 attachment format for bug reports.
 
-For day-to-day investigation, the inspect-first product path
-(`medre inspect event`, `medre inspect receipts`) is the preferred starting
-point. Reach for the full evidence bundle when you need a structured snapshot
-for bug reports or when inspect reveals something that warrants deeper
-investigation. See the [Alpha Walkthrough](alpha-walkthrough.md) for the
-preferred product path.
+`medre evidence` is a specialized support-bundle workflow for collecting
+structured snapshots (config summary, route validation, diagnostics,
+optional live health, storage inspection) into a single JSON report.
+For per-event investigation, `medre inspect event --evidence` is the
+preferred command. Reach for `medre evidence` when you need a full bridge
+bundle for bug reports or pre-runtime validation. See the
+[Alpha Walkthrough](alpha-walkthrough.md) for the preferred product path.
 
 **What the bundle proves:**
 

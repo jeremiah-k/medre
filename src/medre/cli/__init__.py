@@ -1,21 +1,40 @@
 """MEDRE command-line interface.
 
-Usage::
+Product path (daily bridge operation)::
 
-    medre run [--config PATH]       Start the MEDRE runtime
-    medre smoke [--config] [--message TEXT] [--json]
-                                    Local validation: fake-adapter pipeline test
-    medre config check [--config]   Validate config file
-    medre config sample             Print a sample TOML config
-    medre paths                     Print resolved MEDRE paths
-    medre version                   Print MEDRE version
-    medre adapters                  List available and configured adapters
-    medre diagnostics [--config]    Print runtime snapshot JSON (no server)
-    medre diagnostics --refresh-health [--config]  Start runtime, refresh adapter health once, print live snapshot
-    medre routes validate [--config]  Validate route configuration
-    medre routes topology [--config]  Print route topology preview
-    medre routes list [--config]      List configured routes
-    medre evidence [--config] [--json]  Collect evidence bundle for support
+    medre run [--config PATH]           Start the MEDRE runtime
+    medre config check [--config]       Validate config file
+    medre routes validate [--config]    Validate route configuration
+    medre diagnostics [--config]        Print runtime snapshot JSON (no server)
+    medre diagnostics --refresh-health  Start runtime, refresh health, print snapshot
+    medre inspect event <ID>            Primary read-only event investigation
+    medre inspect event <ID> --timeline   With chronological timeline
+    medre inspect event <ID> --evidence   With per-event evidence bundle
+    medre inspect event <ID> --recovery   With recovery runbook
+    medre inspect receipts              Delivery receipt queries
+    medre inspect native-ref            Native message reference lookup
+    medre inspect replay                Replay run inspection
+    medre replay [--config]             Re-deliver historical events
+
+Validation (developers/CI)::
+
+    medre smoke [--config] [--json]     Local validation: fake-adapter pipeline test
+
+Specialized (available, not primary daily path)::
+
+    medre trace event <ID>              Standalone timeline (inspect event --timeline preferred)
+    medre trace replay <ID>             Standalone replay timeline
+    medre evidence [--config] [--json]  Full support-bundle collection
+    medre recover [--config]            Standalone recovery classification
+
+Utility::
+
+    medre config sample                 Print a sample TOML config
+    medre paths                         Print resolved MEDRE paths
+    medre version                       Print MEDRE version
+    medre adapters                      List available and configured adapters
+    medre routes topology [--config]    Print route topology preview
+    medre routes list [--config]        List configured routes
 
 The package also supports ``python -m medre`` and ``python -m medre.cli``
 via their respective ``__main__`` modules.

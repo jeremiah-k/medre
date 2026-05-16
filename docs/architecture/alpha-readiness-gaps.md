@@ -1,7 +1,7 @@
 # Alpha Readiness Gap Audit
 
-> Document version: 1
-> Last updated: 2026-05-15
+> Document version: 2
+> Last updated: 2026-05-16
 > Status: Honest assessment. No overclaims.
 
 This document records what is NOT ready, what is partially ready, and what
@@ -10,6 +10,20 @@ any reviewer can see at a glance where confidence ends and where assumptions
 begin.
 
 ---
+
+## Operator Product Path
+
+| Feature | Status | Evidence |
+|---------|--------|----------|
+| Config-file-first runtime | Exists | `medre run --config`, TOML parsing, adapter assembly all working |
+| Inspect-first investigation | Exists | `medre inspect event`, `medre inspect receipts` with `--storage-path` for zero-config read-only access. Flags `--timeline`, `--evidence`, `--recovery` on `inspect event` for deeper investigation. Alpha walkthrough and recovery runbooks use inspect as the primary path. |
+| Smoke validation | Exists | `medre smoke --config <path> --storage-path <db> --json` runs a full fake pipeline cycle. Bridge failure drills (`--drill`) exercise fault scenarios. Run-session mode (`--run-session`) exercises full lifecycle. |
+| Snapshot-on-shutdown | Exists | `medre run --snapshot-on-shutdown` writes accounting counters, capacity gauges, route stats, and runtime events to `{state_dir}/shutdown-snapshot.json` after graceful stop. Process-local state survives as a file. |
+| Evidence collection | Exists | `medre evidence --config <path> --json` collects a pre-runtime evidence bundle. `medre inspect event --evidence` provides per-event bundles from SQLite. Both produce structured JSON reports. |
+| Replay (recovery) | Exists, manual only | `medre replay --mode {dry_run,re_route,best_effort} --config <path>`. Config-required, duplicate-risky, no automatic triggers, no resume. `dry_run` and `re_route` are read-only. `best_effort` produces real outbound messages. |
+| First-run config | Exists | `medre config sample` generates a complete fake-adapter TOML config. `medre config check --config <path>` validates it (exits 2 on error). No interactive wizard. |
+| Clean install / fake-only path | Exists | `pip install -e ".[dev]"` gives a working `medre` CLI with fake adapters, zero transport SDKs, zero network. `medre smoke` and `medre config sample` work immediately. Full unit suite passes without optional deps. |
+| Source-tree examples | Exists | `examples/configs/` contains 9 reference configs for fake, real, and Docker scenarios. These are source-repo files, not installed package data. Installed-package users should use `medre config sample` instead. |
 
 ## Transport
 
@@ -123,10 +137,16 @@ their existence is a maintenance risk.
 | Gap | Status | Detail |
 |-----|--------|--------|
 | First-run config | Exists, manual edit required | `medre config sample` generates a TOML file. Operator must edit it to declare adapters and routes. No interactive config wizard. |
-| Env var documentation | Exists | Documented in config file headers and `docs/runbooks/configuration.md`. |
-| Automated operator workflow | None outside test suite | No guided setup, no health dashboard, no operational playbook beyond this runbook. The test suite (`medre smoke`, `medre evidence`) is the closest thing to an operator verification workflow. |
+| Env var documentation | Exists | Documented in `docs/runbooks/configuration.md`. Every config field has an environment variable override. |
+| Inspect-first investigation | Exists | `medre inspect event/receipts/native-ref/replay` with `--storage-path` for zero-config read-only access. `--timeline`, `--evidence`, `--recovery` flags on `inspect event` cover trace/evidence/recover capabilities. Primary operator path documented in alpha-walkthrough.md. |
+| Smoke drills | Exists | `medre smoke --drill <name>` runs named failure drills. `medre smoke --run-session` exercises full lifecycle. Documented in bridge-failure-drills.md. |
+| Snapshot-on-shutdown | Exists | `--snapshot-on-shutdown` flag captures runtime counters, gauges, route stats, and runtime events to JSON. Process-local state only. |
+| Evidence bundle | Exists | `medre evidence --config <path> --json` and `medre inspect event --evidence --storage-path <db>`. Pre-runtime and per-event bundles respectively. |
 | Error messages | Present but rough | Error messages exist but are not always actionable. Config validation errors point to the right field but may not explain the fix. |
-| Log format | Structured but basic | Logs use Python logging with structured fields. No JSON log format option, no log level filtering by subsystem. |
+| Log format | Structured but basic | Logs use Python logging with structured fields. JSON log format option exists (`format = "json"` in `[logging]`). No log level filtering by subsystem. |
+| Adapter supervision | Not implemented | No per-adapter restart, no health check polling scheduler, no auto-remediation. If an adapter crashes mid-delivery, the runtime does not restart it. Operator must restart the process. |
+| Health monitoring | Manual only | `medre diagnostics --refresh-health` polls live health on demand. No background scheduler, no alerting. |
+| Packaging | Pre-release only | `pip install -e ".[dev]"` from source checkout works. No sdist/wheel on PyPI. No Docker image published. Package build (`python -m build`) produces installable artifacts but distribution channel is source-only. |
 
 ---
 
@@ -136,17 +156,32 @@ What is proven at alpha:
 
 - Pipeline routing, storage, trace, and evidence collection work end-to-end with
   fake adapters (3,200+ tests passing).
+- Inspect-first investigation path exists: `medre inspect event/receipts` with
+  `--storage-path` for zero-config read-only access. Augmented by `--timeline`,
+  `--evidence`, `--recovery` flags on `inspect event`.
+- Clean fake-only install path works: `pip install -e ".[dev]"` gives a working
+  CLI with zero transport SDKs, zero network.
+- Smoke validation exists: `medre smoke` with drills and run-session modes.
+  Bridge failure drills exercise fault scenarios.
+- Snapshot-on-shutdown captures runtime state to JSON for post-run inspection.
+- Evidence collection exists: pre-runtime bundles and per-event bundles from
+  SQLite.
 - Matrix outbound delivery works against a real Synapse instance (smoke only).
 - Meshtastic outbound delivery works against a containerized `meshtasticd`.
 - RetryWorker exists for opt-in transient-failure retry (unit-tested, not live-tested).
-- Replay engine supports five modes with deterministic behavior (unit-tested).
+- Replay engine supports multiple modes with deterministic behavior (unit-tested,
+  config-required, duplicate-risky, no automatic triggers).
 
 What is NOT proven at alpha:
 
 - No transport is proven under sustained load.
 - No transport has proven reconnect resilience.
 - Two transports (MeshCore, LXMF) have zero live evidence.
-- No adapter restarts on crash.
+- No adapter restarts on crash. No adapter supervision or health polling scheduler.
 - No replay deduplication. Native-ref dedup (Stage 1.5) prevents echo loops at the pipeline level, but BEST_EFFORT replay produces duplicate sends and no storage-level dedup exists.
-- No accounting survives a process restart.
-- No automated operational workflow exists.
+- No accounting survives a process restart (counters reset; snapshot-on-shutdown
+  captures a point-in-time file but does not restore).
+- No replay resume after interruption.
+- No published package on PyPI. No published Docker image. Distribution is
+  source-only.
+- No background health monitoring or alerting.

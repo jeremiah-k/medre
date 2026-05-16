@@ -993,3 +993,109 @@ class TestTraceNotFirstStepInPrimaryWorkflows:
                 "runtime-operation.md Post-Run Evidence Inspection must "
                 "present 'medre inspect event' before 'medre trace event'."
             )
+
+
+# ===========================================================================
+# 18. Config check exit code is 2, not 1
+# ===========================================================================
+
+
+class TestConfigCheckExitCode:
+    """configuration.md must document the correct exit code for ``medre
+    config check`` on config errors.  The codebase uses ``EXIT_CONFIG = 2``,
+    so docs must say exit code 2, not 1."""
+
+    def test_config_check_exit_code_is_2(self) -> None:
+        """configuration.md must say ``Exits with code 2`` for config check
+        errors, not code 1."""
+        text = _read(RUNBOOKS_DIR / "configuration.md")
+        # Find the config check description area
+        assert "code 2" in text, (
+            "configuration.md must document exit code 2 for config check "
+            "errors (EXIT_CONFIG = 2 in exit_codes.py)."
+        )
+        # Ensure we don't have the old incorrect value in that context
+        stale = re.findall(
+            r"config check.*exit.*code\s+1",
+            text,
+            re.IGNORECASE,
+        )
+        assert not stale, (
+            "configuration.md has stale 'exit code 1' for config check. "
+            "The correct value is 2 (EXIT_CONFIG = 2)."
+        )
+
+
+# ===========================================================================
+# 19. Docker compose filename references actual file
+# ===========================================================================
+
+
+class TestDockerComposeFilenameAccuracy:
+    """Docs that reference docker-compose files must reference
+    ``docker-compose.integration.yaml`` (which exists) rather than
+    non-existent filenames like ``docker-compose.synapse.yml`` or
+    ``docker-compose.meshtasticd.yml``."""
+
+    _STALE_NAMES = [
+        "docker-compose.synapse.yml",
+        "docker-compose.meshtasticd.yml",
+    ]
+
+    @pytest.mark.parametrize(
+        "doc_path",
+        TARGET_DOCS,
+        ids=lambda p: p.name,
+    )
+    def test_no_stale_docker_compose_filenames(self, doc_path: Path) -> None:
+        """Docs must not reference non-existent docker-compose files."""
+        if not doc_path.exists():
+            pytest.skip(f"{doc_path.name} not found")
+        text = _read(doc_path)
+        for stale in self._STALE_NAMES:
+            for lineno, line in enumerate(text.splitlines(), start=1):
+                if stale in line:
+                    pytest.fail(
+                        f"{doc_path.name}:{lineno}: references non-existent "
+                        f"'{stale}'. The actual file is "
+                        f"'docker-compose.integration.yaml'.\n"
+                        f"  {line.strip()}"
+                    )
+
+
+# ===========================================================================
+# 20. Source-tree examples wording consistency
+# ===========================================================================
+
+
+class TestSourceTreeExamplesWording:
+    """Docs that reference ``examples/configs/`` must note that these are
+    source-repo files, not installed package data.  Installed-package users
+    should use ``medre config sample``."""
+
+    @pytest.mark.parametrize(
+        "doc_path",
+        [RUNBOOKS_DIR / "alpha-walkthrough.md", RUNBOOKS_DIR / "alpha-installation.md"],
+        ids=lambda p: p.name,
+    )
+    def test_examples_path_mentioned_with_source_tree_note(
+        self, doc_path: Path
+    ) -> None:
+        """Docs referencing examples/configs must note source-tree vs
+        installed-package distinction."""
+        if not doc_path.exists():
+            pytest.skip(f"{doc_path.name} not found")
+        text = _read(doc_path)
+        if "examples/configs/" not in text:
+            pytest.skip(f"{doc_path.name} does not reference examples/configs/")
+        # Must have some mention of source-tree/installed distinction
+        has_source_note = (
+            "source" in text.lower()
+            and ("checkout" in text.lower() or "tree" in text.lower() or "clone" in text.lower())
+        )
+        assert has_source_note, (
+            f"{doc_path.name} references examples/configs/ but does not "
+            f"note that these are source-tree files, not installed package "
+            f"data. Add a source-tree note and mention 'medre config sample' "
+            f"as the installed-package alternative."
+        )

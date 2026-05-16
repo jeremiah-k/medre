@@ -127,8 +127,8 @@ surface.
 | Command | Classification | Rationale |
 |---------|---------------|-----------|
 | `medre version` | **Utility** | Standard CLI convention. Every tool has this. |
-| `medre paths` | **Consolidate into utility** | Path resolution is a config concern. Lives in `config_commands.py` already. Becomes a subcommand of `config`. |
-| `medre adapters` | **Consolidate into utility** | Adapter inventory is config/diagnostic information, not a standalone operation. Currently lives in `config_commands.py`. |
+| `medre paths` | **Utility** | Path resolution. Lives in `config_commands.py`. May be revisited after alpha. |
+| `medre adapters` | **Utility** | Adapter inventory. Lives in `config_commands.py`. May be revisited after alpha. |
 | `medre config sample` | **Utility** | Onboarding. Generates a starter TOML file. |
 
 ### Specialized commands (inspect-first guidance)
@@ -191,8 +191,8 @@ implementation layer behind the commands above.
 | Recover analysis | `runtime/recover.py` | `recover` | Failed delivery analysis and runbook generation |
 | Smoke orchestration | `runtime/smoke.py` | `smoke` | Fake bridge pipeline exercise |
 
-These modules live in `runtime/` today. They will move to `medre/operator/`
-when the import graph allows. See [Operator Tooling Boundary](operator-tooling-boundary.md)
+These modules live in `runtime/` today. They may move to `medre/operator/`
+after alpha. See [Operator Tooling Boundary](operator-tooling-boundary.md)
 for the split criteria and import invariants.
 
 
@@ -214,8 +214,8 @@ medre replay           Recovery action (re-deliver historical events)
 
 ```
 medre version          Version and platform info
-medre paths            Resolved MEDRE paths (will consolidate under config)
-medre adapters         Adapter inventory (will consolidate under config or diagnostics)
+medre paths            Resolved MEDRE paths (utility; may be revisited after alpha)
+medre adapters         Adapter inventory (utility; may be revisited after alpha)
 medre config sample    Starter TOML generation
 ```
 

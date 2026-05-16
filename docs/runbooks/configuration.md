@@ -1,5 +1,7 @@
 # MEDRE Configuration
 
+> Last updated: 2026-05-16
+
 ## Overview
 
 MEDRE uses **TOML configuration files** as the primary configuration source.
@@ -740,7 +742,7 @@ medre run [--config PATH]
 
 medre config check [--config PATH]
     Load and validate the config file. Prints config source, paths, and
-    adapter status. Exits with code 1 on errors.
+    adapter status.     Exits with code 2 on config errors.
 
 medre config sample
     Print a complete sample TOML configuration to stdout. Redirect to a
