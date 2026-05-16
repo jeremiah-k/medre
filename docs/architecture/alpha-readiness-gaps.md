@@ -147,6 +147,6 @@ What is NOT proven at alpha:
 - No transport has proven reconnect resilience.
 - Two transports (MeshCore, LXMF) have zero live evidence.
 - No adapter restarts on crash.
-- No deduplication anywhere in the pipeline.
+- No replay deduplication. Native-ref dedup (Stage 1.5) prevents echo loops at the pipeline level, but BEST_EFFORT replay produces duplicate sends and no storage-level dedup exists.
 - No accounting survives a process restart.
 - No automated operational workflow exists.

@@ -875,6 +875,73 @@ class TestRetryExecutor:
         assert receipt.retry_max_delay == 90.0
         assert receipt.retry_jitter is False
 
+    def test_build_retry_receipt_preserves_source_retry(self) -> None:
+        """build_retry_receipt with source='retry' preserves the value."""
+        policy = RetryPolicy(backoff_base=2.0, jitter=False, max_delay_seconds=60.0)
+        executor = RetryExecutor(policy)
+        receipt = executor.build_retry_receipt(
+            event_id="evt-retry-src",
+            delivery_plan_id="plan-retry-src",
+            target_adapter="adapter-rs",
+            previous_receipt_id=None,
+            attempt_number=1,
+            error="timeout",
+            source="retry",
+        )
+        assert receipt.source == "retry"
+
+    def test_build_retry_receipt_preserves_target_channel(self) -> None:
+        """build_retry_receipt with target_channel='!room:test' preserves it."""
+        policy = RetryPolicy(backoff_base=2.0, jitter=False, max_delay_seconds=60.0)
+        executor = RetryExecutor(policy)
+        receipt = executor.build_retry_receipt(
+            event_id="evt-tc",
+            delivery_plan_id="plan-tc",
+            target_adapter="adapter-tc",
+            previous_receipt_id=None,
+            attempt_number=1,
+            error="timeout",
+            target_channel="!room:test",
+        )
+        assert receipt.target_channel == "!room:test"
+
+    def test_build_dead_letter_receipt_preserves_target_channel(self) -> None:
+        """build_dead_letter_receipt with target_channel='!room:dl' preserves it."""
+        policy = RetryPolicy(max_attempts=3)
+        executor = RetryExecutor(policy)
+        receipt = executor.build_dead_letter_receipt(
+            event_id="evt-dl-tc",
+            delivery_plan_id="plan-dl-tc",
+            target_adapter="adapter-dl-tc",
+            previous_receipt_id=None,
+            attempt_number=4,
+            error="Retry exhausted",
+            target_channel="!room:dl",
+        )
+        assert receipt.target_channel == "!room:dl"
+
+    def test_build_dead_letter_receipt_has_retry_policy_fields(self) -> None:
+        """build_dead_letter_receipt includes retry policy fields."""
+        policy = RetryPolicy(
+            max_attempts=5,
+            backoff_base=3.0,
+            max_delay_seconds=120.0,
+            jitter=True,
+        )
+        executor = RetryExecutor(policy)
+        receipt = executor.build_dead_letter_receipt(
+            event_id="evt-dl-pol",
+            delivery_plan_id="plan-dl-pol",
+            target_adapter="adapter-dl-pol",
+            previous_receipt_id=None,
+            attempt_number=6,
+            error="Retry exhausted after 5 attempts",
+        )
+        assert receipt.retry_max_attempts is not None
+        assert receipt.retry_backoff_base is not None
+        assert receipt.retry_max_attempts == 5
+        assert receipt.retry_backoff_base == 3.0
+
     def test_build_retry_receipt_source_docstring(self) -> None:
         """build_retry_receipt docstring mentions live, retry, and replay."""
         doc = RetryExecutor.build_retry_receipt.__doc__

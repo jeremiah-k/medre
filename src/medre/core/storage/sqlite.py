@@ -122,6 +122,7 @@ CREATE TABLE IF NOT EXISTS delivery_receipts (
 CREATE VIEW IF NOT EXISTS delivery_status AS
 SELECT dr.sequence, dr.receipt_id, dr.event_id, dr.delivery_plan_id,
        dr.target_adapter, dr.target_channel, dr.route_id, dr.status, dr.error,
+       dr.failure_kind,
        dr.adapter_message_id, dr.next_retry_at, dr.attempt_number,
        dr.parent_receipt_id, dr.source, dr.replay_run_id,
        dr.retry_max_attempts, dr.retry_backoff_base,

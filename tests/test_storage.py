@@ -1628,6 +1628,58 @@ class TestReceiptSourceReplayRunId:
 
 
 # ===================================================================
+# delivery_status failure_kind round-trip
+# ===================================================================
+
+
+class TestDeliveryStatusFailureKind:
+    """delivery_status view preserves failure_kind from delivery_receipts."""
+
+    async def test_delivery_status_preserves_failure_kind(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """A failed receipt with failure_kind='adapter_transient' preserves
+        the value through the delivery_status view."""
+        event = _make_event(event_id="evt-fk-1")
+        await temp_storage.append(event)
+
+        receipt = DeliveryReceipt(
+            receipt_id="rcpt-fk-1",
+            event_id="evt-fk-1",
+            delivery_plan_id="plan-fk",
+            target_adapter="adapter_fk",
+            status="failed",
+            failure_kind="adapter_transient",
+            error="ConnectionError: timeout",
+        )
+        await temp_storage.append_receipt(receipt)
+
+        status = await temp_storage.delivery_status("plan-fk", "adapter_fk")
+        assert status is not None
+        assert status.failure_kind == "adapter_transient"
+
+    async def test_delivery_status_sent_returns_null_failure_kind(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """A sent receipt has failure_kind=None through the delivery_status view."""
+        event = _make_event(event_id="evt-fk-sent")
+        await temp_storage.append(event)
+
+        receipt = DeliveryReceipt(
+            receipt_id="rcpt-fk-sent",
+            event_id="evt-fk-sent",
+            delivery_plan_id="plan-fk-sent",
+            target_adapter="adapter_fk_sent",
+            status="sent",
+        )
+        await temp_storage.append_receipt(receipt)
+
+        status = await temp_storage.delivery_status("plan-fk-sent", "adapter_fk_sent")
+        assert status is not None
+        assert status.failure_kind is None
+
+
+# ===================================================================
 # IntegrityError classification in _write_batch
 # ===================================================================
 

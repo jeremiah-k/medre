@@ -977,7 +977,9 @@ class PipelineRunner:
                 target_channel=target.channel,
                 route_id=route.id,
                 status="failed",
-                error=f"Adapter {adapter_id!r} not registered",
+                error=f"Adapter {adapter_id!r} is not registered in the runtime "
+                      f"— the adapter may have failed to build or was not configured. "
+                      f"Check build logs for {adapter_id!r}",
                 failure_kind=DeliveryFailureKind.ADAPTER_MISSING.value,
                 next_retry_at=None,
                 created_at=now,
@@ -1001,7 +1003,8 @@ class PipelineRunner:
             await self._config.storage.append_receipt(receipt)
             raise _AdapterDeliveryError(
                 adapter_id or "",
-                f"Adapter {adapter_id!r} not registered",
+                f"Adapter {adapter_id!r} is not registered — "
+                f"check if the adapter was configured and built successfully",
                 failure_kind=DeliveryFailureKind.ADAPTER_MISSING,
             ) from None
 

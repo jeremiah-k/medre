@@ -22,6 +22,12 @@
 #   - E2EE encryption (plaintext mode only)
 #   - Reconnect resilience or retry-against-live
 #
+# REQUIRED ENVIRONMENT VARIABLES:
+#   MEDRE_HOMESERVER  - Synapse homeserver URL (e.g. http://localhost:8008)
+#   MEDRE_USER_ID     - Bot user ID (e.g. @bot:localhost)
+#   MEDRE_ACCESS_TOKEN - Bot access token
+#   MEDRE_ROOM_ID     - Target room ID (e.g. !room:localhost)
+#
 # USAGE:
 #   This config cannot be used directly with `medre run` — credentials
 #   and room IDs must be provided via environment variables.  Docker
