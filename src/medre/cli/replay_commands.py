@@ -18,10 +18,6 @@ from medre.runtime.builder import RuntimeBuilder
 
 from .exit_codes import EXIT_CONFIG, EXIT_BUILD
 
-
-# Radio transports that use fire-and-forget delivery.
-_RADIO_TRANSPORTS = frozenset({"meshtastic", "meshcore", "lxmf"})
-
 _BEST_EFFORT_WARNING = (
     "WARNING: BEST_EFFORT replay incurs the same duplicate-send risk as "
     "all adapter transports.  Replay receipts are distinguishable from "

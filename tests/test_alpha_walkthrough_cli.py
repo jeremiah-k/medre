@@ -4,13 +4,17 @@ End-to-end tests for every documented CLI command in the alpha walkthrough.
 Every test calls ``main([...])`` — the same entry point operators use —
 proving the CLI command surface works without importing internal APIs.
 
-Walkthrough sequence:
-1. ``medre config check --config <path>``
-2. ``medre smoke --config <path> --storage-path <db> --json``
-3. ``medre inspect event --config <cfg> <event_id>``
-4. ``medre inspect receipts --config <cfg> --event <event_id>``
-5. ``medre trace event --config <cfg> <event_id> --json``
-6. ``medre evidence --config <cfg> --json --event <event_id>``
+Walkthrough sequence (as documented in alpha-walkthrough.md):
+1. ``medre smoke --config <path> --storage-path <db> --json``
+2. ``medre inspect receipts --event <id> --storage-path <db>``
+3. ``medre trace event <id> --storage-path <db> --json``
+4. ``medre evidence --event <id> --storage-path <db> --json``
+5. ``medre replay --config <path> --mode dry_run --event <id> --json``
+6. ``medre replay --config <path> --mode best_effort --event <id> --json``
+
+Read-only commands (inspect, trace, evidence) use ``--storage-path`` to
+bypass config-file loading. Replay requires ``--config`` for route/adapter
+resolution.
 
 For function-level smoke tests, see test_alpha_walkthrough.py.
 For runtime-level replay/retry tests, see
@@ -43,20 +47,54 @@ def _smoke_config_path() -> str:
     return path
 
 
-def _write_inspect_config(tmp_path: Path, db_path: Path) -> Path:
-    """Write a minimal TOML config pointing storage at *db_path*."""
-    cfg = tmp_path / "walkthrough_config.toml"
-    cfg.write_text(
-        f'[runtime]\nname = "cli-walkthrough"\n\n'
-        f'[storage]\nbackend = "sqlite"\npath = "{db_path}"\n'
-    )
-    return cfg
+# TOML config with SQLite storage for replay tests.
+_REPLAY_TOML = """\
+[runtime]
+name = "alpha-replay-walkthrough"
+shutdown_timeout_seconds = 10
+
+[logging]
+level = "WARNING"
+format = "text"
+
+[storage]
+backend = "sqlite"
+path = {storage_path!r}
+
+[adapters.matrix.fake_matrix]
+enabled = true
+adapter_kind = "fake"
+homeserver = "https://fake.local"
+user_id = "@bot:fake.local"
+access_token = "fake"
+room_allowlist = ["!room:fake.local"]
+encryption_mode = "plaintext"
+
+[adapters.meshtastic.fake_meshtastic]
+enabled = true
+adapter_kind = "fake"
+connection_type = "fake"
+meshnet_name = "alpha-walkthrough"
+
+[routes.mx_to_mesh]
+source_adapters = ["fake_matrix"]
+dest_adapters = ["fake_meshtastic"]
+directionality = "source_to_dest"
+enabled = true
+"""
 
 
-def _seed_via_smoke_cli(tmp_path: Path) -> tuple[str, Path, str]:
+def _write_replay_config(tmp_path: Path, db_path: Path) -> str:
+    """Write a TOML config that points storage at *db_path* for replay."""
+    cfg = tmp_path / "replay_config.toml"
+    cfg.write_text(_REPLAY_TOML.format(storage_path=str(db_path)))
+    return str(cfg)
+
+
+def _seed_via_smoke_cli(tmp_path: Path) -> tuple[str, Path]:
     """Run ``main(["smoke", ...])`` to create a populated DB.
 
-    Returns (event_id, db_path, inspect_config_path).
+    Returns (event_id, db_path).
     """
     db_path = tmp_path / "walkthrough.db"
     config_path = _smoke_config_path()
@@ -82,8 +120,7 @@ def _seed_via_smoke_cli(tmp_path: Path) -> tuple[str, Path, str]:
     event_id = report["event_id"]
     assert isinstance(event_id, str) and len(event_id) > 0
 
-    inspect_config = _write_inspect_config(tmp_path, db_path)
-    return event_id, db_path, str(inspect_config)
+    return event_id, db_path
 
 
 # ---------------------------------------------------------------------------
@@ -101,24 +138,6 @@ def _clean_path_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "XDG_CACHE_HOME",
     ):
         monkeypatch.delenv(var, raising=False)
-
-
-# ---------------------------------------------------------------------------
-# Tests: config check
-# ---------------------------------------------------------------------------
-
-
-class TestAlphaConfigCheckCLI:
-    """``medre config check --config <path>`` via main()."""
-
-    def test_cli_config_check_works(self) -> None:
-        """config check --config <path> prints 'Config valid'."""
-        stdout_buf = io.StringIO()
-        with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
-            main(["config", "check", "--config", _smoke_config_path()])
-
-        output = stdout_buf.getvalue()
-        assert "Config valid" in output
 
 
 # ---------------------------------------------------------------------------
@@ -169,60 +188,23 @@ class TestAlphaSmokeSeedsCLI:
 
 
 # ---------------------------------------------------------------------------
-# Tests: inspect event
-# ---------------------------------------------------------------------------
-
-
-class TestAlphaInspectEventCLI:
-    """``medre inspect event --config <cfg> <event_id>`` via main()."""
-
-    def test_inspect_event_returns_event_data(self, tmp_path: Path) -> None:
-        """inspect event prints the stored canonical event."""
-        event_id, db_path, config_path = _seed_via_smoke_cli(tmp_path)
-
-        stdout_buf = io.StringIO()
-        with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
-            main([
-                "inspect", "event",
-                "--config", config_path,
-                event_id,
-            ])
-
-        output = stdout_buf.getvalue()
-        assert event_id in output
-        assert "fake_matrix" in output
-
-    def test_inspect_event_exits_cleanly(self, tmp_path: Path) -> None:
-        """inspect event does not call sys.exit on success."""
-        event_id, db_path, config_path = _seed_via_smoke_cli(tmp_path)
-
-        # Should NOT raise SystemExit.
-        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-            main([
-                "inspect", "event",
-                "--config", config_path,
-                event_id,
-            ])
-
-
-# ---------------------------------------------------------------------------
-# Tests: inspect receipts
+# Tests: inspect receipts with --storage-path
 # ---------------------------------------------------------------------------
 
 
 class TestAlphaInspectReceiptsCLI:
-    """``medre inspect receipts --config <cfg> --event <id>`` via main()."""
+    """``medre inspect receipts --event <id> --storage-path <db>`` via main()."""
 
     def test_inspect_receipts_lists_receipts(self, tmp_path: Path) -> None:
-        """inspect receipts prints delivery receipts for the event."""
-        event_id, db_path, config_path = _seed_via_smoke_cli(tmp_path)
+        """inspect receipts --storage-path prints delivery receipts."""
+        event_id, db_path = _seed_via_smoke_cli(tmp_path)
 
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main([
                 "inspect", "receipts",
-                "--config", config_path,
                 "--event", event_id,
+                "--storage-path", str(db_path),
             ])
 
         output = stdout_buf.getvalue()
@@ -230,34 +212,35 @@ class TestAlphaInspectReceiptsCLI:
 
     def test_inspect_receipts_exits_cleanly(self, tmp_path: Path) -> None:
         """inspect receipts does not call sys.exit on success."""
-        event_id, db_path, config_path = _seed_via_smoke_cli(tmp_path)
+        event_id, db_path = _seed_via_smoke_cli(tmp_path)
 
+        # Should NOT raise SystemExit.
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             main([
                 "inspect", "receipts",
-                "--config", config_path,
                 "--event", event_id,
+                "--storage-path", str(db_path),
             ])
 
 
 # ---------------------------------------------------------------------------
-# Tests: trace event
+# Tests: trace event with --storage-path
 # ---------------------------------------------------------------------------
 
 
 class TestAlphaTraceEventCLI:
-    """``medre trace event --config <cfg> <event_id> --json`` via main()."""
+    """``medre trace event <id> --storage-path <db> --json`` via main()."""
 
     def test_trace_event_json_timeline(self, tmp_path: Path) -> None:
-        """trace event --json returns a JSON timeline with entries."""
-        event_id, db_path, config_path = _seed_via_smoke_cli(tmp_path)
+        """trace event --storage-path --json returns a JSON timeline."""
+        event_id, db_path = _seed_via_smoke_cli(tmp_path)
 
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main([
                 "trace", "event",
-                "--config", config_path,
                 event_id,
+                "--storage-path", str(db_path),
                 "--json",
             ])
 
@@ -267,14 +250,14 @@ class TestAlphaTraceEventCLI:
 
     def test_trace_event_json_has_receipt_entries(self, tmp_path: Path) -> None:
         """Timeline includes at least one receipt entry."""
-        event_id, db_path, config_path = _seed_via_smoke_cli(tmp_path)
+        event_id, db_path = _seed_via_smoke_cli(tmp_path)
 
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main([
                 "trace", "event",
-                "--config", config_path,
                 event_id,
+                "--storage-path", str(db_path),
                 "--json",
             ])
 
@@ -286,14 +269,14 @@ class TestAlphaTraceEventCLI:
 
     def test_trace_event_human_readable(self, tmp_path: Path) -> None:
         """trace event (no --json) prints human-readable timeline."""
-        event_id, db_path, config_path = _seed_via_smoke_cli(tmp_path)
+        event_id, db_path = _seed_via_smoke_cli(tmp_path)
 
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main([
                 "trace", "event",
-                "--config", config_path,
                 event_id,
+                "--storage-path", str(db_path),
             ])
 
         output = stdout_buf.getvalue()
@@ -303,59 +286,184 @@ class TestAlphaTraceEventCLI:
 
 
 # ---------------------------------------------------------------------------
-# Tests: evidence
+# Tests: evidence with --storage-path
 # ---------------------------------------------------------------------------
 
 
 class TestAlphaEvidenceCLI:
-    """``medre evidence --config <cfg> --json`` via main()."""
+    """``medre evidence --event <id> --storage-path <db> --json`` via main()."""
 
     def test_evidence_json_bundle(self, tmp_path: Path) -> None:
-        """evidence --json returns a valid evidence bundle."""
-        event_id, db_path, config_path = _seed_via_smoke_cli(tmp_path)
+        """evidence --storage-path --json returns a valid evidence bundle."""
+        event_id, db_path = _seed_via_smoke_cli(tmp_path)
 
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main([
                 "evidence",
-                "--config", config_path,
+                "--event", event_id,
+                "--storage-path", str(db_path),
                 "--json",
             ])
 
         bundle = json.loads(stdout_buf.getvalue())
         assert "status" in bundle
-        assert bundle["status"] in ("ok", "partial")
+        assert bundle["status"] in ("ok", "partial", "passed")
         assert "sections" in bundle
 
-    def test_evidence_with_event_filter(self, tmp_path: Path) -> None:
-        """evidence --event <id> --json includes event-specific data."""
-        event_id, db_path, config_path = _seed_via_smoke_cli(tmp_path)
+    def test_evidence_storage_section_has_event(self, tmp_path: Path) -> None:
+        """Evidence storage section contains the requested event."""
+        event_id, db_path = _seed_via_smoke_cli(tmp_path)
 
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main([
                 "evidence",
-                "--config", config_path,
-                "--json",
                 "--event", event_id,
+                "--storage-path", str(db_path),
+                "--json",
             ])
 
         bundle = json.loads(stdout_buf.getvalue())
-        assert bundle["status"] in ("ok", "partial")
+        storage = bundle["sections"]["storage"]
+        assert storage["data"]["event"] is not None
+        assert storage["data"]["event"]["event_id"] == event_id
 
     def test_evidence_human_readable(self, tmp_path: Path) -> None:
         """evidence (no --json) prints human-readable summary."""
-        event_id, db_path, config_path = _seed_via_smoke_cli(tmp_path)
+        event_id, db_path = _seed_via_smoke_cli(tmp_path)
 
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main([
                 "evidence",
-                "--config", config_path,
+                "--event", event_id,
+                "--storage-path", str(db_path),
             ])
 
         output = stdout_buf.getvalue()
         assert "Evidence:" in output
+
+
+# ---------------------------------------------------------------------------
+# Tests: replay dry_run (config required)
+# ---------------------------------------------------------------------------
+
+
+class TestAlphaReplayDryRunCLI:
+    """``medre replay --config <cfg> --mode dry_run --event <id> --json``."""
+
+    def test_dry_run_exits_cleanly(self, tmp_path: Path) -> None:
+        """DRY_RUN --json exits without error and returns valid JSON."""
+        event_id, db_path = _seed_via_smoke_cli(tmp_path)
+        config_path = _write_replay_config(tmp_path, db_path)
+
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
+            main([
+                "replay",
+                "--config", config_path,
+                "--mode", "dry_run",
+                "--event", event_id,
+                "--json",
+            ])
+
+        summary = json.loads(stdout_buf.getvalue())
+        assert summary["mode"] == "dry_run"
+        assert summary["events_scanned"] >= 1
+        assert summary["events_replayed"] >= 1
+
+    def test_dry_run_no_side_effects(self, tmp_path: Path) -> None:
+        """DRY_RUN does not create replay receipts."""
+        import asyncio
+        from medre.core.storage.sqlite import SQLiteStorage
+
+        event_id, db_path = _seed_via_smoke_cli(tmp_path)
+        config_path = _write_replay_config(tmp_path, db_path)
+
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
+            main([
+                "replay",
+                "--config", config_path,
+                "--mode", "dry_run",
+                "--event", event_id,
+                "--json",
+            ])
+
+        async def _check() -> None:
+            storage = SQLiteStorage(db_path=str(db_path))
+            await storage.initialize()
+            try:
+                receipts = await storage.list_receipts_for_event(event_id)
+                replay_receipts = [r for r in receipts if r.source == "replay"]
+                assert len(replay_receipts) == 0, (
+                    f"DRY_RUN should not create replay receipts, "
+                    f"got {len(replay_receipts)}"
+                )
+            finally:
+                await storage.close()
+
+        asyncio.run(_check())
+
+
+# ---------------------------------------------------------------------------
+# Tests: replay best_effort (config required)
+# ---------------------------------------------------------------------------
+
+
+class TestAlphaReplayBestEffortCLI:
+    """``medre replay --config <cfg> --mode best_effort --event <id> --json``."""
+
+    def test_best_effort_exits_cleanly(self, tmp_path: Path) -> None:
+        """BEST_EFFORT --json exits without error."""
+        event_id, db_path = _seed_via_smoke_cli(tmp_path)
+        config_path = _write_replay_config(tmp_path, db_path)
+
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
+            main([
+                "replay",
+                "--config", config_path,
+                "--mode", "best_effort",
+                "--event", event_id,
+                "--json",
+            ])
+
+        summary = json.loads(stdout_buf.getvalue())
+        assert summary["mode"] == "best_effort"
+
+    def test_best_effort_creates_replay_receipts(self, tmp_path: Path) -> None:
+        """BEST_EFFORT replay creates receipts with source='replay'."""
+        import asyncio
+        from medre.core.storage.sqlite import SQLiteStorage
+
+        event_id, db_path = _seed_via_smoke_cli(tmp_path)
+        config_path = _write_replay_config(tmp_path, db_path)
+
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
+            main([
+                "replay",
+                "--config", config_path,
+                "--mode", "best_effort",
+                "--event", event_id,
+                "--json",
+            ])
+
+        async def _check() -> None:
+            storage = SQLiteStorage(db_path=str(db_path))
+            await storage.initialize()
+            try:
+                receipts = await storage.list_receipts_for_event(event_id)
+                replay_receipts = [r for r in receipts if r.source == "replay"]
+                assert len(replay_receipts) >= 1, (
+                    f"Expected >= 1 replay receipt, got {len(replay_receipts)}"
+                )
+            finally:
+                await storage.close()
+
+        asyncio.run(_check())
 
 
 # ---------------------------------------------------------------------------
@@ -364,33 +472,29 @@ class TestAlphaEvidenceCLI:
 
 
 class TestAlphaFullWalkthroughCLI:
-    """Full alpha walkthrough: smoke → inspect → trace → evidence via main()."""
+    """Full alpha walkthrough: smoke → inspect → trace → evidence → replay via main()."""
 
     def test_full_walkthrough_sequence(self, tmp_path: Path) -> None:
         """Prove the documented operator walkthrough sequence works via main().
 
         Steps:
-        1. medre config check --config <path>
-        2. medre smoke --config <path> --storage-path <db> --json  → event_id
-        3. medre inspect event --config <cfg> <event_id>
-        4. medre inspect receipts --config <cfg> --event <event_id>
-        5. medre trace event --config <cfg> <event_id> --json
-        6. medre evidence --config <cfg> --json --event <event_id>
+        1. medre smoke --config <path> --storage-path <db> --json  → event_id
+        2. medre inspect receipts --event <id> --storage-path <db>
+        3. medre trace event <id> --storage-path <db> --json
+        4. medre evidence --event <id> --storage-path <db> --json
+        5. medre replay --config <path> --mode dry_run --event <id> --json
+        6. medre replay --config <path> --mode best_effort --event <id> --json
         """
-        # Step 1: Config check
-        stdout_buf = io.StringIO()
-        with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
-            main(["config", "check", "--config", _smoke_config_path()])
-        assert "Config valid" in stdout_buf.getvalue()
+        config_path = _smoke_config_path()
 
-        # Step 2: Smoke seeds persistent DB
+        # Step 1: Smoke seeds persistent DB
         db_path = tmp_path / "full_walkthrough.db"
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             with pytest.raises(SystemExit) as exc_info:
                 main([
                     "smoke",
-                    "--config", _smoke_config_path(),
+                    "--config", config_path,
                     "--storage-path", str(db_path),
                     "--json",
                 ])
@@ -399,37 +503,23 @@ class TestAlphaFullWalkthroughCLI:
         assert report["status"] == "passed"
         event_id = report["event_id"]
 
-        # Build config for inspect/trace/evidence pointing at the DB
-        inspect_config = _write_inspect_config(tmp_path, db_path)
-        config_path = str(inspect_config)
-
-        # Step 3: Inspect event
-        stdout_buf = io.StringIO()
-        with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
-            main([
-                "inspect", "event",
-                "--config", config_path,
-                event_id,
-            ])
-        assert event_id in stdout_buf.getvalue()
-
-        # Step 4: Inspect receipts
+        # Step 2: Inspect receipts
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main([
                 "inspect", "receipts",
-                "--config", config_path,
                 "--event", event_id,
+                "--storage-path", str(db_path),
             ])
         assert "sent" in stdout_buf.getvalue()
 
-        # Step 5: Trace event
+        # Step 3: Trace event
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main([
                 "trace", "event",
-                "--config", config_path,
                 event_id,
+                "--storage-path", str(db_path),
                 "--json",
             ])
         timeline = json.loads(stdout_buf.getvalue())
@@ -437,14 +527,143 @@ class TestAlphaFullWalkthroughCLI:
         entry_types = [e.get("entry_type") for e in timeline]
         assert "receipt" in entry_types
 
-        # Step 6: Evidence
+        # Step 4: Evidence
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main([
                 "evidence",
-                "--config", config_path,
-                "--json",
                 "--event", event_id,
+                "--storage-path", str(db_path),
+                "--json",
             ])
         bundle = json.loads(stdout_buf.getvalue())
-        assert bundle["status"] in ("ok", "partial")
+        assert bundle["status"] in ("ok", "partial", "passed")
+
+        # Steps 5-6: Replay uses config with SQLite pointing at the same DB
+        replay_config = _write_replay_config(tmp_path, db_path)
+
+        # Step 5: Replay dry_run
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
+            main([
+                "replay",
+                "--config", replay_config,
+                "--mode", "dry_run",
+                "--event", event_id,
+                "--json",
+            ])
+        dry_summary = json.loads(stdout_buf.getvalue())
+        assert dry_summary["mode"] == "dry_run"
+        assert dry_summary["events_scanned"] >= 1
+
+        # Step 6: Replay best_effort
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
+            main([
+                "replay",
+                "--config", replay_config,
+                "--mode", "best_effort",
+                "--event", event_id,
+                "--json",
+            ])
+        be_summary = json.loads(stdout_buf.getvalue())
+        assert be_summary["mode"] == "best_effort"
+
+    def test_event_id_flows_through_all_commands(self, tmp_path: Path) -> None:
+        """Verify the exact event_id from smoke appears in every downstream command."""
+        config_path = _smoke_config_path()
+
+        # Seed
+        db_path = tmp_path / "event_flow.db"
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
+            with pytest.raises(SystemExit) as exc_info:
+                main([
+                    "smoke",
+                    "--config", config_path,
+                    "--storage-path", str(db_path),
+                    "--json",
+                ])
+        assert exc_info.value.code == 0
+        event_id = json.loads(stdout_buf.getvalue())["event_id"]
+
+        # Inspect receipts: event_id in the receipt output
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
+            main([
+                "inspect", "receipts",
+                "--event", event_id,
+                "--storage-path", str(db_path),
+            ])
+        assert event_id in stdout_buf.getvalue()
+
+        # Trace: timeline entries reference the event
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
+            main([
+                "trace", "event",
+                event_id,
+                "--storage-path", str(db_path),
+                "--json",
+            ])
+        timeline = json.loads(stdout_buf.getvalue())
+        assert len(timeline) >= 1
+
+        # Evidence: storage section has the event
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
+            main([
+                "evidence",
+                "--event", event_id,
+                "--storage-path", str(db_path),
+                "--json",
+            ])
+        bundle = json.loads(stdout_buf.getvalue())
+        assert bundle["sections"]["storage"]["data"]["event"]["event_id"] == event_id
+
+        # Replay dry_run: summary includes the event
+        replay_config = _write_replay_config(tmp_path, db_path)
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
+            main([
+                "replay",
+                "--config", replay_config,
+                "--mode", "dry_run",
+                "--event", event_id,
+                "--json",
+            ])
+        dry_summary = json.loads(stdout_buf.getvalue())
+        assert dry_summary["events_replayed"] >= 1
+
+
+# ---------------------------------------------------------------------------
+# Test: no tracebacks on invalid inputs
+# ---------------------------------------------------------------------------
+
+
+class TestAlphaNoTracebacks:
+    """Verify commands produce clean errors, not tracebacks."""
+
+    def test_inspect_receipts_missing_storage_path_and_config(self) -> None:
+        """inspect receipts without --storage-path or --config exits cleanly."""
+        with pytest.raises(SystemExit):
+            main(["inspect", "receipts", "--event", "nonexistent"])
+
+    def test_trace_event_missing_storage_path_and_config(self) -> None:
+        """trace event without --storage-path or --config exits cleanly."""
+        with pytest.raises(SystemExit):
+            main(["trace", "event", "nonexistent", "--json"])
+
+    def test_replay_rejects_storage_path(self, tmp_path: Path) -> None:
+        """replay --storage-path exits with an error message."""
+        stderr_buf = io.StringIO()
+        with redirect_stderr(stderr_buf):
+            with pytest.raises(SystemExit):
+                main([
+                    "replay",
+                    "--config", _smoke_config_path(),
+                    "--mode", "dry_run",
+                    "--event", "evt-1",
+                    "--storage-path", str(tmp_path / "test.db"),
+                ])
+        assert "not supported for replay" in stderr_buf.getvalue()

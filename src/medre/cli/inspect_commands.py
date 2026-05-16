@@ -11,9 +11,14 @@ from .json import _struct_to_json
 from .storage_helpers import _open_readonly_storage
 
 
-async def _inspect_event(config_path: str | None, event_id: str) -> None:
+async def _inspect_event(
+    config_path: str | None,
+    event_id: str,
+    *,
+    storage_path: str | None = None,
+) -> None:
     """Look up and print a canonical event by its ID."""
-    storage = await _open_readonly_storage(config_path)
+    storage = await _open_readonly_storage(config_path, storage_path=storage_path)
     try:
         event = await storage.get(event_id)
         if event is None:
@@ -31,9 +36,11 @@ async def _inspect_receipts(
     config_path: str | None,
     event_id: str | None,
     replay_run_id: str | None,
+    *,
+    storage_path: str | None = None,
 ) -> None:
     """List delivery receipts for an event or replay run."""
-    storage = await _open_readonly_storage(config_path)
+    storage = await _open_readonly_storage(config_path, storage_path=storage_path)
     try:
         if event_id is not None:
             receipts = await storage.list_receipts_for_event(event_id)
@@ -52,9 +59,11 @@ async def _inspect_native_ref(
     adapter: str,
     channel: str | None,
     message: str,
+    *,
+    storage_path: str | None = None,
 ) -> None:
     """Resolve a native message reference to a canonical event."""
-    storage = await _open_readonly_storage(config_path)
+    storage = await _open_readonly_storage(config_path, storage_path=storage_path)
     try:
         event_id = await storage.resolve_native_ref(adapter, channel, message)
         if event_id is None:

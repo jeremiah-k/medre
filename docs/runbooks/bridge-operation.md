@@ -578,9 +578,13 @@ After a hard crash during active Matrix-to-Meshtastic bridging:
    ORDER BY e.created_at DESC;
    ```
    Or use the inspect CLI:
-   ```bash
-   medre inspect receipts --event <event_id> --config my-bridge.toml
-   ```
+    ```bash
+    # Read-only inspection (no config needed):
+    medre inspect receipts --event <event_id> --storage-path /path/to/medre.sqlite
+
+    # Using config (reads storage path from config):
+    medre inspect receipts --event <event_id> --config my-bridge.toml
+    ```
 3. Decide whether to replay the orphaned events. Use `DRY_RUN` first to verify route matching, then `BEST_EFFORT` if re-delivery is warranted.
 4. Expect possible duplicate deliveries — replay does not deduplicate.
 

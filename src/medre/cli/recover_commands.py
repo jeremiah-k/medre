@@ -16,7 +16,7 @@ from medre.runtime import timeline as _timeline
 
 from .exit_codes import EXIT_NOT_FOUND, EXIT_CONFIG, EXIT_BUILD
 from .storage_helpers import _open_readonly_storage
-from .replay_commands import _RADIO_TRANSPORTS
+from .transport_constants import _RADIO_TRANSPORTS
 
 
 async def _recover(

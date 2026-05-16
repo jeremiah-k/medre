@@ -93,12 +93,21 @@ PYTHONPATH=src medre evidence --config my-bridge.toml --include-refresh-health -
 ### 1.6 Post-Run Inspection
 
 ```bash
-# Requires a previous run with --storage-path or [storage] backend = "sqlite"
-PYTHONPATH=src medre inspect event <event_id> --config my-bridge.toml
-PYTHONPATH=src medre inspect receipts --event <event_id> --config my-bridge.toml
-PYTHONPATH=src medre inspect native-ref --adapter <name> --message <native_id> --config my-bridge.toml
-PYTHONPATH=src medre inspect receipts --replay-run <run_id> --config my-bridge.toml
+# Using --storage-path (read-only, no config needed):
+medre inspect event <event_id> --storage-path /tmp/medre-smoke.db
+medre inspect receipts --event <event_id> --storage-path /tmp/medre-smoke.db
+medre trace event <event_id> --storage-path /tmp/medre-smoke.db
+
+# Using --config (reads storage path from config):
+medre inspect event <event_id> --config my-bridge.toml
+medre inspect receipts --event <event_id> --config my-bridge.toml
+medre inspect native-ref --adapter <name> --message <native_id> --config my-bridge.toml
+medre inspect receipts --replay-run <run_id> --config my-bridge.toml
 ```
+
+> **Note:** `inspect event`, `inspect receipts`, and `trace event` support
+> `--storage-path` for direct read-only access to a SQLite database.
+> `inspect native-ref` and `inspect receipts --replay-run` require `--config`.
 
 
 ## 2. Command Reference

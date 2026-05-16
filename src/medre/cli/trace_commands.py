@@ -14,9 +14,11 @@ async def _trace_event(
     config_path: str | None,
     event_id: str,
     json_output: bool,
+    *,
+    storage_path: str | None = None,
 ) -> None:
     """Assemble and print a chronological timeline for a single event."""
-    storage = await _open_readonly_storage(config_path)
+    storage = await _open_readonly_storage(config_path, storage_path=storage_path)
     try:
         result = await _timeline.assemble_event_timeline(storage, event_id)
         if result is None:
@@ -89,9 +91,11 @@ async def _trace_replay(
     config_path: str | None,
     run_id: str,
     json_output: bool,
+    *,
+    storage_path: str | None = None,
 ) -> None:
     """Assemble and print a chronological timeline for a replay run."""
-    storage = await _open_readonly_storage(config_path)
+    storage = await _open_readonly_storage(config_path, storage_path=storage_path)
     try:
         result = await _timeline.assemble_replay_timeline(storage, run_id)
         if result is None:

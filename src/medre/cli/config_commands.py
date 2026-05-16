@@ -10,7 +10,7 @@ from medre.config.paths import resolve, MedrePaths
 from medre.config.errors import ConfigValidationError
 
 from .exit_codes import EXIT_CONFIG
-from . import _TRANSPORTS
+from .transports import _TRANSPORTS
 
 
 def _dir_status(p: object) -> str:

@@ -15,13 +15,25 @@ async def _evidence(
     event_id: str | None,
     replay_run_id: str | None,
     include_refresh_health: bool,
+    *,
+    storage_path: str | None = None,
 ) -> None:
     """Collect and print an evidence bundle."""
+    # Reject incompatible flag combination before doing any work.
+    if storage_path is not None and include_refresh_health:
+        print(
+            "Error: --include-refresh-health requires a config file and is "
+            "incompatible with --storage-path.",
+            file=sys.stderr,
+        )
+        sys.exit(EXIT_CONFIG)
+
     report = await collect_evidence_bundle(
         config_path,
         event_id=event_id,
         replay_run_id=replay_run_id,
         include_refresh_health=include_refresh_health,
+        storage_path=storage_path,
     )
 
     if json_output:
@@ -29,8 +41,8 @@ async def _evidence(
     else:
         # Human-readable summary.
         status = report["status"]
-        if status == "ok":
-            print("Evidence: OK")
+        if status == "passed":
+            print("Evidence: PASSED")
         elif status == "partial":
             print("Evidence: PARTIAL (some sections incomplete)")
         else:
@@ -45,7 +57,7 @@ async def _evidence(
         for name, section in sorted(sections.items()):
             sec_status = section.get("status", "unknown")
             marker = {
-                "ok": "\u2713",
+                "passed": "\u2713",
                 "partial": "\u26a0",
                 "error": "\u2717",
                 "skipped": "-",

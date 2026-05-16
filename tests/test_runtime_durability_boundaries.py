@@ -453,11 +453,11 @@ class TestCliNoDirectTransportSdk:
 
     def test_cli_sdk_probe_is_dynamic_only(self) -> None:
         """SDK availability checks in CLI must use importlib.import_module."""
-        source = _source_of("medre.cli")
+        source = _source_of("medre.cli.transports")
 
         # Verify the _TRANSPORTS list uses importlib.import_module.
         assert "importlib.import_module" in source, (
-            "CLI should use importlib.import_module for SDK probing"
+            "CLI transports module should use importlib.import_module for SDK probing"
         )
 
         # Verify no direct SDK instantiation patterns in function bodies
@@ -478,6 +478,6 @@ class TestCliNoDirectTransportSdk:
                     violations.append(f"line {i}: {stripped}")
 
         assert violations == [], (
-            f"cli.py directly instantiates transport SDKs:\n"
+            f"transports.py directly instantiates transport SDKs:\n"
             + "\n".join(violations)
         )

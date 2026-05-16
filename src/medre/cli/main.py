@@ -19,6 +19,7 @@ from .recover_commands import _recover
 from .run_commands import _run
 from .smoke_commands import _smoke, _run_session
 from .evidence_commands import _evidence
+from .exit_codes import EXIT_CONFIG
 
 
 def _get_version() -> str:
@@ -122,7 +123,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
     # evidence
     evidence_p = sub.add_parser("evidence", help="Collect evidence bundle for support")
-    evidence_p.add_argument("--config", default=None, help="Path to config file")
+    evidence_mx = evidence_p.add_mutually_exclusive_group()
+    evidence_mx.add_argument("--config", default=None, help="Path to config file")
+    evidence_mx.add_argument("--storage-path", default=None, metavar="PATH",
+        help="Path to SQLite database (read-only; collects storage/trace evidence only)")
     evidence_p.add_argument("--json", action="store_true", default=False, help="Output JSON report")
     evidence_p.add_argument("--event", default=None, metavar="EVENT_ID",
         help="Include event and delivery receipts from storage")
@@ -137,12 +141,18 @@ def _build_parser() -> argparse.ArgumentParser:
 
     # inspect event <event_id>
     inspect_evt = inspect_sub.add_parser("event", help="Inspect a canonical event")
-    inspect_evt.add_argument("--config", default=None, help="Path to config file")
+    inspect_evt_mx = inspect_evt.add_mutually_exclusive_group()
+    inspect_evt_mx.add_argument("--config", default=None, help="Path to config file")
+    inspect_evt_mx.add_argument("--storage-path", default=None, metavar="PATH",
+        help="Path to SQLite database (read-only; no config required)")
     inspect_evt.add_argument("event_id", help="Canonical event ID to look up")
 
     # inspect receipts (--event <id> | --replay-run <run_id>)
     inspect_rcpt = inspect_sub.add_parser("receipts", help="List delivery receipts")
-    inspect_rcpt.add_argument("--config", default=None, help="Path to config file")
+    inspect_rcpt_mx = inspect_rcpt.add_mutually_exclusive_group()
+    inspect_rcpt_mx.add_argument("--config", default=None, help="Path to config file")
+    inspect_rcpt_mx.add_argument("--storage-path", default=None, metavar="PATH",
+        help="Path to SQLite database (read-only; no config required)")
     inspect_rcpt_group = inspect_rcpt.add_mutually_exclusive_group(required=True)
     inspect_rcpt_group.add_argument(
         "--event", default=None, help="Event ID to query receipts for",
@@ -153,7 +163,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
     # inspect native-ref --adapter A --message M [--channel C]
     inspect_nref = inspect_sub.add_parser("native-ref", help="Resolve native ref to canonical event")
-    inspect_nref.add_argument("--config", default=None, help="Path to config file")
+    inspect_nref_mx = inspect_nref.add_mutually_exclusive_group()
+    inspect_nref_mx.add_argument("--config", default=None, help="Path to config file")
+    inspect_nref_mx.add_argument("--storage-path", default=None, metavar="PATH",
+        help="Path to SQLite database (read-only; no config required)")
     inspect_nref.add_argument("--adapter", required=True, help="Adapter name")
     inspect_nref.add_argument("--channel", default=None, help="Native channel ID (omit for channelless protocols)")
     inspect_nref.add_argument("--message", required=True, help="Native message ID")
@@ -164,13 +177,19 @@ def _build_parser() -> argparse.ArgumentParser:
 
     # trace event <event_id>
     trace_evt = trace_sub.add_parser("event", help="Assemble timeline for a canonical event")
-    trace_evt.add_argument("--config", default=None, help="Path to config file")
+    trace_evt_mx = trace_evt.add_mutually_exclusive_group()
+    trace_evt_mx.add_argument("--config", default=None, help="Path to config file")
+    trace_evt_mx.add_argument("--storage-path", default=None, metavar="PATH",
+        help="Path to SQLite database (read-only; no config required)")
     trace_evt.add_argument("event_id", help="Canonical event ID to trace")
     trace_evt.add_argument("--json", action="store_true", default=False, help="Output JSON timeline")
 
     # trace replay <run_id>
     trace_rpl = trace_sub.add_parser("replay", help="Assemble timeline for a replay run")
-    trace_rpl.add_argument("--config", default=None, help="Path to config file")
+    trace_rpl_mx = trace_rpl.add_mutually_exclusive_group()
+    trace_rpl_mx.add_argument("--config", default=None, help="Path to config file")
+    trace_rpl_mx.add_argument("--storage-path", default=None, metavar="PATH",
+        help="Path to SQLite database (read-only; no config required)")
     trace_rpl.add_argument("run_id", help="Replay run ID to trace")
     trace_rpl.add_argument("--json", action="store_true", default=False, help="Output JSON timeline")
 
@@ -193,6 +212,10 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Restrict replay to these route IDs",
     )
     replay_p.add_argument("--limit", type=int, default=100, help="Max events to replay (default: 100)")
+    replay_p.add_argument(
+        "--storage-path", default=None, metavar="PATH",
+        help=argparse.SUPPRESS,
+    )
 
     # recover
     recover_p = sub.add_parser("recover", help="Analyze failed deliveries and generate recovery runbook")
@@ -270,14 +293,19 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "inspect":
         import asyncio
 
+        _storage_path = getattr(args, "storage_path", None)
         if args.inspect_command == "event":
-            asyncio.run(_inspect_event(args.config, args.event_id))
+            asyncio.run(_inspect_event(
+                args.config, args.event_id,
+                storage_path=_storage_path,
+            ))
         elif args.inspect_command == "receipts":
             asyncio.run(
                 _inspect_receipts(
                     args.config,
                     event_id=args.event,
                     replay_run_id=args.replay_run,
+                    storage_path=_storage_path,
                 )
             )
         elif args.inspect_command == "native-ref":
@@ -287,6 +315,7 @@ def main(argv: list[str] | None = None) -> None:
                     adapter=args.adapter,
                     channel=args.channel,
                     message=args.message,
+                    storage_path=_storage_path,
                 )
             )
     elif args.command == "evidence":
@@ -299,17 +328,35 @@ def main(argv: list[str] | None = None) -> None:
                 getattr(args, "event", None),
                 getattr(args, "replay_run", None),
                 args.include_refresh_health,
+                storage_path=getattr(args, "storage_path", None),
             )
         )
     elif args.command == "trace":
         import asyncio
 
+        _storage_path = getattr(args, "storage_path", None)
         if args.trace_command == "event":
-            asyncio.run(_trace_event(args.config, args.event_id, args.json))
+            asyncio.run(_trace_event(
+                args.config, args.event_id, args.json,
+                storage_path=_storage_path,
+            ))
         elif args.trace_command == "replay":
-            asyncio.run(_trace_replay(args.config, args.run_id, args.json))
+            asyncio.run(_trace_replay(
+                args.config, args.run_id, args.json,
+                storage_path=_storage_path,
+            ))
     elif args.command == "replay":
         import asyncio
+
+        if getattr(args, "storage_path", None) is not None:
+            print(
+                "Error: --storage-path is not supported for replay. "
+                "Replay requires a config file with declared routes and "
+                "adapters to determine replay targets. "
+                "Use --config to specify a config file.",
+                file=sys.stderr,
+            )
+            sys.exit(EXIT_CONFIG)
 
         asyncio.run(
             _replay(

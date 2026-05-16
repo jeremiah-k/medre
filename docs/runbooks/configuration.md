@@ -311,6 +311,63 @@ allowed_event_types = ["message"]
 > are reserved placeholders and must not be set. The config parser rejects
 > them.
 
+#### Route Retry (`[routes.ROUTE_ID.retry]`)
+
+Optional per-route retry policy for transient delivery failures. When enabled,
+transient adapter errors on this route produce retry receipts with `next_retry_at`
+populated. The global `[retry]` section controls whether the RetryWorker
+processes them — route retry governs **scheduling**, global retry governs
+**execution**.
+
+```toml
+[routes.matrix_radio_bridge.retry]
+enabled = true
+max_attempts = 3
+backoff_base = 2.0
+max_delay_seconds = 60.0
+jitter = false
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `true` | Whether retry scheduling is active for this route. |
+| `max_attempts` | int | `3` | Maximum total delivery attempts (including the initial). Must be > 0. |
+| `backoff_base` | float | `2.0` | Base delay in seconds for exponential backoff. Must be >= 0. |
+| `max_delay_seconds` | float | `60.0` | Upper bound for the computed backoff delay. Must be >= 0. |
+| `jitter` | bool | `false` | Whether to add jitter to the backoff delay. |
+
+Both levels must be active for automatic retry:
+
+- Each route's `[routes.<id>.retry]` controls whether retry receipts are
+  scheduled for transient failures on that route.
+- The `[retry]` section controls whether the RetryWorker processes them.
+- If `[retry] enabled = false` (default), retry receipts accumulate in storage
+  with `next_retry_at` set but are never processed. They can be inspected
+  manually or processed later when the worker is enabled.
+
+
+### `[retry]`
+
+Controls the background RetryWorker that polls for due retry receipts and
+re-attempts delivery. This is separate from per-route retry policy (which
+determines `max_attempts` and backoff for individual delivery failures).
+
+```toml
+[retry]
+enabled = true
+interval_seconds = 10.0
+batch_size = 20
+max_attempts = 3
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `false` | Whether the RetryWorker runs at all. |
+| `interval_seconds` | float | `10.0` | How often the worker polls for due receipts. Must be > 0. |
+| `batch_size` | int | `20` | Max receipts processed per polling cycle. Must be >= 1. |
+| `max_attempts` | int | `3` | Global max attempts before dead-lettering. Each route may override. Must be >= 1. |
+
+
 #### Adapter ID Semantics in Routes
 
 - Routes reference the **resolved** `adapter_id`, not the TOML section key.
@@ -681,8 +738,62 @@ medre paths
 
 medre version
     Print the MEDRE version.
+
+medre adapters
+    List available adapter kinds and their SDK dependency status.
+
+medre diagnostics [--config PATH] [--refresh-health]
+    Print adapter diagnostics snapshot. Without --refresh-health, reports
+    build-time state only (no adapter start, no I/O). With --refresh-health,
+    starts adapters, polls health, then stops.
+
+medre routes (validate|topology|list) [--config PATH]
+    Route management: validate route config, print topology preview, or
+    list configured routes. All require --config.
+
+medre smoke [--config PATH] [--storage-path PATH] [--drill NAME] [--run-session] [--json]
+    Run fake bridge smoke test. Uses in-memory storage by default.
+    Pass --storage-path to persist evidence to SQLite. --drill runs a
+    named failure drill. --run-session runs a full bridge session cycle.
+
+medre inspect (event|receipts|native-ref) [--config PATH] [--storage-path PATH]
+    Read-only storage inspection. event and receipts subcommands support
+    --storage-path to open a SQLite database directly (bypasses config).
+    native-ref requires --config.
+
+    medre inspect event <event_id> --storage-path <db>
+    medre inspect receipts --event <event_id> --storage-path <db>
+    medre inspect receipts --replay-run <run_id> --config <path>
+    medre inspect native-ref --adapter <name> --message <native_id> --config <path>
+
+medre trace (event|replay) [--config PATH] [--storage-path PATH]
+    Chronological timeline assembly. trace event supports --storage-path
+    for direct read-only access. trace replay requires --config.
+
+    medre trace event <event_id> --storage-path <db> [--json]
+    medre trace replay <run_id> --config <path> [--json]
+
+medre evidence [--config PATH] [--storage-path PATH] [--event ID] [--replay-run ID] [--include-refresh-health] [--json]
+    Collect an evidence bundle for support. Supports --storage-path for
+    direct read-only access to a SQLite database. --include-refresh-health
+    starts adapters to poll live health.
+
+medre replay --mode MODE --config PATH [--event ID] [--json]
+    Execute a replay operation. Requires --config (rejects --storage-path).
+    Modes: dry_run, re_route, best_effort. Replay needs config to resolve
+    routes and adapters for replay targets.
+
+medre recover --config PATH [--event ID] [--failed-only] [--dry-run] [--json]
+    Analyze failed deliveries and generate recovery runbook. Requires
+    --config to load storage and route context.
 ```
 
 All commands that accept `--config` follow the
 [Configuration Search Order](#configuration-search-order) when the flag is
 omitted.
+
+`inspect`, `trace event`, and `evidence` support `--storage-path` to open a
+SQLite database directly in read-only mode, bypassing config file loading
+entirely. This is useful for inspecting smoke databases or post-run evidence
+without maintaining a config file. Commands that need route or adapter context
+(`replay`, `recover`, `inspect native-ref`, `trace replay`) require `--config`.
