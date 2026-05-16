@@ -12,13 +12,12 @@ The Docker bridge artifact collector is an **opt-in** tool that runs Docker inte
 - Docker SDK-boundary validation: real adapter SDKs work against containerized services.
 - Config-to-runtime path with real connection parameters.
 - Adapter lifecycle correctness (start, health check, deliver, stop).
+- Cross-adapter routing for `matrix_to_meshtastic`: real Matrix nio SDK ingress, PipelineRunner routing, real Meshtastic SDK outbound to meshtasticd.
 
 **What this does NOT prove:**
 - No real external Matrix account is used or proven (container-local Synapse only).
 - No real radio hardware is used or proven (container-local meshtasticd simulation only).
-- No cross-transport bridge between two real adapters.
-- No sustained throughput, reconnect resilience, or load evidence.
-- Fire-and-forget delivery for radio transports.
+- No automated queue draining, real pubsub Meshtastic inbound, or sustained throughput.
 
 ## Usage
 
@@ -50,7 +49,7 @@ print(f"Run directory: {summary['run_directory']}")
 
 | Scenario | Tests Included | Description |
 |----------|---------------|-------------|
-| `matrix_to_meshtastic` | Synapse connectivity, bridge smoke, run session | Matrix inbound via real nio SDK, outbound to fake target |
+| `matrix_to_meshtastic` | Synapse connectivity, bridge smoke, run session | Matrix inbound via real nio SDK, routed through PipelineRunner, outbound to real Meshtastic SDK (meshtasticd) |
 | `meshtastic_to_matrix` | meshtasticd connectivity, SDK bridge | Meshtastic outbound via real mtjk SDK |
 | `bidirectional` | All of the above | Both directions exercised |
 
@@ -62,11 +61,9 @@ Artifacts are written to:
 .ci-artifacts/docker-bridge-runs/<ISO-timestamp>/
 ├── summary.json           # Structured evidence summary (always written)
 ├── run-metadata.json      # Run parameters, images, timestamps (always written)
-├── pytest-stdout.log      # Pytest stdout capture (always written)
-├── pytest-stderr.log      # Pytest stderr capture (always written)
-├── synapse.log            # Synapse container logs (Matrix scenarios)
-├── meshtasticd.log        # meshtasticd container logs (Meshtastic scenarios)
-├── config.toml            # Config snapshot used for this run
+├── config.toml            # Config snapshot used for this run (always written)
+├── synapse.log            # Synapse container logs (required for Matrix scenarios)
+├── meshtasticd.log        # meshtasticd container logs (required for Meshtastic scenarios, best-effort for cross-adapter)
 ├── medre.log              # Runtime log (best-effort, may be absent)
 ├── receipts.json          # Delivery receipt snapshot (best-effort)
 ├── native-refs.json       # Inbound native message refs (best-effort)
@@ -79,17 +76,34 @@ Reuses the existing `MEDRE_CI_ARTIFACT_DIR` environment variable and `.ci-artifa
 
 ### Required files
 
-These files are written on every run, including failed runs:
+These files are written on every run, including failed runs. The exact list depends on the scenario, because only the relevant container logs are required.
 
-| File | Contents | Always present? |
-|------|----------|-----------------|
-| `summary.json` | Structured evidence summary: status, scenario, timestamps, per-transport results, limitations. See shape below. | Yes |
-| `run-metadata.json` | Run parameters: scenario name, Docker image tags, ports, timeout, Python version, MEDRE version. | Yes |
-| `pytest-stdout.log` | Captured stdout from the pytest subprocess. Includes test names, assertions, and the final summary line. | Yes |
-| `pytest-stderr.log` | Captured stderr from the pytest subprocess. Includes log output and any tracebacks. | Yes |
-| `synapse.log` | `docker logs` output from the Synapse container. Present for `matrix_to_meshtastic` and `bidirectional` scenarios. | For Matrix scenarios |
-| `meshtasticd.log` | `docker logs` output from the meshtasticd container. Present for `meshtastic_to_matrix` and `bidirectional` scenarios. | For Meshtastic scenarios |
-| `config.toml` | Copy of the TOML config used to configure adapters and routes for this run. | Yes |
+**Scenario-aware required files:**
+
+| Scenario | Required files |
+|----------|---------------|
+| `matrix_to_meshtastic` | `summary.json`, `run-metadata.json`, `config.toml`, `synapse.log` |
+| `meshtastic_to_matrix` | `summary.json`, `run-metadata.json`, `config.toml`, `meshtasticd.log` |
+| `bidirectional` | `summary.json`, `run-metadata.json`, `config.toml`, `synapse.log`, `meshtasticd.log` |
+
+For `matrix_to_meshtastic`, `meshtasticd.log` is best-effort (see below). The run starts a meshtasticd container for cross-adapter delivery, but the log is collected on a best-effort basis because the primary transport under test is Matrix inbound.
+
+**Always required (all scenarios):**
+
+| File | Contents |
+|------|----------|
+| `summary.json` | Structured evidence summary: status, scenario, timestamps, per-transport results, limitations. See shape below. |
+| `run-metadata.json` | Run parameters: scenario name, Docker image tags, ports, timeout, Python version, MEDRE version. |
+| `config.toml` | Copy of the TOML config used to configure adapters and routes for this run. |
+
+**Conditionally required:**
+
+| File | Contents | When required |
+|------|----------|---------------|
+| `synapse.log` | `docker logs` output from the Synapse container. | `matrix_to_meshtastic`, `bidirectional` |
+| `meshtasticd.log` | `docker logs` output from the meshtasticd container. | `meshtastic_to_matrix`, `bidirectional` |
+
+**Legacy note:** Older runs (before scenario-aware plans) may have `pytest-stdout.log` and `pytest-stderr.log` as required files. Current runs capture pytest output inline in `summary.json` under `logs.pytest_stdout` and `logs.pytest_stderr`.
 
 ### Best-effort files
 
@@ -97,6 +111,7 @@ These files may or may not be present depending on how far the run progressed. I
 
 | File | Contents | When present |
 |------|----------|--------------|
+| `meshtasticd.log` | `docker logs` output from the meshtasticd container. Best-effort for `matrix_to_meshtastic` (required for other Meshtastic scenarios). Present when the cross-adapter run started a meshtasticd container. | meshtasticd container ran |
 | `medre.log` | Runtime log output from the MEDRE process. Present when the runtime started and wrote to its log file before the run ended. | Runtime initialized |
 | `receipts.json` | JSON array of `DeliveryReceipt` objects persisted during the run. Present when at least one delivery was attempted. | Delivery attempted |
 | `native-refs.json` | JSON array of `NativeMessageRef` objects recording inbound message provenance. Present when inbound events were processed and refs were stored. | Inbound refs recorded |
@@ -210,6 +225,97 @@ python -m json.tool "${RUN_DIR}inspect-timeline.json" | less
 
 Best-effort files are written when the corresponding subsystem ran successfully. If a file is missing, the run did not reach that stage. The `limitations` array in `summary.json` explains the absence. For example, if `receipts.json` is absent, no delivery was attempted before the run ended (likely an early failure in adapter initialization or container startup).
 
+## Manual Inspection Walkthrough
+
+This section walks through inspecting a `matrix_to_meshtastic` artifact bundle by hand. Use this when you want to understand exactly what a run did, step by step, without relying on automated tooling.
+
+### Step 1: Install dependencies
+
+```bash
+pip install -e ".[matrix,meshtastic,dev]"
+```
+
+This pulls in the Matrix SDK (`mindroom-nio`), the Meshtastic SDK (`mtjk`), and dev tools. The script will fail fast with a clear message if anything is missing.
+
+### Step 2: Run the artifact collector
+
+```bash
+./scripts/ci/run-docker-bridge-artifacts.sh matrix_to_meshtastic
+```
+
+This spins up Synapse and meshtasticd containers, runs the integration tests, and writes artifacts to a timestamped directory under `.ci-artifacts/docker-bridge-runs/`. The run takes a few minutes. When it finishes, note the run directory printed at the end.
+
+### Step 3: Read the summary
+
+```bash
+RUN_DIR=$(ls -td .ci-artifacts/docker-bridge-runs/*/ | head -1)
+cat "${RUN_DIR}summary.json" | python -m json.tool
+```
+
+The `status` field tells you the top-level result:
+
+| Status | Meaning |
+|--------|---------|
+| `passed` | All tests passed. Evidence fields are populated. |
+| `partial` | Some tests passed, some failed. Check `errors` and `limitations`. |
+| `failed` | Tests did not pass. Evidence may be sparse. Read `errors` and logs. |
+
+Look at `matrix.ingress_path` to see how the Matrix event arrived:
+
+- `"sync_loop"` means the real nio sync callback fired. This is the ideal path.
+- `"direct_on_room_message_fallback"` means sync did not deliver within the timeout window, so the test fell back to a direct callback. The test still passes, but this is a weaker signal.
+- `null` means no Matrix ingress happened at all.
+
+Look at `meshtastic.outbound` for the cross-adapter delivery result. If present, the `packet_ids` array shows real packet IDs returned by meshtasticd's `sendText` call.
+
+### Step 4: Inspect the container logs
+
+```bash
+# Synapse log — shows the Matrix server processing the inbound event
+less "${RUN_DIR}synapse.log"
+
+# meshtasticd log — shows the Meshtastic daemon receiving the outbound packet
+# This file is best-effort for matrix_to_meshtastic (present when meshtasticd was running)
+less "${RUN_DIR}meshtasticd.log"
+```
+
+In `synapse.log`, look for the event ID matching `summary.json → matrix.event_id`. In `meshtasticd.log`, look for the packet ID matching `summary.json → meshtastic.outbound.packet_ids`.
+
+### Step 5: Inspect the evidence files
+
+These are best-effort files. They may be absent if the run failed early. When present, they tell you what the pipeline actually did.
+
+```bash
+# Delivery receipts — shows each outbound delivery attempt and its status
+python -m json.tool "${RUN_DIR}receipts.json"
+
+# Native message refs — records the Matrix provenance (event_id, room, sender)
+python -m json.tool "${RUN_DIR}native-refs.json"
+
+# Pipeline timeline — per-event trace through codec, router, renderer, adapter
+python -m json.tool "${RUN_DIR}inspect-timeline.json"
+
+# Full evidence bundle — everything above combined
+python -m json.tool "${RUN_DIR}evidence.json"
+```
+
+### Step 6: Interpret the key fields
+
+**`ingress_path`** in `summary.json → matrix`:
+
+- `"sync_loop"`: The real nio SDK's `sync_forever` callback delivered the event. This proves the full Matrix adapter ingress path works against a real Synapse instance.
+- `"direct_on_room_message_fallback"`: Sync did not fire in time. The test injected the event through `_on_room_message` instead. The event still went through `MatrixCodec` and the full pipeline, but the sync loop itself was not the delivery mechanism.
+
+**`meshtastic_outbound_path`** (when present in evidence or receipts):
+
+- `"manual_send_one_after_deliver"`: After the pipeline delivered the event through the Meshtastic adapter, a follow-up manual `sendText` confirmed the outbound path. This proves the real Meshtastic SDK successfully enqueued a packet to meshtasticd.
+
+**`status`** field:
+
+- `"passed"`: All assertions held. Evidence is consistent.
+- `"partial"`: Some assertions passed, others did not. Read `errors` and `limitations` to understand which parts worked.
+- `"failed"`: The run did not complete successfully. The artifact bundle still contains useful diagnostic information, especially in `pytest-stderr.log` and `synapse.log`.
+
 ## Proof Boundaries
 
 ### Matrix to Meshtastic (`matrix_to_meshtastic`)
@@ -218,16 +324,19 @@ Best-effort files are written when the corresponding subsystem ran successfully.
 - Real `nio` SDK connects to a Docker-local Synapse homeserver.
 - Inbound Matrix event arrives via the real sync loop (`ingress_path == "sync_loop"`), with fallback to `_on_room_message` if sync does not deliver within the timeout.
 - `MatrixCodec` decodes the event into a `CanonicalEvent`.
-- Pipeline routes the event and produces a `DeliveryReceipt` with a genuine Synapse `event_id`.
+- `PipelineRunner` routes the canonical event to the real Meshtastic adapter.
+- Real `mtjk` SDK delivers the outbound payload to a Docker-local meshtasticd instance via `sendText`, returning a real packet ID.
+- `DeliveryReceipt` records the result with genuine Synapse `event_id` and Meshtastic `packet_id`.
 - `NativeMessageRef` records the Matrix provenance.
-- Adapter lifecycle (start, health check, deliver, stop) works through real SDK code.
+- Adapter lifecycle (start, health check, deliver, stop) works through real SDK code for both Matrix and Meshtastic adapters.
 
 **What is NOT proven:**
 - No real external Matrix account. Synapse runs in a Docker container on localhost.
-- No real Meshtastic radio. The outbound target is a fake adapter; no packet leaves the machine.
-- No final ACK guarantee. Radio delivery is fire-and-forget at the protocol level.
+- No real LoRa radio. meshtasticd runs in simulation mode inside Docker. No over-the-air packets.
+- No automated queue draining. The test exercises a single message, not sustained message flow.
+- No real pubsub Meshtastic inbound. Meshtastic events are injected via `simulate_inbound`, not received through real pubsub callbacks.
 - No sustained throughput, reconnect resilience, or load behavior.
-- Meshtastic inbound is simulated (via `simulate_inbound`), not received through real pubsub callbacks.
+- No final ACK guarantee. Radio delivery is fire-and-forget at the protocol level.
 
 ### Meshtastic to Matrix (`meshtastic_to_matrix`)
 
@@ -253,10 +362,10 @@ Combines both scenarios above. All proven and unproven statements from both indi
 
 - **No external Matrix account or homeserver.** Everything runs against Docker-local Synapse.
 - **No real radio.** meshtasticd simulates LoRa behavior. No over-the-air packets.
-- **No cross-transport bridge with two real adapters.** Bridge smoke routes real Matrix to a fake outbound adapter.
+- **No automated queue draining.** Tests exercise single-message paths, not sustained message flow through an outbound queue.
+- **No real pubsub Meshtastic inbound.** Meshtastic events arrive through `simulate_inbound`, not real pubsub callbacks.
 - **No final ACK guarantee.** Radio transports are fire-and-forget. `success=True` means the local SDK accepted the payload.
 - **No replay deduplication.** Replayed events produce new receipts without dedup.
-- **Meshtastic inbound may be simulated.** Real pubsub callback delivery is not confirmed.
 - **No sustained throughput or reconnect resilience.** Tests are smoke tests, not reliability tests.
 
 ## Redaction

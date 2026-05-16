@@ -1,8 +1,8 @@
 # Bridge Operation Runbook
 
-> Last updated: 2026-05-11
+> Last updated: 2026-05-16
 > Scope: Delivery-state discipline for cross-transport bridge operation
-> Status: Pre-beta. Not production. Operational model is accurate to code; live bridge validation is not claimed. Docker SDK-boundary bridge tests prove real SDK lifecycle against containerized services.
+> Status: Pre-beta. Not production. Operational model is accurate to code; live bridge validation is not claimed. Docker SDK-boundary bridge tests prove real SDK lifecycle against containerized services, including cross-adapter Matrix→Meshtastic routing.
 
 This runbook documents how delivery state works when MEDRE bridges events across transports. It covers what each transport can honestly report, where retry boundaries fall, how the pipeline records results, and what operators should expect when routing events through a multi-transport bridge.
 
@@ -195,8 +195,26 @@ loop (with fallback to direct `_on_room_message` if sync does not deliver in
 `FakeMatrixAdapter`, `DeliveryReceipt` persistence with genuine Synapse
 event_ids, `NativeMessageRef` inbound mapping, and `RuntimeAccounting`
 counter increments — all against a Docker-local Synapse homeserver. The
-outbound target is a fake adapter; real cross-transport delivery to a second
-real adapter is not proven.
+outbound target in this test is a fake adapter.
+
+The `matrix_to_meshtastic` Docker bridge artifact run goes further: it
+exercises the full cross-adapter path from real Matrix nio SDK ingress
+through `PipelineRunner` routing to a real Meshtastic `mtjk` SDK outbound
+delivery against a Docker-local meshtasticd instance. This proves real
+SDK-to-SDK event flow: Matrix event arrives via the real sync loop,
+`MatrixCodec` decodes it, the pipeline routes through `MeshtasticRenderer`,
+and the real Meshtastic adapter enqueues the payload via `sendText` to
+meshtasticd, returning a real packet ID. This is the strongest cross-adapter
+evidence available without real radio hardware or external accounts.
+
+**Proof boundaries for `matrix_to_meshtastic` cross-adapter:**
+
+- Proven: real nio SDK ingress, PipelineRunner routing, real mtjk SDK
+  outbound to meshtasticd.
+- Not proven: automated queue draining, real LoRa radio, real pubsub
+  Meshtastic inbound, sustained throughput.
+- All services run on localhost via Docker containers. No external Matrix
+  account, no real radio, no real network.
 
 - **`ingress_path` tracking** — the Matrix Docker bridge test tracks whether
   inbound events arrived via the real nio `sync_forever` callback
@@ -220,24 +238,25 @@ real adapter is not proven.
 | Adapter-wrapper | **Proven** | Per-transport adapter codec, renderer, session |
 | Docker SDK-boundary | **Proven** | Real SDK lifecycle, config, dependency resolution |
 | Docker SDK-boundary bridge smoke | **Proven** | Real Matrix SDK codec + pipeline routing + storage + accounting with genuine Synapse event_ids |
-| Live network | **Not claimed** | No cross-transport bridge test against real endpoints |
+| Docker cross-adapter (`matrix_to_meshtastic`) | **Proven** | Real Matrix nio SDK ingress + PipelineRunner routing + real Meshtastic mtjk SDK outbound to meshtasticd with real packet IDs |
+| Live network | **Not claimed** | No test against real external endpoints or real radio hardware |
 
 
 ### 7a.1 Docker Artifact Bundle
 
 The Docker bridge artifact collector (`scripts/ci/run-docker-bridge-artifacts.sh`) writes a structured artifact bundle to `.ci-artifacts/docker-bridge-runs/<ISO-timestamp>/`. This bundle is the primary evidence record for Docker SDK-boundary bridge validation.
 
-**Required files** (always present):
+**Required files** (scenario-aware):
 
-| File | Meaning |
-|------|---------|
-| `summary.json` | Structured evidence summary: status, scenario, per-transport results, limitations. Always written, even on failure. |
-| `run-metadata.json` | Run parameters: scenario, Docker image tags, ports, timeout, Python and MEDRE versions. |
-| `pytest-stdout.log` | Pytest stdout with test names, assertions, and summary line. |
-| `pytest-stderr.log` | Pytest stderr with log output and tracebacks. |
-| `config.toml` | TOML config snapshot used for this run. |
-| `synapse.log` | Synapse container logs (Matrix scenarios). |
-| `meshtasticd.log` | meshtasticd container logs (Meshtastic scenarios). |
+| File | When required |
+|------|---------------|
+| `summary.json` | All scenarios |
+| `run-metadata.json` | All scenarios |
+| `config.toml` | All scenarios |
+| `synapse.log` | `matrix_to_meshtastic`, `bidirectional` |
+| `meshtasticd.log` | `meshtastic_to_matrix`, `bidirectional` |
+
+For `matrix_to_meshtastic`, `meshtasticd.log` is best-effort (collected when the cross-adapter run starts a meshtasticd container, but not required because the primary transport under test is Matrix inbound).
 
 **Best-effort files** (present when the corresponding subsystem ran):
 
@@ -377,8 +396,9 @@ For all Docker integration tests together: `PYTHONPATH=src pytest tests/integrat
 - Meshtastic inbound through real pubsub callback is unconfirmed (see known
   gap: two-client relay).
 - No MeshCore or LXMF Docker tests exist.
-- No cross-transport bridge between two real adapters (bridge smoke routes
-  real Matrix to fake outbound).
+- No automated queue draining, sustained throughput, or reconnect resilience.
+- No real LoRa radio. meshtasticd simulates radio behavior.
+- No real external Matrix account beyond Docker-local Synapse.
 
 **What failing means:**
 
@@ -451,6 +471,7 @@ Use the table below to find the right command for the fidelity you need.
 | **Wrapper callback** | `pytest tests/test_matrix_wrapper_ingress.py -v` (or MeshCore/LXMF equivalents) | Adapter callback → pipeline → fake outbound | SDK is mocked; no real transport boundary |
 | **Docker Matrix** | `pytest tests/integration/test_synapse_bridge_smoke.py -m docker -v` | Real nio SDK against Synapse; sync-loop ingress tracked | Docker only; live Matrix claims not proven |
 | **Docker Meshtastic** | `pytest tests/integration/test_meshtasticd_sdk_bridge.py -m docker -v` | Real mtjk SDK lifecycle and outbound enqueue | Inbound pubsub unconfirmed; no real radio |
+| **Docker cross-adapter** | `./scripts/ci/run-docker-bridge-artifacts.sh matrix_to_meshtastic` | Real Matrix nio ingress + PipelineRunner + real Meshtastic SDK outbound to meshtasticd | Docker loopback only; no real radio or external Matrix |
 | **Live Matrix** | `MEDRE_* env vars set; pytest tests/test_matrix_live.py -m live -v` | Real homeserver connectivity | Smoke only; not sustained throughput |
 | **Live Meshtastic** | Manual: requires real node | Not yet tested through MEDRE | No live radio evidence claimed |
 
@@ -889,6 +910,15 @@ is **not** invoked by default CI — it requires explicit activation.
 5. Redacts tokens/passwords from all artifacts using
    ``sanitize_for_log`` and ``sanitize_error``.
 
+**Cross-adapter proof (``matrix_to_meshtastic``):**
+
+The ``matrix_to_meshtastic`` scenario proves real cross-adapter event flow:
+real Matrix nio SDK ingress through the sync loop, PipelineRunner routing
+through MeshtasticRenderer, and real Meshtastic mtjk SDK outbound delivery
+to meshtasticd returning a genuine packet ID. This is the strongest
+SDK-to-SDK evidence available without real radio hardware or external
+accounts.
+
 **Usage:**
 
 ```bash
@@ -902,9 +932,12 @@ is **not** invoked by default CI — it requires explicit activation.
 
 **Honesty requirements:**
 - No real external Matrix account or real radio is proven.
+- All services run on localhost in Docker containers (loopback only).
+- No automated queue draining, real pubsub Meshtastic inbound, or sustained
+  throughput is claimed.
 - Limitations explicitly state localhost-only, container-local validation.
 - On failure, ``summary.json`` is written with ``status: "failed"`` or
   ``"partial"`` and populated ``limitations``.
 
-See [Docker Bridge Artifacts](docker-bridge-artifacts.md) for full
-documentation, summary.json schema, and testing instructions.
+For full artifact documentation, the manual inspection walkthrough, and
+scenario-aware file lists, see [Docker Bridge Artifacts](docker-bridge-artifacts.md).

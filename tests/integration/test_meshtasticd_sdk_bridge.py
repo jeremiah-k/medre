@@ -84,7 +84,7 @@ from medre.core.routing import Route, RouteSource, RouteTarget, Router
 from medre.core.storage.sqlite import SQLiteStorage
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 
-from .conftest import MeshtasticdEnvironment, _write_artifact_json, _RUN_ARTIFACT_DIR
+from .conftest import MeshtasticdEnvironment, _write_artifact_json, _write_run_metadata, _RUN_ARTIFACT_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -453,6 +453,14 @@ class TestMeshtasticdSdkBridge:
                         "native_ref_count_inbound": 1,
                         "native_ref_count_outbound": 1,
                         "limitations": report["limitations"],
+                    },
+                )
+                _write_run_metadata(
+                    scenario="meshtasticd_sdk_bridge",
+                    containers={},
+                    storage_path=temp_storage._db_path,
+                    extras={
+                        "event_id": resolved,
                     },
                 )
         finally:

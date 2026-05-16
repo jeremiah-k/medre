@@ -58,7 +58,7 @@ from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.storage import SQLiteStorage
 from medre.core.storage.backend import StorageBackend
 
-from .conftest import SynapseEnvironment, _write_artifact_json, _RUN_ARTIFACT_DIR
+from .conftest import SynapseEnvironment, _write_artifact_json, _write_run_metadata, _RUN_ARTIFACT_DIR
 from .test_synapse_bridge_smoke import (
     IngressResult,
     _INBOUND_FALLBACK,
@@ -362,6 +362,17 @@ class TestSynapseRunSession:
                         "native_ref_count": len(report["native_refs"]),
                         "accounting": report["accounting"],
                         "limitations": report["limitations"],
+                    },
+                )
+                _write_run_metadata(
+                    scenario="synapse_run_session",
+                    containers={},
+                    storage_path=temp_storage._db_path,
+                    extras={
+                        "event_id": canonical_id,
+                        "matrix": {
+                            "ingress_path": ingress.ingress_path,
+                        },
                     },
                 )
         finally:

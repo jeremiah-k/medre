@@ -97,6 +97,7 @@ from medre.observability.sanitization import sanitize_for_log, sanitize_error
 
 __all__ = [
     "ARTIFACT_PLAN",
+    "get_artifact_plan",
     "SUPPORTED_SCENARIOS",
     "collect_docker_bridge_artifacts",
     "build_summary",
@@ -165,6 +166,58 @@ Best-effort artifacts may be absent; missing ones are reported as
 limitations.  ``final-snapshot.json`` is always best-effort because
 direct PipelineRunner tests cannot produce it without a full MedreApp.
 """
+
+
+# ---------------------------------------------------------------------------
+# Scenario-aware artifact plan
+# ---------------------------------------------------------------------------
+
+_BASE_REQUIRED = [
+    "summary.json",
+    "run-metadata.json",
+    "config.toml",
+]
+
+_BEST_EFFORT: list[str] = [
+    "medre.log",
+    "receipts.json",
+    "native-refs.json",
+    "inspect-timeline.json",
+    "evidence.json",
+    "final-snapshot.json",
+]
+
+_SCENARIO_REQUIRED_LOGS: dict[str, tuple[str, ...]] = {
+    "matrix_to_meshtastic": ("synapse.log",),
+    "meshtastic_to_matrix": ("meshtasticd.log",),
+    "bidirectional": ("synapse.log", "meshtasticd.log"),
+}
+
+
+def get_artifact_plan(scenario: str) -> dict[str, list[str]]:
+    """Return the artifact plan for *scenario*.
+
+    Parameters
+    ----------
+    scenario:
+        One of :data:`SUPPORTED_SCENARIOS`, or any string.  Unknown
+        scenarios fall back to requiring **both** ``synapse.log`` and
+        ``meshtasticd.log`` (equivalent to the historical
+        :data:`ARTIFACT_PLAN`).
+
+    Returns
+    -------
+    dict[str, list[str]]
+        ``{"required": [...], "best_effort": [...]}``
+    """
+    logs = _SCENARIO_REQUIRED_LOGS.get(
+        scenario,
+        ("synapse.log", "meshtasticd.log"),
+    )
+    return {
+        "required": _BASE_REQUIRED + list(logs),
+        "best_effort": list(_BEST_EFFORT),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -596,18 +649,32 @@ def _export_storage_artifacts_sync(
 # ---------------------------------------------------------------------------
 
 
-def _collect_artifact_manifest(run_dir: Path) -> dict[str, Any]:
+def _collect_artifact_manifest(
+    run_dir: Path,
+    scenario: str | None = None,
+) -> dict[str, Any]:
     """Collect artifact paths and identify missing required/best-effort files.
+
+    Parameters
+    ----------
+    run_dir:
+        The artifact run directory to scan.
+    scenario:
+        Optional scenario name.  When provided the required list is
+        looked up via :func:`get_artifact_plan`.  When *None* the
+        historical :data:`ARTIFACT_PLAN` (both logs) is used for
+        backward compatibility.
 
     Returns a dict with:
     - ``artifact_paths``: mapping filename → absolute path for existing artifacts
     - ``missing``: mapping with ``required`` and ``best_effort`` lists of missing names
     """
+    plan = get_artifact_plan(scenario) if scenario else ARTIFACT_PLAN
     artifact_paths: dict[str, str] = {}
     missing_required: list[str] = []
     missing_best_effort: list[str] = []
 
-    for name in ARTIFACT_PLAN["required"]:
+    for name in plan["required"]:
         path = run_dir / name
         # summary.json is written by the collector AFTER manifest
         # collection, so always treat it as present.
@@ -616,7 +683,7 @@ def _collect_artifact_manifest(run_dir: Path) -> dict[str, Any]:
         else:
             missing_required.append(name)
 
-    for name in ARTIFACT_PLAN["best_effort"]:
+    for name in plan["best_effort"]:
         path = run_dir / name
         if path.exists():
             artifact_paths[name] = str(path)
@@ -879,7 +946,8 @@ def collect_docker_bridge_artifacts(
             ] = meta_meshtastic["pubsub_proven"]
 
     # -- Step 15: Collect artifact manifest -----------------------------------
-    artifact_manifest = _collect_artifact_manifest(run_dir)
+    plan = get_artifact_plan(scenario)
+    artifact_manifest = _collect_artifact_manifest(run_dir, scenario)
 
     # Report missing required artifacts as honest status notes (not errors
     # that would change the overall status — they are environmental limits).
@@ -926,7 +994,7 @@ def collect_docker_bridge_artifacts(
         inspect_artifacts=log_artifacts + inspect_artifacts,
         errors=errors,
         now_fn=_now,
-        artifact_plan=ARTIFACT_PLAN,
+        artifact_plan=plan,
         artifact_paths=all_artifact_paths,
         missing_artifacts=artifact_manifest["missing"],
     )

@@ -102,9 +102,16 @@ case "${SCENARIO}" in
     matrix_to_meshtastic|bidirectional)
         check_import "Matrix SDK (mindroom-nio exposes 'nio')" "import nio"
         ;;&
+    matrix_to_meshtastic)
+        check_import "Meshtastic SDK (meshtastic)" "import meshtastic"
+        check_import "Meshtastic pubsub (pubsub.pub)" "from pubsub import pub"
+        ;;&
     meshtastic_to_matrix|bidirectional)
         check_import "Meshtastic SDK (meshtastic)" "import meshtastic"
         check_import "Meshtastic pubsub (pubsub.pub)" "from pubsub import pub"
+        ;;&
+    meshtastic_to_matrix)
+        check_import "Matrix SDK (mindroom-nio exposes 'nio')" "import nio"
         ;;
 esac
 

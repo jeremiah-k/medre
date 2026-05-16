@@ -167,6 +167,44 @@ def _write_artifact_json(filename: str, data: dict[str, Any]) -> None:
     logger.info("Wrote artifact: %s", path)
 
 
+def _merge_run_metadata(
+    existing: dict[str, Any],
+    new: dict[str, Any],
+) -> dict[str, Any]:
+    """Deep-merge *new* into *existing*, returning the merged dict.
+
+    Container/image/port dicts are merged by key (new values win).
+    Lists (e.g. ``events``) are concatenated with deduplication.
+    Scalar values from *new* overwrite *existing*.
+    """
+    merged = dict(existing)
+    for key, new_val in new.items():
+        if key in merged:
+            old_val = merged[key]
+            if isinstance(old_val, dict) and isinstance(new_val, dict):
+                merged[key] = _merge_run_metadata(old_val, new_val)
+            elif isinstance(old_val, list) and isinstance(new_val, list):
+                # Concatenate, preserving order, deduplicating by identity.
+                seen: set[int] = set()
+                combined: list[Any] = []
+                for item in old_val:
+                    hid = id(item)
+                    if hid not in seen:
+                        seen.add(hid)
+                        combined.append(item)
+                for item in new_val:
+                    hid = id(item)
+                    if hid not in seen:
+                        seen.add(hid)
+                        combined.append(item)
+                merged[key] = combined
+            else:
+                merged[key] = new_val
+        else:
+            merged[key] = new_val
+    return merged
+
+
 def _write_run_metadata(
     *,
     scenario: str,
@@ -174,8 +212,17 @@ def _write_run_metadata(
     storage_path: str | None = None,
     extras: dict[str, Any] | None = None,
 ) -> None:
-    """Write ``run-metadata.json`` with scenario/container/storage metadata."""
-    metadata: dict[str, Any] = {
+    """Merge-aware write of ``run-metadata.json``.
+
+    Reads the existing file (if any), merges the new data, and writes
+    the result.  This prevents successive teardown calls from
+    overwriting prior metadata.
+    """
+    artifact_dir = _get_run_artifact_dir()
+    if artifact_dir is None:
+        return
+
+    new: dict[str, Any] = {
         "scenario": scenario,
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "pid": os.getpid(),
@@ -191,10 +238,23 @@ def _write_run_metadata(
         },
     }
     if storage_path:
-        metadata["storage_path"] = storage_path
+        new["storage_path"] = storage_path
     if extras:
-        metadata.update(extras)
-    _write_artifact_json("run-metadata.json", metadata)
+        new.update(extras)
+
+    meta_path = artifact_dir / "run-metadata.json"
+    existing: dict[str, Any] = {}
+    if meta_path.exists():
+        try:
+            with open(meta_path) as fh:
+                existing = json.load(fh)
+        except (json.JSONDecodeError, OSError):
+            existing = {}
+
+    merged = _merge_run_metadata(existing, new)
+    with open(meta_path, "w") as fh:
+        json.dump(merged, fh, indent=2, default=str)
+    logger.info("Wrote artifact (merged): %s", meta_path)
 
 
 def _write_config_snapshot(
