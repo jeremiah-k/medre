@@ -188,13 +188,40 @@ PYTHONPATH=src pytest tests/test_matrix_live.py -m live --tb=short
 | Delivery receipt recording | Yes |
 | Event tracing (timeline assembly) | Yes |
 | Evidence bundle collection | Yes |
-| RetryWorker (opt-in) behavior | Yes (unit tests) |
-| Replay engine (five modes) | Yes (unit tests) |
+| RetryWorker (opt-in) | Yes (unit tests) |
+| Replay engine (three modes: DRY_RUN, RE_ROUTE, BEST_EFFORT) | Yes (unit tests) |
 | CLI commands | Yes |
 | Config validation | Yes |
 
 The fake path proves the software architecture works. It does not prove
 any transport works with real hardware or real networks.
+
+**Replay is manual and duplicate-risky.** Replay is a one-shot operator
+action — there is no background scheduler, no automatic resume, and no
+deduplication. Each `BEST_EFFORT` replay produces new outbound messages.
+Always run `DRY_RUN` or `RE_ROUTE` first. See
+[Replay Operation](replay-operation.md) for the full replay workflow.
+
+**Retry is a two-level opt-in.** Scheduled retry receipts are created only
+when a route has retry enabled via its `[routes.<id>.retry]` section. Routes
+without a retry section record transient failures without `next_retry_at`.
+The `RetryWorker` that processes due retry receipts is controlled by the
+`[retry]` section in the config:
+
+1. **Route level** — when a route declares `[routes.<id>.retry]` with
+   `enabled = true`, transient delivery failures produce a `failed` receipt
+   with `next_retry_at` set and retry policy metadata persisted. Routes
+   without a `[routes.<id>.retry]` section (or with `enabled = false`)
+   record transient failures but do not schedule retries.
+2. **Worker level** — the `[retry]` section controls whether the
+   `RetryWorker` runs. `enabled = true` starts a background task that
+   polls for due retry receipts and re-attempts delivery. If
+   `enabled = false` (default), retry receipts accumulate in storage but
+   are never processed automatically. They can be inspected with
+   `medre inspect receipts`.
+
+See `examples/configs/fake-retry-smoke.toml` for a config that enables
+the retry worker with fake adapters.
 
 ### Docker Matrix path
 
@@ -234,6 +261,9 @@ medre smoke --json
 medre smoke --config examples/configs/fake-bridge-smoke.toml \
   --storage-path /tmp/medre-alpha.db --json
 PYTHONPATH=src pytest -q
+
+# Retry config (fake adapters, retry worker enabled)
+medre config check --config examples/configs/fake-retry-smoke.toml
 
 # Docker Matrix path
 pip install -e ".[matrix,dev]"

@@ -13,6 +13,7 @@ from medre.runtime.routes import (
     RouteConfig,
     RouteConfigSet,
     RouteDirectionality,
+    RouteRetryConfig,
 )
 
 
@@ -552,6 +553,333 @@ class TestRouteLoaderIntegration:
         config, _, _ = load_config(str(p))
         assert config.routes.routes == ()
         assert config.runtime.name == "legacy"
+
+
+# ---------------------------------------------------------------------------
+# RouteRetryConfig — construction and validation
+# ---------------------------------------------------------------------------
+
+
+class TestRouteRetryConfig:
+    """RouteRetryConfig parsing, defaults, and validation."""
+
+    def test_defaults(self) -> None:
+        rc = RouteRetryConfig.from_toml_dict(
+            {}, route_id="test", section_path="routes.test",
+        )
+        assert rc.enabled is True
+        assert rc.max_attempts == 3
+        assert rc.backoff_base == 2.0
+        assert rc.max_delay_seconds == 60.0
+        assert rc.jitter is False
+
+    def test_full_config(self) -> None:
+        rc = RouteRetryConfig.from_toml_dict(
+            {
+                "enabled": True,
+                "max_attempts": 5,
+                "backoff_base": 1.5,
+                "max_delay_seconds": 120.0,
+                "jitter": True,
+            },
+            route_id="test",
+            section_path="routes.test",
+        )
+        assert rc.enabled is True
+        assert rc.max_attempts == 5
+        assert rc.backoff_base == 1.5
+        assert rc.max_delay_seconds == 120.0
+        assert rc.jitter is True
+
+    def test_disabled(self) -> None:
+        rc = RouteRetryConfig.from_toml_dict(
+            {"enabled": False},
+            route_id="test",
+            section_path="routes.test",
+        )
+        assert rc.enabled is False
+
+    def test_frozen(self) -> None:
+        rc = RouteRetryConfig.from_toml_dict(
+            {}, route_id="test", section_path="routes.test",
+        )
+        with pytest.raises(AttributeError):
+            rc.enabled = False  # type: ignore[misc]
+
+    # --- validation errors ---
+
+    def test_enabled_not_bool(self) -> None:
+        with pytest.raises(ConfigValidationError, match="retry.enabled must be a boolean"):
+            RouteRetryConfig.from_toml_dict(
+                {"enabled": "yes"},
+                route_id="test",
+                section_path="routes.test",
+            )
+
+    def test_max_attempts_not_int(self) -> None:
+        with pytest.raises(ConfigValidationError, match="retry.max_attempts must be an integer"):
+            RouteRetryConfig.from_toml_dict(
+                {"max_attempts": 3.5},
+                route_id="test",
+                section_path="routes.test",
+            )
+
+    def test_max_attempts_bool_rejected(self) -> None:
+        with pytest.raises(ConfigValidationError, match="retry.max_attempts must be an integer"):
+            RouteRetryConfig.from_toml_dict(
+                {"max_attempts": True},
+                route_id="test",
+                section_path="routes.test",
+            )
+
+    def test_max_attempts_zero(self) -> None:
+        with pytest.raises(ConfigValidationError, match="retry.max_attempts must be > 0"):
+            RouteRetryConfig.from_toml_dict(
+                {"max_attempts": 0},
+                route_id="test",
+                section_path="routes.test",
+            )
+
+    def test_max_attempts_negative(self) -> None:
+        with pytest.raises(ConfigValidationError, match="retry.max_attempts must be > 0"):
+            RouteRetryConfig.from_toml_dict(
+                {"max_attempts": -1},
+                route_id="test",
+                section_path="routes.test",
+            )
+
+    def test_backoff_base_negative(self) -> None:
+        with pytest.raises(ConfigValidationError, match="retry.backoff_base must be >= 0"):
+            RouteRetryConfig.from_toml_dict(
+                {"backoff_base": -0.1},
+                route_id="test",
+                section_path="routes.test",
+            )
+
+    def test_backoff_base_not_number(self) -> None:
+        with pytest.raises(ConfigValidationError, match="retry.backoff_base must be a number"):
+            RouteRetryConfig.from_toml_dict(
+                {"backoff_base": "fast"},
+                route_id="test",
+                section_path="routes.test",
+            )
+
+    def test_max_delay_seconds_negative(self) -> None:
+        with pytest.raises(ConfigValidationError, match="retry.max_delay_seconds must be >= 0"):
+            RouteRetryConfig.from_toml_dict(
+                {"max_delay_seconds": -1.0},
+                route_id="test",
+                section_path="routes.test",
+            )
+
+    def test_max_delay_seconds_not_number(self) -> None:
+        with pytest.raises(ConfigValidationError, match="retry.max_delay_seconds must be a number"):
+            RouteRetryConfig.from_toml_dict(
+                {"max_delay_seconds": "forever"},
+                route_id="test",
+                section_path="routes.test",
+            )
+
+    def test_jitter_not_bool(self) -> None:
+        with pytest.raises(ConfigValidationError, match="retry.jitter must be a boolean"):
+            RouteRetryConfig.from_toml_dict(
+                {"jitter": "yes"},
+                route_id="test",
+                section_path="routes.test",
+            )
+
+    def test_zero_backoff_base_ok(self) -> None:
+        rc = RouteRetryConfig.from_toml_dict(
+            {"backoff_base": 0},
+            route_id="test",
+            section_path="routes.test",
+        )
+        assert rc.backoff_base == 0.0
+
+    def test_zero_max_delay_ok(self) -> None:
+        rc = RouteRetryConfig.from_toml_dict(
+            {"max_delay_seconds": 0},
+            route_id="test",
+            section_path="routes.test",
+        )
+        assert rc.max_delay_seconds == 0.0
+
+
+# ---------------------------------------------------------------------------
+# RouteConfig — retry field integration
+# ---------------------------------------------------------------------------
+
+
+class TestRouteConfigRetry:
+    """RouteConfig correctly parses and validates the retry field."""
+
+    def test_no_retry_defaults_none(self) -> None:
+        r = RouteConfig.from_toml_dict("test", {
+            "source_adapters": ["a"],
+            "dest_adapters": ["b"],
+        })
+        assert r.retry is None
+
+    def test_retry_table_parsed(self) -> None:
+        r = RouteConfig.from_toml_dict("test", {
+            "source_adapters": ["a"],
+            "dest_adapters": ["b"],
+            "retry": {
+                "enabled": True,
+                "max_attempts": 3,
+                "backoff_base": 2.0,
+                "max_delay_seconds": 60.0,
+                "jitter": False,
+            },
+        })
+        assert r.retry is not None
+        assert r.retry.enabled is True
+        assert r.retry.max_attempts == 3
+        assert r.retry.backoff_base == 2.0
+        assert r.retry.max_delay_seconds == 60.0
+        assert r.retry.jitter is False
+
+    def test_retry_defaults_only_enabled(self) -> None:
+        r = RouteConfig.from_toml_dict("test", {
+            "source_adapters": ["a"],
+            "dest_adapters": ["b"],
+            "retry": {"enabled": True},
+        })
+        assert r.retry is not None
+        assert r.retry.enabled is True
+        assert r.retry.max_attempts == 3  # default
+
+    def test_retry_disabled(self) -> None:
+        r = RouteConfig.from_toml_dict("test", {
+            "source_adapters": ["a"],
+            "dest_adapters": ["b"],
+            "retry": {"enabled": False},
+        })
+        assert r.retry is not None
+        assert r.retry.enabled is False
+
+    def test_retry_not_table_raises(self) -> None:
+        with pytest.raises(ConfigValidationError, match="'retry' must be a table"):
+            RouteConfig.from_toml_dict("test", {
+                "source_adapters": ["a"],
+                "dest_adapters": ["b"],
+                "retry": "not_a_table",
+            })
+
+    def test_retry_invalid_max_attempts_propagates(self) -> None:
+        with pytest.raises(ConfigValidationError, match="retry.max_attempts must be > 0"):
+            RouteConfig.from_toml_dict("test", {
+                "source_adapters": ["a"],
+                "dest_adapters": ["b"],
+                "retry": {"max_attempts": 0},
+            })
+
+    def test_retry_with_policy(self) -> None:
+        """Retry and policy can coexist on a route."""
+        r = RouteConfig.from_toml_dict("test", {
+            "source_adapters": ["a"],
+            "dest_adapters": ["b"],
+            "policy": {"allowed_event_types": ["message"]},
+            "retry": {"enabled": True, "max_attempts": 5},
+        })
+        assert r.policy is not None
+        assert r.retry is not None
+        assert r.retry.max_attempts == 5
+
+    def test_retry_preserves_route_id_in_errors(self) -> None:
+        """Retry validation errors include the route ID."""
+        with pytest.raises(ConfigValidationError, match="Route 'my_route'"):
+            RouteConfig.from_toml_dict("my_route", {
+                "source_adapters": ["a"],
+                "dest_adapters": ["b"],
+                "retry": {"max_attempts": -1},
+            })
+
+    def test_retry_section_path_in_errors(self) -> None:
+        """Retry validation errors include the section_path."""
+        with pytest.raises(ConfigValidationError) as exc_info:
+            RouteConfig.from_toml_dict("my_route", {
+                "source_adapters": ["a"],
+                "dest_adapters": ["b"],
+                "retry": {"max_attempts": -1},
+            })
+        assert exc_info.value.section_path == "routes.my_route.retry"
+
+
+# ---------------------------------------------------------------------------
+# Route retry TOML loader integration
+# ---------------------------------------------------------------------------
+
+
+ROUTES_WITH_RETRY_TOML = """\
+[runtime]
+name = "test_retry_routes"
+
+[routes.matrix_to_mesh]
+source_adapters = ["main"]
+dest_adapters = ["radio"]
+directionality = "source_to_dest"
+
+[routes.matrix_to_mesh.retry]
+enabled = true
+max_attempts = 3
+backoff_base = 2.0
+max_delay_seconds = 60.0
+jitter = false
+
+[routes.no_retry_route]
+source_adapters = ["main"]
+dest_adapters = ["lxmf"]
+"""
+
+ROUTES_WITH_DISABLED_RETRY_TOML = """\
+[runtime]
+name = "disabled_retry"
+
+[routes.disabled_retry]
+source_adapters = ["a"]
+dest_adapters = ["b"]
+
+[routes.disabled_retry.retry]
+enabled = false
+max_attempts = 5
+"""
+
+
+class TestRouteRetryLoaderIntegration:
+    """Route retry config is parsed correctly through load_config."""
+
+    def test_retry_parsed_via_loader(self, tmp_path: Path) -> None:
+        p = tmp_path / "config.toml"
+        p.write_text(ROUTES_WITH_RETRY_TOML)
+        config, _, _ = load_config(str(p))
+        assert len(config.routes.routes) == 2
+
+        retry_route = config.routes.routes[0]
+        assert retry_route.route_id == "matrix_to_mesh"
+        assert retry_route.retry is not None
+        assert retry_route.retry.enabled is True
+        assert retry_route.retry.max_attempts == 3
+        assert retry_route.retry.backoff_base == 2.0
+        assert retry_route.retry.max_delay_seconds == 60.0
+        assert retry_route.retry.jitter is False
+
+    def test_no_retry_route_still_none(self, tmp_path: Path) -> None:
+        p = tmp_path / "config.toml"
+        p.write_text(ROUTES_WITH_RETRY_TOML)
+        config, _, _ = load_config(str(p))
+        no_retry = config.routes.routes[1]
+        assert no_retry.route_id == "no_retry_route"
+        assert no_retry.retry is None
+
+    def test_disabled_retry_parsed(self, tmp_path: Path) -> None:
+        p = tmp_path / "config.toml"
+        p.write_text(ROUTES_WITH_DISABLED_RETRY_TOML)
+        config, _, _ = load_config(str(p))
+        route = config.routes.routes[0]
+        assert route.retry is not None
+        assert route.retry.enabled is False
+        assert route.retry.max_attempts == 5
 
 
 # ---------------------------------------------------------------------------

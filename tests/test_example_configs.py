@@ -34,6 +34,7 @@ REQUIRED_TOML_CONFIGS = [
     "meshtastic-serial.toml",
     "fake-multi-adapter.toml",
     "fake-bridge-smoke.toml",
+    "fake-retry-smoke.toml",
     "mixed-matrix-meshtastic.toml",
     "docker-matrix-bridge.toml",
     "docker-meshtastic-bridge.toml",
@@ -654,6 +655,110 @@ class TestFakeBridgeSmokeDeep:
         """fake-bridge-smoke does not include an LXMF adapter."""
         config, _, _ = load_config(str(self.CONFIG_PATH))
         assert len(config.adapters.lxmf) == 0
+
+
+# ===========================================================================
+# 9b. Fake-retry-smoke: full load + build with retry worker enabled
+# ===========================================================================
+
+
+class TestFakeRetrySmoke:
+    """The fake-retry-smoke example loads, validates, and builds without
+    any optional SDKs.  The retry worker is enabled via the [retry] section."""
+
+    CONFIG_PATH = CONFIGS_DIR / "fake-retry-smoke.toml"
+
+    @pytest.fixture(autouse=True)
+    def _medre_home(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
+
+    def test_loads_via_config_loader(self) -> None:
+        config, _source, _paths = load_config(str(self.CONFIG_PATH))
+        assert config.runtime.name == "fake-retry-smoke"
+        assert config.storage.backend == "memory"
+
+    def test_retry_section_enabled(self) -> None:
+        """The [retry] section parses with enabled=true."""
+        config, _, _ = load_config(str(self.CONFIG_PATH))
+        assert config.retry.enabled is True
+        assert config.retry.max_attempts == 3
+        assert config.retry.interval_seconds == 5.0
+        assert config.retry.batch_size == 10
+
+    def test_all_adapters_are_fake(self) -> None:
+        config, _, _ = load_config(str(self.CONFIG_PATH))
+        for _transport, _aid, rtc in config.adapters.all_configs():
+            assert rtc.adapter_kind == "fake", (
+                f"Expected adapter_kind='fake' for {_transport}.{_aid}, "
+                f"got {rtc.adapter_kind!r}"
+            )
+
+    def test_builds_via_runtime_builder(self) -> None:
+        config, _, paths = load_config(str(self.CONFIG_PATH))
+        builder = RuntimeBuilder(config, paths)
+        app = builder.build()
+        assert len(app.adapters) == 2, (
+            f"Expected 2 built adapters, got {len(app.adapters)}: "
+            f"{list(app.adapters.keys())}"
+        )
+
+    def test_no_build_failures(self) -> None:
+        config, _, paths = load_config(str(self.CONFIG_PATH))
+        builder = RuntimeBuilder(config, paths)
+        app = builder.build()
+        assert app.build_failures == [], (
+            f"Unexpected build failures: {app.build_failures}"
+        )
+
+    def test_routes_parse_correctly(self) -> None:
+        config, _, _ = load_config(str(self.CONFIG_PATH))
+        routes = config.routes
+        assert len(routes.routes) == 2
+        route_ids = [r.route_id for r in routes.routes]
+        assert "mx_to_mesh" in route_ids
+        assert "mesh_to_mx" in route_ids
+
+    def test_routes_register_via_builder(self) -> None:
+        config, _, paths = load_config(str(self.CONFIG_PATH))
+        builder = RuntimeBuilder(config, paths)
+        app = builder.build()
+        assert len(app._registered_routes) >= 2, (
+            f"Expected >= 2 registered routes, got "
+            f"{len(app._registered_routes)}: "
+            f"{[r.id for r in app._registered_routes]}"
+        )
+
+    def test_toml_retry_section_structure(self) -> None:
+        """Raw TOML [retry] section has expected keys."""
+        raw = _read(self.CONFIG_PATH)
+        data = tomllib.loads(raw)
+        assert "retry" in data
+        retry = data["retry"]
+        assert retry["enabled"] is True
+        assert retry["interval_seconds"] == 5.0
+        assert retry["batch_size"] == 10
+        assert retry["max_attempts"] == 3
+
+    def test_route_retry_policies_attached(self) -> None:
+        """Per-route retry sections are built and attached to pipeline config."""
+        config, _, paths = load_config(str(self.CONFIG_PATH))
+        builder = RuntimeBuilder(config, paths)
+        app = builder.build()
+        policies = app.pipeline_runner._config.route_retry_policies
+        # Both routes declare [routes.<id>.retry] enabled.
+        assert "mx_to_mesh" in policies, (
+            f"mx_to_mesh missing from route_retry_policies, "
+            f"got {sorted(policies.keys())}"
+        )
+        assert "mesh_to_mx" in policies, (
+            f"mesh_to_mx missing from route_retry_policies, "
+            f"got {sorted(policies.keys())}"
+        )
+        assert policies["mx_to_mesh"].max_attempts == 3
+        assert policies["mx_to_mesh"].backoff_base == 2.0
+        assert policies["mx_to_mesh"].max_delay_seconds == 60.0
+        assert policies["mx_to_mesh"].jitter is False
+        assert policies["mesh_to_mx"].max_attempts == 3
 
 
 class TestFakeBridgeSmokeTwoWayRoutes:

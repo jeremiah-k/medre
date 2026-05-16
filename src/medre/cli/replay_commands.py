@@ -81,25 +81,37 @@ async def _replay(
         )
         sys.exit(EXIT_BUILD)
 
-    # Build replay request.
-    request = ReplayRequest(
-        mode=replay_mode,
-        correlation_ids=[event_id] if event_id else None,
-        target_adapters=target_adapters,
-        route_ids=tuple(route_ids) if route_ids else (),
-        limit=limit,
-    )
+    if app.storage is None:
+        print(
+            "Error: storage not available — runtime was built without one.",
+            file=sys.stderr,
+        )
+        sys.exit(EXIT_BUILD)
 
-    # Execute replay.
-    t0 = _time.monotonic()
-    results = app.replay_engine.replay(request)
-    summary = await collect_replay_summary(
-        results,
-        mode=replay_mode,
-        elapsed_ms=(_time.monotonic() - t0) * 1000,
-    )
+    # Initialize storage for read access without starting the runtime.
+    await app.storage.initialize()
+    try:
+        # Build replay request.
+        request = ReplayRequest(
+            mode=replay_mode,
+            correlation_ids=[event_id] if event_id else None,
+            target_adapters=target_adapters,
+            route_ids=tuple(route_ids) if route_ids else (),
+            limit=limit,
+        )
 
-    summary_dict = summary.to_dict()
+        # Execute replay.
+        t0 = _time.monotonic()
+        results = app.replay_engine.replay(request)
+        summary = await collect_replay_summary(
+            results,
+            mode=replay_mode,
+            elapsed_ms=(_time.monotonic() - t0) * 1000,
+        )
+
+        summary_dict = summary.to_dict()
+    finally:
+        await app.storage.close()
 
     if json_output:
         print(_json.dumps(summary_dict, sort_keys=True, indent=2))

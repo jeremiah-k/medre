@@ -19,16 +19,22 @@ BEST_EFFORT delivery semantics
 
    BEST_EFFORT replay incurs the **same duplicate-send risk as all adapter
    transports**.  Every BEST_EFFORT delivery creates *new* ``DeliveryReceipt``
-   and ``NativeMessageRef`` records in storage.  These records are **not
-   distinguishable** from live (non-replay) records at the storage layer—
-   they share the same schema, auto-incremented sequence numbers, and IDs.
+   and ``NativeMessageRef`` records in storage.  **Traceability is not
+   deduplication** — replay may produce duplicate sends, and no storage-level
+   deduplication prevents this.
 
-   The ``run_id`` field on :class:`ReplayRequest` and :class:`ReplaySummary`
-   exists solely in the result stream / summary output.  It does **not**
-   propagate to stored ``DeliveryReceipt`` or ``NativeMessageRef`` records.
-   Downstream consumers that need to correlate replay deliveries must use
-   application-level deduplication or inspect the replay envelope metadata
-   embedded in the delivery result output.
+   ``DeliveryReceipt`` records produced by BEST_EFFORT replay **are
+   distinguishable** from live (non-replay) records: each receipt carries
+   ``source="replay"`` and the ``replay_run_id`` from the originating
+   :class:`ReplayRequest`.  Downstream consumers can identify replay-attributed
+   receipts via these fields.
+
+   ``NativeMessageRef`` records created during replay are **not** directly
+   source-tagged (the schema does not carry ``source`` or ``replay_run_id``).
+   Replay-produced native refs can be correlated to their replay origin through
+   the associated ``DeliveryReceipt`` (which carries ``source`` and
+   ``replay_run_id``), then via the receipt's ``event_id`` linkage to the
+   native ref.
 
 Mode guarantees
 ---------------
@@ -43,9 +49,9 @@ Mode guarantees
 +------------+----------+--------+---------+---------+-------------------+
 | BEST_EFFORT| verify   | route  | render  | deliver | Adapter delivery  |
 +------------+----------+--------+---------+---------+-------------------+
-|            | New receipts/native-refs are **not** storage-distinguishable  |
-|            | from live records; duplicate-send risk applies to all        |
-|            | transports.  ``run_id`` is ReplaySummary-only.              |
+|            | Receipts carry ``source="replay"`` + ``replay_run_id``.       |
+|            | Native refs correlate via receipt ``event_id`` linkage.       |
+|            | Traceability ≠ dedupe; duplicate-send risk applies.          |
 +------------+----------+--------+---------+---------+-------------------+
 | DRY_RUN    | verify   | route  | capture | skip    | None (read-only)  |
 +------------+----------+--------+---------+---------+-------------------+

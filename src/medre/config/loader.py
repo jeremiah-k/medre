@@ -17,7 +17,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Self
 
-from medre.config.errors import ConfigError, ConfigNotFoundError, ConfigFileError
+from medre.config.errors import ConfigError, ConfigNotFoundError, ConfigFileError, ConfigValidationError
 from medre.config.model import (
     RuntimeConfig,
     RuntimeOptions,
@@ -221,8 +221,9 @@ def _parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
         path=storage_path,
     )
 
-    # [retry] section
+    # [retry] section — validated for operator-friendly errors
     retry_data = data.get("retry", {})
+    _validate_retry_section(retry_data)
     retry = RetryConfig(
         enabled=retry_data.get("enabled", False),
         interval_seconds=retry_data.get("interval_seconds", 10.0),
@@ -257,6 +258,65 @@ def _parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
         runtime=runtime, logging=logging, storage=storage, limits=limits,
         retry=retry, adapters=adapters, routes=routes,
     )
+
+
+def _validate_retry_section(retry_data: dict) -> None:
+    """Validate [retry] section fields for type and range.
+
+    Produces clean ``ConfigValidationError`` messages so operators get
+    actionable feedback without reading source code.
+    """
+    _RETRY_INT_FIELDS = {
+        "batch_size": ("batch size", 1),
+        "max_attempts": ("max attempts", 1),
+    }
+    _RETRY_FLOAT_FIELDS = {
+        "interval_seconds": ("polling interval", 0.0),
+    }
+    _RETRY_BOOL_FIELDS = {"enabled"}
+
+    for field_name, (label, min_val) in _RETRY_INT_FIELDS.items():
+        raw = retry_data.get(field_name)
+        if raw is None:
+            continue
+        if not isinstance(raw, int) or isinstance(raw, bool):
+            raise ConfigValidationError(
+                f"[retry] {field_name} must be an integer, got {type(raw).__name__} "
+                f"{raw!r}",
+                section_path="retry",
+            )
+        if raw < min_val:
+            raise ConfigValidationError(
+                f"[retry] {field_name} must be >= {min_val}, got {raw}",
+                section_path="retry",
+            )
+
+    for field_name, (label, min_val) in _RETRY_FLOAT_FIELDS.items():
+        raw = retry_data.get(field_name)
+        if raw is None:
+            continue
+        if not isinstance(raw, (int, float)) or isinstance(raw, bool):
+            raise ConfigValidationError(
+                f"[retry] {field_name} must be a number, got {type(raw).__name__} "
+                f"{raw!r}",
+                section_path="retry",
+            )
+        if float(raw) <= min_val:
+            raise ConfigValidationError(
+                f"[retry] {field_name} must be > {min_val}, got {raw}",
+                section_path="retry",
+            )
+
+    for field_name in _RETRY_BOOL_FIELDS:
+        raw = retry_data.get(field_name)
+        if raw is None:
+            continue
+        if not isinstance(raw, bool):
+            raise ConfigValidationError(
+                f"[retry] {field_name} must be a boolean (true/false), "
+                f"got {type(raw).__name__} {raw!r}",
+                section_path="retry",
+            )
 
 
 def _parse_adapter_section(

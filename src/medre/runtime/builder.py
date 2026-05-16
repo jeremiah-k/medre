@@ -319,6 +319,15 @@ class RuntimeBuilder:
             built_adapter_ids,
         )
 
+        # 10.6. Build route-level retry policies mapping.
+        #       Maps expanded route IDs to RetryPolicy instances for routes
+        #       that have retry enabled.  Uses the provenance mapping to
+        #       resolve config route IDs to expanded route IDs.
+        route_retry_policies = self._build_route_retry_policies(
+            route_result.provenance,
+        )
+        pipeline_config.route_retry_policies = route_retry_policies
+
         # 11. Shutdown event
         shutdown_event = asyncio.Event()
 
@@ -376,6 +385,57 @@ class RuntimeBuilder:
             f"Unsupported storage backend {storage_config.backend!r}. "
             f"Supported: sqlite, memory"
         )
+
+    # -- Route retry policies ---------------------------------------------------
+
+    def _build_route_retry_policies(
+        self,
+        provenance: dict[str, str],
+    ) -> dict:
+        """Build a mapping from expanded route ID to :class:`RetryPolicy`.
+
+        Iterates all enabled route configs that declare a retry section
+        with ``enabled=True``, converts each :class:`RouteRetryConfig` to
+        a :class:`RetryPolicy`, and maps every expanded route ID that
+        originated from that config route.
+
+        Parameters
+        ----------
+        provenance:
+            Mapping from expanded route ID to config route ID, as returned
+            by :func:`register_routes`.
+
+        Returns
+        -------
+        dict[str, RetryPolicy]
+            Mapping from expanded route ID to RetryPolicy for routes with
+            retry enabled.
+        """
+        from medre.core.planning.delivery_plan import RetryPolicy
+
+        # Build config_route_id → RetryPolicy for enabled retry configs.
+        config_policies: dict[str, RetryPolicy] = {}
+        for rc in self._config.routes.routes:
+            if not rc.enabled or rc.retry is None or not rc.retry.enabled:
+                continue
+            config_policies[rc.route_id] = RetryPolicy(
+                max_attempts=rc.retry.max_attempts,
+                backoff_base=rc.retry.backoff_base,
+                max_delay_seconds=rc.retry.max_delay_seconds,
+                jitter=rc.retry.jitter,
+            )
+
+        if not config_policies:
+            return {}
+
+        # Expand config_route_id → all expanded route IDs via provenance.
+        result: dict[str, RetryPolicy] = {}
+        for expanded_id, config_id in provenance.items():
+            policy = config_policies.get(config_id)
+            if policy is not None:
+                result[expanded_id] = policy
+
+        return result
 
     # -- Adapter construction ----------------------------------------------------
 

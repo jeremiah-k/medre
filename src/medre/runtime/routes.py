@@ -12,6 +12,7 @@ Public symbols
 --------------
 * :class:`RouteDirectionality` — direction of flow between source/dest
 * :class:`BridgePolicy` — static allowlist policy for a route
+* :class:`RouteRetryConfig` — per-route retry policy for transient failures
 * :class:`RouteConfig` — a single named route definition
 * :class:`RouteConfigSet` — ordered, validated collection of routes
 """
@@ -147,6 +148,130 @@ def _reject_unsupported_policy_fields(
 
 
 # ---------------------------------------------------------------------------
+# Route retry config
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class RouteRetryConfig:
+    """Per-route retry policy for transient delivery failures.
+
+    When ``enabled`` is ``True``, transient adapter failures on this route
+    produce retry receipts with ``next_retry_at`` populated.  The global
+    ``[retry]`` section controls whether the :class:`RetryWorker` processes
+    them — route retry governs *scheduling*, global retry governs
+    *execution*.
+
+    Attributes
+    ----------
+    enabled:
+        Whether retry scheduling is active for this route.
+    max_attempts:
+        Maximum total delivery attempts (including the initial attempt).
+        Must be > 0.
+    backoff_base:
+        Base delay in seconds for exponential backoff.  Must be >= 0.
+    max_delay_seconds:
+        Upper bound for the computed backoff delay.  Must be >= 0.
+    jitter:
+        Whether to add jitter to the backoff delay.
+    """
+
+    enabled: bool = True
+    max_attempts: int = 3
+    backoff_base: float = 2.0
+    max_delay_seconds: float = 60.0
+    jitter: bool = False
+
+    @classmethod
+    def from_toml_dict(
+        cls,
+        data: dict[str, Any],
+        *,
+        route_id: str,
+        section_path: str,
+    ) -> Self:
+        """Construct from a ``[routes.<id>.retry]`` TOML table dict.
+
+        Parameters
+        ----------
+        data:
+            The parsed TOML table for the retry section.
+        route_id:
+            The route ID (for error messages).
+        section_path:
+            Dot-separated config path (for error messages).
+
+        Raises
+        ------
+        ConfigValidationError
+            If values are invalid.
+        """
+        enabled: bool = data.get("enabled", True)
+        max_attempts = data.get("max_attempts", 3)
+        backoff_base = data.get("backoff_base", 2.0)
+        max_delay_seconds = data.get("max_delay_seconds", 60.0)
+        jitter: bool = data.get("jitter", False)
+
+        if not isinstance(enabled, bool):
+            raise ConfigValidationError(
+                f"Route {route_id!r}: retry.enabled must be a boolean, "
+                f"got {type(enabled).__name__}",
+                section_path=f"{section_path}.retry",
+            )
+        if not isinstance(max_attempts, int) or isinstance(max_attempts, bool):
+            raise ConfigValidationError(
+                f"Route {route_id!r}: retry.max_attempts must be an integer, "
+                f"got {max_attempts!r}",
+                section_path=f"{section_path}.retry",
+            )
+        if max_attempts <= 0:
+            raise ConfigValidationError(
+                f"Route {route_id!r}: retry.max_attempts must be > 0, "
+                f"got {max_attempts}",
+                section_path=f"{section_path}.retry",
+            )
+        if not isinstance(backoff_base, (int, float)) or isinstance(backoff_base, bool):
+            raise ConfigValidationError(
+                f"Route {route_id!r}: retry.backoff_base must be a number, "
+                f"got {backoff_base!r}",
+                section_path=f"{section_path}.retry",
+            )
+        if backoff_base < 0:
+            raise ConfigValidationError(
+                f"Route {route_id!r}: retry.backoff_base must be >= 0, "
+                f"got {backoff_base}",
+                section_path=f"{section_path}.retry",
+            )
+        if not isinstance(max_delay_seconds, (int, float)) or isinstance(max_delay_seconds, bool):
+            raise ConfigValidationError(
+                f"Route {route_id!r}: retry.max_delay_seconds must be a number, "
+                f"got {max_delay_seconds!r}",
+                section_path=f"{section_path}.retry",
+            )
+        if max_delay_seconds < 0:
+            raise ConfigValidationError(
+                f"Route {route_id!r}: retry.max_delay_seconds must be >= 0, "
+                f"got {max_delay_seconds}",
+                section_path=f"{section_path}.retry",
+            )
+        if not isinstance(jitter, bool):
+            raise ConfigValidationError(
+                f"Route {route_id!r}: retry.jitter must be a boolean, "
+                f"got {type(jitter).__name__}",
+                section_path=f"{section_path}.retry",
+            )
+
+        return cls(
+            enabled=enabled,
+            max_attempts=max_attempts,
+            backoff_base=float(backoff_base),
+            max_delay_seconds=float(max_delay_seconds),
+            jitter=jitter,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Route config
 # ---------------------------------------------------------------------------
 
@@ -180,6 +305,9 @@ class RouteConfig:
         Optional destination room ID for targeting.
     policy:
         Optional static bridge policy.  ``None`` means "no restrictions".
+    retry:
+        Optional per-route retry policy for transient delivery failures.
+        ``None`` means no retry scheduling for this route.
     """
 
     route_id: str
@@ -193,6 +321,7 @@ class RouteConfig:
     source_room: str | None = None
     dest_room: str | None = None
     policy: BridgePolicy | None = None
+    retry: RouteRetryConfig | None = None
 
     @classmethod
     def from_toml_dict(cls, route_id: str, data: dict[str, Any]) -> Self:
@@ -330,6 +459,21 @@ class RouteConfig:
                 policy, route_id=route_id, section_path=section_path,
             )
 
+        # --- retry ---
+        raw_retry = data.pop("retry", None)
+        retry: RouteRetryConfig | None = None
+        if raw_retry is not None:
+            if not isinstance(raw_retry, dict):
+                raise ConfigValidationError(
+                    f"Route {route_id!r}: 'retry' must be a table",
+                    section_path=section_path,
+                )
+            retry = RouteRetryConfig.from_toml_dict(
+                raw_retry,
+                route_id=route_id,
+                section_path=section_path,
+            )
+
         # --- self-route check ---
         sources_set = set(source_adapters)
         dests_set = set(dest_adapters)
@@ -366,6 +510,7 @@ class RouteConfig:
             source_room=source_room,
             dest_room=dest_room,
             policy=policy,
+            retry=retry,
         )
 
 

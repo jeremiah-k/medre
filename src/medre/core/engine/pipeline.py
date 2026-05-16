@@ -50,6 +50,7 @@ from medre.core.planning.delivery_plan import (
     DeliveryOutcome,
     DeliveryPlan,
     RetryExecutor,
+    RetryPolicy,
 )
 from medre.core.planning.fallback_resolution import FallbackResolver
 from medre.core.planning.relation_resolution import RelationResolver
@@ -106,6 +107,11 @@ class PipelineConfig:
         a default :class:`Diagnostician` is created automatically.
     logger:
         Optional logger override; defaults to the module logger.
+    route_retry_policies:
+        Mapping from expanded route ID to :class:`RetryPolicy`.  When a
+        route is matched and its expanded ID is in this dict, the policy
+        is attached to the :class:`DeliveryPlan` so transient failures
+        produce retry receipts.
     """
 
     storage: StorageBackend
@@ -119,6 +125,7 @@ class PipelineConfig:
     logger: logging.Logger | None = None
     route_stats: RouteStats | None = None
     runtime_accounting: RuntimeAccounting | None = None
+    route_retry_policies: dict[str, RetryPolicy] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -574,6 +581,10 @@ class PipelineRunner:
                 plan = self._config.fallback_resolver.resolve_fallback(
                     event, target, capabilities,
                 )
+                # Attach route-level retry policy if configured.
+                retry_policy = self._config.route_retry_policies.get(route.id)
+                if retry_policy is not None:
+                    plan.retry_policy = retry_policy
                 results.append((route, plan))
                 self._log.debug(
                     "Planned delivery: route=%s target_adapter=%s plan=%s",
