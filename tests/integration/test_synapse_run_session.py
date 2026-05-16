@@ -58,7 +58,7 @@ from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.storage import SQLiteStorage
 from medre.core.storage.backend import StorageBackend
 
-from .conftest import SynapseEnvironment
+from .conftest import SynapseEnvironment, _write_artifact_json, _RUN_ARTIFACT_DIR
 from .test_synapse_bridge_smoke import (
     IngressResult,
     _INBOUND_FALLBACK,
@@ -342,6 +342,28 @@ class TestSynapseRunSession:
                 report["event_id"],
                 len(report["receipts"]),
             )
+
+            # Persist structured artifact when MEDRE_DOCKER_ARTIFACT_RUN_DIR is set.
+            if _RUN_ARTIFACT_DIR is not None:
+                _write_artifact_json(
+                    "synapse-run-session-report.json",
+                    {
+                        "scenario": "matrix_synapse_run_session",
+                        "transport": "matrix",
+                        "evidence_level": "docker_sdk_boundary",
+                        "matrix_ingress_path": report["ingress_path"],
+                        "cross_transport_proof": "partial",
+                        "cross_transport_note": (
+                            "Outbound target is FakeMatrixAdapter; "
+                            "real cross-transport delivery not proven"
+                        ),
+                        "event_id": report["event_id"],
+                        "receipt_count": len(report["receipts"]),
+                        "native_ref_count": len(report["native_refs"]),
+                        "accounting": report["accounting"],
+                        "limitations": report["limitations"],
+                    },
+                )
         finally:
             await matrix_adapter.stop()
             await fake_out.stop()
@@ -510,6 +532,25 @@ class TestSynapseRunSession:
                     "sync_not_running", "sync_error", "sync_timeout",
                 ), (
                     f"Unexpected fallback_reason: {ingress.fallback_reason!r}"
+                )
+
+            # Persist fallback-tolerant artifact when collection is enabled.
+            if _RUN_ARTIFACT_DIR is not None:
+                _write_artifact_json(
+                    "synapse-fallback-session-report.json",
+                    {
+                        "scenario": "matrix_synapse_sync_with_fallback",
+                        "transport": "matrix",
+                        "evidence_level": "docker_sdk_boundary",
+                        "matrix_ingress_path": ingress.ingress_path,
+                        "fallback_reason": ingress.fallback_reason,
+                        "cross_transport_proof": "partial",
+                        "native_event_id": ingress.native_event_id,
+                        "limitations": [
+                            "Not a live-network proof (Docker loopback only).",
+                            "Outbound target is fake (real cross-transport delivery not proven).",
+                        ],
+                    },
                 )
         finally:
             await matrix_adapter.stop()

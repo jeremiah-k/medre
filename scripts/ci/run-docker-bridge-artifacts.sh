@@ -80,13 +80,35 @@ if ! command -v "${PYTHON}" >/dev/null 2>&1; then
     exit 1
 fi
 
-# Ensure integration extras are installed.
-echo "Checking MEDRE installation..."
-INSTALLED=$("${PYTHON}" -c "import medre; print('ok')" 2>/dev/null || true)
-if [[ "${INSTALLED}" != "ok" ]]; then
-    echo "Installing MEDRE with matrix + meshtastic extras..."
-    "${PYTHON}" -m pip install -e ".[matrix,meshtastic]" --quiet
-fi
+# Fail-fast prerequisite checks for optional imports.
+# Do NOT install anything. Print clear instructions and exit if missing.
+echo "Checking prerequisites for scenario: ${SCENARIO}..."
+
+check_import() {
+    local label="$1"
+    local import_stmt="$2"
+    if ! "${PYTHON}" -c "${import_stmt}" 2>/dev/null; then
+        echo "ERROR: ${label} is not installed." >&2
+        echo "" >&2
+        echo "Install the required extras:" >&2
+        echo "  pip install -e \".[matrix,meshtastic,dev]\"" >&2
+        echo "" >&2
+        echo "Then re-run this script." >&2
+        exit 1
+    fi
+}
+
+case "${SCENARIO}" in
+    matrix_to_meshtastic|bidirectional)
+        check_import "Matrix SDK (mindroom-nio exposes 'nio')" "import nio"
+        ;;&
+    meshtastic_to_matrix|bidirectional)
+        check_import "Meshtastic SDK (meshtastic)" "import meshtastic"
+        check_import "Meshtastic pubsub (pubsub.pub)" "from pubsub import pub"
+        ;;
+esac
+
+echo "All prerequisites satisfied."
 
 echo ""
 echo "Running Docker bridge artifact collection..."

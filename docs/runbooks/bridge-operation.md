@@ -223,6 +223,60 @@ real adapter is not proven.
 | Live network | **Not claimed** | No cross-transport bridge test against real endpoints |
 
 
+### 7a.1 Docker Artifact Bundle
+
+The Docker bridge artifact collector (`scripts/ci/run-docker-bridge-artifacts.sh`) writes a structured artifact bundle to `.ci-artifacts/docker-bridge-runs/<ISO-timestamp>/`. This bundle is the primary evidence record for Docker SDK-boundary bridge validation.
+
+**Required files** (always present):
+
+| File | Meaning |
+|------|---------|
+| `summary.json` | Structured evidence summary: status, scenario, per-transport results, limitations. Always written, even on failure. |
+| `run-metadata.json` | Run parameters: scenario, Docker image tags, ports, timeout, Python and MEDRE versions. |
+| `pytest-stdout.log` | Pytest stdout with test names, assertions, and summary line. |
+| `pytest-stderr.log` | Pytest stderr with log output and tracebacks. |
+| `config.toml` | TOML config snapshot used for this run. |
+| `synapse.log` | Synapse container logs (Matrix scenarios). |
+| `meshtasticd.log` | meshtasticd container logs (Meshtastic scenarios). |
+
+**Best-effort files** (present when the corresponding subsystem ran):
+
+| File | Meaning | When present |
+|------|---------|--------------|
+| `medre.log` | Runtime log. | Runtime initialized. |
+| `receipts.json` | Delivery receipt snapshot. | At least one delivery attempted. |
+| `native-refs.json` | Inbound native message refs. | Inbound refs recorded. |
+| `inspect-timeline.json` | Per-event pipeline timeline. | Pipeline completed for at least one event. |
+| `evidence.json` | Full bridge evidence bundle. | Evidence collection succeeded. |
+| `final-snapshot.json` | Runtime shutdown snapshot. | Graceful shutdown. |
+
+Missing best-effort files are explained in `summary.json` under `limitations`. For example: `"receipts.json absent: no deliveries attempted before failure"`.
+
+**Quick inspection:**
+
+```bash
+RUN_DIR=$(ls -td .ci-artifacts/docker-bridge-runs/*/ | head -1)
+
+# Status and limitations
+python -c "import json; s=json.load(open('${RUN_DIR}summary.json')); \
+  print(f\"Status: {s['status']}\nScenario: {s['scenario']}\"); \
+  print('Limitations:'); [print(f'  - {l}') for l in s['medre']['limitations']]"
+
+# Review logs
+less "${RUN_DIR}pytest-stderr.log"
+less "${RUN_DIR}synapse.log"      # Matrix scenarios
+less "${RUN_DIR}meshtasticd.log"  # Meshtastic scenarios
+```
+
+**Prerequisites:** The script checks optional imports per scenario and fails fast with a clear install instruction if any are missing. It does not silently install packages. Matrix scenarios require `import nio` (from `mindroom-nio`). Meshtastic scenarios require `import meshtastic` and `from pubsub import pub`. Install everything with:
+
+```bash
+pip install -e ".[matrix,meshtastic,dev]"
+```
+
+For full artifact documentation, see [Docker Bridge Artifacts](docker-bridge-artifacts.md).
+
+
 ## 8. How to Validate MEDRE Bridge Operation
 
 This section provides concrete commands and expected outcomes for validating

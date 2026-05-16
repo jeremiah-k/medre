@@ -11,6 +11,7 @@ import logging
 import os
 import tempfile
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, AsyncGenerator
 
 import pytest
@@ -122,14 +123,29 @@ def sample_native_message_ref() -> NativeMessageRef:
 
 @pytest.fixture
 async def temp_storage() -> AsyncGenerator[SQLiteStorage, None]:
-    """SQLiteStorage backed by a temporary file, cleaned up after test."""
-    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+    """SQLiteStorage backed by a temporary file, cleaned up after test.
+
+    When ``MEDRE_DOCKER_ARTIFACT_RUN_DIR`` is set, the database file is
+    placed under that directory (with a unique suffix) and **not** deleted
+    after the test so the artifact collector can retrieve it.
+    """
+    artifact_dir = os.environ.get("MEDRE_DOCKER_ARTIFACT_RUN_DIR")
+    if artifact_dir:
+        ad = Path(artifact_dir)
+        ad.mkdir(parents=True, exist_ok=True)
+        import uuid
+        db_path = str(ad / f"storage-{uuid.uuid4().hex[:12]}.db")
+    else:
+        f = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
         db_path = f.name
+        f.close()
+
     storage = SQLiteStorage(db_path=db_path)
     await storage.initialize()
     yield storage
     await storage.close()
-    os.unlink(db_path)
+    if not artifact_dir:
+        os.unlink(db_path)
 
 
 # ---------------------------------------------------------------------------

@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -87,7 +88,163 @@ _ARTIFACT_DIR = Path(
     )
 )
 
+# Artifact run directory — when set, integration tests persist structured
+# metadata, container logs, and config snapshots here.  Default Docker test
+# behaviour is unchanged when this is unset.
+_RUN_ARTIFACT_DIR: Path | None = (
+    Path(p) if (p := os.environ.get("MEDRE_DOCKER_ARTIFACT_RUN_DIR", "")) else None
+)
+
 logger = logging.getLogger("medre.tests.integration")
+
+
+# ---------------------------------------------------------------------------
+# Artifact helpers (conditional on MEDRE_DOCKER_ARTIFACT_RUN_DIR)
+# ---------------------------------------------------------------------------
+
+# Keys whose values should be redacted in config/metadata snapshots.
+_SECRET_PATTERNS = re.compile(
+    r"(token|secret|password|access_token|registration_shared_secret)",
+    re.IGNORECASE,
+)
+
+
+def _get_run_artifact_dir() -> Path | None:
+    """Return the artifact run directory, creating it if needed.
+
+    Returns ``None`` when ``MEDRE_DOCKER_ARTIFACT_RUN_DIR`` is not set so that
+    all artifact writing is a silent no-op during normal test runs.
+    """
+    if _RUN_ARTIFACT_DIR is None:
+        return None
+    _RUN_ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+    return _RUN_ARTIFACT_DIR
+
+
+def _redact_secrets(data: Any) -> Any:
+    """Recursively redact values whose keys look like secrets."""
+    if isinstance(data, dict):
+        redacted: dict[str, Any] = {}
+        for k, v in data.items():
+            if isinstance(v, str) and _SECRET_PATTERNS.search(k):
+                redacted[k] = "***REDACTED***"
+            else:
+                redacted[k] = _redact_secrets(v)
+        return redacted
+    if isinstance(data, list):
+        return [_redact_secrets(item) for item in data]
+    return data
+
+
+def _capture_container_logs(container_name: str, log_name: str) -> None:
+    """Capture ``docker logs`` to *log_name* inside the artifact dir."""
+    artifact_dir = _get_run_artifact_dir()
+    if artifact_dir is None:
+        return
+    try:
+        result = subprocess.run(
+            ["docker", "logs", container_name],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        log_path = artifact_dir / log_name
+        with open(log_path, "w") as fh:
+            fh.write(f"=== stdout ===\n{result.stdout}\n=== stderr ===\n{result.stderr}\n")
+        logger.info("Captured container logs: %s -> %s", container_name, log_path)
+    except Exception as exc:
+        logger.warning("Failed to capture logs for %s: %s", container_name, exc)
+
+
+def _write_artifact_json(filename: str, data: dict[str, Any]) -> None:
+    """Write a JSON file to the artifact run directory (no-op if unset)."""
+    artifact_dir = _get_run_artifact_dir()
+    if artifact_dir is None:
+        return
+    path = artifact_dir / filename
+    with open(path, "w") as fh:
+        json.dump(data, fh, indent=2, default=str)
+    logger.info("Wrote artifact: %s", path)
+
+
+def _write_run_metadata(
+    *,
+    scenario: str,
+    containers: dict[str, str],
+    storage_path: str | None = None,
+    extras: dict[str, Any] | None = None,
+) -> None:
+    """Write ``run-metadata.json`` with scenario/container/storage metadata."""
+    metadata: dict[str, Any] = {
+        "scenario": scenario,
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "pid": os.getpid(),
+        "session_prefix": _SESSION_PREFIX,
+        "containers": containers,
+        "images": {
+            "synapse": _SYNAPSE_IMAGE,
+            "meshtasticd": _MESHTASTICD_IMAGE,
+        },
+        "ports": {
+            "synapse": _SYNAPSE_PORT,
+            "meshtasticd": _MESHTASTICD_PORT,
+        },
+    }
+    if storage_path:
+        metadata["storage_path"] = storage_path
+    if extras:
+        metadata.update(extras)
+    _write_artifact_json("run-metadata.json", metadata)
+
+
+def _write_config_snapshot(
+    config_path: Path | None = None,
+    raw_data: dict[str, Any] | None = None,
+    filename: str = "config-snapshot.json",
+) -> None:
+    """Write a redacted config snapshot to the artifact dir."""
+    artifact_dir = _get_run_artifact_dir()
+    if artifact_dir is None:
+        return
+    if raw_data is not None:
+        redacted = _redact_secrets(raw_data)
+        _write_artifact_json(filename, redacted)
+        return
+    if config_path is not None and config_path.exists():
+        try:
+            # Try reading as key=value YAML-ish lines for homeserver.yaml.
+            lines = config_path.read_text().splitlines()
+            snapshot: dict[str, str] = {}
+            for line in lines:
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#"):
+                    continue
+                if ":" in stripped:
+                    key, _, value = stripped.partition(":")
+                    key = key.strip()
+                    value = value.strip()
+                    if _SECRET_PATTERNS.search(key):
+                        value = "***REDACTED***"
+                    snapshot[key] = value
+            _write_artifact_json(filename, snapshot)
+        except Exception as exc:
+            logger.warning("Failed to read config snapshot from %s: %s", config_path, exc)
+
+
+def _persist_storage_db(source_db_path: str, dest_filename: str) -> None:
+    """Copy the SQLite DB file into the artifact dir for post-run collection."""
+    artifact_dir = _get_run_artifact_dir()
+    if artifact_dir is None:
+        return
+    src = Path(source_db_path)
+    if not src.exists():
+        return
+    dest = artifact_dir / dest_filename
+    try:
+        shutil.copy2(src, dest)
+        logger.info("Persisted storage DB: %s -> %s", src, dest)
+    except Exception as exc:
+        logger.warning("Failed to persist storage DB: %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -464,7 +621,22 @@ def synapse_env() -> Generator[SynapseEnvironment, None, None]:
 
     yield env
 
-    # Teardown.
+    # Teardown — capture logs and metadata before removing container when
+    # MEDRE_DOCKER_ARTIFACT_RUN_DIR is set.
+    if _RUN_ARTIFACT_DIR is not None:
+        _capture_container_logs(container, "synapse.log")
+        _write_config_snapshot(
+            config_path=data_dir / "homeserver.yaml",
+            filename="synapse-config-snapshot.json",
+        )
+        _write_run_metadata(
+            scenario="synapse_run_session",
+            containers={"synapse": container},
+            extras={
+                "bot_user_id": env.bot_user_id,
+                "test_room_id": env.test_room_id,
+            },
+        )
     logger.info("Stopping Synapse container %s", container)
     _docker_run(["rm", "-f", container], timeout=30)
 
@@ -543,5 +715,15 @@ def meshtasticd_env() -> Generator[MeshtasticdEnvironment, None, None]:
 
     yield env
 
+    # Capture logs before teardown when artifact collection is enabled.
+    if _RUN_ARTIFACT_DIR is not None:
+        _capture_container_logs(container, "meshtasticd.log")
+        _write_run_metadata(
+            scenario="meshtasticd_sdk_bridge",
+            containers={"meshtasticd": container},
+            extras={
+                "meshtasticd_hwid": _MESHTASTICD_HWID,
+            },
+        )
     logger.info("Stopping meshtasticd container %s", container)
     _docker_run(["rm", "-f", container], timeout=30)

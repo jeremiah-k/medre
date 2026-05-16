@@ -58,7 +58,19 @@ summary.json shape
         "config_snapshot": { ... } | null,
         "inspect_artifacts": [ ... ],
         "errors": [ ... ],
+        "artifact_plan": { "required": [...], "best_effort": [...] },
+        "artifact_paths": { "<filename>": "<absolute path>", ... },
+        "missing_artifacts": { "required": [...], "best_effort": [...] },
     }
+
+Structured metadata
+-------------------
+When the integration test fixture writes ``run-metadata.json`` to the run
+directory, the collector reads it and uses its fields (``storage_path``,
+``event_id``, ``matrix``, ``meshtastic``, ``medre``, ``config_data``,
+``log_paths``) as primary evidence — pytest stdout/stderr remain logs
+only.  When ``run-metadata.json`` is absent, evidence falls back to
+deprecated regex parsing with an explicit limitation.
 
 Honesty requirements
 --------------------
@@ -70,6 +82,7 @@ Honesty requirements
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -83,6 +96,7 @@ from typing import Any, Callable, Sequence
 from medre.observability.sanitization import sanitize_for_log, sanitize_error
 
 __all__ = [
+    "ARTIFACT_PLAN",
     "SUPPORTED_SCENARIOS",
     "collect_docker_bridge_artifacts",
     "build_summary",
@@ -122,6 +136,35 @@ _LIMITATIONS: list[str] = [
 ]
 
 _MAX_LOG_SIZE: int = 256 * 1024  # 256 KiB per log capture
+
+# ---------------------------------------------------------------------------
+# Artifact plan — required and best-effort filenames
+# ---------------------------------------------------------------------------
+
+ARTIFACT_PLAN: dict[str, list[str]] = {
+    "required": [
+        "summary.json",
+        "run-metadata.json",
+        "config.toml",
+        "synapse.log",
+        "meshtasticd.log",
+    ],
+    "best_effort": [
+        "medre.log",
+        "receipts.json",
+        "native-refs.json",
+        "inspect-timeline.json",
+        "evidence.json",
+        "final-snapshot.json",
+    ],
+}
+"""Structured artifact plan for operator-readable output.
+
+Required artifacts are expected after a successful Docker bridge run.
+Best-effort artifacts may be absent; missing ones are reported as
+limitations.  ``final-snapshot.json`` is always best-effort because
+direct PipelineRunner tests cannot produce it without a full MedreApp.
+"""
 
 
 # ---------------------------------------------------------------------------
@@ -189,6 +232,9 @@ def build_summary(
     inspect_artifacts: list[str] | None = None,
     errors: list[str] | None = None,
     now_fn: Callable[[], datetime] | None = None,
+    artifact_plan: dict[str, list[str]] | None = None,
+    artifact_paths: dict[str, str] | None = None,
+    missing_artifacts: dict[str, list[str]] | None = None,
 ) -> dict[str, Any]:
     """Build a summary.json-compliant dict.
 
@@ -283,6 +329,9 @@ def build_summary(
         "config_snapshot": config_snapshot,
         "inspect_artifacts": inspect_artifacts or [],
         "errors": safe_errors,
+        "artifact_plan": artifact_plan if artifact_plan is not None else ARTIFACT_PLAN,
+        "artifact_paths": artifact_paths or {},
+        "missing_artifacts": missing_artifacts or {},
     }
 
 
@@ -347,8 +396,247 @@ def _parse_pytest_output(
 
 
 # ---------------------------------------------------------------------------
-# Main artifact collection
+# Structured metadata reading
 # ---------------------------------------------------------------------------
+
+
+def _read_run_metadata(run_dir: Path) -> dict[str, Any] | None:
+    """Read ``run-metadata.json`` from the run directory.
+
+    Returns ``None`` when the file is missing or cannot be parsed.
+    Integration test fixtures write this file; the collector reads it.
+    """
+    metadata_path = run_dir / "run-metadata.json"
+    if not metadata_path.exists():
+        return None
+    try:
+        return json.loads(metadata_path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Redacted config.toml writing
+# ---------------------------------------------------------------------------
+
+
+def _write_redacted_config(run_dir: Path, config_data: dict[str, Any]) -> Path | None:
+    """Write a redacted ``config.toml`` to the run directory.
+
+    Uses :func:`redact_config_snapshot` to strip secrets before writing.
+    Returns the path on success, ``None`` on failure.
+    """
+    redacted = redact_config_snapshot(config_data)
+    config_path = run_dir / "config.toml"
+    try:
+        lines: list[str] = []
+        for key, value in sorted(redacted.items()):
+            if isinstance(value, str):
+                lines.append(f'{key} = "{value}"')
+            elif isinstance(value, bool):
+                lines.append(f'{key} = {"true" if value else "false"}')
+            elif isinstance(value, (int, float)):
+                lines.append(f"{key} = {value}")
+            elif value is None:
+                lines.append(f"# {key} = null")
+            elif isinstance(value, dict):
+                lines.append(f"\n[{key}]")
+                for sub_key, sub_value in sorted(value.items()):
+                    if isinstance(sub_value, str):
+                        lines.append(f'{sub_key} = "{sub_value}"')
+                    elif isinstance(sub_value, bool):
+                        lines.append(
+                            f'{sub_key} = {"true" if sub_value else "false"}'
+                        )
+                    elif isinstance(sub_value, (int, float)):
+                        lines.append(f"{sub_key} = {sub_value}")
+                    elif sub_value is None:
+                        lines.append(f"# {sub_key} = null")
+                    else:
+                        lines.append(f"# {sub_key} = {json.dumps(sub_value)}")
+            else:
+                lines.append(f"# {key} = {json.dumps(value)}")
+        config_path.write_text("\n".join(lines) + "\n")
+        return config_path
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Log artifact collection from metadata
+# ---------------------------------------------------------------------------
+
+
+def _collect_log_artifacts(
+    run_dir: Path,
+    metadata: dict[str, Any] | None,
+) -> dict[str, Path]:
+    """Copy log files referenced in metadata to the run directory.
+
+    Looks for ``log_paths`` in metadata mapping log names to source paths.
+    """
+    artifacts: dict[str, Path] = {}
+    if metadata is None:
+        return artifacts
+
+    log_paths = metadata.get("log_paths", {})
+    for name, source_path_str in log_paths.items():
+        dest_name = f"{name}.log"
+        dest_path = run_dir / dest_name
+        try:
+            source = Path(source_path_str)
+            if source.exists():
+                shutil.copy2(source, dest_path)
+                artifacts[dest_name] = dest_path
+        except Exception:
+            pass  # best-effort
+
+    return artifacts
+
+
+# ---------------------------------------------------------------------------
+# Storage-derived artifact export
+# ---------------------------------------------------------------------------
+
+
+async def _export_storage_artifacts_async(
+    run_dir: Path,
+    storage_path: str,
+    event_id: str,
+) -> dict[str, Path]:
+    """Export storage-derived artifacts asynchronously.
+
+    Opens the SQLite database read-only via
+    :meth:`SQLiteStorage.open_readonly` and writes:
+    - ``receipts.json`` from :meth:`list_receipts_for_event`
+    - ``native-refs.json`` from :meth:`list_native_refs_for_event`
+    - ``inspect-timeline.json`` from :func:`assemble_event_timeline`
+    - ``evidence.json`` from :func:`collect_evidence_bundle`
+    """
+    from medre.core.storage.sqlite import SQLiteStorage
+    from medre.runtime.timeline import assemble_event_timeline
+    from medre.runtime.trace import timeline_to_json
+
+    artifacts: dict[str, Path] = {}
+
+    storage = await SQLiteStorage.open_readonly(storage_path)
+    try:
+        # -- receipts.json --
+        receipts = await storage.list_receipts_for_event(event_id)
+        if receipts:
+            import msgspec
+
+            receipts_data = [
+                json.loads(msgspec.json.encode(r)) for r in receipts
+            ]
+            receipts_path = run_dir / "receipts.json"
+            receipts_path.write_text(
+                json.dumps(receipts_data, indent=2, default=str) + "\n",
+            )
+            artifacts["receipts.json"] = receipts_path
+
+        # -- native-refs.json --
+        native_refs = await storage.list_native_refs_for_event(event_id)
+        if native_refs:
+            import msgspec
+
+            nrefs_data = [
+                json.loads(msgspec.json.encode(r)) for r in native_refs
+            ]
+            nrefs_path = run_dir / "native-refs.json"
+            nrefs_path.write_text(
+                json.dumps(nrefs_data, indent=2, default=str) + "\n",
+            )
+            artifacts["native-refs.json"] = nrefs_path
+
+        # -- inspect-timeline.json --
+        tl_result = await assemble_event_timeline(storage, event_id)
+        if tl_result is not None and tl_result.get("timeline_entries"):
+            tl_path = run_dir / "inspect-timeline.json"
+            tl_path.write_text(
+                timeline_to_json(tl_result["timeline_entries"]) + "\n",
+            )
+            artifacts["inspect-timeline.json"] = tl_path
+    finally:
+        await storage.close()
+
+    # -- evidence.json (separate — manages its own DB connection) --
+    from medre.runtime.evidence._bundle import collect_evidence_bundle
+
+    evidence = await collect_evidence_bundle(
+        storage_path=storage_path,
+        event_id=event_id,
+    )
+    evidence_path = run_dir / "evidence.json"
+    evidence_path.write_text(
+        json.dumps(evidence, indent=2, default=str) + "\n",
+    )
+    artifacts["evidence.json"] = evidence_path
+
+    return artifacts
+
+
+def _export_storage_artifacts_sync(
+    run_dir: Path,
+    storage_path: str,
+    event_id: str,
+) -> dict[str, Path]:
+    """Synchronous wrapper for :func:`_export_storage_artifacts_async`.
+
+    Uses :func:`asyncio.run` to execute the async export.  Suitable for
+    the artifact collector which runs in a subprocess context.
+    """
+    return asyncio.run(
+        _export_storage_artifacts_async(run_dir, storage_path, event_id),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Artifact manifest collection
+# ---------------------------------------------------------------------------
+
+
+def _collect_artifact_manifest(run_dir: Path) -> dict[str, Any]:
+    """Collect artifact paths and identify missing required/best-effort files.
+
+    Returns a dict with:
+    - ``artifact_paths``: mapping filename → absolute path for existing artifacts
+    - ``missing``: mapping with ``required`` and ``best_effort`` lists of missing names
+    """
+    artifact_paths: dict[str, str] = {}
+    missing_required: list[str] = []
+    missing_best_effort: list[str] = []
+
+    for name in ARTIFACT_PLAN["required"]:
+        path = run_dir / name
+        # summary.json is written by the collector AFTER manifest
+        # collection, so always treat it as present.
+        if name == "summary.json" or path.exists():
+            artifact_paths[name] = str(path)
+        else:
+            missing_required.append(name)
+
+    for name in ARTIFACT_PLAN["best_effort"]:
+        path = run_dir / name
+        if path.exists():
+            artifact_paths[name] = str(path)
+        else:
+            missing_best_effort.append(name)
+
+    # pytest-stdout.log and pytest-stderr.log are always written by the
+    # collector, but are not in the formal artifact plan (they are logs).
+    for log_name in ("pytest-stdout.log", "pytest-stderr.log"):
+        log_path = run_dir / log_name
+        if log_path.exists():
+            artifact_paths[log_name] = str(log_path)
+
+    return {
+        "artifact_paths": artifact_paths,
+        "missing": {
+            "required": missing_required,
+            "best_effort": missing_best_effort,
+        },
+    }
 
 
 def collect_docker_bridge_artifacts(
@@ -360,6 +648,7 @@ def collect_docker_bridge_artifacts(
     timeout_minutes: int = 15,
     now_fn: Callable[[], datetime] | None = None,
     _run_pytest: Callable[..., tuple[int, str, str]] | None = None,
+    _storage_export_fn: Callable[[Path, str, str], dict[str, Path]] | None = None,
 ) -> dict[str, Any]:
     """Collect Docker bridge artifacts for a given scenario.
 
@@ -389,6 +678,10 @@ def collect_docker_bridge_artifacts(
         Injectable pytest runner for testing.  Signature:
         ``(cmd, env, timeout, cwd) -> (returncode, stdout, stderr)``.
         When ``None``, runs via :func:`subprocess.run`.
+    _storage_export_fn:
+        Injectable storage artifact exporter for testing.  Signature:
+        ``(run_dir, storage_path, event_id) -> dict[str, Path]``.
+        When ``None``, uses :func:`_export_storage_artifacts_sync`.
 
     Returns
     -------
@@ -482,24 +775,70 @@ def collect_docker_bridge_artifacts(
     except Exception as exc:
         errors.append(f"Failed to write log artifacts: {exc}")
 
-    # -- Step 5: Parse results ------------------------------------------------
+    # -- Step 5: Read structured metadata (if available) ---------------------
+    metadata: dict[str, Any] | None = None
+    metadata = _read_run_metadata(run_dir)
+    metadata_available = metadata is not None
+
+    # -- Step 6: Export storage-derived artifacts (best-effort) ---------------
+    storage_artifacts: dict[str, Path] = {}
+    storage_path_from_meta: str | None = (
+        metadata.get("storage_path") if metadata else None
+    )
+    event_id_from_meta: str | None = (
+        metadata.get("event_id") if metadata else None
+    )
+    if storage_path_from_meta and event_id_from_meta:
+        _export_fn = _storage_export_fn or _export_storage_artifacts_sync
+        try:
+            storage_artifacts = _export_fn(
+                run_dir, storage_path_from_meta, event_id_from_meta,
+            )
+        except Exception as exc:
+            errors.append(f"Storage artifact export failed: {exc}")
+
+    # -- Step 7: Write redacted config.toml -----------------------------------
+    config_toml_path: Path | None = None
+    config_data_for_toml: dict[str, Any] | None = None
+    if metadata and metadata.get("config_data"):
+        config_data_for_toml = metadata["config_data"]
+    # Fall back to existing config snapshot env data (collected later).
+
+    # -- Step 8: Collect log artifacts from metadata --------------------------
+    log_artifacts_from_meta = _collect_log_artifacts(run_dir, metadata)
+
+    # -- Step 9: Parse results (deprecated regex fallback) --------------------
     parsed = _parse_pytest_output(stdout, stderr)
 
-    # -- Step 6: Collect config snapshot (best-effort) -----------------------
+    medre_evidence_limitations_note: str | None = None
+    if not metadata_available:
+        medre_evidence_limitations_note = (
+            "run-metadata.json not found: evidence derived from pytest "
+            "stdout regex (deprecated fallback, less reliable)"
+        )
+
+    # -- Step 10: Collect config snapshot (best-effort) -----------------------
     config_snapshot: dict[str, Any] | None = None
     try:
         config_snapshot = _collect_config_snapshot(scenario, env)
     except Exception as exc:
         errors.append(f"Config snapshot collection failed: {exc}")
 
-    # -- Step 7: Collect inspect artifacts (best-effort) ---------------------
+    # Write config.toml if not already written from metadata.
+    if config_toml_path is None:
+        if config_data_for_toml is not None:
+            config_toml_path = _write_redacted_config(run_dir, config_data_for_toml)
+        elif config_snapshot is not None:
+            config_toml_path = _write_redacted_config(run_dir, config_snapshot)
+
+    # -- Step 11: Collect inspect artifacts (best-effort) --------------------
     inspect_artifacts: list[str] = []
     try:
         inspect_artifacts = _collect_inspect_artifacts(run_dir)
     except Exception as exc:
         errors.append(f"Inspect artifact collection failed: {exc}")
 
-    # -- Step 8: Determine status ---------------------------------------------
+    # -- Step 12: Determine status --------------------------------------------
     if returncode == 0 and parsed["failed_count"] == 0 and parsed["error_count"] == 0:
         status = "passed"
     elif returncode == 0:
@@ -512,12 +851,66 @@ def collect_docker_bridge_artifacts(
     if errors and status == "passed":
         status = "partial"
 
-    # -- Step 9: Build scenario-specific evidence -----------------------------
+    # -- Step 13: Build scenario-specific evidence ----------------------------
     matrix_evidence = _build_matrix_evidence(parsed, stdout, scenario, env)
     meshtastic_evidence = _build_meshtastic_evidence(parsed, stdout, scenario, env)
     medre_evidence = _build_medre_evidence(parsed, stdout, scenario, env)
 
-    # -- Step 10: Build and write summary ------------------------------------
+    # -- Step 14: Override with structured metadata (precedence) --------------
+    if metadata:
+        meta_matrix = metadata.get("matrix", {})
+        for key in ("room", "event_id", "ingress_path", "container"):
+            if key in meta_matrix and meta_matrix[key] is not None:
+                matrix_evidence[key] = meta_matrix[key]
+
+        meta_medre = metadata.get("medre", {})
+        for key in ("event_id", "receipt", "native_refs"):
+            if key in meta_medre and meta_medre[key] is not None:
+                medre_evidence[key] = meta_medre[key]
+
+        meta_meshtastic = metadata.get("meshtastic", {})
+        if "packet_ids" in meta_meshtastic and meta_meshtastic["packet_ids"]:
+            meshtastic_evidence.setdefault("outbound", {})[
+                "packet_ids"
+            ] = meta_meshtastic["packet_ids"]
+        if "pubsub_proven" in meta_meshtastic:
+            meshtastic_evidence.setdefault("inbound", {})[
+                "pubsub_proven"
+            ] = meta_meshtastic["pubsub_proven"]
+
+    # -- Step 15: Collect artifact manifest -----------------------------------
+    artifact_manifest = _collect_artifact_manifest(run_dir)
+
+    # Report missing required artifacts as honest status notes (not errors
+    # that would change the overall status — they are environmental limits).
+    for missing in artifact_manifest["missing"]["required"]:
+        _logger.warning("Missing required artifact: %s", missing)
+
+    # Report missing best-effort artifacts as limitations.
+    missing_best = artifact_manifest["missing"]["best_effort"]
+    if "final-snapshot.json" in missing_best:
+        medre_evidence.setdefault("limitations", list(_LIMITATIONS)).append(
+            "final-snapshot.json not produced: direct PipelineRunner tests "
+            "cannot generate it without a full MedreApp"
+        )
+    if not metadata_available and medre_evidence_limitations_note is not None:
+        medre_evidence.setdefault("limitations", list(_LIMITATIONS)).append(
+            medre_evidence_limitations_note
+        )
+    for missing in missing_best:
+        if missing != "final-snapshot.json":
+            _logger.info("Best-effort artifact missing: %s", missing)
+
+    # -- Step 16: Build and write summary ------------------------------------
+    # Aggregate all artifact paths into a single mapping.
+    all_artifact_paths: dict[str, str] = dict(artifact_manifest["artifact_paths"])
+    for name, path in storage_artifacts.items():
+        all_artifact_paths[name] = str(path)
+    for name, path in log_artifacts_from_meta.items():
+        all_artifact_paths[name] = str(path)
+    if config_toml_path is not None:
+        all_artifact_paths["config.toml"] = str(config_toml_path)
+
     summary = build_summary(
         status=status,
         scenario=scenario,
@@ -533,6 +926,9 @@ def collect_docker_bridge_artifacts(
         inspect_artifacts=log_artifacts + inspect_artifacts,
         errors=errors,
         now_fn=_now,
+        artifact_plan=ARTIFACT_PLAN,
+        artifact_paths=all_artifact_paths,
+        missing_artifacts=artifact_manifest["missing"],
     )
 
     try:
@@ -629,11 +1025,20 @@ def _build_meshtastic_evidence(
     packet_matches = re.findall(r"packet[_ ]?id[=:]\s*(\d+)", stdout, re.IGNORECASE)
     outbound_packet_ids = list(dict.fromkeys(packet_matches))[:10]
 
+    # Honest pubsub detection: only actual pubsub callback evidence proves
+    # pubsub.  simulate_inbound explicitly means real pubsub is NOT proven.
+    _has_pubsub_signal = "pubsub" in stdout.lower()
+    _has_simulate_inbound = "simulate_inbound" in stdout
+
+    inbound: dict[str, Any] = {
+        "pubsub_proven": _has_pubsub_signal,
+    }
+    if _has_simulate_inbound and not _has_pubsub_signal:
+        inbound["simulated_inbound"] = True
+
     return {
         "daemon": env.get("MEDRE_MESHTASTICD_IMAGE", "meshtastic/meshtasticd:2.7.15"),
-        "inbound": {
-            "pubsub_proven": "pubsub" in stdout.lower() or "simulate_inbound" in stdout,
-        },
+        "inbound": inbound,
         "outbound": {
             "packet_ids": outbound_packet_ids,
         } if outbound_packet_ids else None,

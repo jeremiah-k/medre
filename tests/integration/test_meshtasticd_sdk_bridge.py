@@ -84,7 +84,7 @@ from medre.core.routing import Route, RouteSource, RouteTarget, Router
 from medre.core.storage.sqlite import SQLiteStorage
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 
-from .conftest import MeshtasticdEnvironment
+from .conftest import MeshtasticdEnvironment, _write_artifact_json, _RUN_ARTIFACT_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -257,6 +257,28 @@ class TestMeshtasticdSdkBridge:
             # Queue diagnostics reflect the successful send.
             assert adapter.queue.total_sent == 1
             assert adapter.queue.total_failed == 0
+
+            # Persist outbound-only artifact when artifact collection is enabled.
+            if _RUN_ARTIFACT_DIR is not None:
+                _write_artifact_json(
+                    "meshtasticd-outbound-send-report.json",
+                    {
+                        "scenario": "meshtastic_outbound_send_one",
+                        "transport": "meshtastic",
+                        "evidence_level": "docker_sdk_boundary",
+                        "outbound_path": "real_sendText",
+                        "inbound_path": "none",
+                        "cross_transport_proof": "partial",
+                        "native_message_id": send_result.native_message_id,
+                        "queue_sent": adapter.queue.total_sent,
+                        "queue_failed": adapter.queue.total_failed,
+                        "limitations": [
+                            "Outbound only (no inbound path exercised).",
+                            "meshtasticd simulation mode (-s), not real LoRa hardware.",
+                            "Fire-and-forget: remote receipt not confirmed.",
+                        ],
+                    },
+                )
         finally:
             await adapter.stop()
 
@@ -405,6 +427,34 @@ class TestMeshtasticdSdkBridge:
                 report["native_event_id"],
                 report["receipt_status"],
             )
+
+            # Persist structured artifact when MEDRE_DOCKER_ARTIFACT_RUN_DIR is set.
+            if _RUN_ARTIFACT_DIR is not None:
+                _write_artifact_json(
+                    "meshtasticd-sdk-bridge-report.json",
+                    {
+                        "scenario": "meshtastic_simulate_inbound_bridge",
+                        "transport": "meshtastic",
+                        "evidence_level": "docker_sdk_boundary",
+                        "inbound_path": "simulate_inbound",
+                        "inbound_note": (
+                            "Inbound injected via simulate_inbound; "
+                            "real pubsub delivery not exercised"
+                        ),
+                        "outbound_path": "fake_adapter",
+                        "cross_transport_proof": "partial",
+                        "cross_transport_note": (
+                            "Outbound target is FakeMeshtasticAdapter; "
+                            "real radio delivery not proven"
+                        ),
+                        "event_id": resolved,
+                        "native_event_id": report["native_event_id"],
+                        "receipt_count": len(receipts),
+                        "native_ref_count_inbound": 1,
+                        "native_ref_count_outbound": 1,
+                        "limitations": report["limitations"],
+                    },
+                )
         finally:
             await mesh_adapter.stop()
             await runner.stop()
