@@ -18,6 +18,9 @@ These tests are **not** marked ``live`` — they must pass in a bare
 from __future__ import annotations
 
 import importlib
+import json
+import os
+import subprocess
 import sys
 import tomllib
 from pathlib import Path
@@ -1007,4 +1010,120 @@ class TestWheelArtifactContract:
         ]
         assert not example_files, (
             f"wheel should not contain examples/: {sorted(example_files)}"
+        )
+
+
+# ===================================================================
+# 17. python -m medre / python -m medre.cli subprocess invocation
+# ===================================================================
+
+
+class TestPythonMInvocation:
+    """``python -m medre`` and ``python -m medre.cli`` must work as
+    subprocess invocations, matching the installed-package contract.
+
+    These tests verify that the ``__main__.py`` delegation files produce
+    correct exit codes and output when invoked via ``python -m`` — the
+    primary entry point for users who installed the package (as opposed
+    to running the ``medre`` console-script).
+    """
+
+    @pytest.fixture(autouse=True)
+    def _clean_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        for var in (
+            "MEDRE_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME",
+            "XDG_DATA_HOME", "XDG_CACHE_HOME", "MEDRE_CONFIG",
+        ):
+            monkeypatch.delenv(var, raising=False)
+
+    def _run_module(self, module: str, *args: str) -> subprocess.CompletedProcess[str]:
+        """Run ``python -m <module> [args...]`` and return the result."""
+        return subprocess.run(
+            [sys.executable, "-m", module, *args],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env={**os.environ, "PYTHONPATH": str(_REPO_ROOT / "src")},
+        )
+
+    def test_python_m_medre_help_exits_zero(self) -> None:
+        """``python -m medre --help`` exits 0 and prints usage."""
+        result = self._run_module("medre", "--help")
+        assert result.returncode == 0, (
+            f"python -m medre --help exited {result.returncode}: "
+            f"stderr={result.stderr!r}"
+        )
+        assert "usage:" in result.stdout.lower() or "medre" in result.stdout.lower(), (
+            f"Expected usage text in stdout: {result.stdout[:200]!r}"
+        )
+
+    def test_python_m_medre_cli_help_exits_zero(self) -> None:
+        """``python -m medre.cli --help`` exits 0 and prints usage."""
+        result = self._run_module("medre.cli", "--help")
+        assert result.returncode == 0, (
+            f"python -m medre.cli --help exited {result.returncode}: "
+            f"stderr={result.stderr!r}"
+        )
+        assert "usage:" in result.stdout.lower() or "medre" in result.stdout.lower(), (
+            f"Expected usage text in stdout: {result.stdout[:200]!r}"
+        )
+
+    def test_python_m_medre_version(self) -> None:
+        """``python -m medre version`` prints version info."""
+        result = self._run_module("medre", "version")
+        assert result.returncode == 0, (
+            f"python -m medre version exited {result.returncode}: "
+            f"stderr={result.stderr!r}"
+        )
+        assert "medre" in result.stdout.lower(), (
+            f"Expected 'medre' in version output: {result.stdout!r}"
+        )
+
+    def test_python_m_medre_cli_version(self) -> None:
+        """``python -m medre.cli version`` prints version info."""
+        result = self._run_module("medre.cli", "version")
+        assert result.returncode == 0, (
+            f"python -m medre.cli version exited {result.returncode}: "
+            f"stderr={result.stderr!r}"
+        )
+        assert "medre" in result.stdout.lower(), (
+            f"Expected 'medre' in version output: {result.stdout!r}"
+        )
+
+    def test_python_m_medre_config_sample(self) -> None:
+        """``python -m medre config sample`` produces valid TOML."""
+        result = self._run_module("medre", "config", "sample")
+        assert result.returncode == 0, (
+            f"python -m medre config sample exited {result.returncode}: "
+            f"stderr={result.stderr!r}"
+        )
+        parsed = tomllib.loads(result.stdout)
+        assert "runtime" in parsed, (
+            f"Sample output missing [runtime]: {list(parsed.keys())}"
+        )
+        assert "adapters" in parsed, (
+            f"Sample output missing [adapters]: {list(parsed.keys())}"
+        )
+
+    def test_python_m_medre_paths(self) -> None:
+        """``python -m medre paths`` prints path information."""
+        result = self._run_module("medre", "paths")
+        assert result.returncode == 0, (
+            f"python -m medre paths exited {result.returncode}: "
+            f"stderr={result.stderr!r}"
+        )
+        assert "medre" in result.stdout.lower(), (
+            f"Expected 'medre' in paths output: {result.stdout!r}"
+        )
+
+    def test_python_m_medre_adapters(self) -> None:
+        """``python -m medre adapters`` lists adapter types."""
+        result = self._run_module("medre", "adapters")
+        assert result.returncode == 0, (
+            f"python -m medre adapters exited {result.returncode}: "
+            f"stderr={result.stderr!r}"
+        )
+        combined = (result.stdout + result.stderr).lower()
+        assert "matrix" in combined or "adapter" in combined, (
+            f"Expected adapter info in output: {combined[:200]!r}"
         )

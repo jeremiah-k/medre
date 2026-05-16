@@ -492,7 +492,8 @@ These files have been split by behavioral domain following the procedure above.
 | `tests/test_operator_workflows.py` | Split | 7 domain files |
 | `tests/test_pipeline.py` | Split | 5 domain files (delivery, failure taxonomy, fanout, native refs, capacity) |
 | `tests/test_replay.py` | Split | 5 domain files (engine, policy, accounting, capacity, traceability) |
-| `tests/test_cli.py` | In progress | 9 domain files: `test_cli_command_help_hints`, `test_cli_config_workflows`, `test_cli_diagnostics_workflows`, `test_cli_install_metadata`, `test_cli_replay_surface`, `test_cli_route_workflows`, `test_cli_run_workflows`, `test_cli_scenario_crosscheck`, `test_cli_smoke_run_session`. Monolith deletion pending from CLI split track. |
+| `tests/test_cli.py` | Split | 9 domain files: `test_cli_command_help_hints`, `test_cli_config_workflows`, `test_cli_diagnostics_workflows`, `test_cli_install_metadata`, `test_cli_replay_surface`, `test_cli_route_workflows`, `test_cli_run_workflows`, `test_cli_scenario_crosscheck`, `test_cli_smoke_run_session`. Helper: `helpers/cli.py`. |
+| `tests/test_alpha_walkthrough_cli.py` | Split | 4 domain files: `test_alpha_cli_config_and_smoke`, `test_alpha_cli_inspect_flow`, `test_alpha_cli_replay_flow`, `test_alpha_cli_error_paths`. Helper: `helpers/alpha_cli.py`. |
 
 
 ## Next Modernization Wave

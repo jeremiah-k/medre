@@ -5,9 +5,7 @@ import importlib
 import os
 import sys
 
-from medre.config.loader import load_config
 from medre.config.paths import resolve, MedrePaths
-from medre.config.errors import ConfigValidationError
 
 from .exit_codes import EXIT_CONFIG
 from .transports import TRANSPORTS
@@ -52,48 +50,12 @@ def _paths() -> None:
     print(f"Log dir:      {paths.log_dir}  [{_dir_status(paths.log_dir)}]")
     print(f"Global DB:    {paths.database_path}")
 
-    # Try to load config for adapter state roots.
-    try:
-        config, _source, _paths = load_config(None)
-        adapter_roots = []
-        enabled_count = 0
-        disabled_count = 0
-        for transport, adapter_id, rtc in config.adapters.all_configs():
-            if rtc.enabled:
-                enabled_count += 1
-                adapter_roots.append(
-                    f"{transport}.{adapter_id}: {paths.adapter_state_dir(adapter_id)}"
-                )
-            else:
-                disabled_count += 1
-                adapter_roots.append(
-                    f"{transport}.{adapter_id}: (disabled)"
-                )
-        if adapter_roots:
-            print()
-            print(f"Adapter inventory ({enabled_count} enabled, {disabled_count} disabled):")
-            for line in adapter_roots:
-                print(f"  {line}")
-        # Show storage backend and limits.
-        storage_backend = config.storage.backend if config.storage else "none"
-        limits = config.limits
-        print()
-        print(f"Storage backend: {storage_backend}")
-        print(f"Runtime limits:")
-        print(f"  max_inflight_deliveries = {limits.max_inflight_deliveries}")
-        print(f"  max_inflight_replay_events = {limits.max_inflight_replay_events}")
-        print(f"  drain_timeout = {limits.shutdown_drain_timeout_seconds}s")
-        # Show route count.
-        route_list = config.routes.routes if config.routes else []
-        if route_list:
-            route_enabled = sum(1 for r in route_list if r.enabled)
-            print(f"Routes: {route_enabled}/{len(route_list)} active")
-    except Exception:
-        pass  # No config available — skip adapter roots.
-
 
 def _config_check(config_path: str | None) -> None:
     """Load and validate the config, printing a rich summary."""
+    from medre.config.loader import load_config
+    from medre.config.errors import ConfigValidationError
+
     try:
         config, source, paths = load_config(config_path)
     except Exception as exc:
@@ -242,6 +204,8 @@ def _config_check(config_path: str | None) -> None:
 
 def _adapters() -> None:
     """List available adapter types, SDK availability, and configured adapters."""
+    from medre.config.loader import load_config
+
     print("Adapter types:")
 
     # Check SDK availability

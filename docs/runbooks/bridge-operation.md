@@ -816,3 +816,41 @@ Reply context that survives the bridge: Matrix ↔ Matrix (full `m.relates_to`),
 any → Matrix (reply relation rendered with fallback text). Reply context that
 does **not** survive: any → radio transport (Meshtastic, MeshCore) — the reply
 relation is dropped at rendering time.
+
+
+## 17. Opt-in Docker Bridge Artifact Collection
+
+An opt-in artifact collection path is available for producing structured
+evidence from Docker Matrix <-> Meshtastic bridge validation runs.  This path
+is **not** invoked by default CI — it requires explicit activation.
+
+**What it does:**
+
+1. Creates a timestamped run directory under
+   ``.ci-artifacts/docker-bridge-runs/<timestamp>/``.
+2. Runs Docker integration tests for a given scenario
+   (``matrix_to_meshtastic``, ``meshtastic_to_matrix``, ``bidirectional``).
+3. Captures pytest stdout/stderr, config snapshots, and inspect artifacts.
+4. Writes ``summary.json`` with structured evidence, **even on failure**.
+5. Redacts tokens/passwords from all artifacts using
+   ``sanitize_for_log`` and ``sanitize_error``.
+
+**Usage:**
+
+```bash
+./scripts/ci/run-docker-bridge-artifacts.sh [scenario]
+```
+
+**Required ``summary.json`` fields:**
+``status``, ``scenario``, ``matrix`` (container/room/event_id/ingress_path),
+``meshtastic`` (daemon/inbound/outbound), ``medre`` (event_id/receipt/native_refs/runtime/limitations),
+``errors``, ``limitations``.
+
+**Honesty requirements:**
+- No real external Matrix account or real radio is proven.
+- Limitations explicitly state localhost-only, container-local validation.
+- On failure, ``summary.json`` is written with ``status: "failed"`` or
+  ``"partial"`` and populated ``limitations``.
+
+See [Docker Bridge Artifacts](docker-bridge-artifacts.md) for full
+documentation, summary.json schema, and testing instructions.

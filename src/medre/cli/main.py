@@ -7,18 +7,9 @@ import importlib.metadata
 import platform
 import sys
 
-from medre.config.sample import generate_sample_config
-
-from .config_commands import _paths, _config_check, _adapters
-from .route_commands import _routes_validate, _routes_topology, _routes_list
-from .diagnostics_commands import _diagnostics, _diagnostics_refresh
-from .inspect_commands import _inspect_event, _inspect_receipts, _inspect_native_ref, _inspect_replay
-from .trace_commands import _trace_event, _trace_replay
-from .replay_commands import _replay
-from .recover_commands import _recover
-from .run_commands import _run
-from .smoke_commands import _smoke, _run_session
-from .evidence_commands import _evidence
+# Lightweight imports only — command modules are imported lazily inside
+# dispatch branches so that ``--help``, ``version``, and ``config sample``
+# never touch optional SDK packages (nio, meshtastic, RNS, LXMF).
 from .exit_codes import EXIT_CONFIG
 
 
@@ -261,7 +252,7 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     if args.command == "run":
-        import asyncio
+        from .run_commands import _run
 
         try:
             asyncio.run(_run(args.config, snapshot_path=getattr(args, "snapshot_on_shutdown", None)))
@@ -269,23 +260,29 @@ def main(argv: list[str] | None = None) -> None:
             pass
     elif args.command == "config":
         if args.config_command == "check":
+            from .config_commands import _config_check
             _config_check(args.config)
         elif args.config_command == "sample":
+            from medre.config.sample import generate_sample_config
             print(generate_sample_config())
     elif args.command == "paths":
+        from .config_commands import _paths
         _paths()
     elif args.command == "version":
         _version()
     elif args.command == "adapters":
+        from .config_commands import _adapters
         _adapters()
     elif args.command == "diagnostics":
-        import asyncio
+        from .diagnostics_commands import _diagnostics, _diagnostics_refresh
 
         if getattr(args, "refresh_health", False):
             asyncio.run(_diagnostics_refresh(args.config))
         else:
             _diagnostics(args.config)
     elif args.command == "routes":
+        from .route_commands import _routes_validate, _routes_topology, _routes_list
+
         if args.routes_command == "validate":
             _routes_validate(args.config)
         elif args.routes_command == "topology":
@@ -293,7 +290,7 @@ def main(argv: list[str] | None = None) -> None:
         elif args.routes_command == "list":
             _routes_list(args.config)
     elif args.command == "smoke":
-        import asyncio
+        from .smoke_commands import _smoke, _run_session
 
         if getattr(args, "run_session", False):
             asyncio.run(
@@ -311,7 +308,7 @@ def main(argv: list[str] | None = None) -> None:
                        storage_path=args.storage_path, drill_name=args.drill)
             )
     elif args.command == "inspect":
-        import asyncio
+        from .inspect_commands import _inspect_event, _inspect_receipts, _inspect_native_ref, _inspect_replay
 
         _storage_path = getattr(args, "storage_path", None)
         if args.inspect_command == "event":
@@ -349,7 +346,7 @@ def main(argv: list[str] | None = None) -> None:
                 )
             )
     elif args.command == "evidence":
-        import asyncio
+        from .evidence_commands import _evidence
 
         asyncio.run(
             _evidence(
@@ -362,7 +359,7 @@ def main(argv: list[str] | None = None) -> None:
             )
         )
     elif args.command == "trace":
-        import asyncio
+        from .trace_commands import _trace_event, _trace_replay
 
         _storage_path = getattr(args, "storage_path", None)
         if args.trace_command == "event":
@@ -376,7 +373,7 @@ def main(argv: list[str] | None = None) -> None:
                 storage_path=_storage_path,
             ))
     elif args.command == "replay":
-        import asyncio
+        from .replay_commands import _replay
 
         if getattr(args, "storage_path", None) is not None:
             print(
@@ -400,7 +397,7 @@ def main(argv: list[str] | None = None) -> None:
             )
         )
     elif args.command == "recover":
-        import asyncio
+        from .recover_commands import _recover
 
         asyncio.run(
             _recover(

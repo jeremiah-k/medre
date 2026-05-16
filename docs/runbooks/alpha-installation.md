@@ -24,6 +24,10 @@ for two scenarios:
 
 ## 1. Install
 
+There are two installation paths. Choose one:
+
+### 1a. Source checkout (developers)
+
 ```bash
 # Clone the repository
 git clone <repo-url> && cd medre
@@ -36,8 +40,28 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
-This gives you the `medre` command with fake adapters only. No transport SDKs
-are installed. The only core dependency is `msgspec`.
+This gives you the `medre` command with fake adapters only, plus access to
+example configs in `examples/configs/`. No transport SDKs are installed.
+The only core dependency is `msgspec`.
+
+### 1b. Installed package (operators)
+
+If you received a wheel or sdist (not a git clone), install directly:
+
+```bash
+# From a wheel
+pip install medre-0.1.0-py3-none-any.whl
+
+# Or from a source distribution
+pip install medre-0.1.0.tar.gz
+```
+
+This gives you the `medre` console script. You can also invoke via
+`python -m medre` or `python -m medre.cli` — all three are equivalent.
+
+**Important:** Installed packages do **not** include the `examples/` directory
+from the repository. Use `medre config sample` to generate an equivalent
+config instead of referencing `examples/configs/*.toml`.
 
 To add optional transport SDKs later:
 
@@ -69,8 +93,10 @@ platform-specific setup per transport.
 Run these commands in order. Every one should succeed without errors.
 
 ```bash
-# Check version
+# Check version (three equivalent invocations)
 medre version
+# Or: python -m medre version
+# Or: python -m medre.cli version
 # Expected: medre 0.1.0, Python version, platform info
 
 # Show resolved paths (XDG or MEDRE_HOME based)
@@ -87,7 +113,9 @@ medre adapters
 ## 3. Generate and validate a config
 
 `medre config sample` generates a complete TOML config that uses fake adapters.
-It works out of the box without any optional SDKs or network access.
+It works out of the box without any optional SDKs or network access. This is
+the recommended way to get a config for any installation — source checkout or
+installed package.
 
 ```bash
 # Print the sample config
@@ -119,7 +147,7 @@ See the [Configuration Runbook](configuration.md) for the full TOML schema.
 the full pipeline, and reports results. It is the fastest way to prove the
 architecture works.
 
-From a source checkout:
+**Source checkout (has `examples/` directory):**
 
 ```bash
 medre smoke --config examples/configs/fake-bridge-smoke.toml \
@@ -127,10 +155,23 @@ medre smoke --config examples/configs/fake-bridge-smoke.toml \
 # Expected: JSON with "status": "passed", an event_id, and delivery receipts.
 ```
 
-The sample config from `medre config sample` is designed for config validation,
-not smoke testing. For smoke tests, use `fake-bridge-smoke.toml` from the
-source tree, which is tuned for the smoke framework (memory backend, specific
-adapter IDs, unidirectional routes).
+**Installed package (no `examples/` directory — use generated config):**
+
+```bash
+# Generate a config first
+medre config sample > /tmp/medre-alpha.toml
+
+# Smoke test with the generated config
+medre smoke --config /tmp/medre-alpha.toml \
+  --storage-path /tmp/medre-alpha.db --json
+# Expected: JSON with "status": "passed", an event_id, and delivery receipts.
+```
+
+> **Note:** The sample config from `medre config sample` is designed for config
+> validation and basic smoke testing. For advanced smoke scenarios (specific
+> adapter IDs, unidirectional routes, retry workers), use the dedicated configs
+> in `examples/configs/` from a source checkout. Those configs are not shipped
+> in the wheel — they are source-repo documentation.
 
 The SQLite database at the storage path now contains the canonical event,
 delivery receipts, and native references for inspection.
@@ -160,11 +201,14 @@ See the [Alpha Walkthrough](alpha-walkthrough.md) for the full inspect and
 investigation workflow.
 
 
-## 6. Optional: Validate example configs
+## 6. Optional: Validate example configs (source checkout only)
 
-The `examples/configs/` directory in the source repository contains reference
-configs for various scenarios. They are not shipped as package data; they are
-source-repo documentation for operators working from a checkout.
+The `examples/configs/` directory exists **only in the source repository**. It
+is not shipped in the wheel or sdist. These configs are reference documentation
+for operators working from a checkout.
+
+If you installed from a wheel, skip this section — use `medre config sample`
+instead (see section 3).
 
 ```bash
 # Fake-only configs that work without any SDKs
@@ -217,28 +261,37 @@ Docker is not required for the basic install or the fake-only smoke path.
 ## Quick reference
 
 ```bash
-# Install (fake-only)
+# Install — source checkout
 pip install -e ".[dev]"
 
-# Verify
-medre version
-medre adapters
+# Install — wheel/sdist (no examples/ directory available)
+pip install medre-0.1.0-py3-none-any.whl
 
-# Generate config
+# Verify (all equivalent)
+medre version
+python -m medre version
+python -m medre.cli version
+medre adapters
+medre paths
+
+# Generate config (works for both source and installed)
 medre config sample > /tmp/medre-alpha.toml
 medre config check --config /tmp/medre-alpha.toml
 
-# Smoke test (use fake-bridge-smoke.toml from source tree)
+# Smoke test — source checkout (has examples/)
 medre smoke --config examples/configs/fake-bridge-smoke.toml --storage-path /tmp/medre-alpha.db --json
+
+# Smoke test — installed package (use generated config)
+medre smoke --config /tmp/medre-alpha.toml --storage-path /tmp/medre-alpha.db --json
 
 # Inspect (use event_id from smoke output)
 medre inspect event <event_id> --storage-path /tmp/medre-alpha.db
 medre inspect receipts --event <event_id> --storage-path /tmp/medre-alpha.db
 
-# Run the test suite (no network, no hardware)
+# Run the test suite (source checkout only)
 PYTHONPATH=src pytest -q
 
-# Compile check
+# Compile check (source checkout only)
 python -m compileall -q src tests
 ```
 

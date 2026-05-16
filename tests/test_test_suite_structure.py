@@ -43,6 +43,7 @@ DELETED_MONOLITHS = (
     "test_pipeline",
     "test_replay",
     "test_cli",
+    "test_alpha_walkthrough_cli",
 )
 
 # New bridge / operator files — must not contain fixed asyncio.sleep(N) with N>0.
@@ -74,6 +75,10 @@ NEW_BRIDGE_OPERATOR_FILES = [
     "test_cli_evidence_commands.py",
     "test_cli_command_help_hints.py",
     "test_cli_replay_surface.py",
+    "test_alpha_cli_config_and_smoke.py",
+    "test_alpha_cli_inspect_flow.py",
+    "test_alpha_cli_replay_flow.py",
+    "test_alpha_cli_error_paths.py",
 ]
 
 # New helper modules — must not contain broad type: ignore / pyright: ignore.
@@ -84,6 +89,7 @@ HELPER_FILES = [
     "helpers/assertions.py",
     "helpers/replay.py",
     "helpers/cli.py",
+    "helpers/alpha_cli.py",
 ]
 
 

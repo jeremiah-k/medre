@@ -27,7 +27,9 @@ from __future__ import annotations
 
 import importlib
 import io
+import os
 import py_compile
+import subprocess
 import tomllib
 import sys
 from contextlib import redirect_stdout, redirect_stderr
@@ -691,4 +693,189 @@ class TestReproducibilityEvidence:
         )
         assert pytest_cfg.get("asyncio_mode") == "auto", (
             f"asyncio_mode should be 'auto': {pytest_cfg.get('asyncio_mode')}"
+        )
+
+
+# ===================================================================
+# 12. python -m medre / python -m medre.cli subprocess invocation
+# ===================================================================
+
+
+class TestPythonMSubprocessCleanEnv:
+    """Verify ``python -m medre`` and ``python -m medre.cli`` work via
+    subprocess — the entry points used by installed-package users who
+    do not have the ``medre`` console script on PATH.
+
+    These tests complement the programmatic ``main()`` tests in
+    ``TestCLISmokeCleanEnv`` by exercising the full ``__main__.py``
+    delegation chain in a child process.
+    """
+
+    def _run(self, module: str, *args: str) -> subprocess.CompletedProcess[str]:
+        env = {**os.environ, "PYTHONPATH": str(_SRC_DIR)}
+        for var in (
+            "MEDRE_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME",
+            "XDG_DATA_HOME", "XDG_CACHE_HOME", "MEDRE_CONFIG",
+        ):
+            env.pop(var, None)
+        return subprocess.run(
+            [sys.executable, "-m", module, *args],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env=env,
+        )
+
+    def test_python_m_medre_help(self) -> None:
+        result = self._run("medre", "--help")
+        assert result.returncode == 0, (
+            f"exit={result.returncode}, stderr={result.stderr[:200]!r}"
+        )
+        assert "medre" in result.stdout.lower()
+
+    def test_python_m_medre_cli_help(self) -> None:
+        result = self._run("medre.cli", "--help")
+        assert result.returncode == 0, (
+            f"exit={result.returncode}, stderr={result.stderr[:200]!r}"
+        )
+        assert "medre" in result.stdout.lower()
+
+    def test_python_m_medre_version(self) -> None:
+        result = self._run("medre", "version")
+        assert result.returncode == 0
+        assert "medre" in result.stdout.lower()
+        assert "Python" in result.stdout
+
+    def test_python_m_medre_cli_version(self) -> None:
+        result = self._run("medre.cli", "version")
+        assert result.returncode == 0
+        assert "medre" in result.stdout.lower()
+
+    def test_python_m_medre_config_sample_valid_toml(self) -> None:
+        """``python -m medre config sample`` produces valid TOML."""
+        result = self._run("medre", "config", "sample")
+        assert result.returncode == 0
+        parsed = tomllib.loads(result.stdout)
+        assert "runtime" in parsed
+        assert "adapters" in parsed
+
+    def test_python_m_medre_paths(self) -> None:
+        result = self._run("medre", "paths")
+        assert result.returncode == 0
+        assert "medre" in result.stdout.lower() or "config" in result.stdout.lower()
+
+    def test_python_m_medre_adapters(self) -> None:
+        result = self._run("medre", "adapters")
+        assert result.returncode == 0
+        combined = (result.stdout + result.stderr).lower()
+        assert "matrix" in combined or "adapter" in combined
+
+
+# ===================================================================
+# 13. Optional SDK import-boundary regression
+# ===================================================================
+
+
+class TestOptionalSDKImportBoundary:
+    """Verify lightweight CLI paths (``--help``, ``version``, ``config sample``)
+    do not import optional SDK modules into ``sys.modules``.
+
+    This is a subprocess regression test: the clean-install agent observed
+    that ``from medre.cli import main; main(['--help'])`` leaked optional
+    SDKs (``nio``, ``meshtastic``, ``RNS``, ``LXMF``) because ``main.py``
+    eagerly imported all command modules at module level.
+
+    The test runs a short Python snippet in a **fresh child process** that
+    imports ``medre.cli``, invokes a lightweight command, and prints any
+    optional SDK modules found in ``sys.modules``.  Because the child
+    process starts clean, even if the SDKs are installed in the test
+    environment, they should not appear unless a command path triggers them.
+
+    Commands that **should not** import optional SDKs:
+      - ``--help`` (argparse exits before dispatch)
+      - ``version`` (only importlib.metadata + platform)
+      - ``config sample`` (pure string generation)
+
+    Commands that **may** import optional SDKs (out of scope):
+      - ``paths``, ``adapters`` (load config → config.model → adapter __init__)
+    """
+
+    _OPTIONAL_SDK_MODULES: tuple[str, ...] = (
+        "nio",
+        "mindroom_nio",
+        "meshtastic",
+        "mtjk",
+        "RNS",
+        "LXMF",
+        "meshcore",
+        "meshcore_py",
+    )
+
+    def _check_sdk_leak(self, command_snippet: str) -> None:
+        """Run *command_snippet* in a subprocess and assert no optional SDKs
+        were imported."""
+        import json
+
+        # The subprocess snippet must: (1) redirect stdout so --help output
+        # doesn't pollute stdout, (2) run the command, (3) restore stdout,
+        # then (4) print the leaked-modules JSON on the real stdout.
+        check_code = (
+            "import sys, json, io, contextlib;\n"
+            "_saved_stdout = sys.stdout;\n"
+            "sys.stdout = io.StringIO();\n"
+            "try:\n"
+            f"    {command_snippet};\n"
+            "except SystemExit:\n"
+            "    pass\n"
+            "finally:\n"
+            "    sys.stdout = _saved_stdout;\n"
+            "leaked = [m for m in "
+            f"{self._OPTIONAL_SDK_MODULES!r} "
+            "if m in sys.modules];\n"
+            "print(json.dumps(leaked))"
+        )
+        env = {**os.environ, "PYTHONPATH": str(_SRC_DIR)}
+        for var in (
+            "MEDRE_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME",
+            "XDG_DATA_HOME", "XDG_CACHE_HOME", "MEDRE_CONFIG",
+        ):
+            env.pop(var, None)
+        result = subprocess.run(
+            [sys.executable, "-c", check_code],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env=env,
+        )
+        assert result.returncode == 0, (
+            f"Subprocess failed (rc={result.returncode}): "
+            f"stderr={result.stderr[:500]!r}"
+        )
+        leaked = json.loads(result.stdout.strip())
+        assert leaked == [], (
+            f"Optional SDK modules leaked during lightweight CLI path: {leaked}"
+        )
+
+    def test_help_does_not_import_optional_sdks(self) -> None:
+        """``from medre.cli import main`` + ``--help`` must not pull in SDKs."""
+        self._check_sdk_leak(
+            "from medre.cli import main; main(['--help'])"
+        )
+
+    def test_version_does_not_import_optional_sdks(self) -> None:
+        """``medre version`` must not pull in SDKs."""
+        self._check_sdk_leak(
+            "from medre.cli import main; main(['version'])"
+        )
+
+    def test_config_sample_does_not_import_optional_sdks(self) -> None:
+        """``medre config sample`` must not pull in SDKs."""
+        self._check_sdk_leak(
+            "from medre.cli import main; main(['config', 'sample'])"
+        )
+
+    def test_paths_does_not_import_optional_sdks(self) -> None:
+        """``medre paths`` must not pull in SDKs — core path data needs none."""
+        self._check_sdk_leak(
+            "from medre.cli import main; main(['paths'])"
         )
