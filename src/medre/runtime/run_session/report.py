@@ -40,6 +40,9 @@ def _build_cross_linked_commands(
 
     Returns a dict with ``commands_text`` (shell-safe string) and
     ``commands_argv`` (list form) for each command.
+
+    Inspect-first: the primary recommended commands use ``medre inspect``.
+    The ``trace`` entry is retained as a specialised / lower-level tool.
     """
     def _safe(val: str | None) -> str:
         return shlex.quote(val) if val else ""
@@ -49,24 +52,47 @@ def _build_cross_linked_commands(
     if config_path:
         cfg_flag_argv = ["--config", config_path]
 
-    trace_argv = ["medre", "trace", "event", event_id] + cfg_flag_argv
-    inspect_argv = ["medre", "inspect", "receipts", "--event", event_id] + cfg_flag_argv
+    # Inspect-first primary commands.
+    inspect_event_argv = ["medre", "inspect", "event", event_id] + cfg_flag_argv
+    inspect_timeline_argv = ["medre", "inspect", "event", event_id, "--timeline"] + cfg_flag_argv
+    inspect_receipts_argv = ["medre", "inspect", "receipts", "--event", event_id] + cfg_flag_argv
+    inspect_evidence_argv = ["medre", "inspect", "event", event_id, "--evidence"] + cfg_flag_argv
+    inspect_recovery_argv = ["medre", "inspect", "event", event_id, "--recovery"] + cfg_flag_argv
     evidence_argv = ["medre", "evidence", "--event", event_id] + cfg_flag_argv + ["--json"]
 
+    # Specialised / lower-level.
+    trace_argv = ["medre", "trace", "event", event_id] + cfg_flag_argv
+
     commands_text: dict[str, str] = {
-        "trace": f"medre trace event {shlex.quote(event_id)} {cfg_flag_text}".strip(),
+        "inspect_event": (
+            f"medre inspect event {shlex.quote(event_id)} {cfg_flag_text}".strip()
+        ),
+        "inspect_timeline": (
+            f"medre inspect event {shlex.quote(event_id)} --timeline {cfg_flag_text}".strip()
+        ),
         "inspect_receipts": (
             f"medre inspect receipts --event {shlex.quote(event_id)} {cfg_flag_text}".strip()
+        ),
+        "inspect_evidence": (
+            f"medre inspect event {shlex.quote(event_id)} --evidence {cfg_flag_text}".strip()
+        ),
+        "inspect_recovery": (
+            f"medre inspect event {shlex.quote(event_id)} --recovery {cfg_flag_text}".strip()
         ),
         "evidence": (
             f"medre evidence --event {shlex.quote(event_id)} {cfg_flag_text} --json".strip()
         ),
+        "trace": f"medre trace event {shlex.quote(event_id)} {cfg_flag_text}".strip(),
         "final_snapshot": f"cat {_safe(snapshot_path)}" if snapshot_path else "(not saved)",
     }
     commands_argv: dict[str, list[str]] = {
-        "trace": trace_argv,
-        "inspect_receipts": inspect_argv,
+        "inspect_event": inspect_event_argv,
+        "inspect_timeline": inspect_timeline_argv,
+        "inspect_receipts": inspect_receipts_argv,
+        "inspect_evidence": inspect_evidence_argv,
+        "inspect_recovery": inspect_recovery_argv,
         "evidence": evidence_argv,
+        "trace": trace_argv,
         "final_snapshot": [],  # No medre CLI command — just a file path
     }
     return {

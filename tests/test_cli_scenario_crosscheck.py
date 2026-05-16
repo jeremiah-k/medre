@@ -239,3 +239,33 @@ class TestScenarioCrossCheck:
         assert "limitations" in report
         assert isinstance(report["limitations"], list)
         assert len(report["limitations"]) > 0
+
+    @pytest.mark.parametrize("scenario", _SCENARIOS)
+    @pytest.mark.asyncio
+    async def test_report_commands_inspect_first(
+        self, scenario: str, tmp_path: Path,
+    ) -> None:
+        """Report commands include inspect-first keys (inspect_event, inspect_timeline, etc.)."""
+        from medre.runtime.run_session import run_bridge_session
+
+        db_path = str(tmp_path / f"inspect-first-{scenario}.db")
+        report = await run_bridge_session(
+            scenario=scenario,
+            storage_path=db_path,
+        )
+        assert report["status"] == "passed"
+        commands = report.get("commands", {})
+        text_commands = commands.get("commands_text", {})
+
+        # Inspect-first primary keys present.
+        for key in ("inspect_event", "inspect_timeline", "inspect_receipts",
+                     "inspect_evidence", "inspect_recovery"):
+            assert key in text_commands, (
+                f"Missing commands_text[{key!r}] for {scenario}"
+            )
+            assert "medre inspect" in text_commands[key], (
+                f"{key} should start with 'medre inspect': {text_commands[key]}"
+            )
+
+        # Trace is still present as specialised / lower-level.
+        assert "trace" in text_commands

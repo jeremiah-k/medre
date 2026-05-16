@@ -224,10 +224,10 @@ class TestRetryTraceEvidence:
         assert first_failure_kind == "adapter_transient"
         assert classification == "retryable"
 
-        # Recommended commands for retryable include replay
+        # Recommended commands for retryable include inspect-first and replay
         cmds = recommended_commands("retryable", event.event_id)
         assert any("replay" in c for c in cmds)
-        assert any("trace" in c for c in cmds)
+        assert any("inspect" in c for c in cmds)
 
     async def test_recover_distinguishes_retry_pending_vs_exhausted(self, temp_storage):
         """Recovery guidance differs for pending retry vs dead-lettered."""
@@ -969,3 +969,69 @@ class TestRetryTraceEvidence:
         # === Replay run grouping ===
         assert replay_run_id in timeline["replay_runs"]
         assert len(timeline["replay_runs"][replay_run_id]) >= 1
+
+
+class TestRecommendedCommandsInspectFirst:
+    """Verify that recommended_commands never starts with 'medre trace event'."""
+
+    @pytest.mark.parametrize("category", [
+        "retryable", "permanent", "operational", "unknown",
+    ])
+    def test_no_trace_event_in_primary_recommendation(
+        self, category: str,
+    ) -> None:
+        """Primary recommended command does not start with 'medre trace event'.
+
+        For non-operational categories the first command starts with
+        'medre inspect'.  Operational starts with 'medre diagnostics'.
+        Neither starts with 'medre trace event'.
+        """
+        cmds = recommended_commands(category, "evt-test-001")
+        assert len(cmds) > 0
+        first = cmds[0]
+        assert not first.startswith("medre trace event"), (
+            f"Primary recommendation for {category!r} should not start with "
+            f"'medre trace event', got: {first!r}"
+        )
+
+    @pytest.mark.parametrize("category", [
+        "retryable", "permanent", "operational", "unknown",
+    ])
+    def test_no_trace_event_in_any_recommendation(
+        self, category: str,
+    ) -> None:
+        """No recommended command starts with 'medre trace event'."""
+        cmds = recommended_commands(category, "evt-test-001")
+        for cmd in cmds:
+            assert not cmd.startswith("medre trace event"), (
+                f"Recommended command starts with 'medre trace event' "
+                f"for {category!r}: {cmd!r}"
+            )
+
+    def test_retryable_includes_inspect_recovery(self) -> None:
+        """Retryable category recommends 'medre inspect event ... --recovery'."""
+        cmds = recommended_commands("retryable", "evt-rty")
+        assert any(
+            "inspect event" in c and "--recovery" in c for c in cmds
+        ), f"Expected 'inspect event ... --recovery' in: {cmds}"
+
+    def test_permanent_includes_inspect_evidence(self) -> None:
+        """Permanent category recommends 'medre inspect event ... --evidence'."""
+        cmds = recommended_commands("permanent", "evt-perm")
+        assert any(
+            "inspect event" in c and "--evidence" in c for c in cmds
+        ), f"Expected 'inspect event ... --evidence' in: {cmds}"
+
+    def test_operational_includes_inspect_timeline(self) -> None:
+        """Operational category recommends 'medre inspect event ... --timeline'."""
+        cmds = recommended_commands("operational", "evt-ops")
+        assert any(
+            "inspect event" in c and "--timeline" in c for c in cmds
+        ), f"Expected 'inspect event ... --timeline' in: {cmds}"
+
+    def test_unknown_includes_inspect_timeline(self) -> None:
+        """Unknown category recommends 'medre inspect event ... --timeline'."""
+        cmds = recommended_commands("unknown", "evt-unk")
+        assert any(
+            "inspect event" in c and "--timeline" in c for c in cmds
+        ), f"Expected 'inspect event ... --timeline' in: {cmds}"

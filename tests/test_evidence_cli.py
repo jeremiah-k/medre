@@ -307,7 +307,7 @@ class TestEvidenceBundleCore:
     """Core evidence bundle collection tests."""
 
     @pytest.mark.asyncio
-    async def test_bundle_status_ok(self, config_fake: Path) -> None:
+    async def test_bundle_status_passed_or_partial(self, config_fake: Path) -> None:
         """Fake adapter config with no storage DB produces partial (missing DB)."""
         report = await collect_evidence_bundle(str(config_fake))
         assert report["schema_version"] == 1
@@ -651,7 +651,7 @@ class TestEvidenceCli:
         )
         storage = result["sections"]["storage"]
         # Missing DB so partial, but replay_run_id was passed.
-        assert storage["status"] in ("partial", "ok")
+        assert storage["status"] in ("passed", "partial")
 
 
 # ---------------------------------------------------------------------------
@@ -776,7 +776,7 @@ class TestIncidentSummary:
         cmds = summary["recommended_commands"]
         assert len(cmds) > 0
         cmd_text = " ".join(cmds)
-        assert "trace event" in cmd_text
+        assert "inspect" in cmd_text
 
     @pytest.mark.asyncio
     async def test_incident_summary_absent_without_event(self, config_fake: Path) -> None:
@@ -820,3 +820,116 @@ class TestIncidentSummary:
         summary = report["sections"]["storage"]["data"]["incident_summary"]
         raw = json.dumps(summary, sort_keys=True)
         assert isinstance(raw, str)
+
+
+# ---------------------------------------------------------------------------
+# Tests: config-backed vs storage-path storage section equivalence
+# ---------------------------------------------------------------------------
+
+
+def _comparable_storage_data(section: dict[str, Any]) -> dict[str, Any]:
+    """Strip db_path from storage section data for cross-mode comparison."""
+    data = dict(section["data"])
+    data.pop("db_path", None)
+    return {
+        "status": section["status"],
+        "data": data,
+    }
+
+
+class TestEvidenceStorageSectionEquivalence:
+    """Config-backed and --storage-path produce equivalent storage sections.
+
+    Both modes delegate to ``_collect_storage_data_from_backend`` so the
+    storage section ``data`` must be identical for the same DB content,
+    differing only in ``db_path`` (which is mode-dependent).
+    """
+
+    @pytest.mark.asyncio
+    async def test_equivalent_basic_counts(self, config_fake: Path) -> None:
+        """Both modes report same event_count and receipt_count."""
+        db_path = str(config_fake.parent / "state" / "test_evidence.db")
+        await _make_populated_db(db_path)
+
+        config_report = await collect_evidence_bundle(str(config_fake))
+        path_report = await collect_evidence_bundle(storage_path=db_path)
+
+        config_storage = _comparable_storage_data(
+            config_report["sections"]["storage"]
+        )
+        path_storage = _comparable_storage_data(
+            path_report["sections"]["storage"]
+        )
+        assert config_storage["status"] == path_storage["status"]
+        assert config_storage["data"]["event_count"] == path_storage["data"]["event_count"]
+        assert config_storage["data"]["receipt_count"] == path_storage["data"]["receipt_count"]
+        assert config_storage["data"]["db_exists"] == path_storage["data"]["db_exists"]
+
+    @pytest.mark.asyncio
+    async def test_equivalent_with_event_lookup(self, config_fake: Path) -> None:
+        """Both modes return identical event data and incident_summary."""
+        db_path = str(config_fake.parent / "state" / "test_evidence.db")
+        event_id, _ = await _make_populated_db(db_path)
+
+        config_report = await collect_evidence_bundle(
+            str(config_fake), event_id=event_id,
+        )
+        path_report = await collect_evidence_bundle(
+            storage_path=db_path, event_id=event_id,
+        )
+
+        config_storage = _comparable_storage_data(
+            config_report["sections"]["storage"]
+        )
+        path_storage = _comparable_storage_data(
+            path_report["sections"]["storage"]
+        )
+        assert config_storage["status"] == path_storage["status"]
+        assert config_storage["data"]["event"] == path_storage["data"]["event"]
+        assert config_storage["data"]["incident_summary"] == path_storage["data"]["incident_summary"]
+        assert config_storage["data"]["timeline"] == path_storage["data"]["timeline"]
+        assert config_storage["data"]["native_refs_for_event"] == path_storage["data"]["native_refs_for_event"]
+
+    @pytest.mark.asyncio
+    async def test_equivalent_missing_db(self, config_fake: Path) -> None:
+        """Both modes report partial with db_exists=False for missing DB."""
+        config_report = await collect_evidence_bundle(str(config_fake))
+        # Use the resolved db_path from config mode for storage-path mode.
+        db_path = config_report["sections"]["storage"]["data"]["db_path"]
+        assert not Path(db_path).exists()
+
+        path_report = await collect_evidence_bundle(storage_path=db_path)
+
+        config_storage = _comparable_storage_data(
+            config_report["sections"]["storage"]
+        )
+        path_storage = _comparable_storage_data(
+            path_report["sections"]["storage"]
+        )
+        assert config_storage["status"] == path_storage["status"] == "partial"
+        assert config_storage["data"]["db_exists"] is False
+        assert path_storage["data"]["db_exists"] is False
+
+    @pytest.mark.asyncio
+    async def test_equivalent_with_failure_event(self, config_fake: Path) -> None:
+        """Both modes produce same incident_summary for failed receipt."""
+        db_path = str(config_fake.parent / "state" / "test_evidence.db")
+        event_id = await _make_populated_db_with_failure(
+            db_path,
+            event_id="ev-equiv-fail-001",
+            receipt_status="failed",
+            receipt_error="TimeoutError: connection timed out",
+        )
+
+        config_report = await collect_evidence_bundle(
+            str(config_fake), event_id=event_id,
+        )
+        path_report = await collect_evidence_bundle(
+            storage_path=db_path, event_id=event_id,
+        )
+
+        config_summary = config_report["sections"]["storage"]["data"]["incident_summary"]
+        path_summary = path_report["sections"]["storage"]["data"]["incident_summary"]
+        assert config_summary["classification"] == path_summary["classification"] == "retryable"
+        assert config_summary["failed_count"] == path_summary["failed_count"] == 1
+        assert config_summary["first_failure_kind"] == path_summary["first_failure_kind"]

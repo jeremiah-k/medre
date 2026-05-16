@@ -79,7 +79,7 @@ class TestOperatorBridgeSession:
 
     @pytest.mark.asyncio
     async def test_run_session_report_cross_links(self, tmp_path: Path) -> None:
-        """Report provides enough data to reconstruct trace/inspect/evidence CLI commands."""
+        """Report provides enough data to reconstruct inspect/trace/evidence CLI commands."""
         from medre.runtime.smoke import run_fake_bridge_smoke
 
         config_path = _smoke_config_path()
@@ -93,8 +93,8 @@ class TestOperatorBridgeSession:
         event_id = report["event_id"]
 
         commands = {
-            "trace": f"medre trace event {event_id} --config <config>",
             "inspect": f"medre inspect event {event_id} --config <config>",
+            "trace": f"medre trace event {event_id} --config <config>",
             "evidence": f"medre evidence --config <config> --event {event_id}",
         }
 

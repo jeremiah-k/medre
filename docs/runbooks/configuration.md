@@ -720,14 +720,19 @@ medre run --config /path/to/config.toml
 
 ## CLI Commands
 
-**Preferred product path.** For daily operation, the recommended command
-sequence is: `medre config check` and `medre routes validate` (pre-flight),
-`medre run` (start the runtime), then `medre inspect event` and `medre
-inspect receipts` (investigate what happened). Use `medre trace event` and
-`medre evidence` for deeper investigation. `medre smoke` is optional local
-validation tooling. `medre replay` is a lower-level supported command for
-recovery scenarios. See the [Alpha Walkthrough](alpha-walkthrough.md) for the
-full preferred product path.
+**Inspect-first product path.** `medre inspect` is the primary read-only
+investigation command. For daily operation, the recommended sequence is:
+`medre config check` and `medre routes validate` (pre-flight), `medre run`
+(start the runtime), then `medre inspect event` and `medre inspect receipts`
+(investigate what happened). For deeper investigation, use `medre inspect
+event --timeline` (covers `trace event`), `medre inspect event --evidence`
+(covers `evidence --event`), or `medre inspect event --recovery` (covers
+`recover --event`). The specialized `medre trace`, `medre evidence`, and
+`medre recover` commands remain available for standalone output or features
+beyond what inspect flags provide. `medre smoke` is local validation tooling
+for developers and CI, not a daily operator command. `medre replay` is a
+lower-level supported command for recovery scenarios. See the
+[Alpha Walkthrough](alpha-walkthrough.md) for the full product path.
 
 ```
 medre run [--config PATH]
@@ -779,15 +784,17 @@ medre inspect (event|receipts|native-ref|replay) [--config PATH] [--storage-path
     medre inspect replay <run_id> --storage-path <db>
 
 medre trace (event|replay) [--config PATH] [--storage-path PATH]
-    Chronological timeline assembly. Both subcommands support --storage-path
-    for direct read-only access to a SQLite database.
+    Specialized chronological timeline assembly. Usually prefer
+    `inspect event --timeline` for per-event timelines. Both subcommands
+    support --storage-path for direct read-only access to a SQLite database.
 
     medre trace event <event_id> --storage-path <db> [--json]
     medre trace replay <run_id> --storage-path <db> [--json]
 
 medre evidence [--config PATH] [--storage-path PATH] [--event ID] [--replay-run ID] [--include-refresh-health] [--json]
-    Collect an evidence bundle for support. Supports --storage-path for
-    direct read-only access to a SQLite database. --include-refresh-health
+    Specialized support bundle collection. Usually prefer
+    `inspect event --evidence` for per-event bundles. Supports --storage-path
+    for direct read-only access to a SQLite database. --include-refresh-health
     starts adapters to poll live health.
 
 medre replay --mode MODE --config PATH [--event ID] [--json]
@@ -796,16 +803,20 @@ medre replay --mode MODE --config PATH [--event ID] [--json]
     routes and adapters for replay targets.
 
 medre recover --config PATH [--event ID] [--failed-only] [--dry-run] [--json]
-    Analyze failed deliveries and generate recovery runbook. Requires
-    --config to load storage and route context.
+    Specialized recovery classification. Usually prefer
+    `inspect event --recovery` for per-event runbook. Requires --config
+    to load storage and route context.
 ```
 
 All commands that accept `--config` follow the
 [Configuration Search Order](#configuration-search-order) when the flag is
 omitted.
 
-`inspect`, `trace`, and `evidence` support `--storage-path` to open a
-SQLite database directly in read-only mode, bypassing config file loading
-entirely. This is useful for inspecting smoke databases or post-run evidence
-without maintaining a config file. Commands that need route or adapter context
-for write operations (`replay`, `recover`) require `--config`.
+`inspect` is the primary read-only investigation command. It supports
+`--storage-path` to open a SQLite database directly in read-only mode,
+bypassing config file loading entirely. This is useful for inspecting smoke
+databases or post-run evidence without maintaining a config file.
+`trace`, `evidence`, and `recover` are specialized commands that also support
+`--storage-path` (except `recover`, which requires `--config`). Commands that
+need route or adapter context for write operations (`replay`) require
+`--config`.

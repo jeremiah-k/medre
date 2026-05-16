@@ -7,15 +7,20 @@ proving the CLI command surface works without importing internal APIs.
 Walkthrough sequence (as documented in alpha-walkthrough.md):
 Phase 0: ``medre config check``, ``medre routes validate`` (pre-flight)
 Phase 1: ``medre smoke --config <path> --storage-path <db> --json`` (optional local validation)
-Phase 2: ``medre inspect receipts --event <id> --storage-path <db>`` (inspect-first)
-Phase 3: ``medre trace event <id> --storage-path <db> --json`` (deeper investigation)
-         ``medre evidence --event <id> --storage-path <db> --json``
+Phase 2: ``medre inspect event <id> --storage-path <db>`` (inspect-first)
+         ``medre inspect receipts --event <id> --storage-path <db>``
+Phase 3: ``medre inspect event <id> --timeline --storage-path <db> --json`` (deeper investigation)
+         ``medre inspect event <id> --evidence --storage-path <db> --json``
+         ``medre inspect event <id> --recovery --storage-path <db> --json``
 Phase 4: ``medre replay --config <path> --mode dry_run --event <id> --json`` (lower-level, specialized)
          ``medre replay --config <path> --mode best_effort --event <id> --json``
 
-Read-only commands (inspect, trace, evidence) use ``--storage-path`` to
-bypass config-file loading. Replay requires ``--config`` for route/adapter
-resolution.
+Read-only commands (inspect with --timeline/--evidence/--recovery flags) use
+``--storage-path`` to bypass config-file loading. Replay requires ``--config``
+for route/adapter resolution.
+
+``medre trace`` and ``medre evidence`` are specialized lower-level commands,
+not the primary operator path. They are tested in their own test files.
 
 For function-level smoke tests, see test_alpha_walkthrough.py.
 For runtime-level replay/retry tests, see
@@ -225,125 +230,145 @@ class TestAlphaInspectReceiptsCLI:
 
 
 # ---------------------------------------------------------------------------
-# Tests: trace event with --storage-path
+# Tests: inspect event --timeline with --storage-path
 # ---------------------------------------------------------------------------
 
 
-class TestAlphaTraceEventCLI:
-    """``medre trace event <id> --storage-path <db> --json`` via main()."""
+class TestAlphaInspectEventTimelineCLI:
+    """``medre inspect event <id> --timeline --storage-path <db>`` via main()."""
 
-    def test_trace_event_json_timeline(self, tmp_path: Path) -> None:
-        """trace event --storage-path --json returns a JSON timeline."""
+    def test_inspect_event_timeline_json(self, tmp_path: Path) -> None:
+        """inspect event --timeline --storage-path returns JSON with timeline."""
         event_id, db_path = _seed_via_smoke_cli(tmp_path)
 
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main([
-                "trace", "event",
+                "inspect", "event",
                 event_id,
+                "--timeline",
                 "--storage-path", str(db_path),
-                "--json",
             ])
 
-        timeline = json.loads(stdout_buf.getvalue())
-        assert isinstance(timeline, list)
-        assert len(timeline) >= 1
+        result = json.loads(stdout_buf.getvalue())
+        assert isinstance(result, dict)
+        assert "event" in result
+        assert "timeline" in result
+        assert isinstance(result["timeline"], list)
+        assert len(result["timeline"]) >= 1
 
-    def test_trace_event_json_has_receipt_entries(self, tmp_path: Path) -> None:
+    def test_inspect_event_timeline_has_receipt_entries(self, tmp_path: Path) -> None:
         """Timeline includes at least one receipt entry."""
         event_id, db_path = _seed_via_smoke_cli(tmp_path)
 
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main([
-                "trace", "event",
+                "inspect", "event",
                 event_id,
+                "--timeline",
                 "--storage-path", str(db_path),
-                "--json",
             ])
 
-        timeline = json.loads(stdout_buf.getvalue())
-        entry_types = [e.get("entry_type") for e in timeline]
+        result = json.loads(stdout_buf.getvalue())
+        entry_types = [e.get("entry_type") for e in result["timeline"]]
         assert "receipt" in entry_types, (
             f"Expected 'receipt' in timeline entry types, got: {entry_types}"
         )
 
-    def test_trace_event_human_readable(self, tmp_path: Path) -> None:
-        """trace event (no --json) prints human-readable timeline."""
+
+# ---------------------------------------------------------------------------
+# Tests: inspect event --evidence with --storage-path
+# ---------------------------------------------------------------------------
+
+
+class TestAlphaInspectEventEvidenceCLI:
+    """``medre inspect event <id> --evidence --storage-path <db>`` via main()."""
+
+    def test_inspect_event_evidence_json_bundle(self, tmp_path: Path) -> None:
+        """inspect event --evidence --storage-path returns JSON with evidence."""
         event_id, db_path = _seed_via_smoke_cli(tmp_path)
 
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main([
-                "trace", "event",
+                "inspect", "event",
                 event_id,
+                "--evidence",
                 "--storage-path", str(db_path),
             ])
 
-        output = stdout_buf.getvalue()
-        assert event_id in output
-        assert "Timeline" in output
-        assert "Summary" in output
+        result = json.loads(stdout_buf.getvalue())
+        assert isinstance(result, dict)
+        assert "event" in result
+        assert "evidence" in result
+        assert result["evidence"]["status"] in ("ok", "partial", "passed")
+
+    def test_inspect_event_evidence_has_event(self, tmp_path: Path) -> None:
+        """Evidence section contains the requested event."""
+        event_id, db_path = _seed_via_smoke_cli(tmp_path)
+
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
+            main([
+                "inspect", "event",
+                event_id,
+                "--evidence",
+                "--storage-path", str(db_path),
+            ])
+
+        result = json.loads(stdout_buf.getvalue())
+        evidence = result["evidence"]
+        assert evidence["sections"]["storage"]["data"]["event"] is not None
+        assert evidence["sections"]["storage"]["data"]["event"]["event_id"] == event_id
 
 
 # ---------------------------------------------------------------------------
-# Tests: evidence with --storage-path
+# Tests: inspect event --recovery with --storage-path
 # ---------------------------------------------------------------------------
 
 
-class TestAlphaEvidenceCLI:
-    """``medre evidence --event <id> --storage-path <db> --json`` via main()."""
+class TestAlphaInspectEventRecoveryCLI:
+    """``medre inspect event <id> --recovery --storage-path <db>`` via main()."""
 
-    def test_evidence_json_bundle(self, tmp_path: Path) -> None:
-        """evidence --storage-path --json returns a valid evidence bundle."""
+    def test_inspect_event_recovery_json(self, tmp_path: Path) -> None:
+        """inspect event --recovery --storage-path returns JSON with recovery."""
         event_id, db_path = _seed_via_smoke_cli(tmp_path)
 
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main([
-                "evidence",
-                "--event", event_id,
+                "inspect", "event",
+                event_id,
+                "--recovery",
                 "--storage-path", str(db_path),
-                "--json",
             ])
 
-        bundle = json.loads(stdout_buf.getvalue())
-        assert "status" in bundle
-        assert bundle["status"] in ("ok", "partial", "passed")
-        assert "sections" in bundle
+        result = json.loads(stdout_buf.getvalue())
+        assert isinstance(result, dict)
+        assert "event" in result
+        assert "recovery" in result
 
-    def test_evidence_storage_section_has_event(self, tmp_path: Path) -> None:
-        """Evidence storage section contains the requested event."""
+    def test_inspect_event_combined_flags(self, tmp_path: Path) -> None:
+        """inspect event --timeline --evidence --recovery returns all sections."""
         event_id, db_path = _seed_via_smoke_cli(tmp_path)
 
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main([
-                "evidence",
-                "--event", event_id,
-                "--storage-path", str(db_path),
-                "--json",
-            ])
-
-        bundle = json.loads(stdout_buf.getvalue())
-        storage = bundle["sections"]["storage"]
-        assert storage["data"]["event"] is not None
-        assert storage["data"]["event"]["event_id"] == event_id
-
-    def test_evidence_human_readable(self, tmp_path: Path) -> None:
-        """evidence (no --json) prints human-readable summary."""
-        event_id, db_path = _seed_via_smoke_cli(tmp_path)
-
-        stdout_buf = io.StringIO()
-        with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
-            main([
-                "evidence",
-                "--event", event_id,
+                "inspect", "event",
+                event_id,
+                "--timeline",
+                "--evidence",
+                "--recovery",
                 "--storage-path", str(db_path),
             ])
 
-        output = stdout_buf.getvalue()
-        assert "Evidence:" in output
+        result = json.loads(stdout_buf.getvalue())
+        assert "event" in result
+        assert "timeline" in result
+        assert "evidence" in result
+        assert "recovery" in result
 
 
 # ---------------------------------------------------------------------------
@@ -473,7 +498,7 @@ class TestAlphaReplayBestEffortCLI:
 
 
 class TestAlphaFullWalkthroughCLI:
-    """Full alpha walkthrough: smoke → inspect → trace → evidence → replay via main()."""
+    """Full alpha walkthrough: smoke → inspect → inspect flags → replay via main()."""
 
     def test_full_walkthrough_sequence(self, tmp_path: Path) -> None:
         """Prove the documented operator walkthrough sequence works via main().
@@ -481,8 +506,8 @@ class TestAlphaFullWalkthroughCLI:
         Phases (as documented in alpha-walkthrough.md):
         Phase 1: medre smoke --config <path> --storage-path <db> --json  → event_id
         Phase 2: medre inspect receipts --event <id> --storage-path <db>  (inspect-first)
-        Phase 3: medre trace event <id> --storage-path <db> --json       (deeper investigation)
-                 medre evidence --event <id> --storage-path <db> --json
+        Phase 3: medre inspect event <id> --timeline --storage-path <db> --json  (deeper investigation)
+                 medre inspect event <id> --evidence --storage-path <db> --json
         Phase 4: medre replay --config <path> --mode dry_run --event <id> --json    (lower-level)
                  medre replay --config <path> --mode best_effort --event <id> --json
         """
@@ -514,31 +539,33 @@ class TestAlphaFullWalkthroughCLI:
             ])
         assert "sent" in stdout_buf.getvalue()
 
-        # Phase 3a: Deeper investigation — trace event timeline
+        # Phase 3a: Deeper investigation — inspect event --timeline
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main([
-                "trace", "event",
+                "inspect", "event",
                 event_id,
+                "--timeline",
                 "--storage-path", str(db_path),
-                "--json",
             ])
-        timeline = json.loads(stdout_buf.getvalue())
-        assert len(timeline) >= 1
-        entry_types = [e.get("entry_type") for e in timeline]
+        result = json.loads(stdout_buf.getvalue())
+        assert "event" in result
+        assert "timeline" in result
+        assert len(result["timeline"]) >= 1
+        entry_types = [e.get("entry_type") for e in result["timeline"]]
         assert "receipt" in entry_types
 
-        # Phase 3b: Deeper investigation — evidence bundle
+        # Phase 3b: Deeper investigation — inspect event --evidence
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main([
-                "evidence",
-                "--event", event_id,
+                "inspect", "event",
+                event_id,
+                "--evidence",
                 "--storage-path", str(db_path),
-                "--json",
             ])
-        bundle = json.loads(stdout_buf.getvalue())
-        assert bundle["status"] in ("ok", "partial", "passed")
+        result = json.loads(stdout_buf.getvalue())
+        assert result["evidence"]["status"] in ("ok", "partial", "passed")
 
         # Phases 4: Replay uses config with SQLite pointing at the same DB
         replay_config = _write_replay_config(tmp_path, db_path)
@@ -598,29 +625,33 @@ class TestAlphaFullWalkthroughCLI:
             ])
         assert event_id in stdout_buf.getvalue()
 
-        # Phase 3a: Deeper investigation — trace
+        # Phase 3a: Deeper investigation — inspect event --timeline
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main([
-                "trace", "event",
+                "inspect", "event",
                 event_id,
+                "--timeline",
                 "--storage-path", str(db_path),
-                "--json",
             ])
-        timeline = json.loads(stdout_buf.getvalue())
-        assert len(timeline) >= 1
+        result = json.loads(stdout_buf.getvalue())
+        assert result["event"]["event_id"] == event_id
+        assert len(result["timeline"]) >= 1
 
-        # Phase 3b: Deeper investigation — evidence
+        # Phase 3b: Deeper investigation — inspect event --evidence
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main([
-                "evidence",
-                "--event", event_id,
+                "inspect", "event",
+                event_id,
+                "--evidence",
                 "--storage-path", str(db_path),
-                "--json",
             ])
-        bundle = json.loads(stdout_buf.getvalue())
-        assert bundle["sections"]["storage"]["data"]["event"]["event_id"] == event_id
+        result = json.loads(stdout_buf.getvalue())
+        assert (
+            result["evidence"]["sections"]["storage"]["data"]["event"]["event_id"]
+            == event_id
+        )
 
         # Phase 4: Replay dry_run (lower-level, specialized)
         replay_config = _write_replay_config(tmp_path, db_path)
@@ -650,10 +681,10 @@ class TestAlphaNoTracebacks:
         with pytest.raises(SystemExit):
             main(["inspect", "receipts", "--event", "nonexistent"])
 
-    def test_trace_event_missing_storage_path_and_config(self) -> None:
-        """trace event without --storage-path or --config exits cleanly."""
+    def test_inspect_event_missing_storage_path_and_config(self) -> None:
+        """inspect event without --storage-path or --config exits cleanly."""
         with pytest.raises(SystemExit):
-            main(["trace", "event", "nonexistent", "--json"])
+            main(["inspect", "event", "nonexistent", "--timeline", "--json"])
 
     def test_replay_rejects_storage_path(self, tmp_path: Path) -> None:
         """replay --storage-path exits with an error message."""

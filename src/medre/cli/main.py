@@ -92,7 +92,7 @@ def _build_parser() -> argparse.ArgumentParser:
     routes_list_p.add_argument("--config", default=None, help="Path to config file")
 
     # smoke
-    smoke_p = sub.add_parser("smoke", help="Local validation: fake-adapter pipeline test (not a bridge operation; accepts --storage-path)")
+    smoke_p = sub.add_parser("smoke", help="Local validation tooling, not a bridge operation (developers/CI; accepts --storage-path)")
     smoke_p.add_argument("--config", default=None, help="Path to config file (default: examples/configs/fake-bridge-smoke.toml)")
     smoke_p.add_argument("--message", default="medre smoke test", help="Text for test message")
     smoke_p.add_argument("--storage-path", default=None, metavar="PATH",
@@ -122,7 +122,7 @@ def _build_parser() -> argparse.ArgumentParser:
     smoke_p.add_argument("--json", action="store_true", default=False, help="Output JSON report")
 
     # evidence
-    evidence_p = sub.add_parser("evidence", help="Collect evidence bundle for support (read-only; accepts --storage-path)")
+    evidence_p = sub.add_parser("evidence", help="Specialized support bundle (usually prefer inspect event --evidence; read-only; accepts --storage-path)")
     evidence_mx = evidence_p.add_mutually_exclusive_group()
     evidence_mx.add_argument("--config", default=None, help="Path to config file")
     evidence_mx.add_argument("--storage-path", default=None, metavar="PATH",
@@ -136,7 +136,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Start runtime once to refresh live adapter health")
 
     # inspect (with sub-subcommands)
-    inspect_p = sub.add_parser("inspect", help="Read-only storage inspection (accepts --storage-path)")
+    inspect_p = sub.add_parser("inspect", help="Primary read-only investigation command (accepts --storage-path)")
     inspect_sub = inspect_p.add_subparsers(dest="inspect_command", required=True)
 
     # inspect event <event_id>
@@ -148,15 +148,15 @@ def _build_parser() -> argparse.ArgumentParser:
     inspect_evt.add_argument("event_id", help="Canonical event ID to look up")
     inspect_evt.add_argument(
         "--timeline", action="store_true", default=False,
-        help="Include chronological timeline entries",
+        help="Include chronological timeline (covers trace event output)",
     )
     inspect_evt.add_argument(
         "--evidence", action="store_true", default=False,
-        help="Include evidence bundle (read-only, no runtime start)",
+        help="Include evidence bundle, covers evidence command output (read-only, no runtime start)",
     )
     inspect_evt.add_argument(
         "--recovery", action="store_true", default=False,
-        help="Include recovery runbook with failure classification",
+        help="Include recovery runbook with failure classification (covers recover command output)",
     )
 
     # inspect receipts (--event <id> | --replay-run <run_id>)
@@ -192,7 +192,7 @@ def _build_parser() -> argparse.ArgumentParser:
     inspect_rpl.add_argument("run_id", help="Replay run ID to inspect")
 
     # trace (with sub-subcommands)
-    trace_p = sub.add_parser("trace", help="Chronological timeline assembly (read-only; accepts --storage-path)")
+    trace_p = sub.add_parser("trace", help="Specialized timeline (usually prefer inspect event --timeline; read-only; accepts --storage-path)")
     trace_sub = trace_p.add_subparsers(dest="trace_command", required=True)
 
     # trace event <event_id>
@@ -238,7 +238,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     # recover
-    recover_p = sub.add_parser("recover", help="Analyze failed deliveries and generate recovery runbook (read-only; requires --config)")
+    recover_p = sub.add_parser("recover", help="Specialized recovery classification (usually prefer inspect event --recovery; read-only; requires --config)")
     recover_p.add_argument("--config", default=None, help="Path to config file")
     recover_p.add_argument("--event", default=None, metavar="EVENT_ID", help="Event ID to analyze")
     recover_p.add_argument(

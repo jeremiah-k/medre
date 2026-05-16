@@ -823,7 +823,7 @@ class TestRecoverClassification:
             assert "BEST_EFFORT" in cmd_text
 
     def test_recommended_commands_permanent(self) -> None:
-        """Permanent failures recommend trace and inspect."""
+        """Permanent failures recommend inspect-event and inspect-receipts."""
         event = _FakeEvent()
         receipt = _FakeReceipt(
             status="failed",
@@ -846,7 +846,7 @@ class TestRecoverClassification:
             parsed = json.loads(output)
             cmds = parsed["recommended_commands"]
             cmd_text = " ".join(cmds)
-            assert "trace event" in cmd_text
+            assert "inspect event" in cmd_text
             assert "inspect receipts" in cmd_text
 
     def test_recommended_commands_operational(self) -> None:

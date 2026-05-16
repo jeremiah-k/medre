@@ -80,22 +80,18 @@ shrinks toward these six command families: `run`, `config`, `routes`,
 | `medre paths` | **Consolidate** | `medre config paths` | Path resolution is a config concern. Lives in `config_commands.py` already. Becomes a subcommand of `config`. |
 | `medre adapters` | **Consolidate** | `medre config adapters` or fold into `diagnostics` | Adapter inventory is config/diagnostic information, not a standalone operation. Currently lives in `config_commands.py`. |
 
-### Candidates to fold into `inspect`
+### Specialized commands (inspect-first guidance)
 
-`trace`, `evidence`, and `recover` remain supported today. They are candidates
-to consolidate under `medre inspect` before first release because they share the
-same pattern: read-only queries against storage, producing structured output for
-incident investigation. No decision is made here about timing. The current
-commands work. The classification records the direction.
+`trace`, `evidence`, and `recover` are supported top-level commands. They
+remain available for operators who need them. For daily operation, the
+inspect-first path is preferred: `inspect event --timeline` covers `trace
+event`, `inspect event --evidence` covers `evidence --event`, and `inspect
+event --recovery` covers `recover --event`. New users should reach for
+`inspect` first and use the specialized commands when they need standalone
+output or features not exposed through inspect flags.
 
-| Command | Classification | Rationale |
-|---------|---------------|-----------|
-| `medre trace event` | **Fold into `inspect`** | Timeline assembly is a richer form of event inspection. `inspect event` shows the event; `inspect event --timeline` provides the full chronological trace. Same storage backend, same audience, same read-only contract. |
-| `medre trace replay` | **Fold into `inspect`** | Replay timeline is now available as `inspect replay <run_id>`, providing the same chronological timeline for replay runs in a read-only subcommand. |
-| `medre evidence` | **Fold into `inspect`** | Evidence collection aggregates storage queries (event, receipts, native refs) plus optional health refresh. Each piece is already an `inspect` subcommand. A future `inspect bundle` (or `inspect evidence`) could compose the same output. |
-| `medre recover` | **Fold into `inspect`** | Recovery analysis queries storage for failed deliveries and produces a runbook. This is incident investigation, not a runtime operation. A future `inspect recover` (or `inspect failures`) could provide the same analysis under the inspection umbrella. |
-
-These four commands share common traits that justify consolidation:
+These four commands share common traits that justify the inspect-first
+direction:
 
 - All are read-only against storage. None modifies runtime state.
 - All serve incident investigation, not daily operation.
@@ -103,10 +99,12 @@ These four commands share common traits that justify consolidation:
 - All share the `--config` / `--storage-path` dual-input pattern.
 - The `inspect` command family already owns the read-only storage query contract.
 
-Folding them would reduce the top-level command surface from 13 commands to 9
-(`run`, `config`, `routes`, `diagnostics`, `inspect`, `replay`, `smoke`,
-`version`, plus consolidated `paths` and `adapters`). After consolidation,
-the target surface is 6 product commands plus `smoke` and `version`.
+| Command | Classification | Rationale |
+|---------|---------------|-----------|
+| `medre trace event` | **Specialized** | Standalone timeline command. `inspect event --timeline` produces equivalent output. Use this when you need standalone JSON timeline output. |
+| `medre trace replay` | **Specialized** | Standalone replay timeline command. `inspect replay <run_id>` provides equivalent inspection. |
+| `medre evidence` | **Specialized** | Standalone support bundle command. `inspect event --evidence` produces equivalent per-event output. Use this for full bridge evidence bundles with optional live health refresh. |
+| `medre recover` | **Specialized** | Standalone recovery classification command. `inspect event --recovery` produces equivalent per-event runbook. Use this for multi-event or filtered recovery analysis. |
 
 ### Developer/local validation
 
@@ -149,22 +147,30 @@ for the split criteria and import invariants.
 
 ## Summary
 
-**Target product surface (6 command families):**
+**Product surface (6 command families):**
 
 ```
 medre run              Start the runtime
 medre config           Config management (check, sample, [paths], [adapters])
 medre routes           Route management (validate, topology, list)
 medre diagnostics      Health check and runtime snapshot
-medre inspect          Read-only storage inspection (event, receipts, native-ref,
-                          replay, [timeline], [evidence], [recover])
+medre inspect          Primary read-only investigation (event, receipts, native-ref,
+                          replay, --timeline, --evidence, --recovery)
 medre replay           Recovery action (re-deliver historical events)
+```
+
+**Specialized commands (3 commands, available but not primary daily path):**
+
+```
+medre trace            Standalone timeline (usually prefer inspect event --timeline)
+medre evidence         Standalone support bundle (usually prefer inspect event --evidence)
+medre recover          Standalone recovery classification (usually prefer inspect event --recovery)
 ```
 
 **Developer tooling (1 command):**
 
 ```
-medre smoke            Fake bridge validation (alpha/CI tooling)
+medre smoke            Local validation tooling (developers/CI, not a daily operator command)
 ```
 
 **Standard CLI (1 command):**
@@ -173,8 +179,9 @@ medre smoke            Fake bridge validation (alpha/CI tooling)
 medre version          Version and platform info
 ```
 
-**Pre-release note:** No deprecations, no compatibility shims, no migration
-paths. All consolidation is clean restructuring before any public release.
-`trace`, `evidence`, and `recover` continue to work as top-level commands
-until they are folded into `inspect`. The consolidation direction is recorded
-here; the timing is a separate decision.
+**Command guidance:** `inspect` is the primary read-only investigation command.
+`trace`, `evidence`, and `recover` are specialized commands that remain
+available for operators who need standalone output or features beyond what
+inspect flags provide. No deprecations, no aliases, no shims. `smoke` is
+local validation tooling for developers and CI, not a daily bridge operator
+command.

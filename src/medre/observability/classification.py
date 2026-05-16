@@ -93,22 +93,28 @@ def failure_category(failure_kind: str) -> str:
 
 
 def recommended_commands(category: str, event_id: str) -> list[str]:
-    """Return recommended next commands for a failure category."""
+    """Return recommended next commands for a failure category.
+
+    Generated recommendations prefer ``medre inspect`` commands as the
+    primary operator interface.  The ``medre trace event`` command remains
+    available as a specialised / lower-level tool but is not the default
+    recommendation.
+    """
     if category == "retryable":
         return [
-            f"medre trace event {event_id}",
+            f"medre inspect event {event_id} --recovery",
             f"medre replay --mode DRY_RUN --event {event_id}",
             f"medre replay --mode BEST_EFFORT --event {event_id}",
         ]
     if category == "permanent":
         return [
-            f"medre trace event {event_id}",
+            f"medre inspect event {event_id} --evidence",
             f"medre inspect receipts --event {event_id}",
         ]
     if category == "operational":
         return [
             "medre diagnostics",
             "medre config check",
-            f"medre trace event {event_id}",
+            f"medre inspect event {event_id} --timeline",
         ]
-    return [f"medre trace event {event_id}"]
+    return [f"medre inspect event {event_id} --timeline"]

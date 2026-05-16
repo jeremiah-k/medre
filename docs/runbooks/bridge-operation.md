@@ -231,9 +231,13 @@ work upward. Each tier is a prerequisite for the next.
 
 For day-to-day investigation of what happened during a bridge run, the
 inspect-first product path is preferred: `medre inspect event` and
-`medre inspect receipts` to understand current state, `medre trace event` or
-`medre evidence` for deeper investigation when inspect reveals issues. Replay
-is a lower-level supported command reserved for recovery scenarios.
+`medre inspect receipts` to understand current state. For deeper per-event
+investigation, use `medre inspect event --timeline` (covers `trace event`),
+`medre inspect event --evidence` (covers `evidence --event`), or
+`medre inspect event --recovery` (covers `recover --event`). The specialized
+`trace`, `evidence`, and `recover` commands remain available for standalone
+output. Replay is a lower-level supported command reserved for recovery
+scenarios.
 
 The authoritative evidence matrix for all transports and tiers is in
 [docs/architecture/transport-validation-matrix.md](../architecture/transport-validation-matrix.md).
@@ -409,9 +413,12 @@ When operating a multi-transport bridge:
 
 1. **Inspect first.** When something seems wrong, start with `medre inspect
    event` and `medre inspect receipts` to understand what happened. These
-   read-only commands use `--storage-path` and need no config. Escalate to
-   `medre trace event` or `medre evidence` when inspect shows something
-   worth investigating further.
+   read-only commands use `--storage-path` and need no config. For deeper
+   investigation, use `medre inspect event --timeline` (covers `trace
+   event`), `medre inspect event --evidence` (covers `evidence --event`),
+   or `medre inspect event --recovery` (covers `recover --event`). Reach
+   for the specialized `trace`, `evidence`, and `recover` commands when
+   you need standalone output or features beyond inspect flags.
 
 2. **Read receipts in transport context.** A `sent` receipt means different things for Matrix vs. Meshtastic vs. LXMF. Consult the per-transport table in section 2.
 
@@ -589,6 +596,11 @@ whether replay is warranted.
 
    # Check delivery receipts for that event:
    medre inspect receipts --event <event_id> --storage-path /path/to/medre.sqlite
+
+   # For deeper per-event investigation (covers trace/evidence/recover output):
+   medre inspect event <event_id> --storage-path /path/to/medre.sqlite --timeline
+   medre inspect event <event_id> --storage-path /path/to/medre.sqlite --evidence
+   medre inspect event <event_id> --storage-path /path/to/medre.sqlite --recovery
    ```
 3. Find orphaned events (stored but not delivered) via SQL:
    ```sql
@@ -599,8 +611,9 @@ whether replay is warranted.
      AND e.source_adapter = 'bridge'
    ORDER BY e.created_at DESC;
    ```
-4. If deeper investigation is needed, use `medre trace event` or
-   `medre evidence` to assemble a full timeline or evidence bundle.
+4. If deeper investigation is needed beyond the inspect flags, use the
+   specialized commands: `medre trace event` for standalone timeline output,
+   or `medre evidence` for a full bridge evidence bundle.
 5. Decide whether to replay the orphaned events. Use `DRY_RUN` first to
    verify route matching, then `BEST_EFFORT` if re-delivery is warranted.
    Replay is a lower-level supported command that produces duplicate
@@ -701,6 +714,9 @@ Bridge operators should distinguish between two categories of evidence:
 |--------|--------------|-----------|
 | Delivery receipts | `medre inspect receipts` | Persisted in SQLite |
 | Canonical events | `medre inspect event` | Persisted in SQLite |
+| Event timelines | `medre inspect event --timeline` | Persisted in SQLite |
+| Event evidence bundles | `medre inspect event --evidence` | Persisted in SQLite |
+| Event recovery runbooks | `medre inspect event --recovery` | Persisted in SQLite |
 | Native message refs | `medre inspect native-ref` | Persisted in SQLite |
 | Replay receipts | `medre inspect receipts --replay-run` | Persisted in SQLite |
 | Shutdown snapshot | `{state_dir}/shutdown-snapshot.json` | File on disk (only with `--snapshot-on-shutdown`) |

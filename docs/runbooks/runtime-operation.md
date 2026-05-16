@@ -558,7 +558,7 @@ INFO  medre.runtime: Shutdown complete in 70ms
 
 ## Long-Running Run: Operator Observability
 
-This section covers what operators see when running `medre run` in a terminal for an extended period — startup evidence, shutdown evidence, signal handling, and post-run inspection. For short-lived commands (`medre smoke`, `medre diagnostics`, `medre evidence`), see the respective sections above.
+This section covers what operators see when running `medre run` in a terminal for an extended period — startup evidence, shutdown evidence, signal handling, and post-run inspection. For short-lived commands (`medre smoke`, `medre diagnostics`, `medre evidence`, `medre trace`, `medre recover`), see the respective sections above. `inspect` is the primary read-only investigation command for post-run evidence.
 
 ### Long-Running Run: Startup Evidence
 
@@ -733,38 +733,48 @@ No graceful shutdown occurs. No shutdown logs are emitted. No shutdown snapshot 
 
 ### Post-Run Evidence Inspection
 
-After a `medre run` session ends (clean shutdown or crash), operators can inspect persisted evidence using CLI commands. These commands read from the SQLite database — they do not start adapters or make network connections.
+After a `medre run` session ends (clean shutdown or crash), operators can inspect persisted evidence using CLI commands. These commands read from the SQLite database. `inspect` is the primary read-only investigation command; start with it and escalate to specialized commands when needed.
 
-**Collect a full evidence bundle:**
+**Inspect a specific event (inspect-first path):**
 
 ```bash
-medre evidence --config config.toml --json > post-run-bundle.json
+# View a stored event (primary investigation command)
+medre inspect event <event_id> --storage-path /path/to/medre.sqlite
+
+# View with chronological timeline (covers trace event output)
+medre inspect event <event_id> --storage-path /path/to/medre.sqlite --timeline
+
+# View with evidence bundle (covers evidence --event output)
+medre inspect event <event_id> --storage-path /path/to/medre.sqlite --evidence
+
+# View with recovery runbook (covers recover --event output)
+medre inspect event <event_id> --storage-path /path/to/medre.sqlite --recovery
 ```
 
-This produces a structured JSON bundle containing config summary, route validation, diagnostics snapshot, and storage inspection (event counts, receipt counts). See [Bridge Evidence Bundle](bridge-evidence-bundle.md) for the full report shape.
-
-**Trace a specific event through the pipeline:**
+**View delivery receipts:**
 
 ```bash
-medre trace event <event_id> --config config.toml
-```
-
-This produces an enriched timeline showing ingestion, delivery attempts, receipt statuses, native message refs, and any replay deliveries for the event. See [Event Tracing](event-tracing.md) for the full trace report shape.
-
-**Inspect specific data:**
-
-```bash
-# View a stored event
-medre inspect event <event_id> --config config.toml
-
 # View delivery receipts for an event
-medre inspect receipts --event <event_id> --config config.toml
+medre inspect receipts --event <event_id> --storage-path /path/to/medre.sqlite
 
 # View receipts from a specific replay run
-medre inspect receipts --replay-run <run_id> --config config.toml
+medre inspect receipts --replay-run <run_id> --storage-path /path/to/medre.sqlite
+```
 
-# Resolve a native message reference
-medre inspect native-ref --adapter <name> --message <native_id> --config config.toml
+**Resolve a native message reference:**
+
+```bash
+medre inspect native-ref --adapter <name> --message <native_id> --storage-path /path/to/medre.sqlite
+```
+
+**Specialized commands for deeper investigation:**
+
+```bash
+# Standalone timeline (equivalent to inspect event --timeline)
+medre trace event <event_id> --storage-path /path/to/medre.sqlite
+
+# Full bridge evidence bundle with optional live health refresh
+medre evidence --config config.toml --json
 ```
 
 **Find events without receipts (orphaned by a crash):**
@@ -1003,43 +1013,60 @@ Validates the config file without starting the runtime. Checks for:
 - Conflicting paths
 
 
-### Smoke vs. Diagnostics vs. Inspect vs. Evidence
+### Smoke vs. Diagnostics vs. Inspect vs. Evidence vs. Trace vs. Recover
 
-These commands serve different purposes. Operators should understand the
-boundaries:
+These commands serve different purposes. `inspect` is the primary read-only
+investigation command. Operators should understand the boundaries:
 
 | Command | Storage | Starts adapters | Output | Persistence |
 |---------|---------|----------------|--------|-------------|
+| ``medre inspect *`` | Opens existing SQLite (read-only) | No | Queried data | Reads existing DB |
 | ``medre smoke`` | In-memory by default; SQLite with ``--storage-path`` | Yes (fake only) | pass/fail JSON report | Ephemeral by default; SQLite persists with ``--storage-path`` |
 | ``medre evidence`` | Per config (memory or SQLite) | Fake only (or real with ``--include-refresh-health``) | Full evidence bundle JSON | Per config |
 | ``medre diagnostics`` | None (build-time) | No | Build-time snapshot | N/A (no data written) |
 | ``medre diagnostics --refresh-health`` | None | Yes (real or fake) | Live health snapshot | Ephemeral — lost on exit |
 | ``medre run`` | Per config (SQLite or memory) | Yes (real or fake) | Logs only | SQLite persists if configured |
-| ``medre inspect *`` | Opens existing SQLite (read-only) | No | Queried data | Reads existing DB |
+| ``medre trace`` | Opens existing SQLite (read-only) | No | Chronological timeline | Reads existing DB |
+| ``medre recover`` | Per config | No | Recovery runbook | Reads existing DB |
 
-For durable post-run inspection of events, receipts, and native refs, use
-``medre run`` with ``[storage] backend = "sqlite"``, then query with
-``medre inspect`` subcommands:
+`inspect event --timeline` covers `trace event` output. `inspect event
+--evidence` covers `evidence --event` output. `inspect event --recovery`
+covers `recover --event` output. Use `inspect` first; reach for the
+specialized commands when you need standalone output or features beyond
+inspect flags.
+
+For durable post-run investigation of events, receipts, and native refs, use
+``medre run`` with ``[storage] backend = "sqlite"``, then inspect with
+``medre inspect`` subcommands (primary path):
 
 ```bash
-# Inspect a specific event
-medre inspect event <event_id> --config my-bridge.toml
+# Inspect a specific event (primary investigation command)
+medre inspect event <event_id> --storage-path /path/to/medre.sqlite
+
+# With timeline, evidence, or recovery (covers trace/evidence/recover output)
+medre inspect event <event_id> --storage-path /path/to/medre.sqlite --timeline
+medre inspect event <event_id> --storage-path /path/to/medre.sqlite --evidence
+medre inspect event <event_id> --storage-path /path/to/medre.sqlite --recovery
 
 # Inspect delivery receipts for an event
-medre inspect receipts --event <event_id> --config my-bridge.toml
+medre inspect receipts --event <event_id> --storage-path /path/to/medre.sqlite
 
 # Inspect receipts from a replay run
-medre inspect receipts --replay-run <run_id> --config my-bridge.toml
+medre inspect receipts --replay-run <run_id> --storage-path /path/to/medre.sqlite
 
 # Resolve a native message ref
-medre inspect native-ref --adapter bot --message '$event_id' --config my-bridge.toml
+medre inspect native-ref --adapter bot --message '$event_id' --storage-path /path/to/medre.sqlite
 ```
 
 ``medre inspect`` exits with code 2 if the config uses ``backend = "memory"``
 — there is no persistent data to inspect. It also exits 2 if the database
 file does not exist or cannot be opened.
 
-### Evidence Command
+### Evidence Command (Specialized)
+
+The `evidence` command is a specialized support bundle command. For per-event
+investigation, `inspect event --evidence` is usually preferred. Use `evidence`
+when you need a full bridge evidence bundle with optional live health refresh.
 
 ```bash
 # Full evidence bundle: config summary + route validation + diagnostics + storage

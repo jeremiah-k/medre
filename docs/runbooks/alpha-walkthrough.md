@@ -1,6 +1,6 @@
 # Alpha Walkthrough Runbook
 
-> Document version: 3
+> Document version: 4
 > Last updated: 2026-05-16
 
 This runbook walks through the preferred product path for operating medre
@@ -76,33 +76,58 @@ number, and failure kind if applicable.
 For most day-to-day operation, these two commands are sufficient. If inspect
 reveals something worth investigating further, proceed to Phase 3.
 
-### Phase 3: Deeper investigation
+### Phase 3: Deeper investigation via inspect flags
 
 Use these when `inspect` shows failures, unexpected routing, or you need a
-full audit trail.
+full audit trail. All three flags are on `inspect event`, keeping the
+investigation path unified.
 
 **Assemble a timeline:**
 
 ```bash
-medre trace event <event_id> \
-  --storage-path /tmp/medre-alpha.db --json
+medre inspect event <event_id> \
+  --timeline --storage-path /tmp/medre-alpha.db
 ```
 
-Expected output: JSON array of timeline entries. At least one entry with
-`"entry_type": "receipt"`. The timeline shows every stage the event passed
-through: ingestion, routing, delivery, retry, replay.
+Expected output: JSON object with an `"event"` key and a `"timeline"` array.
+At least one timeline entry with `"entry_type": "receipt"`. The timeline shows
+every stage the event passed through: ingestion, routing, delivery, retry,
+replay.
 
 **Collect a full evidence bundle:**
 
 ```bash
-medre evidence --event <event_id> \
-  --storage-path /tmp/medre-alpha.db --json
+medre inspect event <event_id> \
+  --evidence --storage-path /tmp/medre-alpha.db
 ```
 
-Expected output: JSON evidence bundle with `"status": "passed"` or
-`"status": "partial"`. The `storage` section contains the event, receipts,
-timeline, and incident summary. This is the recommended attachment format
-for bug reports.
+Expected output: JSON object with an `"event"` key and an `"evidence"` section.
+The evidence section contains the event, receipts, timeline, and incident
+summary. This is the recommended attachment format for bug reports.
+
+**Generate recovery guidance:**
+
+```bash
+medre inspect event <event_id> \
+  --recovery --storage-path /tmp/medre-alpha.db
+```
+
+Expected output: JSON object with an `"event"` key and a `"recovery"` section
+containing failure classification, affected routes, and recommended next steps.
+
+Flags can be combined. For a full investigation in one command:
+
+```bash
+medre inspect event <event_id> \
+  --timeline --evidence --recovery \
+  --storage-path /tmp/medre-alpha.db
+```
+
+> **Note:** `medre trace event` and `medre evidence` are specialized
+> lower-level commands that provide the same data as standalone endpoints.
+> They remain available for scripting and automation but are not the primary
+> operator path. The `inspect event` flags cover the same capability with a
+> unified command surface.
 
 ### Phase 4: Replay (lower-level, only when needed)
 
@@ -189,8 +214,7 @@ risk assessment.
 | Canonical event storage (SQLite) | Yes |
 | Delivery receipt recording | Yes |
 | Inspect-first investigation (event + receipts) | Yes |
-| Event tracing (timeline assembly) | Yes |
-| Evidence bundle collection | Yes |
+| Inspect augmentation (--timeline, --evidence, --recovery) | Yes |
 | Replay engine (dry_run and best_effort) | Yes |
 | `--storage-path` for zero-config read-only commands | Yes |
 | Config-file-driven replay | Yes |
@@ -259,9 +283,14 @@ medre smoke --config examples/configs/fake-bridge-smoke.toml \
 medre inspect event <event_id> --storage-path /tmp/medre-alpha.db
 medre inspect receipts --event <event_id> --storage-path /tmp/medre-alpha.db
 
-# Phase 3: Deeper investigation (when inspect shows something)
-medre trace event <event_id> --storage-path /tmp/medre-alpha.db --json
-medre evidence --event <event_id> --storage-path /tmp/medre-alpha.db --json
+# Phase 3: Deeper investigation via inspect flags (when inspect shows something)
+medre inspect event <event_id> --timeline --storage-path /tmp/medre-alpha.db
+medre inspect event <event_id> --evidence --storage-path /tmp/medre-alpha.db
+medre inspect event <event_id> --recovery --storage-path /tmp/medre-alpha.db
+
+# Specialized lower-level commands (not primary path):
+# medre trace event <event_id> --storage-path /tmp/medre-alpha.db --json
+# medre evidence --event <event_id> --storage-path /tmp/medre-alpha.db --json
 
 # Phase 4: Replay (lower-level, config required, duplicate-risky)
 medre replay --config /tmp/medre-alpha-replay.toml \
