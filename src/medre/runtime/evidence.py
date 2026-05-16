@@ -503,9 +503,6 @@ async def _collect_storage_data_from_backend(
         return _section_ok(data)
     except Exception as exc:
         return _section_partial(data, f"Storage query error: {exc}")
-    finally:
-        if storage is not None:
-            await storage.close()
 
 
 # ---------------------------------------------------------------------------

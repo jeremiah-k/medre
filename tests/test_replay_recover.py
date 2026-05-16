@@ -819,8 +819,8 @@ class TestRecoverClassification:
             parsed = json.loads(output)
             cmds = parsed["recommended_commands"]
             cmd_text = " ".join(cmds)
-            assert "DRY_RUN" in cmd_text
-            assert "BEST_EFFORT" in cmd_text
+            assert "dry_run" in cmd_text
+            assert "best_effort" in cmd_text
 
     def test_recommended_commands_permanent(self) -> None:
         """Permanent failures recommend inspect-event and inspect-receipts."""

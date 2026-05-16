@@ -302,7 +302,7 @@ class TestAlphaInspectEventEvidenceCLI:
         assert isinstance(result, dict)
         assert "event" in result
         assert "evidence" in result
-        assert result["evidence"]["status"] in ("ok", "partial", "passed")
+        assert result["evidence"]["status"] in ("partial", "passed")
 
     def test_inspect_event_evidence_has_event(self, tmp_path: Path) -> None:
         """Evidence section contains the requested event."""
@@ -565,7 +565,7 @@ class TestAlphaFullWalkthroughCLI:
                 "--storage-path", str(db_path),
             ])
         result = json.loads(stdout_buf.getvalue())
-        assert result["evidence"]["status"] in ("ok", "partial", "passed")
+        assert result["evidence"]["status"] in ("partial", "passed")
 
         # Phases 4: Replay uses config with SQLite pointing at the same DB
         replay_config = _write_replay_config(tmp_path, db_path)

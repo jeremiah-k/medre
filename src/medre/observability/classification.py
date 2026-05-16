@@ -103,8 +103,8 @@ def recommended_commands(category: str, event_id: str) -> list[str]:
     if category == "retryable":
         return [
             f"medre inspect event {event_id} --recovery",
-            f"medre replay --mode DRY_RUN --event {event_id}",
-            f"medre replay --mode BEST_EFFORT --event {event_id}",
+            f"medre replay --mode dry_run --event {event_id}",
+            f"medre replay --mode best_effort --event {event_id}",
         ]
     if category == "permanent":
         return [
