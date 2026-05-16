@@ -44,7 +44,13 @@ _SECRET_KEY_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
 _SAFE_SCALAR = (bool, int, float, str, type(None))
 
 _MAX_ERROR_DETAIL_LEN: int = 512
-"""Truncation limit for error strings inside snapshots."""
+"""Nominal truncation limit for error strings inside snapshots.
+
+Output may exceed this value by up to the length of the truncation
+marker (``"..."``, 3 characters) when marker preservation is triggered
+for strings that were originally longer than this limit but shrank
+below it after redaction.
+"""
 
 
 def _is_secret_key(key: str) -> bool:
@@ -109,10 +115,20 @@ def sanitize_error(error: str) -> str:
     """Sanitize an error string for safe inclusion in snapshots.
 
     Strips likely token/secret patterns and SDK object repr strings,
-    then truncates to :data:`_MAX_ERROR_DETAIL_LEN`.
+    then truncates to :data:`_MAX_ERROR_DETAIL_LEN`.  When the
+    original string exceeded the limit but redaction reduced the
+    result below it, a ``"..."`` marker is appended so callers can
+    detect truncation.  This marker may cause the output to exceed
+    :data:`_MAX_ERROR_DETAIL_LEN` by up to 3 characters.
     """
+    needs_truncation = len(error) > _MAX_ERROR_DETAIL_LEN
     sanitized = _TOKEN_RE.sub('[REDACTED]', error)
     sanitized = _SDK_RE.sub('[OBJECT_REPR]', sanitized)
     if len(sanitized) > _MAX_ERROR_DETAIL_LEN:
         sanitized = sanitized[: _MAX_ERROR_DETAIL_LEN - 3] + "..."
+    elif needs_truncation:
+        # Sanitization reduced length (e.g. full redaction of a long
+        # token-like string).  Preserve the truncation marker so callers
+        # can detect that the original was truncated.
+        sanitized = sanitized + "..."
     return sanitized

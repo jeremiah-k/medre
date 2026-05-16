@@ -17,7 +17,7 @@ import asyncio
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import cast
+
 from unittest.mock import MagicMock
 
 import pytest
@@ -72,13 +72,13 @@ def _make_event(
 
 
 def _make_pipeline_config(
-    storage: SQLiteStorage,
+    storage: StorageBackend,
     router: Router,
     adapters: dict | None = None,
     route_retry_policies: dict[str, RetryPolicy] | None = None,
 ) -> PipelineConfig:
     return PipelineConfig(
-        storage=cast(StorageBackend, storage),
+        storage=storage,
         router=router,
         fallback_resolver=FallbackResolver(),
         relation_resolver=RelationResolver(storage=storage),
@@ -532,5 +532,169 @@ class TestGlobalRetrySemantics:
             assert outcomes[0].status == "transient_failure"
             receipts = await mem_storage.list_receipts_for_event(event.event_id)
             assert receipts[0].next_retry_at is not None
+        finally:
+            await runner.stop()
+
+
+# ---------------------------------------------------------------------------
+# 5. Replay through retry-enabled routes
+# ---------------------------------------------------------------------------
+
+
+class TestReplayRetryInteraction:
+    """BEST_EFFORT replay through a route with [routes.<id>.retry] enabled.
+
+    When BEST_EFFORT replay delivers to a retry-enabled route and the
+    delivery fails transiently, the receipt must retain ``source="replay"``
+    and ``replay_run_id`` while also carrying ``next_retry_at`` and retry
+    metadata.  The replay command does not start the RetryWorker; these
+    due retry receipts sit in storage until a worker picks them up.
+    """
+
+    @pytest.mark.asyncio()
+    async def test_replay_transient_failure_creates_retry_receipt(
+        self, mem_storage: SQLiteStorage,
+    ) -> None:
+        """Transient failure during BEST_EFFORT replay produces a receipt
+        with source='replay', replay_run_id, next_retry_at, and retry metadata."""
+        from medre.core.storage.replay import (
+            ReplayEngine,
+            ReplayMode,
+            ReplayRequest,
+            collect_replay_state,
+        )
+
+        route = Route(
+            id="replay-retry-route",
+            source=RouteSource(adapter="src", event_kinds=(), channel=None),
+            targets=[RouteTarget(adapter="fail-target")],
+        )
+        router = Router(routes=[route])
+        policy = RetryPolicy(max_attempts=3, backoff_base=2.0, jitter=False)
+        config = _make_pipeline_config(
+            storage=mem_storage,
+            router=router,
+            adapters={"fail-target": _TransientFailAdapter()},
+            route_retry_policies={"replay-retry-route": policy},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+        try:
+            # Store the event directly (simulates pre-existing historical data).
+            event = _make_event(
+                event_id="evt-replay-retry-001",
+                source_adapter="src",
+            )
+            await mem_storage.append(event)
+
+            # Run BEST_EFFORT replay through the retry-enabled route.
+            replay = ReplayEngine(
+                storage=mem_storage,
+                pipeline=runner,
+            )
+            request = ReplayRequest(
+                mode=ReplayMode.BEST_EFFORT,
+                run_id="replay-retry-run-42",
+                correlation_ids=[event.event_id],
+            )
+            state = await collect_replay_state(replay.replay(request))
+            # Replay should complete (BEST_EFFORT tolerates individual failures).
+            assert state.events_passed >= 1
+
+            # Verify the receipt in storage.
+            receipts = await mem_storage.list_receipts_for_event(event.event_id)
+            assert len(receipts) >= 1, (
+                f"Expected >= 1 receipt after replay, got {len(receipts)}"
+            )
+
+            # The receipt must carry replay attribution.
+            rcpt = receipts[0]
+            assert rcpt.source == "replay", (
+                f"Expected source='replay', got source={rcpt.source!r}"
+            )
+            assert rcpt.replay_run_id == "replay-retry-run-42", (
+                f"Expected replay_run_id='replay-retry-run-42', "
+                f"got {rcpt.replay_run_id!r}"
+            )
+
+            # The receipt must have retry scheduling because the route
+            # has retry enabled and the failure is transient.
+            assert rcpt.next_retry_at is not None, (
+                "Expected next_retry_at to be set for transient failure on "
+                "retry-enabled route during replay"
+            )
+
+            # Retry metadata must reflect the route's policy.
+            assert rcpt.retry_max_attempts == 3
+            assert rcpt.retry_backoff_base == 2.0
+            assert rcpt.retry_jitter is False
+
+            # First transient failure on a retry-enabled route.
+            assert rcpt.attempt_number == 1, (
+                f"Expected attempt_number=1, got {rcpt.attempt_number!r}"
+            )
+            assert rcpt.failure_kind == "adapter_transient", (
+                f"Expected failure_kind='adapter_transient', "
+                f"got {rcpt.failure_kind!r}"
+            )
+        finally:
+            await runner.stop()
+
+    @pytest.mark.asyncio()
+    async def test_replay_success_no_retry_scheduled(
+        self, mem_storage: SQLiteStorage,
+    ) -> None:
+        """Successful replay delivery through retry-enabled route has no
+        next_retry_at."""
+        from medre.core.storage.replay import (
+            ReplayEngine,
+            ReplayMode,
+            ReplayRequest,
+            collect_replay_state,
+        )
+
+        route = Route(
+            id="replay-ok-route",
+            source=RouteSource(adapter="src", event_kinds=(), channel=None),
+            targets=[RouteTarget(adapter="ok-target")],
+        )
+        router = Router(routes=[route])
+        policy = RetryPolicy(max_attempts=3, backoff_base=2.0, jitter=False)
+        config = _make_pipeline_config(
+            storage=mem_storage,
+            router=router,
+            adapters={"ok-target": _SuccessAdapter()},
+            route_retry_policies={"replay-ok-route": policy},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+        try:
+            event = _make_event(
+                event_id="evt-replay-ok-001",
+                source_adapter="src",
+            )
+            await mem_storage.append(event)
+
+            replay = ReplayEngine(
+                storage=mem_storage,
+                pipeline=runner,
+            )
+            request = ReplayRequest(
+                mode=ReplayMode.BEST_EFFORT,
+                run_id="replay-ok-run",
+                correlation_ids=[event.event_id],
+            )
+            state = await collect_replay_state(replay.replay(request))
+            assert state.events_passed >= 1
+
+            receipts = await mem_storage.list_receipts_for_event(event.event_id)
+            assert len(receipts) >= 1
+            rcpt = receipts[0]
+            assert rcpt.source == "replay"
+            assert rcpt.replay_run_id == "replay-ok-run"
+            assert rcpt.status == "sent"
+            assert rcpt.next_retry_at is None, (
+                "Successful replay should not schedule a retry"
+            )
         finally:
             await runner.stop()

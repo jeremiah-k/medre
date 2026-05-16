@@ -15,7 +15,7 @@ import os
 import tomllib
 from enum import Enum
 from pathlib import Path
-from typing import Self
+from typing import Any, Protocol, Self, TypeVar
 
 from medre.config.errors import ConfigError, ConfigNotFoundError, ConfigFileError, ConfigValidationError
 from medre.config.model import (
@@ -319,18 +319,32 @@ def _validate_retry_section(retry_data: dict) -> None:
             )
 
 
+# ---------------------------------------------------------------------------
+# Adapter section parsing helper
+# ---------------------------------------------------------------------------
+
+class _TomlConstructible(Protocol):
+    """Protocol for runtime config wrappers with a TOML factory method."""
+
+    @classmethod
+    def from_toml_dict(cls, instance_name: str, data: dict[str, Any]) -> Self: ...
+
+
+_RTC = TypeVar("_RTC", bound=_TomlConstructible)
+
+
 def _parse_adapter_section(
     data: dict,
     transport: str,
-    wrapper_cls: type,
+    wrapper_cls: type[_RTC],
     paths: MedrePaths,
-) -> dict[str, object]:
+) -> dict[str, _RTC]:
     """Parse an ``[adapters.<transport>]`` section.
 
     Returns a mapping of *instance_name* → runtime config wrapper instance.
     """
     section = data.get(transport, {})
-    result: dict[str, object] = {}
+    result: dict[str, _RTC] = {}
     for instance_name, config_table in section.items():
         if not isinstance(config_table, dict):
             continue

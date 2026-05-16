@@ -220,6 +220,16 @@ The `RetryWorker` that processes due retry receipts is controlled by the
    are never processed automatically. They can be inspected with
    `medre inspect receipts`.
 
+**Replay and retry interaction.** BEST_EFFORT replay through a route with
+`[routes.<id>.retry]` enabled will create retry receipts (`next_retry_at` set)
+if delivery fails transiently. These receipts carry `source='replay'` and the
+`replay_run_id`. The `medre replay` command does **not** start the RetryWorker.
+If the runtime is later started with `[retry] enabled = true`, the worker will
+discover and process these replay-created retry receipts, producing
+`source='retry'` receipts linked via `parent_receipt_id`. See
+[Replay Operation §8](replay-operation.md#8-replay-and-route-level-retry-interaction)
+for the full interaction matrix and operator procedure.
+
 See `examples/configs/fake-retry-smoke.toml` for a config that enables
 the retry worker with fake adapters.
 

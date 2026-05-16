@@ -10,15 +10,7 @@ from medre.config.paths import resolve, MedrePaths
 from medre.config.errors import ConfigValidationError
 
 from .exit_codes import EXIT_CONFIG
-
-
-# Transport adapter types that medre supports.
-_TRANSPORTS: list[tuple[str, str, tuple[str, ...]]] = [
-    ("matrix", "mindroom-nio", ("mindroom_nio", "nio")),
-    ("meshtastic", "mtjk", ("mtjk", "meshtastic")),
-    ("meshcore", "meshcore", ("meshcore",)),
-    ("lxmf", "lxmf", ("lxmf", "RNS")),
-]
+from . import _TRANSPORTS
 
 
 def _dir_status(p: object) -> str:

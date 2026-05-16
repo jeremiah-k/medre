@@ -214,6 +214,7 @@ class TestReplayDispatch:
 
         mock_app = MagicMock()
         mock_app.replay_engine = mock_engine
+        mock_app.storage = AsyncMock()
 
         mock_builder = MagicMock()
         mock_builder.build.return_value = mock_app
@@ -242,6 +243,7 @@ class TestReplayDispatch:
 
         mock_app = MagicMock()
         mock_app.replay_engine = mock_engine
+        mock_app.storage = AsyncMock()
 
         mock_builder = MagicMock()
         mock_builder.build.return_value = mock_app
@@ -288,6 +290,7 @@ class TestReplayDispatch:
 
         mock_app = MagicMock()
         mock_app.replay_engine = mock_engine
+        mock_app.storage = AsyncMock()
 
         mock_builder = MagicMock()
         mock_builder.build.return_value = mock_app
@@ -319,6 +322,7 @@ class TestReplayDispatch:
 
         mock_app = MagicMock()
         mock_app.replay_engine = mock_engine
+        mock_app.storage = AsyncMock()
 
         mock_builder = MagicMock()
         mock_builder.build.return_value = mock_app
@@ -560,6 +564,7 @@ class TestReplayWithEvent:
 
         mock_app = MagicMock()
         mock_app.replay_engine = mock_engine
+        mock_app.storage = AsyncMock()
 
         mock_builder = MagicMock()
         mock_builder.build.return_value = mock_app
@@ -589,6 +594,7 @@ class TestReplayWithEvent:
 
         mock_app = MagicMock()
         mock_app.replay_engine = mock_engine
+        mock_app.storage = AsyncMock()
 
         mock_builder = MagicMock()
         mock_builder.build.return_value = mock_app

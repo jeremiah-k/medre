@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, AsyncIterator, Protocol, runtime_checkable
+from typing import Any, AsyncGenerator, AsyncIterator, Protocol, runtime_checkable
 
 from medre.core.events import (
     CanonicalEvent,
@@ -170,8 +170,15 @@ class StorageBackend(Protocol):
         """
         ...
 
-    async def query(self, filter: EventFilter) -> AsyncIterator[CanonicalEvent]:
-        """Yield events matching *filter*, ordered by timestamp ascending."""
+    def query(self, filter: EventFilter) -> AsyncGenerator[CanonicalEvent, None]:
+        """Yield events matching *filter*, ordered by timestamp ascending.
+
+        Implementations use ``async def`` with ``yield`` (async generator).
+        The protocol declares this as a regular ``def`` returning
+        :class:`AsyncGenerator` because calling an async generator function
+        returns an ``AsyncGenerator`` directly, not a ``Coroutine`` wrapping
+        one.
+        """
         ...
 
     # -- Native ref correlation ---------------------------------------------

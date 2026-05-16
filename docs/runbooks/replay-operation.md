@@ -530,7 +530,87 @@ medre trace event evt_abc123 --config my-bridge.toml
     may change before beta. Always verify against the current code.
 
 
-## 8. Cross-References
+## 8. Replay and Route-Level Retry Interaction
+
+When BEST_EFFORT replay delivers to a route that has `[routes.<id>.retry]`
+enabled, transient delivery failures create **due retry receipts** in storage.
+This section documents what happens and what operators should expect.
+
+### 8.1 What Happens During Replay
+
+1. BEST_EFFORT replay delivers the event through the normal pipeline
+   (`deliver_to_targets` with `source="replay"`).
+2. If the adapter raises a transient error and the route has retry enabled,
+   the pipeline records a `DeliveryReceipt` with:
+   - `source = "replay"` — origin attribution is preserved
+   - `replay_run_id = <run_id>` — groups with the replay run
+   - `status = "failed"` — delivery failed
+   - `next_retry_at = <computed backoff>` — retry is scheduled
+   - `retry_max_attempts`, `retry_backoff_base`, etc. — policy metadata
+3. The `ReplayResult` for the deliver stage shows `"passed"` because the
+   delivery was *attempted*; the individual target failure is recorded in
+   the delivery outcome envelope, not as a replay error.
+
+### 8.2 The Replay Command Does NOT Start the RetryWorker
+
+The `medre replay` command calls `RuntimeBuilder.build()` but **never calls
+`app.start()`**. The RetryWorker is only started by `app.start()` when
+`[retry] enabled = true` in the config. This means:
+
+- Due retry receipts created during replay sit in storage unprocessed.
+- No automatic retry occurs during or after the replay command.
+- The replay command exits after writing receipts; it does not poll or wait.
+
+### 8.3 Later Runtime Start Will Process Replay-Created Retry Receipts
+
+If the operator later starts the runtime normally (`medre run`) with
+`[retry] enabled = true`, the RetryWorker **will** discover and process any
+due retry receipts — including those created during replay. This produces:
+
+- A new receipt with `source = "retry"` (not "replay")
+- `parent_receipt_id` linking back to the replay-origin failure receipt
+- `attempt_number` incremented from the replay receipt's value
+
+This creates a **cross-source retry chain**: `source="replay"` →
+`source="retry"`. The `source` field changes because the retry attempt
+originates from the RetryWorker, not from the replay engine. The
+`parent_receipt_id` preserves the linkage.
+
+### 8.4 Duplicate-Risk Implications
+
+| Scenario | Risk | Explanation |
+|----------|------|-------------|
+| Replay succeeds, route has retry | No retry risk | Success receipt has `next_retry_at = null` |
+| Replay fails transiently, route has retry, worker never starts | No retry delivery | Receipt has `next_retry_at` but no worker processes it |
+| Replay fails transiently, route has retry, runtime starts later | **Retry delivery occurs** | Worker discovers the due receipt and re-attempts delivery |
+| Replay fails transiently, route has retry, runtime starts, retry also fails transiently | **Multiple retries possible** | Worker retries up to `max_attempts`, each producing a receipt |
+
+### 8.5 Recommended Operator Procedure
+
+1. **Before BEST_EFFORT replay**, run `DRY_RUN` to verify route matching.
+2. **Check which routes have retry enabled** in your config:
+   ```bash
+   grep -A5 '\[routes\.' my-bridge.toml | grep -B1 'retry'
+   ```
+3. **After BEST_EFFORT replay**, check for replay-created retry receipts:
+   ```sql
+   SELECT receipt_id, event_id, status, next_retry_at, source, replay_run_id
+   FROM delivery_receipts
+   WHERE source = 'replay' AND next_retry_at IS NOT NULL;
+   ```
+4. **If you see replay-created retry receipts**, decide:
+   - **Accept**: Let the RetryWorker process them on next runtime start.
+   - **Clear**: Manually clear `next_retry_at` to prevent automatic retry:
+     ```sql
+     UPDATE delivery_receipts SET next_retry_at = NULL
+     WHERE source = 'replay' AND next_retry_at IS NOT NULL;
+     ```
+5. **Never start the runtime with retry enabled** immediately after a
+   BEST_EFFORT replay without checking for replay-created retry receipts
+   if duplicate delivery is unacceptable.
+
+
+## 9. Cross-References
 
 - [Event Tracing](event-tracing.md) — tracing events and replay runs through
   the pipeline lifecycle, timeline reports, SQL queries.

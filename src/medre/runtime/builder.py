@@ -58,7 +58,7 @@ from medre.runtime.capacity import CapacityController
 from medre.runtime.errors import RuntimeConfigError
 
 if TYPE_CHECKING:
-    pass
+    from medre.core.planning.delivery_plan import RetryPolicy
 
 __all__ = ["RuntimeBuilder", "AdapterBuildFailure"]
 
@@ -391,7 +391,7 @@ class RuntimeBuilder:
     def _build_route_retry_policies(
         self,
         provenance: dict[str, str],
-    ) -> dict:
+    ) -> dict[str, RetryPolicy]:
         """Build a mapping from expanded route ID to :class:`RetryPolicy`.
 
         Iterates all enabled route configs that declare a retry section

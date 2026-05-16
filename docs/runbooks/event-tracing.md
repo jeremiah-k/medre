@@ -317,7 +317,7 @@ The timeline report reconstructs these phases from stored evidence:
 | `routing` | Inferred from receipt `route_id` | Route matched, delivery planned |
 | `delivery` | `delivery_receipts` table | Adapter delivery attempted; status recorded |
 | `retry` | `parent_receipt_id` chain | Transient failure triggered a retry (opt-in — requires `RetryPolicy`). Retry receipts linked by `parent_receipt_id`. Each retry attempt increments `attempt_number`. Retry receipts are distinguishable by `source="retry"`. If the RetryWorker cannot acquire delivery capacity, no new receipt is created; the original failed receipt is rescheduled for the next cycle. |
-| `replay` | `source='replay'` receipts | Event re-delivered via replay engine. Replay receipts are identifiable by `source="replay"` and `replay_run_id`. Trace for a replayed event shows the original delivery path plus the replay delivery path. |
+| `replay` | `source='replay'` receipts | Event re-delivered via replay engine. Replay receipts are identifiable by `source="replay"` and `replay_run_id`. Trace for a replayed event shows the original delivery path plus the replay delivery path. If replay delivery fails transiently on a route with retry enabled, the replay receipt will have `next_retry_at` set — the RetryWorker will process it on next runtime start (producing a `source="retry"` receipt linked via `parent_receipt_id`). |
 
 ### 2.2 Interpreting Timeline Gaps
 
@@ -440,7 +440,26 @@ HAVING live_deliveries > 0 AND replay_deliveries > 0
 ORDER BY e.created_at DESC;
 ```
 
-### 3.5 Events by Source Adapter and Time Range
+### 3.5 Replay-Created Retry Receipts
+
+```sql
+-- Replay receipts that have scheduled retries (will be processed by RetryWorker
+-- on next runtime start if [retry] enabled = true).
+SELECT
+  r.receipt_id,
+  r.event_id,
+  r.status,
+  r.next_retry_at,
+  r.replay_run_id,
+  r.retry_max_attempts,
+  r.retry_backoff_base
+FROM delivery_receipts r
+WHERE r.source = 'replay'
+  AND r.next_retry_at IS NOT NULL
+ORDER BY r.next_retry_at ASC;
+```
+
+### 3.6 Events by Source Adapter and Time Range
 
 ```sql
 -- Trace all events from a specific source in a time window
@@ -457,7 +476,7 @@ WHERE e.source_adapter = 'bot'
 ORDER BY e.created_at ASC;
 ```
 
-### 3.6 Route-Level Delivery Summary
+### 3.7 Route-Level Delivery Summary
 
 ```sql
 -- Delivery outcomes grouped by route
