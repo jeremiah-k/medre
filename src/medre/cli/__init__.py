@@ -4,7 +4,7 @@ Usage::
 
     medre run [--config PATH]       Start the MEDRE runtime
     medre smoke [--config] [--message TEXT] [--json]
-                                    Run fake bridge smoke test
+                                    Local validation: fake-adapter pipeline test
     medre config check [--config]   Validate config file
     medre config sample             Print a sample TOML config
     medre paths                     Print resolved MEDRE paths

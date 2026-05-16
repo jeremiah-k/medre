@@ -455,7 +455,7 @@ class TestCliNoDirectTransportSdk:
         """SDK availability checks in CLI must use importlib.import_module."""
         source = _source_of("medre.cli.transports")
 
-        # Verify the _TRANSPORTS list uses importlib.import_module.
+        # Verify the TRANSPORTS list uses importlib.import_module.
         assert "importlib.import_module" in source, (
             "CLI transports module should use importlib.import_module for SDK probing"
         )

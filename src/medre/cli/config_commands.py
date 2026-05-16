@@ -10,7 +10,7 @@ from medre.config.paths import resolve, MedrePaths
 from medre.config.errors import ConfigValidationError
 
 from .exit_codes import EXIT_CONFIG
-from .transports import _TRANSPORTS
+from .transports import TRANSPORTS
 
 
 def _dir_status(p: object) -> str:
@@ -245,7 +245,7 @@ def _adapters() -> None:
     print("Adapter types:")
 
     # Check SDK availability
-    for transport, dist_name, import_names in _TRANSPORTS:
+    for transport, dist_name, import_names in TRANSPORTS:
         installed = False
         for mod_name in import_names:
             try:

@@ -229,6 +229,12 @@ This section provides concrete commands and expected outcomes for validating
 MEDRE bridge behavior at three tiers of fidelity. Start at the lowest tier and
 work upward. Each tier is a prerequisite for the next.
 
+For day-to-day investigation of what happened during a bridge run, the
+inspect-first product path is preferred: `medre inspect event` and
+`medre inspect receipts` to understand current state, `medre trace event` or
+`medre evidence` for deeper investigation when inspect reveals issues. Replay
+is a lower-level supported command reserved for recovery scenarios.
+
 The authoritative evidence matrix for all transports and tiers is in
 [docs/architecture/transport-validation-matrix.md](../architecture/transport-validation-matrix.md).
 
@@ -401,7 +407,13 @@ provides the single command to run for each level.
 
 When operating a multi-transport bridge:
 
-1. **Read receipts in transport context.** A `sent` receipt means different things for Matrix vs. Meshtastic vs. LXMF. Consult the per-transport table in section 2.
+1. **Inspect first.** When something seems wrong, start with `medre inspect
+   event` and `medre inspect receipts` to understand what happened. These
+   read-only commands use `--storage-path` and need no config. Escalate to
+   `medre trace event` or `medre evidence` when inspect shows something
+   worth investigating further.
+
+2. **Read receipts in transport context.** A `sent` receipt means different things for Matrix vs. Meshtastic vs. LXMF. Consult the per-transport table in section 2.
 
 2. **Expect radio packet loss.** Meshtastic and MeshCore targets will silently lose messages. This is normal. Monitor `sent` receipt counts, not delivery confirmations that do not exist.
 
@@ -411,7 +423,7 @@ When operating a multi-transport bridge:
 
 5. **Distinguish retry layers.** Adapter reconnect is not the same as pipeline delivery retry. A Meshtastic adapter reconnecting to its local node is independent of the pipeline retrying a failed delivery.
 
-6. **Use replay carefully.** `BEST_EFFORT` replay produces real messages. Always verify route matching with `RE_ROUTE` or `DRY_RUN` first.
+6. **Use replay carefully.** Replay is a lower-level supported command for recovery scenarios. `BEST_EFFORT` replay produces real messages. Always verify route matching with `RE_ROUTE` or `DRY_RUN` first.
 
 7. **Trust receipt lineage.** The `attempt_number` and `parent_receipt_id` chain on receipts provides a complete audit trail. Use it to reconstruct what happened, not to assume what should have happened.
 
@@ -565,10 +577,20 @@ Bridge delivery state has a clear persistence boundary. This section describes w
 
 ### Bridge Crash Recovery Example
 
-After a hard crash during active Matrix-to-Meshtastic bridging:
+After a hard crash during active Matrix-to-Meshtastic bridging, follow the
+inspect-first product path. Start by looking at what happened, then decide
+whether replay is warranted.
 
 1. Restart the runtime. Both adapters reconnect.
-2. Check for orphaned events (stored but not delivered):
+2. **Inspect first.** Use read-only commands to understand the state:
+   ```bash
+   # Check a specific event (no config needed):
+   medre inspect event <event_id> --storage-path /path/to/medre.sqlite
+
+   # Check delivery receipts for that event:
+   medre inspect receipts --event <event_id> --storage-path /path/to/medre.sqlite
+   ```
+3. Find orphaned events (stored but not delivered) via SQL:
    ```sql
    SELECT e.event_id, e.source_adapter, e.created_at
    FROM canonical_events e
@@ -577,21 +599,19 @@ After a hard crash during active Matrix-to-Meshtastic bridging:
      AND e.source_adapter = 'bridge'
    ORDER BY e.created_at DESC;
    ```
-   Or use the inspect CLI:
-    ```bash
-    # Read-only inspection (no config needed):
-    medre inspect receipts --event <event_id> --storage-path /path/to/medre.sqlite
-
-    # Using config (reads storage path from config):
-    medre inspect receipts --event <event_id> --config my-bridge.toml
-    ```
-3. Decide whether to replay the orphaned events. Use `DRY_RUN` first to verify route matching, then `BEST_EFFORT` if re-delivery is warranted.
-4. Expect possible duplicate deliveries — replay does not deduplicate.
+4. If deeper investigation is needed, use `medre trace event` or
+   `medre evidence` to assemble a full timeline or evidence bundle.
+5. Decide whether to replay the orphaned events. Use `DRY_RUN` first to
+   verify route matching, then `BEST_EFFORT` if re-delivery is warranted.
+   Replay is a lower-level supported command that produces duplicate
+   deliveries by design.
+6. Expect possible duplicate deliveries — replay does not deduplicate.
 
 For the full crash recovery workflow and decision tree, see
-[Bridge Recovery](bridge-recovery.md). For tracing events through the pipeline,
-see [Event Tracing](event-tracing.md). For the replay workflow, see
-[Replay Operation](replay-operation.md).
+[Bridge Recovery](bridge-recovery.md). For the inspect-first product path,
+see the [Alpha Walkthrough](alpha-walkthrough.md). For tracing events through
+the pipeline, see [Event Tracing](event-tracing.md). For the replay workflow,
+see [Replay Operation](replay-operation.md).
 
 ### Smoke Command Does Not Persist
 

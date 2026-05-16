@@ -1,12 +1,18 @@
 # Fake Bridge Smoke Runbook
 
-> Last updated: 2026-05-14
+> Last updated: 2026-05-16
 > Scope: Proving cross-adapter bridge behavior with fake adapters
 > Status: Pre-beta. Fake bridge proven; Docker SDK-boundary proven; Docker SDK-boundary bridge smoke proven (Matrix → fake via real SDK); live bridge not claimed.
 
 This runbook describes how to prove that the MEDRE runtime correctly bridges
 events between adapters using fake adapters and in-memory storage. It covers
 what each test proves, how to run the tests, and what the results mean.
+
+`medre smoke` is optional local validation tooling. It is the fastest way to
+confirm the pipeline works with fake adapters before committing to a live run.
+For day-to-day investigation after any run, use the inspect-first product path
+(`medre inspect event`, `medre inspect receipts`) instead. See the
+[Alpha Walkthrough](alpha-walkthrough.md) for the preferred product path.
 
 
 ## 0. Provenance Summary
@@ -259,10 +265,10 @@ PYTHONPATH=src pytest -W error::ResourceWarning -q
 ## 7.5 Operator Smoke Command
 
 The ``medre smoke`` command provides a single-command Docker-free bridge
-validation.  It loads a config (default: ``examples/configs/fake-bridge-smoke.toml``),
-builds and starts the runtime with fake adapters, injects one ``message.text``
-event through the full pipeline, inspects every evidence surface, stops
-cleanly, and prints a compact passed/failed report.
+validation. It is optional local validation tooling, not a daily operation
+command. Use it to confirm the pipeline works with fake adapters before
+committing to a live run, or to seed a database for inspect-based
+investigation.
 
 ```bash
 # Default: uses shipped fake-bridge-smoke.toml

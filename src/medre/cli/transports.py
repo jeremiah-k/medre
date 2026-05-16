@@ -5,7 +5,7 @@ import importlib
 
 # Transport adapter types that medre supports.
 # Each entry: (transport_key, dist_name, import_module_names).
-_TRANSPORTS: list[tuple[str, str, tuple[str, ...]]] = [
+TRANSPORTS: list[tuple[str, str, tuple[str, ...]]] = [
     ("matrix", "mindroom-nio", ("mindroom_nio", "nio")),
     ("meshtastic", "mtjk", ("mtjk", "meshtastic")),
     ("meshcore", "meshcore", ("meshcore",)),
@@ -15,7 +15,7 @@ _TRANSPORTS: list[tuple[str, str, tuple[str, ...]]] = [
 
 def is_transport_installed(transport: str) -> bool:
     """Check whether a transport SDK is available via dynamic import."""
-    for t_key, _dist, import_names in _TRANSPORTS:
+    for t_key, _dist, import_names in TRANSPORTS:
         if t_key == transport:
             for mod_name in import_names:
                 try:

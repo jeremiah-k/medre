@@ -48,8 +48,9 @@ def _all_doc_text() -> str:
 
 class TestNoStaleSmokeStatusOk:
     """Smoke command reports ``"passed"`` / ``"failed"``, not ``"ok"``.
-    The evidence bundle report correctly uses ``"ok"`` — this test only
-    checks smoke-related sections."""
+    The evidence bundle code returns ``"passed"`` or ``"partial"`` for
+    section and overall statuses — the value ``"ok"`` is never emitted
+    by the code.  Docs must match."""
 
     @pytest.mark.parametrize(
         "doc_path",
@@ -66,6 +67,29 @@ class TestNoStaleSmokeStatusOk:
                 pytest.fail(
                     f"{doc_path.name}:{lineno}: smoke example uses "
                     f'stale "status": "ok" (should be "passed" or "failed"):\n'
+                    f"  {line.strip()}"
+                )
+
+    @pytest.mark.parametrize(
+        "doc_path",
+        [p for p in TARGET_DOCS if p.name in ("alpha-walkthrough.md", "bridge-evidence-bundle.md")],
+        ids=lambda p: p.name,
+    )
+    def test_evidence_examples_use_passed_not_ok(self, doc_path: Path) -> None:
+        """In evidence bundle examples, ``status`` must be ``passed``,
+        ``partial``, ``error``, or ``skipped`` — never ``ok``.
+
+        The evidence code uses _section_ok() which returns status='passed',
+        and _compute_overall_status() returns 'passed' or 'partial'.
+        The value 'ok' is never used.
+        """
+        text = _read(doc_path)
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            if '"status": "ok"' in line:
+                pytest.fail(
+                    f"{doc_path.name}:{lineno}: evidence example uses "
+                    f'stale "status": "ok". '
+                    f"Code returns 'passed' or 'partial', never 'ok'.\n"
                     f"  {line.strip()}"
                 )
 
@@ -154,34 +178,26 @@ class TestReplayDistinguishability:
 
 class TestStoragePathReadOnlyConsistency:
     """Verify that docs consistently describe the storage-path read-only
-    workflow: inspect/trace event/evidence support --storage-path;
-    replay requires --config."""
+    workflow: all inspect subcommands (including native-ref and
+    receipts --replay-run), trace subcommands, and evidence support
+    --storage-path; replay (top-level) and recover require --config."""
 
     def test_inspect_examples_show_storage_path_option(self) -> None:
-        """Docs with ``inspect event`` or ``inspect receipts --event``
-        examples should show --storage-path as a read-only option.
-        ``inspect receipts --replay-run`` requires --config and is excluded."""
+        """Docs with ``inspect`` examples should show --storage-path as a
+        read-only option. All inspect subcommands support --storage-path."""
         for doc_path in TARGET_DOCS:
             text = _read(doc_path)
-            # Only check for inspect event / inspect receipts --event
-            # (these support --storage-path).
-            # Skip inspect receipts --replay-run (requires --config).
-            inspect_event_with_config = re.findall(
-                r"medre\s+inspect\s+event\b.*--config",
+            # Check for inspect command examples that use --config
+            # (prose mentions are OK without --storage-path).
+            inspect_with_config = re.findall(
+                r"medre\s+inspect\s+\w+.*--config",
                 text,
             )
-            inspect_receipts_event_with_config = re.findall(
-                r"medre\s+inspect\s+receipts\s+--event\b.*--config",
-                text,
-            )
-            has_storage_path_candidates = bool(
-                inspect_event_with_config or inspect_receipts_event_with_config
-            )
-            if has_storage_path_candidates:
+            if inspect_with_config:
                 assert "--storage-path" in text, (
-                    f"{doc_path.name} has inspect event/receipts--event "
-                    f"examples with --config but no --storage-path option "
-                    f"shown. Read-only inspect should support --storage-path."
+                    f"{doc_path.name} has inspect examples with --config "
+                    f"but no --storage-path option shown. All inspect "
+                    f"subcommands support --storage-path."
                 )
 
     def test_replay_examples_require_config_not_storage_path(self) -> None:
@@ -195,6 +211,36 @@ class TestStoragePathReadOnlyConsistency:
         assert not stale, (
             "Found replay example using --storage-path. "
             "Replay requires --config (it rejects --storage-path)."
+        )
+
+    def test_inspect_native_ref_supports_storage_path(self) -> None:
+        """Docs must not claim inspect native-ref requires --config.
+        It supports --storage-path."""
+        text = _all_doc_text()
+        # Look for claims that native-ref requires config.
+        stale = re.findall(
+            r"native-ref.*require.*--config",
+            text,
+            re.IGNORECASE,
+        )
+        assert not stale, (
+            "Found claim that inspect native-ref requires --config. "
+            "It supports --storage-path for direct read-only access."
+        )
+
+    def test_inspect_receipts_replay_run_supports_storage_path(self) -> None:
+        """Docs must not claim inspect receipts --replay-run requires --config.
+        It supports --storage-path."""
+        text = _all_doc_text()
+        # Look for claims that receipts --replay-run requires config.
+        stale = re.findall(
+            r"replay-run.*require.*--config",
+            text,
+            re.IGNORECASE,
+        )
+        assert not stale, (
+            "Found claim that inspect receipts --replay-run requires --config. "
+            "It supports --storage-path for direct read-only access."
         )
 
     def test_replay_operation_states_config_requirement(self) -> None:
@@ -293,6 +339,24 @@ class TestConfigurationCliSurface:
             "and does not accept --storage-path."
         )
 
+    def test_inspect_replay_documented(self) -> None:
+        """configuration.md must document 'inspect replay' subcommand."""
+        text = _read(RUNBOOKS_DIR / "configuration.md")
+        assert "inspect replay" in text, (
+            "configuration.md must document 'medre inspect replay' "
+            "as a read-only storage inspection subcommand."
+        )
+
+    def test_inspect_event_flags_documented(self) -> None:
+        """configuration.md must document --timeline, --evidence, --recovery
+        flags for inspect event."""
+        text = _read(RUNBOOKS_DIR / "configuration.md")
+        for flag in ("--timeline", "--evidence", "--recovery"):
+            assert flag in text, (
+                f"configuration.md must document '{flag}' flag for "
+                f"'medre inspect event'."
+            )
+
 
 # ===========================================================================
 # 8. Retry semantics described correctly
@@ -333,3 +397,146 @@ class TestRetrySemantics:
                 f"{doc_path.name} mentions replay extensively but does "
                 f"not describe it as manual/one-shot."
             )
+
+
+# ===========================================================================
+# 9. Alpha walkthrough uses inspect-based investigation
+# ===========================================================================
+
+
+class TestAlphaWalkthroughInspectSurface:
+    """The alpha walkthrough should use inspect commands as the primary
+    investigation surface, with trace/evidence available as deeper tools."""
+
+    def test_walkthrough_mentions_inspect(self) -> None:
+        """alpha-walkthrough.md must reference 'medre inspect'."""
+        text = _read(RUNBOOKS_DIR / "alpha-walkthrough.md")
+        assert "medre inspect" in text, (
+            "alpha-walkthrough.md must reference 'medre inspect' as the "
+            "primary investigation command."
+        )
+
+    def test_walkthrough_inspect_step_before_trace(self) -> None:
+        """In the walkthrough, inspect appears before trace in the flow."""
+        text = _read(RUNBOOKS_DIR / "alpha-walkthrough.md")
+        inspect_pos = text.find("medre inspect")
+        trace_pos = text.find("medre trace")
+        if inspect_pos < 0 or trace_pos < 0:
+            pytest.skip("Both inspect and trace must be in walkthrough")
+        assert inspect_pos < trace_pos, (
+            "alpha-walkthrough.md should present inspect before trace "
+            "(inspect is the primary investigation surface)."
+        )
+
+    def test_walkthrough_inspect_uses_storage_path(self) -> None:
+        """Inspect examples in the walkthrough use --storage-path."""
+        text = _read(RUNBOOKS_DIR / "alpha-walkthrough.md")
+        # Find inspect command lines.
+        inspect_lines = [
+            line for line in text.splitlines()
+            if "medre inspect" in line and "--storage-path" not in line
+            and line.strip().startswith("medre inspect")
+        ]
+        # Allow non-CLI-context mentions (table rows, prose).
+        for line in inspect_lines:
+            if line.strip().startswith("medre inspect") and "config" in line.lower():
+                pytest.fail(
+                    f"alpha-walkthrough.md has inspect command using --config "
+                    f"instead of --storage-path: {line.strip()}"
+                )
+
+
+# ===========================================================================
+# 10. Evidence status value consistency
+# ===========================================================================
+
+
+class TestEvidenceStatusValueConsistency:
+    """The evidence module returns 'passed' (via _section_ok) and 'partial'
+    (via _compute_overall_status), never 'ok'.  This test catches code drift."""
+
+    def test_section_ok_returns_passed(self) -> None:
+        """_section_ok() must return status='passed', not 'ok'."""
+        from medre.runtime.evidence import _section_ok
+
+        result = _section_ok({"test": True})
+        assert result["status"] == "passed", (
+            f"_section_ok() should return status='passed', "
+            f"got '{result['status']}'"
+        )
+
+    def test_overall_status_never_ok(self) -> None:
+        """_compute_overall_status() must never return 'ok'."""
+        from medre.runtime.evidence import _compute_overall_status
+
+        for statuses in [
+            {"passed"},
+            {"passed", "skipped"},
+            {"skipped"},
+            {"partial"},
+            {"error"},
+        ]:
+            sections = {f"s{i}": {"status": s} for i, s in enumerate(statuses)}
+            result = _compute_overall_status(sections)
+            assert result != "ok", (
+                f"_compute_overall_status({statuses}) returned 'ok'"
+            )
+
+    def test_alpha_walkthrough_evidence_status_not_ok(self) -> None:
+        """alpha-walkthrough.md evidence example must not say 'status: ok'."""
+        text = _read(RUNBOOKS_DIR / "alpha-walkthrough.md")
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            if '"status": "ok"' in line and "evidence" in text[max(0, text.find(line) - 500):text.find(line) + 500].lower():
+                pytest.fail(
+                    f"alpha-walkthrough.md:{lineno}: evidence example uses "
+                    f'stale "status": "ok" (code returns "passed" or "partial").\n'
+                    f"  {line.strip()}"
+                )
+
+
+# ===========================================================================
+# 11. Bare status vocabulary drift
+# ===========================================================================
+
+
+class TestBareStatusVocabularyDrift:
+    """Catch bare 'ok' in status prose/tables, not just JSON patterns.
+
+    The code never emits status='ok' — it uses 'passed'. Docs must not
+    list 'ok' as a valid status value in tables, prose, or vocabulary
+    definitions.
+    """
+
+    @pytest.mark.parametrize(
+        "doc_path",
+        [p for p in TARGET_DOCS if p.name in ("bridge-evidence-bundle.md", "alpha-walkthrough.md")],
+        ids=lambda p: p.name,
+    )
+    def test_no_bare_ok_in_status_tables(self, doc_path: Path) -> None:
+        """Status vocabulary tables must not list 'ok' as a status value."""
+        text = _read(doc_path)
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            stripped = line.strip()
+            # Skip JSON examples (covered by test_evidence_examples_use_passed_not_ok).
+            if '"status": "ok"' in stripped:
+                continue
+            # Skip drill_steps result lines.
+            if '"result": "ok"' in stripped:
+                continue
+            # Skip exit code columns (e.g. "0=ok, 2=config").
+            if re.match(r".*\d=\bok\b", stripped):
+                continue
+            # Catch "ok / passed" in table rows (backtick-wrapped).
+            if re.search(r"`ok`\s*/\s*`passed`", stripped):
+                pytest.fail(
+                    f"{doc_path.name}:{lineno}: stale status vocabulary "
+                    f"lists 'ok' alongside 'passed'. Code never emits 'ok'.\n"
+                    f"  {stripped}"
+                )
+            # Catch bare backtick-wrapped "ok" as a status value.
+            if re.search(r"`\"?ok\"?`", stripped) and "result" not in stripped:
+                pytest.fail(
+                    f"{doc_path.name}:{lineno}: bare 'ok' in status "
+                    f"vocabulary. Code uses 'passed', not 'ok'.\n"
+                    f"  {stripped}"
+                )

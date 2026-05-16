@@ -1,10 +1,20 @@
-"""Inspect CLI commands: read-only storage queries for events, receipts, native refs."""
+"""Inspect CLI commands: read-only storage queries for events, receipts, native refs.
+
+Supports augmented inspection via ``--timeline``, ``--evidence``, and ``--recovery``
+flags on ``inspect event``, and an ``inspect replay`` subcommand — all read-only,
+all deterministic JSON, no runtime start, no storage mutation.
+"""
 from __future__ import annotations
 
 import json
 import sys
+from typing import Any
 
 import msgspec
+
+from medre.runtime import timeline as _timeline
+from medre.runtime.evidence import collect_evidence_bundle
+from medre.runtime.trace import timeline_to_json
 
 from .exit_codes import EXIT_NOT_FOUND, EXIT_CONFIG, EXIT_BUILD
 from .json import _struct_to_json
@@ -16,8 +26,33 @@ async def _inspect_event(
     event_id: str,
     *,
     storage_path: str | None = None,
+    timeline: bool = False,
+    evidence: bool = False,
+    recovery: bool = False,
 ) -> None:
-    """Look up and print a canonical event by its ID."""
+    """Look up and print a canonical event by its ID.
+
+    When *timeline*, *evidence*, or *recovery* flags are set, the output
+    is augmented with the corresponding data sections.  When no flags are
+    set, the original event-only JSON is printed (backward compatible).
+    """
+    # Fast path: no augmentation flags — preserve exact existing behaviour.
+    if not (timeline or evidence or recovery):
+        storage = await _open_readonly_storage(config_path, storage_path=storage_path)
+        try:
+            event = await storage.get(event_id)
+            if event is None:
+                print(
+                    f"Error: event not found: {event_id}",
+                    file=sys.stderr,
+                )
+                sys.exit(EXIT_NOT_FOUND)
+            print(_struct_to_json(event))
+        finally:
+            await storage.close()
+        return
+
+    # Augmented path: build a compound result.
     storage = await _open_readonly_storage(config_path, storage_path=storage_path)
     try:
         event = await storage.get(event_id)
@@ -27,7 +62,32 @@ async def _inspect_event(
                 file=sys.stderr,
             )
             sys.exit(EXIT_NOT_FOUND)
-        print(_struct_to_json(event))
+
+        result: dict[str, Any] = {
+            "event": json.loads(msgspec.json.encode(event)),
+        }
+
+        if timeline:
+            tl_result = await _timeline.assemble_event_timeline(storage, event_id)
+            # Event exists (we already checked), so tl_result is not None.
+            result["timeline"] = tl_result["timeline_entries"] if tl_result else []
+
+        if evidence:
+            bundle = await collect_evidence_bundle(
+                config_path,
+                event_id=event_id,
+                storage_path=storage_path,
+            )
+            result["evidence"] = bundle
+
+        if recovery:
+            from .recover_commands import _build_event_recovery_runbook
+
+            runbook = await _build_event_recovery_runbook(storage, event_id)
+            # Event exists, so runbook is not None.
+            result["recovery"] = runbook
+
+        print(json.dumps(result, sort_keys=True, indent=2, default=str))
     finally:
         await storage.close()
 
@@ -84,5 +144,30 @@ async def _inspect_native_ref(
         if event is not None:
             result["event"] = json.loads(msgspec.json.encode(event))
         print(json.dumps(result, sort_keys=True, indent=2))
+    finally:
+        await storage.close()
+
+
+async def _inspect_replay(
+    config_path: str | None,
+    run_id: str,
+    *,
+    storage_path: str | None = None,
+) -> None:
+    """Inspect a replay run: read-only timeline via storage.
+
+    Outputs deterministic JSON with the replay timeline, matching the
+    shape produced by ``medre trace replay --json``.
+    """
+    storage = await _open_readonly_storage(config_path, storage_path=storage_path)
+    try:
+        result = await _timeline.assemble_replay_timeline(storage, run_id)
+        if result is None:
+            print(
+                f"Error: no receipts found for replay run: {run_id}",
+                file=sys.stderr,
+            )
+            sys.exit(EXIT_NOT_FOUND)
+        print(timeline_to_json(result["timeline_entries"]))
     finally:
         await storage.close()

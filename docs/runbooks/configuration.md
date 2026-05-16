@@ -720,6 +720,15 @@ medre run --config /path/to/config.toml
 
 ## CLI Commands
 
+**Preferred product path.** For daily operation, the recommended command
+sequence is: `medre config check` and `medre routes validate` (pre-flight),
+`medre run` (start the runtime), then `medre inspect event` and `medre
+inspect receipts` (investigate what happened). Use `medre trace event` and
+`medre evidence` for deeper investigation. `medre smoke` is optional local
+validation tooling. `medre replay` is a lower-level supported command for
+recovery scenarios. See the [Alpha Walkthrough](alpha-walkthrough.md) for the
+full preferred product path.
+
 ```
 medre run [--config PATH]
     Start the MEDRE runtime. Loads config, resolves paths, starts adapters.
@@ -756,22 +765,25 @@ medre smoke [--config PATH] [--storage-path PATH] [--drill NAME] [--run-session]
     Pass --storage-path to persist evidence to SQLite. --drill runs a
     named failure drill. --run-session runs a full bridge session cycle.
 
-medre inspect (event|receipts|native-ref) [--config PATH] [--storage-path PATH]
-    Read-only storage inspection. event and receipts subcommands support
-    --storage-path to open a SQLite database directly (bypasses config).
-    native-ref requires --config.
+medre inspect (event|receipts|native-ref|replay) [--config PATH] [--storage-path PATH]
+    Read-only storage inspection. All subcommands support --storage-path
+    to open a SQLite database directly (bypasses config).
 
     medre inspect event <event_id> --storage-path <db>
+    medre inspect event <event_id> --storage-path <db> --timeline
+    medre inspect event <event_id> --storage-path <db> --evidence
+    medre inspect event <event_id> --storage-path <db> --recovery
     medre inspect receipts --event <event_id> --storage-path <db>
-    medre inspect receipts --replay-run <run_id> --config <path>
-    medre inspect native-ref --adapter <name> --message <native_id> --config <path>
+    medre inspect receipts --replay-run <run_id> --storage-path <db>
+    medre inspect native-ref --adapter <name> --message <native_id> --storage-path <db>
+    medre inspect replay <run_id> --storage-path <db>
 
 medre trace (event|replay) [--config PATH] [--storage-path PATH]
-    Chronological timeline assembly. trace event supports --storage-path
-    for direct read-only access. trace replay requires --config.
+    Chronological timeline assembly. Both subcommands support --storage-path
+    for direct read-only access to a SQLite database.
 
     medre trace event <event_id> --storage-path <db> [--json]
-    medre trace replay <run_id> --config <path> [--json]
+    medre trace replay <run_id> --storage-path <db> [--json]
 
 medre evidence [--config PATH] [--storage-path PATH] [--event ID] [--replay-run ID] [--include-refresh-health] [--json]
     Collect an evidence bundle for support. Supports --storage-path for
@@ -792,8 +804,8 @@ All commands that accept `--config` follow the
 [Configuration Search Order](#configuration-search-order) when the flag is
 omitted.
 
-`inspect`, `trace event`, and `evidence` support `--storage-path` to open a
+`inspect`, `trace`, and `evidence` support `--storage-path` to open a
 SQLite database directly in read-only mode, bypassing config file loading
 entirely. This is useful for inspecting smoke databases or post-run evidence
 without maintaining a config file. Commands that need route or adapter context
-(`replay`, `recover`, `inspect native-ref`, `trace replay`) require `--config`.
+for write operations (`replay`, `recover`) require `--config`.

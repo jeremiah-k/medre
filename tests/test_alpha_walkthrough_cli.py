@@ -5,12 +5,13 @@ Every test calls ``main([...])`` — the same entry point operators use —
 proving the CLI command surface works without importing internal APIs.
 
 Walkthrough sequence (as documented in alpha-walkthrough.md):
-1. ``medre smoke --config <path> --storage-path <db> --json``
-2. ``medre inspect receipts --event <id> --storage-path <db>``
-3. ``medre trace event <id> --storage-path <db> --json``
-4. ``medre evidence --event <id> --storage-path <db> --json``
-5. ``medre replay --config <path> --mode dry_run --event <id> --json``
-6. ``medre replay --config <path> --mode best_effort --event <id> --json``
+Phase 0: ``medre config check``, ``medre routes validate`` (pre-flight)
+Phase 1: ``medre smoke --config <path> --storage-path <db> --json`` (optional local validation)
+Phase 2: ``medre inspect receipts --event <id> --storage-path <db>`` (inspect-first)
+Phase 3: ``medre trace event <id> --storage-path <db> --json`` (deeper investigation)
+         ``medre evidence --event <id> --storage-path <db> --json``
+Phase 4: ``medre replay --config <path> --mode dry_run --event <id> --json`` (lower-level, specialized)
+         ``medre replay --config <path> --mode best_effort --event <id> --json``
 
 Read-only commands (inspect, trace, evidence) use ``--storage-path`` to
 bypass config-file loading. Replay requires ``--config`` for route/adapter
@@ -477,17 +478,17 @@ class TestAlphaFullWalkthroughCLI:
     def test_full_walkthrough_sequence(self, tmp_path: Path) -> None:
         """Prove the documented operator walkthrough sequence works via main().
 
-        Steps:
-        1. medre smoke --config <path> --storage-path <db> --json  → event_id
-        2. medre inspect receipts --event <id> --storage-path <db>
-        3. medre trace event <id> --storage-path <db> --json
-        4. medre evidence --event <id> --storage-path <db> --json
-        5. medre replay --config <path> --mode dry_run --event <id> --json
-        6. medre replay --config <path> --mode best_effort --event <id> --json
+        Phases (as documented in alpha-walkthrough.md):
+        Phase 1: medre smoke --config <path> --storage-path <db> --json  → event_id
+        Phase 2: medre inspect receipts --event <id> --storage-path <db>  (inspect-first)
+        Phase 3: medre trace event <id> --storage-path <db> --json       (deeper investigation)
+                 medre evidence --event <id> --storage-path <db> --json
+        Phase 4: medre replay --config <path> --mode dry_run --event <id> --json    (lower-level)
+                 medre replay --config <path> --mode best_effort --event <id> --json
         """
         config_path = _smoke_config_path()
 
-        # Step 1: Smoke seeds persistent DB
+        # Phase 1: Optional local smoke seeds persistent DB
         db_path = tmp_path / "full_walkthrough.db"
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
@@ -503,7 +504,7 @@ class TestAlphaFullWalkthroughCLI:
         assert report["status"] == "passed"
         event_id = report["event_id"]
 
-        # Step 2: Inspect receipts
+        # Phase 2: Inspect-first — check delivery receipts
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main([
@@ -513,7 +514,7 @@ class TestAlphaFullWalkthroughCLI:
             ])
         assert "sent" in stdout_buf.getvalue()
 
-        # Step 3: Trace event
+        # Phase 3a: Deeper investigation — trace event timeline
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main([
@@ -527,7 +528,7 @@ class TestAlphaFullWalkthroughCLI:
         entry_types = [e.get("entry_type") for e in timeline]
         assert "receipt" in entry_types
 
-        # Step 4: Evidence
+        # Phase 3b: Deeper investigation — evidence bundle
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main([
@@ -539,10 +540,10 @@ class TestAlphaFullWalkthroughCLI:
         bundle = json.loads(stdout_buf.getvalue())
         assert bundle["status"] in ("ok", "partial", "passed")
 
-        # Steps 5-6: Replay uses config with SQLite pointing at the same DB
+        # Phases 4: Replay uses config with SQLite pointing at the same DB
         replay_config = _write_replay_config(tmp_path, db_path)
 
-        # Step 5: Replay dry_run
+        # Phase 4a: Replay dry_run (lower-level, specialized)
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main([
@@ -556,7 +557,7 @@ class TestAlphaFullWalkthroughCLI:
         assert dry_summary["mode"] == "dry_run"
         assert dry_summary["events_scanned"] >= 1
 
-        # Step 6: Replay best_effort
+        # Phase 4b: Replay best_effort (lower-level, specialized)
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main([
@@ -570,10 +571,10 @@ class TestAlphaFullWalkthroughCLI:
         assert be_summary["mode"] == "best_effort"
 
     def test_event_id_flows_through_all_commands(self, tmp_path: Path) -> None:
-        """Verify the exact event_id from smoke appears in every downstream command."""
+        """Verify the exact event_id from smoke appears in every downstream command (inspect-first path)."""
         config_path = _smoke_config_path()
 
-        # Seed
+        # Phase 1: Seed via optional local smoke
         db_path = tmp_path / "event_flow.db"
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
@@ -587,7 +588,7 @@ class TestAlphaFullWalkthroughCLI:
         assert exc_info.value.code == 0
         event_id = json.loads(stdout_buf.getvalue())["event_id"]
 
-        # Inspect receipts: event_id in the receipt output
+        # Phase 2: Inspect-first — receipts
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main([
@@ -597,7 +598,7 @@ class TestAlphaFullWalkthroughCLI:
             ])
         assert event_id in stdout_buf.getvalue()
 
-        # Trace: timeline entries reference the event
+        # Phase 3a: Deeper investigation — trace
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main([
@@ -609,7 +610,7 @@ class TestAlphaFullWalkthroughCLI:
         timeline = json.loads(stdout_buf.getvalue())
         assert len(timeline) >= 1
 
-        # Evidence: storage section has the event
+        # Phase 3b: Deeper investigation — evidence
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main([
@@ -621,7 +622,7 @@ class TestAlphaFullWalkthroughCLI:
         bundle = json.loads(stdout_buf.getvalue())
         assert bundle["sections"]["storage"]["data"]["event"]["event_id"] == event_id
 
-        # Replay dry_run: summary includes the event
+        # Phase 4: Replay dry_run (lower-level, specialized)
         replay_config = _write_replay_config(tmp_path, db_path)
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):

@@ -2,4 +2,4 @@
 from __future__ import annotations
 
 # Radio transports that use fire-and-forget delivery.
-_RADIO_TRANSPORTS = frozenset({"meshtastic", "meshcore", "lxmf"})
+RADIO_TRANSPORTS = frozenset({"meshtastic", "meshcore", "lxmf"})

@@ -16,7 +16,141 @@ from medre.runtime import timeline as _timeline
 
 from .exit_codes import EXIT_NOT_FOUND, EXIT_CONFIG, EXIT_BUILD
 from .storage_helpers import _open_readonly_storage
-from .transport_constants import _RADIO_TRANSPORTS
+from .transport_constants import RADIO_TRANSPORTS
+
+
+async def _build_event_recovery_runbook(
+    storage: Any,
+    event_id: str,
+) -> dict[str, Any] | None:
+    """Build a recovery runbook dict for a single event.
+
+    Returns ``None`` when the event does not exist in storage.
+    This is the pure-logic core shared by ``medre recover`` and
+    ``medre inspect event --recovery`` — no CLI I/O, no sys.exit.
+    """
+    tl_result = await _timeline.assemble_event_timeline(storage, event_id)
+    if tl_result is None:
+        return None
+
+    event = tl_result["event"]
+    receipts = tl_result["receipts"]
+    native_refs = tl_result["native_refs"]
+
+    # Identify failed targets and classify by failure_kind.
+    classification: dict[str, list[dict[str, Any]]] = {
+        "retryable": [],
+        "permanent": [],
+        "operational": [],
+        "unknown": [],
+    }
+    failed_targets: list[dict[str, Any]] = []
+    for r in receipts:
+        if r.status not in ("failed", "dead_lettered"):
+            continue
+        error_msg = getattr(r, "error", None)
+        inferred = _infer_failure_kind(error_msg, r.status)
+        cat = _failure_category(inferred)
+        entry: dict[str, Any] = {
+            "target_adapter": r.target_adapter,
+            "status": r.status,
+            "attempt_number": r.attempt_number,
+            "receipt_id": r.receipt_id,
+            "failure_kind": inferred,
+            "category": cat,
+        }
+        if error_msg:
+            entry["error"] = error_msg
+        # Include replay context if present.
+        r_source = getattr(r, "source", "live")
+        r_run_id = getattr(r, "replay_run_id", None)
+        if r_source == "replay" and r_run_id:
+            entry["source"] = "replay"
+            entry["replay_run_id"] = r_run_id
+        failed_targets.append(entry)
+        classification[cat].append(entry)
+
+    # Collect replay receipts for context.
+    replay_context: list[dict[str, str]] = []
+    seen_run_ids: set[str] = set()
+    for r in receipts:
+        r_source = getattr(r, "source", "live")
+        r_run_id = getattr(r, "replay_run_id", None)
+        if r_source == "replay" and r_run_id and r_run_id not in seen_run_ids:
+            seen_run_ids.add(r_run_id)
+            replay_context.append({
+                "replay_run_id": r_run_id,
+                "source": "replay",
+            })
+
+    # Build timeline for runbook.
+    timeline_entries = tl_result["timeline_entries"]
+
+    # Aggregate recommended commands across present categories.
+    present_categories = {
+        cat for cat, items in classification.items() if items
+    }
+    all_commands: list[str] = []
+    for cat in sorted(present_categories):
+        all_commands.extend(_recommended_commands(cat, event_id))
+
+    # Deduplicate while preserving order.
+    seen_cmds: set[str] = set()
+    unique_commands: list[str] = []
+    for cmd in all_commands:
+        if cmd not in seen_cmds:
+            seen_cmds.add(cmd)
+            unique_commands.append(cmd)
+
+    runbook: dict[str, Any] = {
+        "scope": "event",
+        "event_id": event_id,
+        "event_kind": event.event_kind,
+        "source_adapter": event.source_adapter,
+        "total_receipts": len(receipts),
+        "failed_targets": failed_targets,
+        "failure_classification": {
+            cat: items for cat, items in classification.items() if items
+        },
+        "recommended_commands": unique_commands,
+        "timeline": timeline_entries,
+        "warnings": [],
+    }
+
+    if replay_context:
+        runbook["replay_context"] = replay_context
+
+    # Add duplicate-send warning when BEST_EFFORT is recommended.
+    if "retryable" in present_categories:
+        runbook["warnings"].append(
+            "BEST_EFFORT replay recommended for retryable failures — "
+            "this may produce duplicate sends.  Use DRY_RUN first "
+            "to preview."
+        )
+
+    # Add duplicate-send risk warnings for radio transports.
+    for nref in native_refs:
+        if nref.adapter.lower() in RADIO_TRANSPORTS or any(
+            nref.adapter.lower().startswith(t)
+            for t in RADIO_TRANSPORTS
+        ):
+            runbook["warnings"].append(
+                f"Adapter {nref.adapter} uses a radio transport — "
+                f"recovery may produce duplicate sends. "
+                f"Use --dry-run first to preview."
+            )
+            break
+
+    if runbook["warnings"] and not any(
+        "Radio transports" in w for w in runbook["warnings"]
+    ):
+        runbook["warnings"].append(
+            "Radio transports (Meshtastic, MeshCore, LXMF) use "
+            "fire-and-forget delivery.  Recovery is best-effort "
+            "and duplicates are possible."
+        )
+
+    return runbook
 
 
 async def _recover(
@@ -31,133 +165,22 @@ async def _recover(
     storage = await _open_readonly_storage(config_path)
     try:
         # Determine scope: single event or broad scan.
-        failed_targets: list[dict[str, Any]] = []
+        runbook: dict[str, Any]
         timeline: list[dict[str, Any]] = []
+        failed_targets: list[dict[str, Any]] = []
         if event_id is not None:
             # Single-event recovery.
-            tl_result = await _timeline.assemble_event_timeline(storage, event_id)
-            if tl_result is None:
+            result = await _build_event_recovery_runbook(storage, event_id)
+            if result is None:
                 print(
                     f"Error: event not found: {event_id}",
                     file=sys.stderr,
                 )
                 sys.exit(EXIT_NOT_FOUND)
 
-            event = tl_result["event"]
-            receipts = tl_result["receipts"]
-            native_refs = tl_result["native_refs"]
-
-            # Identify failed targets and classify by failure_kind.
-            classification: dict[str, list[dict[str, Any]]] = {
-                "retryable": [],
-                "permanent": [],
-                "operational": [],
-                "unknown": [],
-            }
-            for r in receipts:
-                if r.status not in ("failed", "dead_lettered"):
-                    continue
-                error_msg = getattr(r, "error", None)
-                inferred = _infer_failure_kind(error_msg, r.status)
-                cat = _failure_category(inferred)
-                entry = {
-                    "target_adapter": r.target_adapter,
-                    "status": r.status,
-                    "attempt_number": r.attempt_number,
-                    "receipt_id": r.receipt_id,
-                    "failure_kind": inferred,
-                    "category": cat,
-                }
-                if error_msg:
-                    entry["error"] = error_msg
-                # Include replay context if present.
-                r_source = getattr(r, "source", "live")
-                r_run_id = getattr(r, "replay_run_id", None)
-                if r_source == "replay" and r_run_id:
-                    entry["source"] = "replay"
-                    entry["replay_run_id"] = r_run_id
-                failed_targets.append(entry)
-                classification[cat].append(entry)
-
-            # Collect replay receipts for context.
-            replay_context: list[dict[str, str]] = []
-            seen_run_ids: set[str] = set()
-            for r in receipts:
-                r_source = getattr(r, "source", "live")
-                r_run_id = getattr(r, "replay_run_id", None)
-                if r_source == "replay" and r_run_id and r_run_id not in seen_run_ids:
-                    seen_run_ids.add(r_run_id)
-                    replay_context.append({
-                        "replay_run_id": r_run_id,
-                        "source": "replay",
-                    })
-
-            # Build timeline for runbook.
-            timeline = tl_result["timeline_entries"]
-
-            # Aggregate recommended commands across present categories.
-            present_categories = {
-                cat for cat, items in classification.items() if items
-            }
-            all_commands: list[str] = []
-            for cat in sorted(present_categories):
-                all_commands.extend(_recommended_commands(cat, event_id))
-
-            # Deduplicate while preserving order.
-            seen_cmds: set[str] = set()
-            unique_commands: list[str] = []
-            for cmd in all_commands:
-                if cmd not in seen_cmds:
-                    seen_cmds.add(cmd)
-                    unique_commands.append(cmd)
-
-            runbook: dict[str, Any] = {
-                "scope": "event",
-                "event_id": event_id,
-                "event_kind": event.event_kind,
-                "source_adapter": event.source_adapter,
-                "total_receipts": len(receipts),
-                "failed_targets": failed_targets,
-                "failure_classification": {
-                    cat: items for cat, items in classification.items() if items
-                },
-                "recommended_commands": unique_commands,
-                "timeline": timeline,
-                "warnings": [],
-            }
-
-            if replay_context:
-                runbook["replay_context"] = replay_context
-
-            # Add duplicate-send warning when BEST_EFFORT is recommended.
-            if "retryable" in present_categories:
-                runbook["warnings"].append(
-                    "BEST_EFFORT replay recommended for retryable failures — "
-                    "this may produce duplicate sends.  Use DRY_RUN first "
-                    "to preview."
-                )
-
-            # Add duplicate-send risk warnings for radio transports.
-            for nref in native_refs:
-                if nref.adapter.lower() in _RADIO_TRANSPORTS or any(
-                    nref.adapter.lower().startswith(t)
-                    for t in _RADIO_TRANSPORTS
-                ):
-                    runbook["warnings"].append(
-                        f"Adapter {nref.adapter} uses a radio transport — "
-                        f"recovery may produce duplicate sends. "
-                        f"Use --dry-run first to preview."
-                    )
-                    break
-
-            if runbook["warnings"] and not any(
-                "Radio transports" in w for w in runbook["warnings"]
-            ):
-                runbook["warnings"].append(
-                    "Radio transports (Meshtastic, MeshCore, LXMF) use "
-                    "fire-and-forget delivery.  Recovery is best-effort "
-                    "and duplicates are possible."
-                )
+            runbook = result
+            timeline = runbook["timeline"]
+            failed_targets = runbook["failed_targets"]
 
         else:
             # Broad scan: list events with failed receipts.
@@ -173,6 +196,8 @@ async def _recover(
                 ],
                 "note": "Use --event <event_id> --dry-run to preview recovery.",
             }
+            timeline = []
+            failed_targets = []
 
         # If --dry-run, include a replay preview section.
         if dry_run and event_id is not None:

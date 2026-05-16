@@ -1,14 +1,20 @@
 # Replay Operation Runbook
 
-> Last updated: 2026-05-14
+> Last updated: 2026-05-16
 > Scope: Operator-facing replay workflow — modes, commands, result interpretation, duplicate risk
 > Status: Pre-beta. Not production. Replay is a one-shot operator action, not a durable job.
 > Prerequisites: medre installed with `[dev]` extras, runtime previously run with `[storage] backend = "sqlite"`.
 
 This runbook describes how to operate the MEDRE replay engine: re-processing
-historical events through the pipeline. Replay is the primary mechanism for
-recovering orphaned events after a crash, verifying route changes against
-historical data, and re-delivering events that were missed.
+historical events through the pipeline. Replay is a lower-level supported
+command for specialized recovery and verification scenarios. It is not part of
+the preferred product path for day-to-day operation.
+
+**For daily investigation**, start with `medre inspect event` and `medre
+inspect receipts` (see the [Alpha Walkthrough](alpha-walkthrough.md)). Reach
+for replay when you need to re-process events: recovering orphaned events
+after a crash, verifying route changes against historical data, or
+re-delivering events that were missed.
 
 **What replay can do:**
 
@@ -187,13 +193,13 @@ evidence — their results are printed to stdout and then discarded.
 After `BEST_EFFORT`, inspect storage receipts:
 
 ```bash
-medre inspect receipts --replay-run replay_xyz789 --config my-bridge.toml
+medre inspect receipts --replay-run replay_xyz789 --storage-path /path/to/medre.sqlite
 ```
 
 Or trace the full replay run:
 
 ```bash
-medre trace replay replay_xyz789 --config my-bridge.toml
+medre trace replay replay_xyz789 --storage-path /path/to/medre.sqlite
 ```
 
 
@@ -239,7 +245,7 @@ fields:
 
 ```bash
 # All receipts from a specific replay run
-medre inspect receipts --replay-run <run_id> --config my-bridge.toml
+medre inspect receipts --replay-run <run_id> --storage-path /path/to/medre.sqlite
 
 # SQL: all replay receipts
 SELECT event_id, target_adapter, status, replay_run_id

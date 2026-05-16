@@ -12,7 +12,7 @@ from medre.config.sample import generate_sample_config
 from .config_commands import _paths, _config_check, _adapters
 from .route_commands import _routes_validate, _routes_topology, _routes_list
 from .diagnostics_commands import _diagnostics, _diagnostics_refresh
-from .inspect_commands import _inspect_event, _inspect_receipts, _inspect_native_ref
+from .inspect_commands import _inspect_event, _inspect_receipts, _inspect_native_ref, _inspect_replay
 from .trace_commands import _trace_event, _trace_replay
 from .replay_commands import _replay
 from .recover_commands import _recover
@@ -46,7 +46,7 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     # run
-    run_p = sub.add_parser("run", help="Start the MEDRE runtime")
+    run_p = sub.add_parser("run", help="Start the runtime (requires --config; may send messages)")
     run_p.add_argument("--config", default=None, help="Path to config file")
     run_p.add_argument(
         "--snapshot-on-shutdown",
@@ -72,7 +72,7 @@ def _build_parser() -> argparse.ArgumentParser:
     sub.add_parser("adapters", help="List available and configured adapters")
 
     # diagnostics
-    diag_p = sub.add_parser("diagnostics", help="Print runtime snapshot JSON (no server)")
+    diag_p = sub.add_parser("diagnostics", help="Print pre-flight runtime snapshot (read-only; requires --config)")
     diag_p.add_argument("--config", default=None, help="Path to config file")
     diag_p.add_argument(
         "--refresh-health",
@@ -92,7 +92,7 @@ def _build_parser() -> argparse.ArgumentParser:
     routes_list_p.add_argument("--config", default=None, help="Path to config file")
 
     # smoke
-    smoke_p = sub.add_parser("smoke", help="Run fake bridge smoke test")
+    smoke_p = sub.add_parser("smoke", help="Local validation: fake-adapter pipeline test (not a bridge operation; accepts --storage-path)")
     smoke_p.add_argument("--config", default=None, help="Path to config file (default: examples/configs/fake-bridge-smoke.toml)")
     smoke_p.add_argument("--message", default="medre smoke test", help="Text for test message")
     smoke_p.add_argument("--storage-path", default=None, metavar="PATH",
@@ -122,7 +122,7 @@ def _build_parser() -> argparse.ArgumentParser:
     smoke_p.add_argument("--json", action="store_true", default=False, help="Output JSON report")
 
     # evidence
-    evidence_p = sub.add_parser("evidence", help="Collect evidence bundle for support")
+    evidence_p = sub.add_parser("evidence", help="Collect evidence bundle for support (read-only; accepts --storage-path)")
     evidence_mx = evidence_p.add_mutually_exclusive_group()
     evidence_mx.add_argument("--config", default=None, help="Path to config file")
     evidence_mx.add_argument("--storage-path", default=None, metavar="PATH",
@@ -136,7 +136,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Start runtime once to refresh live adapter health")
 
     # inspect (with sub-subcommands)
-    inspect_p = sub.add_parser("inspect", help="Read-only storage inspection")
+    inspect_p = sub.add_parser("inspect", help="Read-only storage inspection (accepts --storage-path)")
     inspect_sub = inspect_p.add_subparsers(dest="inspect_command", required=True)
 
     # inspect event <event_id>
@@ -146,6 +146,18 @@ def _build_parser() -> argparse.ArgumentParser:
     inspect_evt_mx.add_argument("--storage-path", default=None, metavar="PATH",
         help="Path to SQLite database (read-only; no config required)")
     inspect_evt.add_argument("event_id", help="Canonical event ID to look up")
+    inspect_evt.add_argument(
+        "--timeline", action="store_true", default=False,
+        help="Include chronological timeline entries",
+    )
+    inspect_evt.add_argument(
+        "--evidence", action="store_true", default=False,
+        help="Include evidence bundle (read-only, no runtime start)",
+    )
+    inspect_evt.add_argument(
+        "--recovery", action="store_true", default=False,
+        help="Include recovery runbook with failure classification",
+    )
 
     # inspect receipts (--event <id> | --replay-run <run_id>)
     inspect_rcpt = inspect_sub.add_parser("receipts", help="List delivery receipts")
@@ -171,8 +183,16 @@ def _build_parser() -> argparse.ArgumentParser:
     inspect_nref.add_argument("--channel", default=None, help="Native channel ID (omit for channelless protocols)")
     inspect_nref.add_argument("--message", required=True, help="Native message ID")
 
+    # inspect replay <run_id>
+    inspect_rpl = inspect_sub.add_parser("replay", help="Inspect a replay run timeline (read-only)")
+    inspect_rpl_mx = inspect_rpl.add_mutually_exclusive_group()
+    inspect_rpl_mx.add_argument("--config", default=None, help="Path to config file")
+    inspect_rpl_mx.add_argument("--storage-path", default=None, metavar="PATH",
+        help="Path to SQLite database (read-only; no config required)")
+    inspect_rpl.add_argument("run_id", help="Replay run ID to inspect")
+
     # trace (with sub-subcommands)
-    trace_p = sub.add_parser("trace", help="Chronological timeline assembly")
+    trace_p = sub.add_parser("trace", help="Chronological timeline assembly (read-only; accepts --storage-path)")
     trace_sub = trace_p.add_subparsers(dest="trace_command", required=True)
 
     # trace event <event_id>
@@ -194,7 +214,7 @@ def _build_parser() -> argparse.ArgumentParser:
     trace_rpl.add_argument("--json", action="store_true", default=False, help="Output JSON timeline")
 
     # replay
-    replay_p = sub.add_parser("replay", help="Execute a replay operation")
+    replay_p = sub.add_parser("replay", help="Re-execute stored events (may send messages; requires --config)")
     replay_p.add_argument("--config", default=None, help="Path to config file")
     replay_p.add_argument(
         "--mode", required=True,
@@ -218,7 +238,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     # recover
-    recover_p = sub.add_parser("recover", help="Analyze failed deliveries and generate recovery runbook")
+    recover_p = sub.add_parser("recover", help="Analyze failed deliveries and generate recovery runbook (read-only; requires --config)")
     recover_p.add_argument("--config", default=None, help="Path to config file")
     recover_p.add_argument("--event", default=None, metavar="EVENT_ID", help="Event ID to analyze")
     recover_p.add_argument(
@@ -298,6 +318,9 @@ def main(argv: list[str] | None = None) -> None:
             asyncio.run(_inspect_event(
                 args.config, args.event_id,
                 storage_path=_storage_path,
+                timeline=getattr(args, "timeline", False),
+                evidence=getattr(args, "evidence", False),
+                recovery=getattr(args, "recovery", False),
             ))
         elif args.inspect_command == "receipts":
             asyncio.run(
@@ -315,6 +338,13 @@ def main(argv: list[str] | None = None) -> None:
                     adapter=args.adapter,
                     channel=args.channel,
                     message=args.message,
+                    storage_path=_storage_path,
+                )
+            )
+        elif args.inspect_command == "replay":
+            asyncio.run(
+                _inspect_replay(
+                    args.config, args.run_id,
                     storage_path=_storage_path,
                 )
             )

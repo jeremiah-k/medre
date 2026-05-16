@@ -1,6 +1,6 @@
 # Bridge Evidence Bundle
 
-> Last updated: 2026-05-14
+> Last updated: 2026-05-16
 > Scope: Operator workflow for collecting, inspecting, and interpreting
 >         pre-runtime evidence before committing to a live bridge.
 > Status: Pre-beta. All commands use fake adapters unless noted.
@@ -11,6 +11,13 @@ This runbook describes how to collect an evidence bundle: a set of CLI-produced
 artifacts that prove pipeline correctness at the fake-bridge and drill levels
 before an operator starts a live runtime. The bundle is also the recommended
 attachment format for bug reports.
+
+For day-to-day investigation, the inspect-first product path
+(`medre inspect event`, `medre inspect receipts`) is the preferred starting
+point. Reach for the full evidence bundle when you need a structured snapshot
+for bug reports or when inspect reveals something that warrants deeper
+investigation. See the [Alpha Walkthrough](alpha-walkthrough.md) for the
+preferred product path.
 
 **What the bundle proves:**
 
@@ -101,13 +108,14 @@ medre trace event <event_id> --storage-path /tmp/medre-smoke.db
 # Using --config (reads storage path from config):
 medre inspect event <event_id> --config my-bridge.toml
 medre inspect receipts --event <event_id> --config my-bridge.toml
-medre inspect native-ref --adapter <name> --message <native_id> --config my-bridge.toml
-medre inspect receipts --replay-run <run_id> --config my-bridge.toml
+medre inspect native-ref --adapter <name> --message <native_id> --storage-path /tmp/medre-smoke.db
+medre inspect receipts --replay-run <run_id> --storage-path /tmp/medre-smoke.db
 ```
 
-> **Note:** `inspect event`, `inspect receipts`, and `trace event` support
+> **Note:** `inspect event`, `inspect receipts`, `trace event`, `inspect native-ref`,
+> `inspect receipts --replay-run`, and `trace replay` all support
 > `--storage-path` for direct read-only access to a SQLite database.
-> `inspect native-ref` and `inspect receipts --replay-run` require `--config`.
+> `replay` and `recover` require `--config`.
 
 
 ## 2. Command Reference
@@ -123,8 +131,8 @@ medre inspect receipts --replay-run <run_id> --config my-bridge.toml
 | `medre evidence --config <path> --include-refresh-health --json` | Per config (memory or SQLite) | Yes (real or fake) | Full bundle + live health JSON | 0=ok/partial, 2=config error |
 | `medre inspect event <id> --config <path>` | Opens SQLite (RO) | No | Event JSON | 0=found, 2=no SQLite |
 | `medre inspect receipts --event <id> --config <path>` | Opens SQLite (RO) | No | Receipt array JSON | 0=found, 2=no SQLite |
-| `medre inspect receipts --replay-run <id> --config <path>` | Opens SQLite (RO) | No | Receipt array JSON | 0=found, 2=no SQLite |
-| `medre inspect native-ref --adapter <name> --message <id> --config <path>` | Opens SQLite (RO) | No | Ref JSON | 0=found, 2=no SQLite |
+| `medre inspect receipts --replay-run <id> --storage-path <db>` | Opens SQLite (RO) | No | Receipt array JSON | 0=found, 2=no SQLite |
+| `medre inspect native-ref --adapter <name> --message <id> --storage-path <db>` | Opens SQLite (RO) | No | Ref JSON | 0=found, 2=no SQLite |
 | `medre diagnostics --config <path>` | None | No | Build-time snapshot JSON | 0=ok, 2=config, 3=build |
 | `medre diagnostics --refresh-health --config <path>` | None | Yes (real or fake) | Live health snapshot JSON | 0=ok, 2=config, 3=build, 4=startup |
 | `medre run --config <path> --snapshot-on-shutdown` | Per config (SQLite or memory) | Yes (real or fake) | Logs + writes final JSON snapshot after graceful shutdown to `{state_dir}/shutdown-snapshot.json` | 0=clean shutdown, 2=config, 3=build, 4=startup |
@@ -255,7 +263,7 @@ When `--storage-path` is provided, the report includes:
 ### 3.3 Evidence Bundle Report
 
 The `medre evidence` command produces a structured bundle with per-section
-status. Each section has its own `status` (`"ok"`, `"partial"`, `"error"`,
+status. Each section has its own `status` (`"passed"`, `"partial"`, `"error"`,
 `"skipped"`), `error` (string or null), and `data` (section-specific payload).
 
 **Top-level fields:**
@@ -263,7 +271,7 @@ status. Each section has its own `status` (`"ok"`, `"partial"`, `"error"`,
 | Field | Type | Description |
 |-------|------|-------------|
 | `schema_version` | `int` | Bundle schema version (frozen at `1` during pre-release) |
-| `status` | `str` | Overall: `"ok"`, `"partial"`, or `"error"` |
+| `status` | `str` | Overall: `"passed"`, `"partial"`, or `"error"` |
 | `collected_at` | `str` | ISO-8601 UTC timestamp |
 | `medre_version` | `str` | Installed package version |
 | `config_source` | `str` | How the config file was found (`"cli_arg"`, `"xdg"`, etc.) |
@@ -306,14 +314,14 @@ Failure-kind values are the same set used by `medre trace event` and
 ```json
 {
   "schema_version": 1,
-  "status": "ok",
+  "status": "passed",
   "collected_at": "2026-05-14T10:30:00+00:00",
   "medre_version": "0.1.0",
   "config_source": "cli_arg",
   "runtime_started": false,
   "sections": {
     "config_summary": {
-      "status": "ok",
+      "status": "passed",
       "error": null,
       "data": {
         "runtime_name": "my-bridge",
@@ -348,7 +356,7 @@ Failure-kind values are the same set used by `medre trace event` and
       }
     },
     "route_validation": {
-      "status": "ok",
+      "status": "passed",
       "error": null,
       "data": {
         "route_count": 1,
@@ -359,7 +367,7 @@ Failure-kind values are the same set used by `medre trace event` and
       }
     },
     "diagnostics_snapshot": {
-      "status": "ok",
+      "status": "passed",
       "error": null,
       "data": { "...": "build_runtime_snapshot output" }
     },
@@ -389,24 +397,24 @@ Failure-kind values are the same set used by `medre trace event` and
 
 **With `--include-refresh-health` (SQLite storage, runtime started):**
 
-The `live_health` section transitions from `"skipped"` to `"ok"` (or `"partial"`)
+The `live_health` section transitions from `"skipped"` to `"passed"` (or `"partial"`)
 with a full runtime snapshot including `health.live_health`. The `runtime_started`
 top-level field becomes `true`. The `storage` section reflects SQLite counts.
 
 ```json
 {
   "schema_version": 1,
-  "status": "ok",
+  "status": "passed",
   "collected_at": "2026-05-14T10:30:00+00:00",
   "medre_version": "0.1.0",
   "config_source": "cli_arg",
   "runtime_started": true,
   "sections": {
-    "config_summary": { "status": "ok", "...": "..." },
-    "route_validation": { "status": "ok", "...": "..." },
-    "diagnostics_snapshot": { "status": "ok", "...": "..." },
+    "config_summary": { "status": "passed", "...": "..." },
+    "route_validation": { "status": "passed", "...": "..." },
+    "diagnostics_snapshot": { "status": "passed", "...": "..." },
     "live_health": {
-      "status": "ok",
+      "status": "passed",
       "error": null,
       "data": {
         "health": {
@@ -430,7 +438,7 @@ top-level field becomes `true`. The `storage` section reflects SQLite counts.
       }
     },
     "storage": {
-      "status": "ok",
+      "status": "passed",
       "error": null,
       "data": {
         "db_exists": true,
@@ -490,7 +498,7 @@ evidence bundle reflects actual delivery attempts, not a deduplicated view.
 ```json
 {
   "storage": {
-    "status": "ok",
+    "status": "passed",
     "error": null,
     "data": {
       "db_exists": true,
@@ -585,7 +593,7 @@ report — the same data produced by `medre trace replay <run_id>`. The
 ```json
 {
   "storage": {
-    "status": "ok",
+    "status": "passed",
     "error": null,
     "data": {
       "db_exists": true,
@@ -650,7 +658,7 @@ See [Event Tracing](event-tracing.md) for the full trace report shapes and
 
 | Status | Meaning | Operator action |
 |--------|---------|-----------------|
-| `ok` / `passed` | All criteria met at the reported evidence level | Proceed to live runtime with caution. The bundle proves pipeline correctness, not live connectivity. |
+| `passed` | All criteria met at the reported evidence level | Proceed to live runtime with caution. The bundle proves pipeline correctness, not live connectivity. |
 | `partial` | Some adapters/routes/drills failed but the runtime stayed up | Inspect `fail_reasons` and per-adapter `.error` fields. Individual drill failures may be acceptable depending on the scenario (e.g., a degraded health drill expects failure). |
 | `error` / `failed` | A required criterion was not met | Do not proceed to live runtime. Inspect `fail_reasons`, fix the config or environment, re-collect the bundle. |
 
