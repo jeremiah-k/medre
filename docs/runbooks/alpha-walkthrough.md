@@ -37,35 +37,39 @@ and reports results.
 
 Expected output: JSON object with `"status": "ok"` and drill results.
 
-### 1.3 Run a full session with persistent storage
+### 1.3 Run a one-shot smoke with persistent storage
 
 ```bash
-# Start the runtime with fake adapters and a persistent SQLite DB
-medre run --config examples/configs/fake-bridge-smoke.toml
+# One-shot smoke: inject an event, collect evidence, write to SQLite, exit
+medre smoke --config examples/configs/fake-bridge-smoke.toml \
+  --storage-path /tmp/medre-alpha.db --json
 ```
 
-The runtime will start, create adapters, and wait for events. It runs until
-interrupted (Ctrl+C). Events injected by the fake adapter are stored in the
-SQLite database and can be inspected afterward.
+`medre smoke` calls `run_fake_bridge_smoke()` internally: it injects one event
+through the full pipeline, collects evidence, writes to the SQLite DB at
+`--storage-path`, and exits. No waiting, no manual interruption needed.
+
+> **Note:** `medre run` starts the runtime and waits for adapter callbacks
+> (real or fake) but does **not** automatically inject a smoke event. For the
+> alpha walkthrough, use `medre smoke` to get inspectable evidence in one
+> command.
 
 ### 1.4 Inspect and trace events
 
-In a separate terminal, while the runtime is running or after it has been
-stopped:
+After the smoke command from Section 1.3 completes:
 
 ```bash
 # Inspect a specific event by ID
-medre inspect event <event_id> --config examples/configs/fake-bridge-smoke.toml
+medre inspect event <event_id> --storage-path /tmp/medre-alpha.db
 
 # Build a chronological timeline for an event
-medre trace event <event_id> --config examples/configs/fake-bridge-smoke.toml
+medre trace event <event_id> --storage-path /tmp/medre-alpha.db
 
 # Collect an evidence bundle (JSON)
 medre evidence --config examples/configs/fake-bridge-smoke.toml --json
 ```
 
-Replace `<event_id>` with an actual event ID from the smoke test output or
-from `medre inspect event <event_id>`.
+Replace `<event_id>` with an actual event ID from the smoke test JSON output.
 
 ### 1.5 Verify with the test suite
 
@@ -74,6 +78,10 @@ from `medre inspect event <event_id>`.
 PYTHONPATH=src pytest -q
 # Expected: 3200+ passed, live tests skipped by default
 ```
+
+> **Note:** The alpha walkthrough test (`tests/test_alpha_walkthrough.py`)
+> exercises these same CLI commands programmatically, validating that the
+> commands documented above actually work end-to-end.
 
 ---
 
@@ -209,6 +217,8 @@ homeserver. Nothing more.
 # Fake path (zero dependencies)
 medre config check --config examples/configs/fake-bridge-smoke.toml
 medre smoke --json
+medre smoke --config examples/configs/fake-bridge-smoke.toml \
+  --storage-path /tmp/medre-alpha.db --json
 PYTHONPATH=src pytest -q
 
 # Docker Matrix path

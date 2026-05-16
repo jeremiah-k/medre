@@ -397,6 +397,7 @@ class TestSnapshotReadability:
             "limits",
             "persistence",
             "replay",
+            "retry",
             "routes",
             "schema_version",
             "snapshot_at",

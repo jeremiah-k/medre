@@ -308,7 +308,7 @@ class TestSnapshotOnShutdown:
         expected_sections = {
             "schema_version", "snapshot_at", "accounting", "adapters",
             "capacity", "diagnostics", "health", "identity", "lifecycle",
-            "limits", "persistence", "replay", "routes", "startup", "unstable",
+            "limits", "persistence", "replay", "retry", "routes", "startup", "unstable",
         }
         assert set(snap.keys()) == expected_sections
 

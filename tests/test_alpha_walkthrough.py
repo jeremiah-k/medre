@@ -9,11 +9,9 @@ No Docker, no network, no SDKs.  Every test uses the shipped
 
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock
 
 import pytest
 
@@ -159,146 +157,146 @@ class TestAlphaSmokeInspectTrace:
 
 class TestAlphaRetryScenario:
     """Retry path: inject event to transient-failing adapter, retry via
-    RetryExecutor + PipelineRunner.deliver_to_target, verify both receipts."""
+    real RetryWorker._process_due(), verify both receipts."""
 
     @pytest.mark.asyncio
-    async def test_retry_walkthrough(self, temp_storage: Any) -> None:
-        from medre.adapters.base import AdapterContext, AdapterDeliveryResult
-        from medre.adapters.fake_presentation import FakePresentationAdapter
-        from medre.core.events.canonical import CanonicalEvent, EventMetadata
-        from medre.core.events.bus import EventBus
-        from medre.core.observability.metrics import Diagnostician
-        from medre.core.planning.delivery_plan import (
-            DeliveryPlan,
-            DeliveryStrategy,
-            RetryExecutor,
-            RetryPolicy,
+    async def test_retry_walkthrough(self, tmp_path: Path) -> None:
+        from medre.adapters.base import AdapterDeliveryResult
+        from medre.adapters.fake_matrix import FakeMatrixAdapter
+        from medre.config.model import (
+            AdapterConfigSet,
+            MatrixRuntimeConfig,
+            RetryConfig,
+            RuntimeConfig,
+            StorageConfig,
         )
-        from medre.core.planning.fallback_resolution import FallbackResolver
-        from medre.core.planning.relation_resolution import RelationResolver
-        from medre.core.rendering.renderer import RenderingPipeline
-        from medre.core.rendering.text import TextRenderer
-        from medre.core.routing.models import Route, RouteSource, RouteTarget
-        from medre.core.routing.router import Router
-        from medre.core.routing.stats import RouteStats
-        from medre.core.runtime.accounting import RuntimeAccounting
-        from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
+        from medre.config.paths import MedrePaths
+        from medre.core.events.canonical import CanonicalEvent, EventMetadata
 
-        class _TransientThenSucceed(FakePresentationAdapter):
-            def __init__(self) -> None:
-                super().__init__(adapter_id="walkthrough_target")
-                self._fail_count = 1
+        # -- Transient-failing adapter: fails first deliver(), succeeds after --
+        class _TransientThenSucceed(FakeMatrixAdapter):
+            def __init__(self, adapter_id: str = "target") -> None:
+                super().__init__(adapter_id=adapter_id)
                 self._call_count = 0
 
             async def deliver(self, result: Any) -> AdapterDeliveryResult | None:
                 self._call_count += 1
-                if self._call_count <= self._fail_count:
+                if self._call_count <= 1:
                     raise ConnectionError("transient walkthrough failure")
                 return await super().deliver(result)
 
-        adapter = _TransientThenSucceed()
-        event = CanonicalEvent(
-            event_id="evt-walkthrough-retry",
-            event_kind="message.created",
-            schema_version=1,
-            timestamp=datetime.now(timezone.utc),
-            source_adapter="fake_source",
-            source_transport_id="node-1",
-            source_channel_id="ch-0",
-            parent_event_id=None,
-            lineage=(),
-            relations=(),
-            payload={"body": "walkthrough retry test"},
-            metadata=EventMetadata(),
+        # -- Paths --
+        db_path = tmp_path / "retry_walkthrough.db"
+        paths = MedrePaths(
+            config_dir=tmp_path / "cfg",
+            config_file=tmp_path / "cfg" / "c.toml",
+            state_dir=tmp_path / "state",
+            data_dir=tmp_path / "data",
+            cache_dir=tmp_path / "cache",
+            log_dir=tmp_path / "logs",
+            database_path=db_path,
         )
-        route = Route(
-            id="walkthrough-retry-route",
-            source=RouteSource(
-                adapter="fake_source",
-                event_kinds=("message.created",),
-                channel=None,
+        for d in (paths.state_dir, paths.data_dir, paths.cache_dir, paths.log_dir):
+            d.mkdir(parents=True, exist_ok=True)
+
+        # -- Config with retry enabled and two fake adapters --
+        config = RuntimeConfig(
+            storage=StorageConfig(backend="memory"),
+            retry=RetryConfig(enabled=True, interval_seconds=1.0),
+            adapters=AdapterConfigSet(
+                matrix={
+                    "source": MatrixRuntimeConfig(
+                        adapter_id="source",
+                        enabled=True,
+                        adapter_kind="fake",
+                        config=None,
+                    ),
+                    "target": MatrixRuntimeConfig(
+                        adapter_id="target",
+                        enabled=True,
+                        adapter_kind="fake",
+                        config=None,
+                    ),
+                },
             ),
-            targets=[RouteTarget(adapter="walkthrough_target")],
+            routes=__import__(
+                "medre.runtime.routes", fromlist=["RouteConfigSet"]
+            ).RouteConfigSet(
+                routes=(
+                    __import__(
+                        "medre.runtime.routes", fromlist=["RouteConfig"]
+                    ).RouteConfig(
+                        route_id="retry_route",
+                        source_adapters=("source",),
+                        dest_adapters=("target",),
+                    ),
+                ),
+            ),
         )
-        router = Router(routes=[route])
-        accounting = RuntimeAccounting()
-        adapters = {"walkthrough_target": adapter}
 
-        rp = RenderingPipeline()
-        rp.register(TextRenderer(), priority=100)
+        # Build the app (RuntimeBuilder wires all subsystems)
+        app = RuntimeBuilder(config, paths).build()
 
-        runner_config = PipelineConfig(
-            storage=temp_storage,
-            router=router,
-            fallback_resolver=FallbackResolver(),
-            relation_resolver=RelationResolver(storage=temp_storage),
-            adapters=adapters,
-            event_bus=EventBus(),
-            rendering_pipeline=rp,
-            diagnostician=Diagnostician(),
-            route_stats=RouteStats(),
-            runtime_accounting=accounting,
-        )
-        runner = PipelineRunner(runner_config)
+        # Swap the target adapter with transient-failing version.
+        # The adapters dict is shared between PipelineRunner and MedreApp.
+        app.adapters["target"] = _TransientThenSucceed(adapter_id="target")
 
-        ctx = AdapterContext(
-            adapter_id="walkthrough_target",
-            event_bus=None,
-            publish_inbound=AsyncMock(),
-            logger=__import__("logging").getLogger("test.walkthrough_retry"),
-            clock=lambda: datetime.now(timezone.utc),
-            shutdown_event=asyncio.Event(),
-        )
-        await adapter.start(ctx)
-        await runner.start()
-
+        await app.start()
         try:
-            # First delivery: transient failure
-            outcomes = await runner.handle_ingress(event)
+            # RetryWorker is started by app.start() when retry is enabled.
+            retry_worker = app._retry_worker
+            assert retry_worker is not None
+
+            event = CanonicalEvent(
+                event_id="evt-walkthrough-retry",
+                event_kind="message.created",
+                schema_version=1,
+                timestamp=datetime.now(timezone.utc),
+                source_adapter="source",
+                source_transport_id="fake-transport",
+                source_channel_id="ch-0",
+                parent_event_id=None,
+                lineage=(),
+                relations=(),
+                payload={"body": "walkthrough retry test"},
+                metadata=EventMetadata(),
+            )
+
+            # Inject event — first delivery triggers transient failure.
+            outcomes = await app.pipeline_runner.handle_ingress(event)
             assert len(outcomes) == 1
             assert outcomes[0].status == "transient_failure"
 
-            # Get failed receipt and retry
-            receipts = await temp_storage.list_receipts_for_event(event.event_id)
+            # The pipeline sets next_retry_at only when the delivery plan has
+            # an explicit retry_policy.  Set it here so the RetryWorker can
+            # discover the failed receipt via list_due_retry_receipts.
+            receipts = await app.storage.list_receipts_for_event(event.event_id)
             failed = [r for r in receipts if r.status == "failed"]
             assert len(failed) == 1
-
-            temp_storage.list_due_retry_receipts = AsyncMock(
-                return_value=failed,
+            await app.storage.update_retry_due(
+                failed[0].receipt_id,
+                datetime.now(timezone.utc) - timedelta(seconds=1),
             )
 
-            policy = RetryPolicy(max_attempts=3)
-            executor = RetryExecutor(policy)
-            next_attempt = executor.next_attempt_number(failed[0].attempt_number)
+            # Stop the background polling loop before manually driving
+            # _process_due to prevent double-processing the same receipt.
+            await retry_worker.stop()
+            retry_worker._shutdown_event.clear()
 
-            retry_route = Route(
-                id=failed[0].route_id or "retry-route",
-                source=RouteSource(adapter=None, event_kinds=(), channel=None),
-                targets=[RouteTarget(adapter=failed[0].target_adapter)],
-            )
-            retry_plan = DeliveryPlan(
-                plan_id=failed[0].delivery_plan_id,
-                event_id=failed[0].event_id,
-                target=RouteTarget(adapter=failed[0].target_adapter),
-                primary_strategy=DeliveryStrategy(method="direct"),
-                retry_policy=policy,
-            )
+            # Drive retry: call _process_due with a far-future timestamp so
+            # the failed receipt is guaranteed to be due.
+            future_now = datetime.now(timezone.utc) + timedelta(days=365)
+            await retry_worker._process_due(future_now)
 
-            await runner.deliver_to_target(
-                event, retry_route, retry_plan,
-                previous_receipt=failed[0],
-                source="retry",
-            )
-
-            # Verify both receipts exist
-            all_receipts = await temp_storage.list_receipts_for_event(
+            # Verify both receipts: one failed (original), one sent (retry).
+            all_receipts = await app.storage.list_receipts_for_event(
                 event.event_id,
             )
             assert len(all_receipts) == 2
             statuses = {r.status for r in all_receipts}
             assert statuses == {"failed", "sent"}
         finally:
-            await runner.stop()
+            await app.stop()
 
 
 # ===========================================================================
@@ -434,7 +432,7 @@ class TestAlphaFinalSnapshot:
     The smoke report embeds a subset of the full runtime snapshot.  We verify
     the top-level contract: schema_version == 1 and accounting section present.
     The full lifecycle/runtime_state contract is verified separately by building
-    a fresh runtime — guarded against the known ``retry_state`` import issue.
+    a fresh runtime with retry disabled.
     """
 
     def test_snapshot_schema_version(self, smoke_report: dict[str, Any]) -> None:
@@ -449,39 +447,21 @@ class TestAlphaFinalSnapshot:
     async def test_snapshot_lifecycle_runtime_state(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
     ) -> None:
-        """Build a running runtime and verify lifecycle.runtime_state.
-
-        If ``build_runtime_snapshot`` raises due to the known retry_state
-        import issue (TYPE_CHECKING guard), the test falls back to verifying
-        lifecycle fields from the runtime object directly.
-        """
+        """build_runtime_snapshot works with retry disabled, lifecycle section present."""
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
         config, _source, paths = load_config(CONFIG_PATH)
         app = RuntimeBuilder(config, paths).build()
         await app.start()
         try:
-            # Verify runtime state directly from the app object.
-            assert hasattr(app, "state"), "App should expose state property"
-            runtime_state = app.state
-            assert runtime_state is not None
-
-            # Verify lifecycle section is constructible from app attributes.
-            state_attr = app.state
-            runtime_state_str = (
-                state_attr.value if hasattr(state_attr, "value") else str(state_attr)
+            snap = build_runtime_snapshot(app)
+            assert snap["schema_version"] == 1
+            assert "lifecycle" in snap
+            assert snap["lifecycle"]["runtime_state"] in (
+                "running", "initialized", "starting",
             )
-            assert isinstance(runtime_state_str, str)
-            assert len(runtime_state_str) > 0
-
-            # Try building the full snapshot; if it succeeds, verify lifecycle.
-            try:
-                snap = build_runtime_snapshot(app)
-                assert snap["schema_version"] == 1
-                assert "lifecycle" in snap
-                assert "runtime_state" in snap["lifecycle"]
-            except NameError:
-                # Known issue: retry_state property uses TYPE_CHECKING import.
-                # Lifecycle contract is still valid — verify via app object.
-                pass
+            # Retry section exists with disabled defaults
+            assert "retry" in snap
+            assert snap["retry"]["enabled"] is False
+            assert snap["retry"]["running"] is False
         finally:
             await app.stop()

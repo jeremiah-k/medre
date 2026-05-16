@@ -295,6 +295,7 @@ _EXPECTED_RUNTIME_SNAPSHOT_TOP_KEYS: frozenset[str] = frozenset(
         "limits",
         "persistence",
         "replay",
+        "retry",
         "routes",
         "schema_version",
         "snapshot_at",
