@@ -65,7 +65,7 @@ class TestEvidenceStatusConsistency:
 
     def test_code_section_ok_returns_passed(self) -> None:
         """Verify _section_ok() returns 'passed', not 'ok'."""
-        from medre.runtime.evidence import _section_ok
+        from medre.runtime.evidence._helpers import _section_ok
 
         result = _section_ok({"test": True})
         assert result["status"] == "passed", (
@@ -75,7 +75,7 @@ class TestEvidenceStatusConsistency:
 
     def test_code_overall_status_uses_passed_not_ok(self) -> None:
         """Verify _compute_overall_status() never returns 'ok'."""
-        from medre.runtime.evidence import _compute_overall_status
+        from medre.runtime.evidence._helpers import _compute_overall_status
 
         # Test all possible section status combinations.
         for statuses in [
@@ -99,7 +99,7 @@ class TestEvidenceStatusConsistency:
 
     def test_code_section_statuses_are_valid(self) -> None:
         """Verify all section status helper functions return valid values."""
-        from medre.runtime.evidence import (
+        from medre.runtime.evidence._helpers import (
             _section_ok,
             _section_partial,
             _section_error,

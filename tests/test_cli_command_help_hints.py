@@ -161,6 +161,10 @@ class TestSmokeHelp:
 class TestTraceHelp:
     """medre trace — specialized timeline, usually inspect event --timeline."""
 
+    def test_help_mentions_specialized(self) -> None:
+        help_text = _get_command_help_text("trace")
+        assert "specialized" in help_text.lower()
+
     def test_help_mentions_read_only(self) -> None:
         help_text = _get_command_help_text("trace")
         assert "read-only" in help_text.lower()
@@ -182,6 +186,10 @@ class TestTraceHelp:
 class TestEvidenceHelp:
     """medre evidence — specialized support bundle, usually inspect event --evidence."""
 
+    def test_help_mentions_specialized(self) -> None:
+        help_text = _get_command_help_text("evidence")
+        assert "specialized" in help_text.lower()
+
     def test_help_mentions_read_only(self) -> None:
         help_text = _get_command_help_text("evidence")
         assert "read-only" in help_text.lower()
@@ -202,6 +210,10 @@ class TestEvidenceHelp:
 
 class TestRecoverHelp:
     """medre recover — specialized recovery classification, usually inspect event --recovery."""
+
+    def test_help_mentions_specialized(self) -> None:
+        help_text = _get_command_help_text("recover")
+        assert "specialized" in help_text.lower()
 
     def test_help_mentions_read_only(self) -> None:
         help_text = _get_command_help_text("recover")

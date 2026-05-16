@@ -29,13 +29,12 @@ split.
 | File | Lines | Status |
 |------|-------|--------|
 | `tests/test_matrix_session.py` | 2,241 | Allowlisted; pending split |
-| `tests/test_cli.py` | 2,172 | Allowlisted; pending split |
+
 | `tests/test_replay_routing.py` | 1,584 | Allowlisted; pending split |
-| `tests/test_storage.py` | 1,939 | Allowlisted; pending split |
+| `tests/test_storage.py` | 2,305 | Allowlisted; pending split |
 | `tests/test_canonical_events.py` | 1,992 | Allowlisted; pending split |
 | `tests/test_meshtastic_fake_bridge.py` | 1,540 | Allowlisted; pending split |
 | `tests/test_fake_runtime_smoke.py` | 1,506 | Allowlisted; pending split |
-| `tests/test_runtime_builder.py` | 1,440 | Borderline; near enough to track here |
 
 No new test files may exceed 1,500 lines. Files in the allowlist above should
 be split according to the schedule in
@@ -493,6 +492,7 @@ These files have been split by behavioral domain following the procedure above.
 | `tests/test_operator_workflows.py` | Split | 7 domain files |
 | `tests/test_pipeline.py` | Split | 5 domain files (delivery, failure taxonomy, fanout, native refs, capacity) |
 | `tests/test_replay.py` | Split | 5 domain files (engine, policy, accounting, capacity, traceability) |
+| `tests/test_cli.py` | In progress | 9 domain files: `test_cli_command_help_hints`, `test_cli_config_workflows`, `test_cli_diagnostics_workflows`, `test_cli_install_metadata`, `test_cli_replay_surface`, `test_cli_route_workflows`, `test_cli_run_workflows`, `test_cli_scenario_crosscheck`, `test_cli_smoke_run_session`. Monolith deletion pending from CLI split track. |
 
 
 ## Next Modernization Wave
@@ -500,17 +500,7 @@ These files have been split by behavioral domain following the procedure above.
 The following allowlisted files should be split by subdomain. The suggested
 split targets are starting points; actual domains may shift during analysis.
 
-### Priority splits (largest files first; test_replay.py completed)
-
-**`tests/test_cli.py` (2,172 lines)**
-
-| Target file | Domain |
-|-------------|--------|
-| `tests/test_cli_parser.py` | Argument parsing, subcommand routing |
-| `tests/test_cli_routes.py` | Route validation, route listing commands |
-| `tests/test_cli_diagnostics.py` | Diagnostics, health check, snapshot commands |
-| `tests/test_cli_inspect.py` | Inspect subcommands (event, receipts, native-ref) |
-| `tests/test_cli_run.py` | `medre run`, `medre smoke`, `medre evidence` commands |
+### Priority splits (largest files first)
 
 **`tests/test_matrix_session.py` (2,241 lines)**
 
@@ -521,7 +511,7 @@ split targets are starting points; actual domains may shift during analysis.
 | `tests/test_matrix_session_encryption.py` | E2EE setup, encrypted room handling |
 | `tests/test_matrix_session_delivery_retry.py` | Delivery attempts, retry budgets, failure handling |
 
-**`tests/test_storage.py` (1,939 lines)**
+**`tests/test_storage.py` (2,305 lines)**
 
 | Target file | Domain |
 |-------------|--------|
@@ -532,10 +522,17 @@ split targets are starting points; actual domains may shift during analysis.
 
 **`tests/test_canonical_events.py` (1,992 lines)** -- domains TBD
 
+**`tests/test_replay_routing.py` (1,584 lines)** -- domains TBD
+
 ### Analysis-pending splits
 
 These files need domain analysis before split targets can be defined:
 
 - `tests/test_meshtastic_fake_bridge.py` (1,540 lines) -- domains TBD
 - `tests/test_fake_runtime_smoke.py` (1,506 lines) -- domains TBD
-- `tests/test_runtime_builder.py` (1,440 lines) -- domains TBD
+
+### CLI split — completed
+
+`test_cli.py` has been split into domain files (all under 1,500 lines). The
+monolith has been deleted. `test_cli` is listed in `DELETED_MONOLITHS` and
+removed from `LEGACY_ALLOWLIST` in `test_test_suite_structure.py`.

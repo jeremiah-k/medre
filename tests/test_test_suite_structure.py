@@ -24,7 +24,7 @@ TESTS_DIR = Path(__file__).resolve().parent
 # Each carries a TODO comment inside.
 LEGACY_ALLOWLIST: dict[str, int] = {
     "test_matrix_session.py": 2_241,
-    "test_cli.py": 2_172,
+    # CLI monolith deleted — see test_cli_*_commands.py files.
     "test_storage.py": 2_300,
     "test_canonical_events.py": 1_992,
     "test_meshtastic_fake_bridge.py": 1_540,
@@ -42,6 +42,7 @@ DELETED_MONOLITHS = (
     "test_operator_workflows",
     "test_pipeline",
     "test_replay",
+    "test_cli",
 )
 
 # New bridge / operator files — must not contain fixed asyncio.sleep(N) with N>0.
@@ -63,6 +64,16 @@ NEW_BRIDGE_OPERATOR_FILES = [
     "test_cli_install_metadata.py",
     "test_cli_smoke_run_session.py",
     "test_cli_scenario_crosscheck.py",
+    "test_cli_route_commands.py",
+    "test_cli_config_commands.py",
+    "test_cli_parser.py",
+    "test_cli_smoke_commands.py",
+    "test_cli_diagnostics_commands.py",
+    "test_cli_run_commands.py",
+    "test_cli_inspect_commands.py",
+    "test_cli_evidence_commands.py",
+    "test_cli_command_help_hints.py",
+    "test_cli_replay_surface.py",
 ]
 
 # New helper modules — must not contain broad type: ignore / pyright: ignore.
@@ -72,6 +83,7 @@ HELPER_FILES = [
     "helpers/async_utils.py",
     "helpers/assertions.py",
     "helpers/replay.py",
+    "helpers/cli.py",
 ]
 
 

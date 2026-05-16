@@ -638,7 +638,7 @@ def config_trace_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return p
 
 
-# CLI helpers (reuse pattern from test_cli.py)
+# CLI helpers (reuse pattern from the split test_cli_*_commands.py files)
 
 
 def _run_cli(*args: str) -> str:

@@ -457,7 +457,7 @@ class TestEvidenceStatusValueConsistency:
 
     def test_section_ok_returns_passed(self) -> None:
         """_section_ok() must return status='passed', not 'ok'."""
-        from medre.runtime.evidence import _section_ok
+        from medre.runtime.evidence._helpers import _section_ok
 
         result = _section_ok({"test": True})
         assert result["status"] == "passed", (
@@ -467,7 +467,7 @@ class TestEvidenceStatusValueConsistency:
 
     def test_overall_status_never_ok(self) -> None:
         """_compute_overall_status() must never return 'ok'."""
-        from medre.runtime.evidence import _compute_overall_status
+        from medre.runtime.evidence._helpers import _compute_overall_status
 
         for statuses in [
             {"passed"},

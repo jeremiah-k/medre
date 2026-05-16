@@ -699,3 +699,125 @@ class TestAlphaNoTracebacks:
                     "--storage-path", str(tmp_path / "test.db"),
                 ])
         assert "not supported for replay" in stderr_buf.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# Test: single E2E product command path
+# ---------------------------------------------------------------------------
+
+
+class TestAlphaE2EProductPathCLI:
+    """One test proving the complete product surface via main([...]).
+
+    Phases:
+      0. ``config check``, ``routes validate`` (pre-flight)
+      1. ``smoke --config --storage-path --json`` → event_id
+      2. ``inspect receipts --event <id> --storage-path``
+      3. ``inspect event <id> --timeline / --evidence / --recovery --storage-path``
+      4. ``replay --config --mode dry_run --event <id> --json``
+         ``replay --config --mode best_effort --event <id> --json``
+
+    Same event_id flows through every step.
+    No trace / evidence / recover primary command needed (inspect subsumes them).
+    """
+
+    def test_full_product_command_path(self, tmp_path: Path) -> None:
+        cfg = _smoke_config_path()
+
+        # --- Phase 0: pre-flight ---
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
+            main(["config", "check", "--config", cfg])
+        assert "Config valid" in stdout_buf.getvalue()
+
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
+            main(["routes", "validate", "--config", cfg])
+        assert "Routes valid" in stdout_buf.getvalue()
+
+        # --- Phase 1: smoke seeds persistent DB ---
+        db_path = tmp_path / "e2e_product.db"
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
+            with pytest.raises(SystemExit) as exc_info:
+                main([
+                    "smoke", "--config", cfg,
+                    "--storage-path", str(db_path), "--json",
+                ])
+        assert exc_info.value.code == 0
+        report = json.loads(stdout_buf.getvalue())
+        assert report["status"] == "passed"
+        event_id: str = report["event_id"]
+        assert event_id
+
+        # --- Phase 2: inspect receipts ---
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
+            main([
+                "inspect", "receipts",
+                "--event", event_id, "--storage-path", str(db_path),
+            ])
+        assert "sent" in stdout_buf.getvalue()
+        assert event_id in stdout_buf.getvalue()
+
+        # --- Phase 3a: timeline ---
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
+            main([
+                "inspect", "event", event_id,
+                "--timeline", "--storage-path", str(db_path),
+            ])
+        tl = json.loads(stdout_buf.getvalue())
+        assert tl["event"]["event_id"] == event_id
+        assert any(e.get("entry_type") == "receipt" for e in tl["timeline"])
+
+        # --- Phase 3b: evidence ---
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
+            main([
+                "inspect", "event", event_id,
+                "--evidence", "--storage-path", str(db_path),
+            ])
+        ev = json.loads(stdout_buf.getvalue())
+        assert ev["evidence"]["status"] in ("partial", "passed")
+        assert (
+            ev["evidence"]["sections"]["storage"]["data"]["event"]["event_id"]
+            == event_id
+        )
+
+        # --- Phase 3c: recovery (inspect subsumes recover command) ---
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
+            main([
+                "inspect", "event", event_id,
+                "--recovery", "--storage-path", str(db_path),
+            ])
+        rc = json.loads(stdout_buf.getvalue())
+        assert rc["event"]["event_id"] == event_id
+        assert "recovery" in rc
+
+        # --- Phase 4: replay (config required, no --storage-path) ---
+        replay_cfg = _write_replay_config(tmp_path, db_path)
+
+        # 4a: dry_run — no side effects
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
+            main([
+                "replay", "--config", replay_cfg,
+                "--mode", "dry_run", "--event", event_id, "--json",
+            ])
+        dry = json.loads(stdout_buf.getvalue())
+        assert dry["mode"] == "dry_run"
+        assert dry["events_scanned"] >= 1
+        assert dry["events_replayed"] >= 1
+
+        # 4b: best_effort — creates replay receipts
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
+            main([
+                "replay", "--config", replay_cfg,
+                "--mode", "best_effort", "--event", event_id, "--json",
+            ])
+        be = json.loads(stdout_buf.getvalue())
+        assert be["mode"] == "best_effort"
+        assert be["events_replayed"] >= 1
