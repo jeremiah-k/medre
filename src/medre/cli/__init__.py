@@ -17,8 +17,8 @@ Usage::
     medre routes list [--config]      List configured routes
     medre evidence [--config] [--json]  Collect evidence bundle for support
 
-The package also supports ``python -m medre.cli`` via the ``__main__``
-module.
+The package also supports ``python -m medre`` and ``python -m medre.cli``
+via their respective ``__main__`` modules.
 """
 from __future__ import annotations
 

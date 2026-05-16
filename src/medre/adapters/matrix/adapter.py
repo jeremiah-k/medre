@@ -194,7 +194,7 @@ class MatrixAdapter(BaseAdapter):
 
         if not HAS_NIO:
             raise MatrixConnectionError(
-                "mindroom-nio not installed; pip install mindroom-nio"
+                "mindroom-nio not installed; pip install 'medre[matrix]'"
             )
 
         # E2EE mode guards are now handled inside MatrixSession.start().

@@ -1,12 +1,18 @@
 # Developer Environment Setup Guide
 
-> Last updated: 2026-05-10
+> Last updated: 2026-05-16
 > Status: Reproducibility guide. Goal: another developer can validate MEDRE from this document alone.
 
 This document describes how to set up a development environment for MEDRE,
 run the unit test suite, and optionally validate against live transport
 endpoints. It records exact tested versions, platform assumptions, and
 transport-specific setup requirements.
+
+For the operator-focused first-run guide, see the
+[Alpha Installation Runbook](alpha-installation.md).
+Example configs in `examples/configs/` are source-repo documentation, not
+shipped as package data. The `medre config sample` command is the installed-
+package config access path.
 
 
 ## 1. Core Requirements

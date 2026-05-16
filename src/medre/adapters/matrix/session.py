@@ -343,6 +343,7 @@ class MatrixSession:
         if not _compat_mod.HAS_E2EE:
             raise MatrixConnectionError(
                 "mindroom-nio[e2e] not installed; "
+                "pip install 'medre[matrix-e2e]' — "
                 "e2ee_required mode requires crypto dependencies"
             )
 

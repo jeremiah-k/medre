@@ -1,7 +1,7 @@
 # Packaging and Install Contract
 
-> Contract version: 1
-> Last updated: 2026-05-11
+> Contract version: 2
+> Last updated: 2026-05-16
 > Track: 2 (Packaging & Metadata), Track 10 (Import Boundary Validation)
 > Supersedes: Nothing. New.
 > Status: Active. Governs package metadata, install boundaries, and import isolation.
@@ -33,8 +33,8 @@ and what import boundaries must hold.
 |----------|-------|-------|
 | **Distribution name** | `medre` | Single-word, lowercase |
 | **Version** | `0.1.0` | Semantic dotted notation |
-| **License** | `MIT` | Governance-pending; see contract 42 |
-| **Status classifier** | `Development Status :: 3 - Alpha` | Not beta/prod |
+| **License** | `GPL-3.0-or-later` | See contract 42 for governance context |
+| **Status classifier** | `Development Status :: 4 - Beta` | Pre-beta; not production-ready |
 | **Requires Python** | `>=3.11` | |
 | **Build system** | `setuptools>=68` | |
 | **Source layout** | `src/` (via `[tool.setuptools.packages.find]`) | |
@@ -164,16 +164,31 @@ This allows constructing a complete runtime with all four transports
 (matrix, meshtastic, meshcore, lxmf) using fake adapters, with **zero**
 optional SDKs installed.
 
-## 9. Known Gaps
+## 9. Example Config Distribution
 
-- **LICENSE file**: No top-level LICENSE file exists yet (see contract 45 §3).
-- **License governance**: Currently MIT; under review for GPLv3-or-later or
-  LGPLv3-or-later (see contract 42). Do not flip until governance finalizes.
+Example configs live in `examples/configs/` in the source repository. They are
+**not** shipped as package data. The `medre config sample` command generates a
+complete, fake-buildable TOML config from code and is the installed-package
+config access path.
+
+Decision rationale (alpha):
+- Moving examples into the package source tree would break doc references,
+  test paths, and the `medre smoke` default config path.
+- `medre config sample` already provides a working config from any install.
+- Examples serve as reference documentation for source-checkout operators.
+
+This decision may be revisited for beta if operator feedback indicates a need
+for installed-package example access beyond `medre config sample`.
+
+## 10. Known Gaps
+
+- **LICENSE file**: Top-level LICENSE file exists (GPL-3.0-or-later).
+- **License governance**: GPL-3.0-or-later; see contract 42 for contributor governance.
 - **No `pip install -e .` CI gate**: No CI job currently verifies that a
   clean editable install + test run succeeds without optional extras.
 - **No wheel size audit**: Wheel/size not yet measured.
 
-## 10. Test Coverage
+## 11. Test Coverage
 
 Tests live in `tests/test_packaging_and_install_contract.py` and verify:
 
@@ -183,8 +198,12 @@ Tests live in `tests/test_packaging_and_install_contract.py` and verify:
 4. Compat guard flags are bool-typed.
 5. `RuntimeBuilder` builds a 4-transport fake runtime without SDKs.
 6. Contract doc exists and mentions all required extras.
+7. `py.typed` marker shipped for PEP 561 / `Typing :: Typed` classifier.
+8. `python -m medre` delegates to canonical CLI (`medre.cli:main`).
+9. CLI help, config check, and smoke fake paths work without optional SDK imports.
+10. Missing optional SDK error messages mention the `medre[extra]` install hint.
 
-## 11. Change Protocol
+## 12. Change Protocol
 
 Any change to the following requires updating this contract:
 
@@ -193,5 +212,7 @@ Any change to the following requires updating this contract:
 - Changing the console script entry point.
 - Changing the import boundary structure.
 - Adding a new transport adapter with its own SDK.
+- Removing or relocating the `py.typed` marker.
+- Changing the `__main__.py` delegation target.
 
 Amendments increment the contract version.

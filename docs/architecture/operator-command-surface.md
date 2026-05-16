@@ -16,16 +16,18 @@ on the current command layout.
 
 ## Command groups
 
-The operator surface has three tiers:
+The operator surface has four tiers:
 
 | Group | Audience | Purpose |
 |-------|----------|---------|
 | Product operation | Bridge operators | Daily runtime management, health checks, incident investigation, recovery |
+| Utility | All users | Version, path resolution, adapter inventory, config generation |
 | Developer/local validation | Developers, CI | Pre-release validation, alpha smoke testing, pipeline verification |
 | Internal/test-only | Codebase internals | `run_session`, drill helpers, evidence helpers, trace/timeline assembly |
 
 A command's group determines its stability expectations, documentation home,
-and whether it appears in operator-oriented help text.
+and whether it appears in operator-oriented help text. Utility commands are
+documented but do not inflate the core product-operation surface.
 
 
 ## Current command inventory
@@ -73,10 +75,10 @@ these properties. Column definitions:
 |---------|:---:|:---:|:---:|:---:|:---:|:---:|---|
 | `run` | yes | yes | yes | yes | yes | no | product |
 | `config check` | no | no | no | no | opt | no | product |
-| `config sample` | no | no | no | no | no | no | product |
-| `paths` | no | no | no | no | no | no | product |
-| `version` | no | no | no | no | no | no | product |
-| `adapters` | no | no | no | no | opt | no | product |
+| `config sample` | no | no | no | no | no | no | utility |
+| `paths` | no | no | no | no | no | no | utility |
+| `version` | no | no | no | no | no | no | utility |
+| `adapters` | no | no | no | no | opt | no | utility |
 | `diagnostics` | build | no | no | no | yes | no | product |
 | `diagnostics --refresh-health` | yes | no | yes | no | yes | no | product |
 | `routes validate` | no | no | no | no | yes | no | product |
@@ -99,14 +101,13 @@ these properties. Column definitions:
 ### Product operation (keep on operator surface)
 
 These are the commands a daily bridge operator runs. The target product surface
-shrinks toward these six command families: `run`, `config`, `routes`,
+shrinks toward these command families: `run`, `config check`, `routes`,
 `diagnostics`, `inspect`, `replay`.
 
 | Command | Classification | Rationale |
 |---------|---------------|-----------|
 | `medre run` | **Keep** | Primary operator command. Starts the runtime. |
 | `medre config check` | **Keep** | Pre-flight validation before `run`. |
-| `medre config sample` | **Keep** | Onboarding. Generates a starter TOML file. |
 | `medre routes validate` | **Keep** | Pre-flight route validation. |
 | `medre routes topology` | **Keep** | Operator visualization of route graph. |
 | `medre routes list` | **Keep** | Quick route inventory. |
@@ -116,14 +117,19 @@ shrinks toward these six command families: `run`, `config`, `routes`,
 | `medre inspect native-ref` | **Keep** | Reverse lookup from transport-native ID to canonical event. |
 | `medre inspect replay` | **Keep** | Read-only replay run timeline inspection. |
 | `medre replay` | **Keep** | Recovery action. Re-delivers historical events through current routes. |
-| `medre version` | **Keep** | Standard CLI convention. Every tool has this. |
 
-### Consolidate into product commands
+### Utility commands (supporting, not core product surface)
 
-| Command | Classification | Target | Rationale |
-|---------|---------------|--------|-----------|
-| `medre paths` | **Consolidate** | `medre config paths` | Path resolution is a config concern. Lives in `config_commands.py` already. Becomes a subcommand of `config`. |
-| `medre adapters` | **Consolidate** | `medre config adapters` or fold into `diagnostics` | Adapter inventory is config/diagnostic information, not a standalone operation. Currently lives in `config_commands.py`. |
+These commands support daily operation but are not core bridge management.
+They are documented and stable, but they do not inflate the product-operation
+surface.
+
+| Command | Classification | Rationale |
+|---------|---------------|-----------|
+| `medre version` | **Utility** | Standard CLI convention. Every tool has this. |
+| `medre paths` | **Consolidate into utility** | Path resolution is a config concern. Lives in `config_commands.py` already. Becomes a subcommand of `config`. |
+| `medre adapters` | **Consolidate into utility** | Adapter inventory is config/diagnostic information, not a standalone operation. Currently lives in `config_commands.py`. |
+| `medre config sample` | **Utility** | Onboarding. Generates a starter TOML file. |
 
 ### Specialized commands (inspect-first guidance)
 
@@ -192,16 +198,25 @@ for the split criteria and import invariants.
 
 ## Summary
 
-**Product surface (6 command families):**
+**Product surface (5 command families):**
 
 ```
 medre run              Start the runtime
-medre config           Config management (check, sample, [paths], [adapters])
+medre config check     Config validation (sample, [paths], [adapters] are utility)
 medre routes           Route management (validate, topology, list)
 medre diagnostics      Health check and runtime snapshot
 medre inspect          Primary read-only investigation (event, receipts, native-ref,
                           replay, --timeline, --evidence, --recovery)
 medre replay           Recovery action (re-deliver historical events)
+```
+
+**Utility commands (supporting, documented but not core product surface):**
+
+```
+medre version          Version and platform info
+medre paths            Resolved MEDRE paths (will consolidate under config)
+medre adapters         Adapter inventory (will consolidate under config or diagnostics)
+medre config sample    Starter TOML generation
 ```
 
 **Specialized commands (3 commands, available but not primary daily path):**
@@ -218,18 +233,13 @@ medre recover          Specialized recovery classification (usually inspect even
 medre smoke            Local validation tooling (developers/CI, not a daily operator command)
 ```
 
-**Standard CLI (1 command):**
-
-```
-medre version          Version and platform info
-```
-
 **Command guidance:** `inspect` is the primary read-only investigation command.
 `trace`, `evidence`, and `recover` are specialized commands that remain
 available for operators who need standalone output or features beyond what
 inspect flags provide. No deprecations, no aliases, no shims. `smoke` is
 local validation tooling for developers and CI, not a daily bridge operator
-command.
+command. Utility commands (`version`, `paths`, `adapters`, `config sample`)
+support the product surface but are not core bridge management operations.
 
 
 ## Alpha command surface freeze
@@ -246,6 +256,13 @@ following categories:
 - `medre diagnostics`
 - `medre inspect event` / `receipts` / `native-ref` / `replay`
 - `medre replay`
+
+**Utility surface** (supporting, not core product):
+
+- `medre version`
+- `medre paths`
+- `medre adapters`
+- `medre config sample`
 
 **Validation surface** (developer/CI tooling):
 

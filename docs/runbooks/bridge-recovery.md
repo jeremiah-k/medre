@@ -104,7 +104,7 @@ report shape.
 
 ```bash
 # Targeted recovery preview via inspect (no side effects):
-medre inspect event <event_id> --recovery --config my-bridge.toml
+medre inspect event <event_id> --recovery --storage-path /path/to/medre.sqlite
 
 # Or use the specialized recover command for multi-event analysis:
 medre recover --event <event_id> --dry-run --config my-bridge.toml
@@ -568,7 +568,7 @@ medre inspect event evt_abc123 --storage-path /path/to/medre.sqlite
 medre inspect event evt_abc123 --timeline --storage-path /path/to/medre.sqlite
 
 # Or use the specialized trace command for standalone timeline output:
-medre trace event evt_abc123 --config my-bridge.toml
+medre trace event evt_abc123 --storage-path /path/to/medre.sqlite
 
 # Expected output (human-readable):
 #   Event: evt_abc123 (message.text) from bot
@@ -591,7 +591,7 @@ to see it). Each `[native_ref]` entry links back to the event via
 To see all identifiers explicitly:
 
 ```bash
-medre inspect receipts --event evt_abc123 --config my-bridge.toml
+medre inspect receipts --event evt_abc123 --storage-path /path/to/medre.sqlite
 
 # Expected output (JSON):
 # [
@@ -619,7 +619,7 @@ deliveries, `"replay"` for replay-attributed deliveries.
 
 ```bash
 # An event that was delivered live and then replayed:
-medre inspect receipts --event evt_abc123 --config my-bridge.toml
+medre inspect receipts --event evt_abc123 --storage-path /path/to/medre.sqlite
 
 # Expected output (JSON, truncated):
 # [
@@ -652,7 +652,7 @@ the same replay invocation.
 To isolate only replay receipts:
 
 ```bash
-medre inspect receipts --replay-run replay_xyz789 --config my-bridge.toml
+medre inspect receipts --replay-run replay_xyz789 --storage-path /path/to/medre.sqlite
 ```
 
 **Repeated replays of the same event are traceable through distinct run_ids.**
@@ -683,7 +683,7 @@ the same replay invocation.
 To isolate only replay receipts:
 
 ```bash
-medre inspect receipts --replay-run replay_xyz789 --config my-bridge.toml
+medre inspect receipts --replay-run replay_xyz789 --storage-path /path/to/medre.sqlite
 ```
 
 ### 6.3 Interpreting Partial Evidence: Routing Succeeded but Delivery Failed
@@ -696,7 +696,7 @@ receipt with `status="failed"` and a `failure_kind` indicating the cause.
 medre inspect event evt_partial --timeline --storage-path /path/to/medre.sqlite
 
 # Or use the specialized trace command:
-medre trace event evt_partial --config my-bridge.toml
+medre trace event evt_partial --storage-path /path/to/medre.sqlite
 
 # Expected output:
 #   Event: evt_partial (message.text) from bot
@@ -745,7 +745,7 @@ deliveries triggered by that event.
 medre inspect event evt_inbound --timeline --storage-path /path/to/medre.sqlite
 
 # Or use the specialized trace command:
-medre trace event evt_inbound --config my-bridge.toml
+medre trace event evt_inbound --storage-path /path/to/medre.sqlite
 
 # Expected output:
 #   Event: evt_inbound (message.text) from radio
@@ -786,7 +786,7 @@ corresponding receipt for the loop-prevented adapter.
 medre inspect event evt_loop_prevented --timeline --storage-path /path/to/medre.sqlite
 
 # Or use the specialized trace command:
-medre trace event evt_loop_prevented --config my-bridge.toml
+medre trace event evt_loop_prevented --storage-path /path/to/medre.sqlite
 
 # Expected output:
 #   Event: evt_loop_prevented (message.text) from bot
@@ -956,8 +956,8 @@ If `next_retry_at` is in the past and the runtime is running, the RetryWorker sh
 | Count orphaned events | SQL: `SELECT COUNT(*) FROM canonical_events e LEFT JOIN delivery_receipts r ON e.event_id = r.event_id WHERE r.event_id IS NULL;` | Assess recovery scope |
 | Preview replay | `medre replay --mode DRY_RUN --config my-bridge.toml` | See what replay would do |
 | Execute replay | `medre replay --mode BEST_EFFORT --config my-bridge.toml` | Re-deliver orphaned events |
-| Trace a specific event (specialized) | `medre trace event <event_id> --config my-bridge.toml` | Standalone timeline output |
-| Trace replay results (specialized) | `medre trace replay <run_id> --config my-bridge.toml` | Standalone replay timeline |
+| Trace a specific event (specialized) | `medre trace event <event_id> --storage-path <db>` | Standalone timeline output |
+| Trace replay results (specialized) | `medre trace replay <run_id> --storage-path <db>` | Standalone replay timeline |
 | Recover a single event (specialized) | `medre recover --event <event_id> --config my-bridge.toml` | Multi-event recovery analysis |
 | Dry-run single event recovery (specialized) | `medre recover --event <event_id> --dry-run --config my-bridge.toml` | Preview without side effects |
 | Check recent errors | `grep ERROR {state}/logs/medre.log \| tail -20` | Scan for failure patterns |

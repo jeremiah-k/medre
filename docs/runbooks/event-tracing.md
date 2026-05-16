@@ -371,10 +371,10 @@ To drill into these scenarios:
 PYTHONPATH=src medre smoke --drill replay_duplicate_risk \
   --storage-path /tmp/medre-trace.db --json
 
-# Then trace the event
-medre trace event <event_id> --config my-bridge.toml
-# Or trace using the drill's SQLite directly
-medre inspect receipts --event <event_id> --config my-bridge.toml
+# Then inspect the event (preferred path):
+medre inspect event <event_id> --timeline --storage-path /tmp/medre-trace.db
+# Or inspect receipts directly:
+medre inspect receipts --event <event_id> --storage-path /tmp/medre-trace.db
 ```
 
 
@@ -506,8 +506,8 @@ ORDER BY r.route_id, r.status;
 ### 4.1 "Did My Message Get Delivered?"
 
 ```bash
-# Step 1: Trace the event
-medre trace event <event_id> --config my-bridge.toml
+# Step 1: Inspect the event (preferred path)
+medre inspect event <event_id> --timeline --storage-path /path/to/medre.sqlite
 
 # Step 2: If no receipts exist, check for orphans
 sqlite3 {state}/medre.sqlite "
@@ -523,8 +523,11 @@ sqlite3 {state}/medre.sqlite "
 ### 4.2 "Why Did Delivery Fail?"
 
 ```bash
-# Step 1: Trace the event to get receipt details
-medre trace event <event_id> --config my-bridge.toml --json
+# Step 1: Inspect the event with timeline (preferred path)
+medre inspect event <event_id> --timeline --storage-path /path/to/medre.sqlite
+
+# Or use the specialized trace command for standalone JSON output:
+# medre trace event <event_id> --storage-path /path/to/medre.sqlite --json
 
 # Step 2: Look at failure_kind in the receipts
 # Common failure kinds:
@@ -558,8 +561,11 @@ sqlite3 {state}/medre.sqlite "
   WHERE event_id = '<event_id>' AND source = 'replay';
 "
 
-# Step 2: If replay receipts exist, trace the full replay run
-medre trace replay <replay_run_id> --config my-bridge.toml
+# Step 2: If replay receipts exist, inspect the full replay run
+medre inspect replay <replay_run_id> --storage-path /path/to/medre.sqlite
+
+# Or use the specialized trace command:
+# medre trace replay <replay_run_id> --storage-path /path/to/medre.sqlite
 
 # Step 3: Assess duplicate risk by counting all receipts for this event
 sqlite3 {state}/medre.sqlite "
@@ -613,7 +619,7 @@ by source. Use the `source` field to filter:
 
 ```bash
 # Show only live receipts:
-medre inspect receipts --event evt_abc123 --config my-bridge.toml | \
+medre inspect receipts --event evt_abc123 --storage-path /path/to/medre.sqlite | \
   python3 -c "import json,sys; [print(json.dumps(r)) for r in json.load(sys.stdin) if r.get('source')=='live']"
 ```
 
@@ -648,7 +654,7 @@ same events produce different `replay_run_id` values. To audit a specific
 replay run:
 
 ```bash
-medre trace replay replay_xyz789 --config my-bridge.toml
+medre trace replay replay_xyz789 --storage-path /path/to/medre.sqlite
 ```
 
 ### 5.7 Native Refs Are Ordered by created_at Then id

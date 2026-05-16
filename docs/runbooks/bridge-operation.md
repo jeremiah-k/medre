@@ -721,7 +721,7 @@ Bridge operators should distinguish between two categories of evidence:
 | Replay receipts | `medre inspect receipts --replay-run` | Persisted in SQLite |
 | Shutdown snapshot | `{state_dir}/shutdown-snapshot.json` | File on disk (only with `--snapshot-on-shutdown`) |
 | Evidence bundle | `medre evidence --config <path> --json` | Re-generated on demand from SQLite |
-| Event trace | `medre trace event <event_id> --config <path>` | Re-generated on demand from SQLite |
+| Event trace | `medre inspect event <event_id> --timeline --storage-path <db>` | Re-generated on demand from SQLite |
 
 **Key distinction:** Run-time evidence (counters, gauges, events buffer) is process-local memory that is lost when the process exits unless captured via `--snapshot-on-shutdown`. Post-run evidence (receipts, events, refs) is persisted in SQLite and survives process termination.
 

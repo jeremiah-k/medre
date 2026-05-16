@@ -828,3 +828,168 @@ class TestAlphaCommandSurfaceFreeze:
             "Freeze section must state that inspect is the preferred "
             "investigation path."
         )
+
+
+# ===========================================================================
+# 16. No stale "medre trace event ... --config" in operator docs
+# ===========================================================================
+
+
+class TestNoStaleTraceEventConfigInOperatorDocs:
+    """Read-only trace/inspect commands in operator docs should prefer
+    ``--storage-path`` over ``--config``.  The pattern ``medre trace event
+    ... --config`` is stale in operator-facing runbooks.
+
+    Specialized reference docs (event-tracing.md command reference sections
+    1.1 and 1.3) may still show ``--config`` since the trace command supports
+    both.  But operator workflow sections, investigation examples, and
+    quick-reference tables should use ``--storage-path`` for read-only DB
+    access.
+    """
+
+    # Docs where operator workflow examples appear.
+    _OPERATOR_WORKFLOW_DOCS = [
+        RUNBOOKS_DIR / "bridge-recovery.md",
+        RUNBOOKS_DIR / "replay-operation.md",
+        RUNBOOKS_DIR / "bridge-operation.md",
+    ]
+
+    @pytest.mark.parametrize(
+        "doc_path",
+        [p for p in _OPERATOR_WORKFLOW_DOCS if p.exists()],
+        ids=lambda p: p.name,
+    )
+    def test_no_trace_event_config_in_operator_docs(self, doc_path: Path) -> None:
+        """Operator workflow docs must not show ``medre trace event ... --config``.
+        Use ``--storage-path`` for read-only DB access instead."""
+        text = _read(doc_path)
+        stale = re.findall(
+            r"medre\s+trace\s+event\b.*--config\b",
+            text,
+        )
+        assert not stale, (
+            f"{doc_path.name} contains stale 'medre trace event ... --config'. "
+            f"Read-only trace commands in operator docs should use --storage-path. "
+            f"Found: {stale[:5]}"
+        )
+
+    @pytest.mark.parametrize(
+        "doc_path",
+        [p for p in _OPERATOR_WORKFLOW_DOCS if p.exists()],
+        ids=lambda p: p.name,
+    )
+    def test_no_inspect_config_in_workflow_examples(self, doc_path: Path) -> None:
+        """Inspect examples in operator workflow docs should use --storage-path
+        for read-only access, not --config.
+
+        This catches patterns like ``medre inspect receipts ... --config``
+        that should be ``--storage-path`` for read-only investigation.
+        """
+        text = _read(doc_path)
+        # Find inspect command lines that use --config (inside code blocks)
+        stale = []
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            stripped = line.strip()
+            if re.match(r"^medre\s+inspect\s+\w+.*--config", stripped):
+                stale.append((lineno, stripped))
+        assert not stale, (
+            f"{doc_path.name} has inspect command examples using --config "
+            f"instead of --storage-path. Inspect supports --storage-path for "
+            f"direct read-only DB access. Found at lines: "
+            f"{[s[0] for s in stale[:5]]}"
+        )
+
+
+# ===========================================================================
+# 17. Primary workflow sections must not recommend trace as first step
+# ===========================================================================
+
+
+class TestTraceNotFirstStepInPrimaryWorkflows:
+    """Primary operator workflow sections (Phase 2 inspect-first, incident
+    Step 2) must not recommend ``medre trace event`` as the first or default
+    investigation step.  ``medre inspect event`` is the primary path."""
+
+    def test_alpha_walkthrough_phase2_inspect_first(self) -> None:
+        """Phase 2 in alpha-walkthrough.md must start with inspect, not trace."""
+        path = RUNBOOKS_DIR / "alpha-walkthrough.md"
+        if not path.exists():
+            pytest.skip("alpha-walkthrough.md not found")
+        text = _read(path)
+        # Find Phase 2 section
+        phase2 = text.find("### Phase 2:")
+        if phase2 < 0:
+            pytest.skip("Phase 2 section not found")
+        phase3 = text.find("### Phase 3:", phase2)
+        if phase3 < 0:
+            phase3 = len(text)
+        section = text[phase2:phase3]
+        # In Phase 2, inspect must appear before any trace command
+        inspect_pos = section.find("medre inspect")
+        trace_pos = section.find("medre trace")
+        assert inspect_pos >= 0, (
+            "alpha-walkthrough.md Phase 2 must include 'medre inspect'."
+        )
+        if trace_pos >= 0:
+            assert inspect_pos < trace_pos, (
+                "alpha-walkthrough.md Phase 2 must present 'medre inspect' "
+                "before 'medre trace'. inspect is the primary path."
+            )
+
+    def test_bridge_recovery_step2_inspect_first(self) -> None:
+        """Step 2 in bridge-recovery.md Section 0 must start with inspect."""
+        path = RUNBOOKS_DIR / "bridge-recovery.md"
+        if not path.exists():
+            pytest.skip("bridge-recovery.md not found")
+        text = _read(path)
+        section0 = text.find("## 0.")
+        if section0 < 0:
+            pytest.skip("Section 0 not found")
+        section1 = text.find("\n## 1.", section0)
+        if section1 < 0:
+            section1 = len(text)
+        s0 = text[section0:section1]
+        # Step 2 must have inspect before trace
+        step2 = s0.find("### Step 2:")
+        if step2 < 0:
+            pytest.skip("Step 2 not found in Section 0")
+        step3 = s0.find("### Step 3:", step2)
+        if step3 < 0:
+            step3 = len(s0)
+        step2_text = s0[step2:step3]
+        inspect_pos = step2_text.find("medre inspect event")
+        trace_pos = step2_text.find("medre trace event")
+        assert inspect_pos >= 0, (
+            "bridge-recovery.md Step 2 must include 'medre inspect event'."
+        )
+        if trace_pos >= 0:
+            assert inspect_pos < trace_pos, (
+                "bridge-recovery.md Step 2 must present 'medre inspect event' "
+                "before 'medre trace event'."
+            )
+
+    def test_runtime_operation_post_run_inspect_first(self) -> None:
+        """Post-Run Evidence Inspection in runtime-operation.md must present
+        inspect as the primary path."""
+        path = RUNBOOKS_DIR / "runtime-operation.md"
+        if not path.exists():
+            pytest.skip("runtime-operation.md not found")
+        text = _read(path)
+        section_pos = text.find("### Post-Run Evidence Inspection")
+        if section_pos < 0:
+            pytest.skip("Post-Run Evidence Inspection section not found")
+        section_end = text.find("\n## ", section_pos + 1)
+        if section_end < 0:
+            section_end = len(text)
+        section = text[section_pos:section_end]
+        inspect_pos = section.find("medre inspect event")
+        trace_pos = section.find("medre trace event")
+        assert inspect_pos >= 0, (
+            "runtime-operation.md Post-Run Evidence Inspection must include "
+            "'medre inspect event'."
+        )
+        if trace_pos >= 0:
+            assert inspect_pos < trace_pos, (
+                "runtime-operation.md Post-Run Evidence Inspection must "
+                "present 'medre inspect event' before 'medre trace event'."
+            )

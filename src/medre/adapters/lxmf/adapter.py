@@ -150,7 +150,7 @@ class LxmfAdapter(BaseAdapter):
         if self._config.connection_type != "fake":
             if not HAS_LXMF:
                 raise LxmfConnectionError(
-                    "lxmf/RNS not installed; pip install lxmf. "
+                    "lxmf/RNS not installed; pip install 'medre[lxmf]'. "
                     f"connection_type={self._config.connection_type!r}"
                 )
 

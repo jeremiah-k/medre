@@ -18,6 +18,7 @@ These tests are **not** marked ``live`` — they must pass in a bare
 from __future__ import annotations
 
 import importlib
+import sys
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -453,3 +454,404 @@ class TestDocsContractConsistency:
             assert extra_name in content, (
                 f"Contract doc does not mention extra {extra_name!r}"
             )
+
+
+# ===================================================================
+# 8. py.typed marker (PEP 561)
+# ===================================================================
+
+
+class TestPyTypedMarker:
+    """The py.typed marker must be shipped alongside the Typing :: Typed classifier."""
+
+    def test_py_typed_file_exists_in_src(self) -> None:
+        marker = _REPO_ROOT / "src" / "medre" / "py.typed"
+        assert marker.is_file(), (
+            f"py.typed marker missing at {marker} — required by PEP 561 "
+            "and the 'Typing :: Typed' classifier"
+        )
+
+    def test_py_typed_file_is_empty(self) -> None:
+        """PEP 561 partial stub packages may have content, but for a
+        fully-typed package the marker is typically empty."""
+        marker = _REPO_ROOT / "src" / "medre" / "py.typed"
+        content = marker.read_text().strip()
+        # Allow empty or just whitespace; must not have import stubs.
+        assert not content or content.startswith("#"), (
+            f"py.typed has unexpected content: {content!r}"
+        )
+
+    def test_typed_classifier_matches_marker(self) -> None:
+        """If 'Typing :: Typed' is declared, py.typed must exist."""
+        classifiers = _load_pyproject()["project"].get("classifiers", [])
+        has_typed_classifier = "Typing :: Typed" in classifiers
+        has_marker = (_REPO_ROOT / "src" / "medre" / "py.typed").is_file()
+        assert has_typed_classifier == has_marker, (
+            f"classifier={has_typed_classifier}, marker={has_marker} — must match"
+        )
+
+
+# ===================================================================
+# 9. python -m medre delegation
+# ===================================================================
+
+
+class TestPythonMModule:
+    """``python -m medre`` delegates to the canonical CLI entry point."""
+
+    def test_main_module_exists(self) -> None:
+        """``src/medre/__main__.py`` must exist."""
+        main_mod = _REPO_ROOT / "src" / "medre" / "__main__.py"
+        assert main_mod.is_file(), f"__main__.py missing at {main_mod}"
+
+    def test_main_module_delegates_to_cli(self) -> None:
+        """__main__.py must import from medre.cli."""
+        main_mod = _REPO_ROOT / "src" / "medre" / "__main__.py"
+        content = main_mod.read_text()
+        assert "medre.cli" in content, (
+            "__main__.py must delegate to medre.cli"
+        )
+
+    def test_main_module_importable(self) -> None:
+        """``python -m medre`` resolves to __main__.py that delegates to CLI.
+
+        We verify the module source is well-formed rather than importing it
+        directly, because importing triggers ``main()`` which would consume
+        sys.argv.
+        """
+        import importlib.util
+
+        main_mod = _REPO_ROOT / "src" / "medre" / "__main__.py"
+        spec = importlib.util.spec_from_file_location("medre.__main__", main_mod)
+        assert spec is not None, "could not create module spec for __main__.py"
+        # Verify the source references medre.cli.
+        source = main_mod.read_text()
+        assert "medre.cli" in source
+
+    def test_import_medre_cli_main_callable(self) -> None:
+        """``medre.cli.main`` is a callable entry point."""
+        from medre.cli import main
+        assert callable(main)
+
+
+# ===================================================================
+# 10. CLI help and config-check without optional SDK imports
+# ===================================================================
+
+
+# Optional SDK module names that must NOT appear in sys.modules after
+# importing medre.core / medre.cli / medre.adapters (fake path only).
+_OPTIONAL_SDK_MODULES = frozenset({
+    "nio", "meshtastic", "meshcore", "RNS", "LXMF",
+})
+
+
+class TestCLIHelpWithoutSDKs:
+    """CLI help, config check, and version must not import optional SDKs."""
+
+    def test_help_without_optional_sdks(self) -> None:
+        """``main(["--help"])`` succeeds without importing optional SDKs.
+
+        We verify that none of the optional SDK modules appear in
+        sys.modules after the help invocation.
+        """
+        import io
+        from contextlib import redirect_stdout, redirect_stderr
+
+        from medre.cli import main
+
+        # Record which optional modules are present before the call.
+        before = {m for m in _OPTIONAL_SDK_MODULES if m in sys.modules}
+
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        try:
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                main(["--help"])
+        except SystemExit as exc:
+            # --help exits with code 0.
+            assert exc.code in (None, 0), f"unexpected exit code: {exc.code}"
+
+        after = {m for m in _OPTIONAL_SDK_MODULES if m in sys.modules}
+        leaked = after - before
+        assert not leaked, (
+            f"optional SDK modules leaked into sys.modules by --help: {sorted(leaked)}"
+        )
+
+    def test_config_check_fake_without_optional_sdks(self) -> None:
+        """``config check`` with a fake-only config succeeds without SDKs."""
+        import io
+        import os
+        from contextlib import redirect_stdout, redirect_stderr
+
+        from medre.cli import main
+
+        # Clean env.
+        for var in (
+            "MEDRE_HOME", "MEDRE_CONFIG", "XDG_CONFIG_HOME",
+            "XDG_STATE_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME",
+        ):
+            os.environ.pop(var, None)
+
+        # First generate a sample config.
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        try:
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                main(["config", "sample"])
+        except SystemExit:
+            pass
+        sample = stdout.getvalue()
+
+        # Write it to a temp file and check it.
+        import tempfile
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".toml", delete=False
+        ) as tf:
+            tf.write(sample)
+            config_path = tf.name
+
+        try:
+            before = {m for m in _OPTIONAL_SDK_MODULES if m in sys.modules}
+
+            stdout2 = io.StringIO()
+            stderr2 = io.StringIO()
+            try:
+                with redirect_stdout(stdout2), redirect_stderr(stderr2):
+                    main(["config", "check", "--config", config_path])
+            except SystemExit as exc:
+                # config check may succeed or fail depending on sample content;
+                # the key requirement is no SDK imports.
+                pass
+
+            after = {m for m in _OPTIONAL_SDK_MODULES if m in sys.modules}
+            leaked = after - before
+            assert not leaked, (
+                f"optional SDK modules leaked by config check: {sorted(leaked)}"
+            )
+        finally:
+            os.unlink(config_path)
+
+    def test_version_without_optional_sdks(self) -> None:
+        """``main(["version"])`` succeeds without importing optional SDKs."""
+        import io
+        from contextlib import redirect_stdout, redirect_stderr
+
+        from medre.cli import main
+
+        before = {m for m in _OPTIONAL_SDK_MODULES if m in sys.modules}
+
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        try:
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                main(["version"])
+        except SystemExit:
+            pass
+
+        after = {m for m in _OPTIONAL_SDK_MODULES if m in sys.modules}
+        leaked = after - before
+        assert not leaked, (
+            f"optional SDK modules leaked by version: {sorted(leaked)}"
+        )
+
+    def test_adapters_without_optional_sdks(self) -> None:
+        """``main(["adapters"])`` succeeds without importing optional SDKs."""
+        import io
+        import os
+        from contextlib import redirect_stdout, redirect_stderr
+
+        from medre.cli import main
+
+        for var in (
+            "MEDRE_HOME", "MEDRE_CONFIG", "XDG_CONFIG_HOME",
+            "XDG_STATE_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME",
+        ):
+            os.environ.pop(var, None)
+
+        before = {m for m in _OPTIONAL_SDK_MODULES if m in sys.modules}
+
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        try:
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                main(["adapters"])
+        except SystemExit:
+            pass
+
+        after = {m for m in _OPTIONAL_SDK_MODULES if m in sys.modules}
+        leaked = after - before
+        assert not leaked, (
+            f"optional SDK modules leaked by adapters: {sorted(leaked)}"
+        )
+
+
+# ===================================================================
+# 11. Fake adapters do not transitively import optional SDKs
+# ===================================================================
+
+
+class TestFakeAdaptersNoTransitiveSDKImports:
+    """Importing fake adapters must not transitively import optional SDKs."""
+
+    def test_fake_matrix_no_nio_import(self) -> None:
+        before = "nio" in sys.modules
+        from medre.adapters.fake_matrix import FakeMatrixAdapter  # noqa: F401
+        after = "nio" in sys.modules
+        assert before == after, "importing FakeMatrixAdapter leaked 'nio' into sys.modules"
+
+    def test_fake_meshtastic_no_sdk_import(self) -> None:
+        before = "meshtastic" in sys.modules
+        from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter  # noqa: F401
+        after = "meshtastic" in sys.modules
+        assert before == after, "importing FakeMeshtasticAdapter leaked 'meshtastic' into sys.modules"
+
+    def test_fake_meshcore_no_sdk_import(self) -> None:
+        before = "meshcore" in sys.modules
+        from medre.adapters.fake_meshcore import FakeMeshCoreAdapter  # noqa: F401
+        after = "meshcore" in sys.modules
+        assert before == after, "importing FakeMeshCoreAdapter leaked 'meshcore' into sys.modules"
+
+    def test_fake_lxmf_no_sdk_import(self) -> None:
+        before_rns = "RNS" in sys.modules
+        before_lxmf = "LXMF" in sys.modules
+        from medre.adapters.fake_lxmf import FakeLxmfAdapter  # noqa: F401
+        after_rns = "RNS" in sys.modules
+        after_lxmf = "LXMF" in sys.modules
+        assert before_rns == after_rns, "importing FakeLxmfAdapter leaked 'RNS' into sys.modules"
+        assert before_lxmf == after_lxmf, "importing FakeLxmfAdapter leaked 'LXMF' into sys.modules"
+
+
+# ===================================================================
+# 12. Missing SDK error messages mention medre[extra] install hints
+# ===================================================================
+
+
+class TestMissingSDKErrorMessages:
+    """Error messages for missing optional SDKs must mention the install extra."""
+
+    def _get_source(self, relative_path: str) -> str:
+        return (_REPO_ROOT / relative_path).read_text()
+
+    def test_matrix_adapter_mentions_medre_matrix(self) -> None:
+        src = self._get_source("src/medre/adapters/matrix/adapter.py")
+        assert "medre[matrix]" in src, (
+            "Matrix adapter error message should mention pip install 'medre[matrix]'"
+        )
+
+    def test_matrix_session_e2ee_mentions_medre_matrix_e2e(self) -> None:
+        src = self._get_source("src/medre/adapters/matrix/session.py")
+        assert "medre[matrix-e2e]" in src, (
+            "Matrix session E2EE error should mention pip install 'medre[matrix-e2e]'"
+        )
+
+    def test_meshtastic_session_mentions_medre_meshtastic(self) -> None:
+        src = self._get_source("src/medre/adapters/meshtastic/session.py")
+        assert "medre[meshtastic]" in src, (
+            "Meshtastic session error should mention pip install 'medre[meshtastic]'"
+        )
+
+    def test_meshcore_session_mentions_medre_meshcore(self) -> None:
+        src = self._get_source("src/medre/adapters/meshcore/session.py")
+        assert "medre[meshcore]" in src, (
+            "MeshCore session error should mention pip install 'medre[meshcore]'"
+        )
+
+    def test_lxmf_adapter_mentions_medre_lxmf(self) -> None:
+        src = self._get_source("src/medre/adapters/lxmf/adapter.py")
+        assert "medre[lxmf]" in src, (
+            "LXMF adapter error should mention pip install 'medre[lxmf]'"
+        )
+
+    def test_lxmf_session_mentions_medre_lxmf(self) -> None:
+        src = self._get_source("src/medre/adapters/lxmf/session.py")
+        assert "medre[lxmf]" in src, (
+            "LXMF session error should mention pip install 'medre[lxmf]'"
+        )
+
+    def test_lxmf_compat_mentions_medre_lxmf(self) -> None:
+        src = self._get_source("src/medre/adapters/lxmf/compat.py")
+        assert "medre[lxmf]" in src, (
+            "LXMF compat error should mention pip install 'medre[lxmf]'"
+        )
+
+    def test_smoke_fake_path_no_sdk_import(self) -> None:
+        """Smoke with a fake-only config must not import optional SDKs.
+
+        This runs the smoke command with the default fake-only config
+        to verify that the smoke path works without SDKs.
+        """
+        import io
+        import os
+        from contextlib import redirect_stdout, redirect_stderr
+
+        from medre.cli import main
+
+        for var in (
+            "MEDRE_HOME", "MEDRE_CONFIG", "XDG_CONFIG_HOME",
+            "XDG_STATE_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME",
+        ):
+            os.environ.pop(var, None)
+
+        before = {m for m in _OPTIONAL_SDK_MODULES if m in sys.modules}
+
+        # Use the fake bridge smoke config shipped in examples.
+        smoke_config = _REPO_ROOT / "examples" / "configs" / "fake-bridge-smoke.toml"
+        if not smoke_config.is_file():
+            pytest.skip("fake-bridge-smoke.toml not found")
+
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        try:
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                main(["smoke", "--config", str(smoke_config)])
+        except SystemExit:
+            pass
+
+        after = {m for m in _OPTIONAL_SDK_MODULES if m in sys.modules}
+        leaked = after - before
+        assert not leaked, (
+            f"optional SDK modules leaked by smoke fake path: {sorted(leaked)}"
+        )
+
+
+# ===================================================================
+# 13. Contract metadata alignment
+# ===================================================================
+
+
+class TestContractMetadataAlignment:
+    """Contract 58 metadata must match pyproject.toml."""
+
+    def test_contract_license_matches_pyproject(self) -> None:
+        contract_path = (
+            _REPO_ROOT / "docs" / "contracts" / "58-packaging-and-install-contract.md"
+        )
+        content = contract_path.read_text()
+        project = _load_pyproject()["project"]
+        license_val = project.get("license", "")
+        assert license_val in content, (
+            f"pyproject license {license_val!r} not mentioned in contract 58"
+        )
+
+    def test_contract_classifier_matches_pyproject(self) -> None:
+        contract_path = (
+            _REPO_ROOT / "docs" / "contracts" / "58-packaging-and-install-contract.md"
+        )
+        content = contract_path.read_text()
+        classifiers = _load_pyproject()["project"].get("classifiers", [])
+        # Find the Development Status classifier.
+        status_clf = [c for c in classifiers if "Development Status" in c]
+        assert status_clf, "no Development Status classifier in pyproject"
+        assert status_clf[0] in content, (
+            f"classifier {status_clf[0]!r} not mentioned in contract 58"
+        )
+
+    def test_console_script_in_contract(self) -> None:
+        contract_path = (
+            _REPO_ROOT / "docs" / "contracts" / "58-packaging-and-install-contract.md"
+        )
+        content = contract_path.read_text()
+        assert "medre.cli:main" in content, (
+            "contract 58 must mention the canonical entry point medre.cli:main"
+        )

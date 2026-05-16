@@ -2,6 +2,16 @@
 
 Provides :func:`generate_sample_config` which returns a complete, documented
 TOML configuration string.  This is the output shown by ``medre config sample``.
+
+The generated sample uses ``adapter_kind = "fake"`` for all adapters, making it
+loadable and buildable without any optional SDKs or network access.  Operators
+can switch adapters to real by changing ``adapter_kind`` and filling in
+transport-specific credentials.
+
+Example configs for more advanced scenarios (Docker bridges, retry workers,
+mixed transports) live in ``examples/configs/`` in the source repository.
+They are reference documentation, not shipped as package data.  The generated
+sample config is the installed-package config access path.
 """
 from __future__ import annotations
 
@@ -13,6 +23,12 @@ def generate_sample_config() -> str:
 # MEDRE Configuration — TOML format
 # Copy this file to ~/.config/medre/config.toml or $MEDRE_HOME/config.toml
 # and adjust values for your deployment.
+#
+# This sample uses adapter_kind = "fake" for all adapters so it works
+# without any optional SDKs or network.  To use real adapters, change
+# adapter_kind to "real" and fill in transport-specific credentials.
+# For more example configs (Docker bridges, retry workers, mixed transports),
+# see examples/configs/ in the source repository.
 
 [runtime]
 name = "medre"
@@ -39,16 +55,20 @@ backend = "sqlite"
 # {state} expands to XDG state dir or MEDRE_HOME/state
 path = "{state}/medre.sqlite"
 
+# --- Matrix adapter (fake by default) ---
+# To use a real Matrix homeserver, change adapter_kind to "real" and set:
+#   homeserver = "https://your-homeserver.org"
+#   user_id = "@bot:your-homeserver.org"
+#   access_token = ""  (or set MEDRE_MATRIX_ACCESS_TOKEN env var)
 [adapters.matrix.main]
 enabled = true
-# adapter_kind = "real"  # "real" (default) or "fake".  Use "fake" for
-#                         # development/testing without live SDKs or network.
+adapter_kind = "fake"
 # adapter_id = "main"    # Defaults to the TOML section key.  Only set when
 #                         # you need an ID that differs from the section name.
 homeserver = "https://matrix.example.com"
 user_id = "@bot:example.com"
 # Prefer using MEDRE_MATRIX_ACCESS_TOKEN env var over embedding tokens
-access_token = ""
+access_token = "fake_sample_token"
 room_allowlist = ["!room:example.com"]
 # device_id and store_path are derived internally (whoami + state dir).
 # They should NOT be set by operators. Reserved for test harnesses.
@@ -58,23 +78,32 @@ encryption_mode = "plaintext"
 # When using E2EE:
 # encryption_mode = "e2ee_required"
 
+# --- Meshtastic adapter (fake by default) ---
+# To use a real Meshtastic radio, change adapter_kind to "real" and set:
+#   connection_type = "serial"
+#   serial_port = "/dev/ttyACM0"
 [adapters.meshtastic.radio]
 enabled = true
-connection_type = "serial"
-serial_port = "/dev/ttyACM0"
+adapter_kind = "fake"
+connection_type = "fake"
 meshnet_name = "MyMesh"
 
-[adapters.meshcore.radio]
+# --- MeshCore adapter (fake, disabled by default) ---
+# To use a real MeshCore radio, change adapter_kind to "real", enabled to true,
+# and set connection_type and serial_port.
+[adapters.meshcore.mc_node]
 enabled = false
-connection_type = "serial"
-serial_port = "/dev/ttyUSB0"
+adapter_kind = "fake"
+connection_type = "fake"
 
-[adapters.lxmf.local]
+# --- LXMF adapter (fake, disabled by default) ---
+# To use a real Reticulum/LXMF node, change adapter_kind to "real", enabled
+# to true, and set identity_path and storage_path.
+[adapters.lxmf.lxmf_node]
 enabled = false
-connection_type = "reticulum"
+adapter_kind = "fake"
+connection_type = "fake"
 display_name = "MEDRE"
-identity_path = "{state}/lxmf/identity"
-storage_path = "{state}/lxmf/router"
 
 # ---------------------------------------------------------------------------
 # Routes — named bridge routes between adapters
@@ -104,13 +133,13 @@ storage_path = "{state}/lxmf/router"
 #   channel_allowlist, allowed_source_adapters, allowed_dest_adapters) are
 #   reserved and not yet enforced. Do not set them.
 
-# --- Active route: Matrix <-> Meshtastic bridge ---
-# Bridges the Matrix room !room:example.com to Meshtastic radio channel 1.
-# Messages flow in both directions.
+# --- Active route: Matrix -> Meshtastic bridge ---
+# Sends messages from the Matrix room to Meshtastic radio channel 1.
+# For bidirectional (two-way) bridging, change directionality to "bidirectional".
 [routes.matrix_radio_bridge]
 source_adapters = ["main"]
 dest_adapters = ["radio"]
-directionality = "bidirectional"
+directionality = "source_to_dest"
 enabled = true
 source_room = "!room:example.com"
 dest_channel = "1"

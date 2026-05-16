@@ -467,7 +467,9 @@ medre replay --mode DRY_RUN --config my-bridge.toml
 medre replay --mode BEST_EFFORT --config my-bridge.toml
 
 # Step 4: Verify replay results
-medre trace replay <replay_run_id> --config my-bridge.toml
+medre inspect receipts --replay-run <replay_run_id> --storage-path /path/to/medre.sqlite
+# Or use the specialized trace command:
+# medre trace replay <replay_run_id> --storage-path /path/to/medre.sqlite
 ```
 
 See [Bridge Recovery](bridge-recovery.md) for the full crash recovery workflow.
@@ -493,7 +495,9 @@ medre replay --mode DRY_RUN --config my-bridge.toml
 medre replay --mode BEST_EFFORT --event evt_abc123 --config my-bridge.toml
 
 # Verify the result
-medre trace event evt_abc123 --config my-bridge.toml
+medre inspect event evt_abc123 --timeline --storage-path /path/to/medre.sqlite
+# Or use the specialized trace command:
+# medre trace event evt_abc123 --storage-path /path/to/medre.sqlite
 ```
 
 

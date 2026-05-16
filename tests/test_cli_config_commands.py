@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path
 
 import pytest
 
+from medre.config.sample import generate_sample_config
+from medre.config.loader import load_config
+from medre.runtime.builder import RuntimeBuilder
 from tests.helpers.cli import (
     CONFIG_BAD_LIMITS,
     CONFIG_MINIMAL,
@@ -118,10 +122,10 @@ class TestSampleConfig:
         assert "directionality" in output
 
     def test_sample_includes_active_bridge_example(self) -> None:
-        """Sample includes a clear Matrix <-> Meshtastic bridge example."""
+        """Sample includes a clear Matrix -> Meshtastic bridge example."""
         output = _run_cli("config", "sample")
         assert "matrix_radio_bridge" in output
-        assert "bidirectional" in output
+        assert "source_to_dest" in output or "bidirectional" in output
 
     def test_sample_includes_disabled_route_example(self) -> None:
         """Sample includes a commented-out disabled route example."""
@@ -193,3 +197,97 @@ class TestConfigCheckErrors:
         """Valid config exits zero (does NOT raise SystemExit)."""
         output = _run_cli("config", "check", "--config", str(config_with_routes))
         assert "Config valid" in output
+
+
+# ---------------------------------------------------------------------------
+# config sample — fake-buildable round-trip
+# ---------------------------------------------------------------------------
+
+
+class TestSampleConfigFakeBuildable:
+    """The generated sample config must load, validate, and build with fake
+    adapters.  This proves the ``medre config sample`` first-run path works
+    without any optional SDKs installed."""
+
+    @pytest.fixture(autouse=True)
+    def _medre_home(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
+
+    def test_sample_parses_as_toml(self) -> None:
+        """generate_sample_config() produces valid TOML."""
+        sample = generate_sample_config()
+        data = tomllib.loads(sample)
+        assert isinstance(data, dict)
+        assert "runtime" in data
+        assert "adapters" in data
+
+    def test_sample_loads_via_config_loader(self, tmp_path: Path) -> None:
+        """Sample config loads successfully via load_config()."""
+        sample = generate_sample_config()
+        config_path = tmp_path / "sample.toml"
+        config_path.write_text(sample)
+        config, _source, _paths = load_config(str(config_path))
+        assert config.runtime.name == "medre"
+        assert config.storage.backend == "sqlite"
+
+    def test_sample_all_adapters_are_fake(self, tmp_path: Path) -> None:
+        """All adapters in the sample must be fake (no SDKs required)."""
+        sample = generate_sample_config()
+        config_path = tmp_path / "sample.toml"
+        config_path.write_text(sample)
+        config, _, _ = load_config(str(config_path))
+        for _transport, _aid, rtc in config.adapters.all_configs():
+            assert rtc.adapter_kind == "fake", (
+                f"Expected adapter_kind='fake' for {_transport}.{_aid}, "
+                f"got {rtc.adapter_kind!r}"
+            )
+
+    def test_sample_builds_via_runtime_builder(self, tmp_path: Path) -> None:
+        """Sample config builds a runtime with no build failures."""
+        sample = generate_sample_config()
+        config_path = tmp_path / "sample.toml"
+        config_path.write_text(sample)
+        config, _, paths = load_config(str(config_path))
+        builder = RuntimeBuilder(config, paths)
+        app = builder.build()
+        # Matrix (main) + Meshtastic (radio) are enabled; MeshCore and LXMF
+        # are disabled.
+        assert len(app.adapters) >= 2, (
+            f"Expected >= 2 built adapters, got {len(app.adapters)}: "
+            f"{list(app.adapters.keys())}"
+        )
+        assert app.build_failures == [], (
+            f"Unexpected build failures: {app.build_failures}"
+        )
+
+    def test_sample_routes_parse_correctly(self, tmp_path: Path) -> None:
+        """Routes in sample config parse into RouteConfigSet."""
+        sample = generate_sample_config()
+        config_path = tmp_path / "sample.toml"
+        config_path.write_text(sample)
+        config, _, _ = load_config(str(config_path))
+        routes = config.routes
+        assert len(routes.routes) >= 1
+        route_ids = [r.route_id for r in routes.routes]
+        assert "matrix_radio_bridge" in route_ids
+
+    def test_sample_config_check_passes(self, tmp_path: Path) -> None:
+        """``medre config check`` on the sample config succeeds."""
+        sample = generate_sample_config()
+        config_path = tmp_path / "sample.toml"
+        config_path.write_text(sample)
+        output = _run_cli("config", "check", "--config", str(config_path))
+        assert "Config valid" in output
+
+    def test_sample_no_real_credentials(self) -> None:
+        """Sample must not contain real or empty credentials that would
+        prevent loading."""
+        sample = generate_sample_config()
+        # access_token should not be empty string (would fail Matrix validation)
+        data = tomllib.loads(sample)
+        for _transport, instances in data.get("adapters", {}).items():
+            for _name, conf in instances.items():
+                if isinstance(conf, dict) and "access_token" in conf:
+                    assert conf["access_token"] != "", (
+                        "Sample has empty access_token — would fail config validation"
+                    )

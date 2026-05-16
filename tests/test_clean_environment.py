@@ -330,6 +330,7 @@ class TestCleanEnvironmentImportBoundaries:
         "medre.runtime.builder",
         "medre.runtime.app",
         "medre.runtime.errors",
+        "medre.runtime.evidence",
         "medre.runtime.routes",
         "medre.runtime.snapshot",
         "medre.runtime.boot_summary",
@@ -414,11 +415,9 @@ class TestConfigSampleCleanEnv:
     def test_sample_config_toml_sections_parseable(self) -> None:
         """Sample config sections must parse into expected types.
 
-        Note: ``access_token = ""`` in the sample deliberately uses an
-        empty string as a placeholder (operator sets it via env var).
-        The full config round-trip would fail MatrixConfigError on empty
-        access_token, so we validate TOML parsing + structural sections
-        rather than a full ``load_config`` round-trip.
+        The sample uses ``adapter_kind = "fake"`` for all adapters so it
+        works without optional SDKs.  The access_token is a non-empty fake
+        value, making the sample loadable via ``load_config()`` as well.
         """
         from medre.config.sample import generate_sample_config
 

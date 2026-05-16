@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 import json
+import shlex
 from contextlib import redirect_stdout
 from pathlib import Path
 
@@ -79,41 +80,101 @@ class TestOperatorBridgeSession:
 
     @pytest.mark.asyncio
     async def test_run_session_report_cross_links(self, tmp_path: Path) -> None:
-        """Report provides enough data to reconstruct inspect/trace/evidence CLI commands."""
-        from medre.runtime.smoke import run_fake_bridge_smoke
+        """Report commands_text/commands_argv reflect real --storage-path shape."""
+        from medre.runtime.run_session import run_bridge_session
 
         config_path = _smoke_config_path()
         db_path = str(tmp_path / "crosslink.db")
-        report = await run_fake_bridge_smoke(
-            config_path,
+        report = await run_bridge_session(
+            config_path=config_path,
             storage_path=db_path,
         )
         assert report["status"] == "passed"
-
-        event_id = report["event_id"]
-
-        commands = {
-            "inspect": f"medre inspect event {event_id} --config <config>",
-            "trace": f"medre trace event {event_id} --config <config>",
-            "evidence": f"medre evidence --config <config> --event {event_id}",
-        }
-
         assert report["storage_path"] == db_path
 
-        for cmd_name, cmd_str in commands.items():
-            assert event_id in cmd_str, f"{cmd_name} command missing event_id"
-            assert "--config" in cmd_str, f"{cmd_name} command missing --config"
+        event_id = report["event_id"]
+        cmd_text = report["commands"]["commands_text"]
+        cmd_argv = report["commands"]["commands_argv"]
 
+        # -- Primary keys: inspect-first commands using --storage-path --
+        primary_keys = [
+            "inspect_event",
+            "inspect_timeline",
+            "inspect_receipts",
+            "inspect_evidence",
+            "inspect_recovery",
+        ]
+        for key in primary_keys:
+            assert key in cmd_text["primary"], f"Missing primary key: {key}"
+            assert key in cmd_argv["primary"], f"Missing primary argv key: {key}"
+
+            txt = cmd_text["primary"][key]
+            argv = cmd_argv["primary"][key]
+
+            # Contains event_id and --storage-path with the actual DB path
+            assert event_id in txt, f"primary.{key} text missing event_id"
+            assert "--storage-path" in txt, (
+                f"primary.{key} text missing --storage-path: {txt}"
+            )
+            assert db_path in txt, f"primary.{key} text missing db_path: {txt}"
+            # No stale --config in primary read-only commands
+            assert "--config" not in txt, (
+                f"primary.{key} has stale --config: {txt}"
+            )
+
+            # argv mirrors text via shlex.split
+            assert shlex.split(txt) == argv, (
+                f"primary.{key} argv mismatch: {argv!r} vs shlex.split({txt!r})"
+            )
+
+        # -- Specialized keys: trace/evidence (storage-path), recover (config) --
+        specialized_keys = ["trace_event", "evidence_bundle", "recover_event"]
+        for key in specialized_keys:
+            assert key in cmd_text["specialized"], (
+                f"Missing specialized key: {key}"
+            )
+            assert key in cmd_argv["specialized"], (
+                f"Missing specialized argv key: {key}"
+            )
+
+            txt = cmd_text["specialized"][key]
+            argv = cmd_argv["specialized"][key]
+
+            assert event_id in txt, f"specialized.{key} text missing event_id"
+
+            # Read-only specialized commands use --storage-path
+            if key in ("trace_event", "evidence_bundle"):
+                assert "--storage-path" in txt, (
+                    f"specialized.{key} missing --storage-path: {txt}"
+                )
+                assert db_path in txt, (
+                    f"specialized.{key} missing db_path: {txt}"
+                )
+
+            # recover_event is config-required
+            if key == "recover_event":
+                assert "--config" in txt, (
+                    f"specialized.{key} missing --config: {txt}"
+                )
+
+            # argv mirrors text
+            assert shlex.split(txt) == argv, (
+                f"specialized.{key} argv mismatch: {argv!r} vs shlex.split({txt!r})"
+            )
+
+        # -- No stale primary keys for trace/evidence --
+        for stale_key in ("trace", "evidence"):
+            assert stale_key not in cmd_text["primary"], (
+                f"Stale primary key '{stale_key}' should be under specialized"
+            )
+            assert stale_key not in cmd_argv["primary"], (
+                f"Stale primary argv key '{stale_key}' should be under specialized"
+            )
+
+        # -- Native refs still present and inspectable --
         for ref in report["native_refs"]:
             assert "adapter" in ref
             assert "native_id" in ref
-            inspect_nref_cmd = (
-                f"medre inspect native-ref "
-                f"--adapter {ref['adapter']} "
-                f"--message {ref['native_id']}"
-            )
-            assert ref["adapter"] in inspect_nref_cmd
-            assert ref["native_id"] in inspect_nref_cmd
 
     @pytest.mark.asyncio
     async def test_run_session_persistent_storage(self, tmp_path: Path) -> None:

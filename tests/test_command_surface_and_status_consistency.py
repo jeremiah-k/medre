@@ -704,3 +704,88 @@ class TestNoPassFailJsonReport:
                     f"Use 'passed/failed JSON report' (past-tense status values).\n"
                     f"  {line.strip()}"
                 )
+
+
+# ===========================================================================
+# 8. Command surface utility category in operator-command-surface.md
+# ===========================================================================
+
+
+class TestCommandSurfaceUtilityCategory:
+    """operator-command-surface.md must classify version, paths, adapters,
+    and config sample as utility commands, not product-operation."""
+
+    _SURFACE_DOC = _ROOT / "docs" / "architecture" / "operator-command-surface.md"
+
+    @pytest.fixture()
+    def surface_text(self) -> str:
+        if not self._SURFACE_DOC.exists():
+            pytest.skip("operator-command-surface.md not found")
+        return _read(self._SURFACE_DOC)
+
+    def test_utility_section_exists(self, surface_text: str) -> None:
+        """The utility commands section must exist."""
+        assert "Utility" in surface_text, (
+            "operator-command-surface.md must have a utility commands section."
+        )
+
+    @pytest.mark.parametrize(
+        "command",
+        ["version", "paths", "adapters", "config sample"],
+    )
+    def test_utility_commands_classified(self, command: str, surface_text: str) -> None:
+        """version, paths, adapters, and config sample must be classified as
+        utility (not product-operation) in the decision table or
+        per-command classification."""
+        # Find the operational properties decision table and check role column
+        # for the utility classification.
+        # The role column must say "utility" for these commands.
+        # Look in the per-command classification sections.
+        utility_section_start = surface_text.find("Utility command")
+        if utility_section_start < 0:
+            utility_section_start = surface_text.find("### Utility")
+        if utility_section_start < 0:
+            # Fall back to checking that the decision table has "utility" role
+            # for these commands.
+            pass
+        # Check the decision table role column for each command
+        for lineno, line in enumerate(surface_text.splitlines(), start=1):
+            if f"`{command}`" in line and "utility" in line.lower():
+                return  # Found as utility
+            if command == "config sample" and "`config sample`" in line and "utility" in line.lower():
+                return
+        # If not found in per-command section, check the decision table
+        # (the table uses backtick-wrapped command names)
+        command_variants = [command]
+        if command == "config sample":
+            command_variants = ["config sample"]
+        for cv in command_variants:
+            for lineno, line in enumerate(surface_text.splitlines(), start=1):
+                if f"| `{cv}`" in line and "utility" in line.lower():
+                    return
+        pytest.fail(
+            f"operator-command-surface.md must classify '{command}' as "
+            f"utility (found in neither per-command section nor decision table)."
+        )
+
+    def test_no_stale_trace_event_config_in_operator_workflow_docs(self) -> None:
+        """Operator workflow runbooks must not show 'medre trace event ... --config'.
+        Read-only trace commands should use --storage-path."""
+        operator_docs = [
+            RUNBOOKS_DIR / "bridge-recovery.md",
+            RUNBOOKS_DIR / "replay-operation.md",
+            RUNBOOKS_DIR / "bridge-operation.md",
+        ]
+        for doc_path in operator_docs:
+            if not doc_path.exists():
+                continue
+            text = _read(doc_path)
+            stale = re.findall(
+                r"medre\s+trace\s+event\b.*--config\b",
+                text,
+            )
+            assert not stale, (
+                f"{doc_path.name} contains stale 'medre trace event ... --config'. "
+                f"Read-only trace commands in operator docs should use --storage-path. "
+                f"Found: {stale[:5]}"
+            )

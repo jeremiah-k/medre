@@ -240,9 +240,12 @@ pip install -e ".[dev]"
 PYTHONPATH=src pytest -q
 # Expected: 3200+ passed, live tests skipped
 
-# Start the runtime with a config that uses fake adapters
+# Generate a config (uses fake adapters by default, works out of the box)
 medre config sample > /tmp/medre-test.toml
-# Edit adapters to use fake transports, then:
+medre config check --config /tmp/medre-test.toml
+# Expected: "Config valid"
+
+# Start the runtime
 PYTHONPATH=src medre run --config /tmp/medre-test.toml
 ```
 
@@ -342,6 +345,8 @@ The beta readiness checklist tracks what must be true before beta:
 
 | Path | Content |
 |------|---------|
+| [`docs/runbooks/alpha-installation.md`](docs/runbooks/alpha-installation.md) | First-run install and smoke test guide (operators) |
+| [`docs/runbooks/alpha-walkthrough.md`](docs/runbooks/alpha-walkthrough.md) | Full operator workflow: config, smoke, inspect, replay |
 | [`docs/runbooks/developer-environment.md`](docs/runbooks/developer-environment.md) | Setup guide, tested versions, transport-specific install |
 | [`docs/runbooks/configuration.md`](docs/runbooks/configuration.md) | Configuration reference: TOML schema, routes, env vars, paths |
 | [`docs/runbooks/operational-evidence.md`](docs/runbooks/operational-evidence.md) | Live test results per transport |

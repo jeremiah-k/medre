@@ -49,6 +49,6 @@ def _require_lxmf() -> tuple[Any, Any]:
     if not HAS_LXMF or rns_module is None or lxmf_module is None:
         raise ImportError(
             "lxmf and/or RNS packages are not installed; "
-            "pip install lxmf or use connection_type='fake'"
+            "pip install 'medre[lxmf]' or use connection_type='fake'"
         )
     return rns_module, lxmf_module
