@@ -180,7 +180,7 @@ implementation layer behind the commands above.
 |----------|----------|-----------|---------|
 | `_run_session` | `runtime/run_session.py` | `smoke --run-session` | Complete bridge session lifecycle: start, inject, poll, stop, snapshot, report |
 | Drill helpers | `runtime/drill.py` | `smoke --drill` | Named failure injection against the pipeline |
-| Evidence helpers | `runtime/evidence.py` | `evidence` | Aggregates smoke, drill, storage queries, diagnostics into a bundle |
+| Evidence helpers | `runtime/evidence/` | `evidence` | Aggregates smoke, drill, storage queries, diagnostics into a bundle |
 | Trace/timeline assembly | `runtime/trace.py` | `trace event`, `trace replay` | Chronological timeline reconstruction from storage |
 | Recover analysis | `runtime/recover.py` | `recover` | Failed delivery analysis and runbook generation |
 | Smoke orchestration | `runtime/smoke.py` | `smoke` | Fake bridge pipeline exercise |

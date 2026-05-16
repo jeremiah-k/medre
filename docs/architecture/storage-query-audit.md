@@ -8,7 +8,7 @@
 - `src/medre/cli/inspect_commands.py` — inspect event, receipts, native-ref
 - `src/medre/cli/evidence_commands.py` — evidence bundle (delegates to runtime)
 - `src/medre/cli/recover_commands.py` — recover runbook
-- `src/medre/runtime/evidence.py` — evidence storage section
+- `src/medre/runtime/evidence/` — evidence storage section
 - `src/medre/runtime/run_session/evidence.py` — receipt polling, native ref collection
 - `src/medre/core/storage/replay.py` — replay engine iteration
 
