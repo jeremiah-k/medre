@@ -535,6 +535,7 @@ async def run_bridge_session(
 
     commands = _build_cross_linked_commands(
         primary_event_id, resolved_config_path, snapshot_path,
+        storage_path=storage_path,
     )
 
     # -- Sanitize error fields -----------------------------------------------

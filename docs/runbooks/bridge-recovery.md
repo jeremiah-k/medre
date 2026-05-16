@@ -1,6 +1,6 @@
 # Bridge Recovery Runbook
 
-> Last updated: 2026-05-14
+> Last updated: 2026-05-16
 > Scope: Bridge-specific recovery procedures — crash recovery, adapter failure, orphan detection
 > Status: Pre-beta. Not production. All recovery is operator-initiated. No automatic remediation.
 > Prerequisites: medre installed, runtime previously run with `[storage] backend = "sqlite"`.
@@ -28,15 +28,15 @@ and the decision tree for choosing the right recovery action.
 
 ## 0. Complete Incident Workflow (End-to-End)
 
-This section describes a coherent end-to-end workflow that chains smoke,
-trace, inspect, recover, and evidence into a single incident response
-procedure. Use this when you suspect events were lost or not delivered
-correctly.
+This section describes a coherent end-to-end workflow using the inspect-first
+product path for incident response. Use this when you suspect events were lost
+or not delivered correctly.
 
 **Caveat:** Traceability is not deduplication. This workflow shows you what
 happened and lets you re-deliver, but it cannot tell you whether a duplicate
 reached the remote side. BEST_EFFORT sends real messages. There is no final
-ACK guarantee for radio transports. The RetryWorker is an opt-in background task for transient failures, but replay is operator-initiated — every
+ACK guarantee for radio transports. The RetryWorker is an opt-in background
+task for transient failures, but replay is operator-initiated, every
 step below is operator-initiated. Runtime events and counters are process-local
 and reset on restart.
 
@@ -52,29 +52,18 @@ PYTHONPATH=src medre smoke --storage-path /tmp/medre-incident.db --json
 Exit code 0 = pipeline healthy. If this fails, fix config or environment
 before proceeding.
 
-### Step 2: Trace the Suspect Event
+### Step 2: Inspect the Suspect Event (preferred path)
 
 ```bash
-# If you know the event_id from logs or a previous run:
-medre trace event <event_id> --config my-bridge.toml
+# Inspect the event first (primary investigation command):
+medre inspect event <event_id> --storage-path /tmp/medre-incident.db
 
-# With JSON for programmatic inspection:
-medre trace event <event_id> --config my-bridge.toml --json
-```
+# Then check delivery receipts:
+medre inspect receipts --event <event_id> --storage-path /tmp/medre-incident.db
 
-The trace output shows the full lifecycle: ingestion, routing, delivery
-attempts, retry chains, and replay attribution. If no receipts exist, the
-event is orphaned — proceed to Step 4.
-
-### Step 3: Inspect Delivery Receipts
-
-```bash
-# All receipts for the event, including retry lineage and replay attribution
-medre inspect receipts --event <event_id> --config my-bridge.toml
-
-# Check native message refs to map transport-native IDs
+# Check native message refs to map transport-native IDs:
 medre inspect native-ref --adapter <name> --message <native_id> \
-  --config my-bridge.toml
+  --storage-path /tmp/medre-incident.db
 ```
 
 Look for:
@@ -84,14 +73,45 @@ Look for:
 - `failure_kind`: tells you why delivery failed (if it did).
 - `attempt_number` and `parent_receipt_id`: traces the retry chain.
 
+If no receipts exist, the event is orphaned. Proceed to Step 4.
+
+### Step 3: Deeper Investigation via Inspect Flags
+
+When the basic inspect shows failures or unexpected routing, use the inspect
+augmentation flags for a full audit trail:
+
+```bash
+# Timeline (covers medre trace event output):
+medre inspect event <event_id> \
+  --timeline --storage-path /tmp/medre-incident.db
+
+# Evidence bundle (covers medre evidence --event output):
+medre inspect event <event_id> \
+  --evidence --storage-path /tmp/medre-incident.db
+
+# Recovery guidance (covers medre recover --event output):
+medre inspect event <event_id> \
+  --recovery --storage-path /tmp/medre-incident.db
+```
+
+For standalone output, the specialized commands remain available:
+`medre trace event`, `medre evidence`, `medre recover`. See
+[Event Tracing](event-tracing.md) for trace command details and
+[Bridge Evidence Bundle](bridge-evidence-bundle.md) for the full evidence
+report shape.
+
 ### Step 4: Recover Orphaned or Failed Events
 
 ```bash
-# Targeted recovery of a single event (DRY_RUN first):
+# Targeted recovery preview via inspect (no side effects):
+medre inspect event <event_id> --recovery --config my-bridge.toml
+
+# Or use the specialized recover command for multi-event analysis:
 medre recover --event <event_id> --dry-run --config my-bridge.toml
 
-# If preview looks correct, execute:
-medre recover --event <event_id> --config my-bridge.toml
+# If preview looks correct, replay the event:
+medre replay --mode DRY_RUN --event <event_id> --config my-bridge.toml
+medre replay --mode BEST_EFFORT --event <event_id> --config my-bridge.toml
 
 # Or replay all orphaned events:
 medre replay --mode DRY_RUN --config my-bridge.toml
@@ -99,16 +119,21 @@ medre replay --mode BEST_EFFORT --config my-bridge.toml
 ```
 
 **Warning:** BEST_EFFORT sends real messages. Events that already have `sent`
-receipts will be delivered again. Traceability is not deduplication — each
+receipts will be delivered again. Traceability is not deduplication, each
 replay produces new outbound messages. RetryWorker is separate from replay:
 it is opt-in (disabled by default), and only retries `adapter_transient`
 failures that have a `RetryPolicy` configured. Replay remains a manual
 operator action.
 
-### Step 5: Collect Evidence Bundle
+### Step 5: Collect Evidence Bundle (when needed for bug reports)
 
 ```bash
-# Full evidence for the incident, including the event and its receipts
+# Full evidence for the incident via inspect flag:
+medre inspect event <event_id> \
+  --evidence --config my-bridge.toml
+
+# Or use the specialized evidence command for a full bridge bundle
+# with optional live health refresh:
 medre evidence --event <event_id> --config my-bridge.toml --json \
   > incident-evidence.json
 
@@ -127,17 +152,20 @@ health. Attach this to incident reports or bug filings.
 medre smoke --storage-path <db>
   → verifies pipeline, persists evidence
   ↓
-medre trace event <id>
-  → shows full event lifecycle
+medre inspect event <id> --storage-path <db>
+  → shows canonical event record
   ↓
-medre inspect receipts --event <id>
+medre inspect receipts --event <id> --storage-path <db>
   → delivery details, retry chains, replay attribution
   ↓
-medre recover --event <id>   (dry-run first)
-  → re-delivers orphaned event (BEST_EFFORT sends real messages)
+medre inspect event <id> --timeline --evidence --recovery --storage-path <db>
+  → full investigation via inspect flags
   ↓
-medre evidence --event <id> --json
-  → collects full evidence bundle
+medre replay --mode DRY_RUN --config <config>
+  → previews what replay would do
+  ↓
+medre replay --mode BEST_EFFORT --config <config>
+  → re-delivers orphaned events (sends real messages)
 ```
 
 See [Event Tracing](event-tracing.md) for trace command details,
@@ -470,7 +498,7 @@ sqlite3 {state}/medre.sqlite "
 medre replay --mode BEST_EFFORT --config my-bridge.toml
 
 # Step 6: Verify replay results
-medre trace replay <replay_run_id> --config my-bridge.toml
+medre inspect receipts --replay-run <replay_run_id> --storage-path /path/to/medre.sqlite
 
 # Step 7: Check for remaining orphans
 sqlite3 {state}/medre.sqlite "
@@ -533,7 +561,13 @@ canonical event to a transport-native ID (Matrix event ID, Meshtastic packet
 ID, etc.).
 
 ```bash
-# Start from a known event_id:
+# Start from a known event_id (inspect-first):
+medre inspect event evt_abc123 --storage-path /path/to/medre.sqlite
+
+# With timeline for full lifecycle:
+medre inspect event evt_abc123 --timeline --storage-path /path/to/medre.sqlite
+
+# Or use the specialized trace command for standalone timeline output:
 medre trace event evt_abc123 --config my-bridge.toml
 
 # Expected output (human-readable):
@@ -658,6 +692,10 @@ When routing matches a route but the adapter rejects the delivery, you see a
 receipt with `status="failed"` and a `failure_kind` indicating the cause.
 
 ```bash
+# Inspect-first (preferred):
+medre inspect event evt_partial --timeline --storage-path /path/to/medre.sqlite
+
+# Or use the specialized trace command:
 medre trace event evt_partial --config my-bridge.toml
 
 # Expected output:
@@ -704,6 +742,9 @@ deliveries triggered by that event.
 
 ```bash
 # An inbound event with successful outbound delivery:
+medre inspect event evt_inbound --timeline --storage-path /path/to/medre.sqlite
+
+# Or use the specialized trace command:
 medre trace event evt_inbound --config my-bridge.toml
 
 # Expected output:
@@ -742,6 +783,9 @@ corresponding receipt for the loop-prevented adapter.
 
 ```bash
 # An event where loop prevention suppressed delivery:
+medre inspect event evt_loop_prevented --timeline --storage-path /path/to/medre.sqlite
+
+# Or use the specialized trace command:
 medre trace event evt_loop_prevented --config my-bridge.toml
 
 # Expected output:
@@ -903,13 +947,19 @@ If `next_retry_at` is in the past and the runtime is running, the RetryWorker sh
 | Verify database integrity | `sqlite3 {state}/medre.sqlite "PRAGMA integrity_check;"` | Confirm SQLite is healthy |
 | Restart runtime | `medre run --config config.toml` | Resume normal operation |
 | Check adapter health | `medre diagnostics --refresh-health --config config.toml` | Live health snapshot |
+| Inspect an event | `medre inspect event <event_id> --storage-path <db>` | View canonical event record |
+| Inspect with timeline | `medre inspect event <event_id> --timeline --storage-path <db>` | Full event lifecycle (covers trace event) |
+| Inspect with evidence | `medre inspect event <event_id> --evidence --storage-path <db>` | Per-event evidence bundle (covers evidence --event) |
+| Inspect with recovery | `medre inspect event <event_id> --recovery --storage-path <db>` | Recovery guidance (covers recover --event) |
+| Inspect delivery receipts | `medre inspect receipts --event <event_id> --storage-path <db>` | Delivery details, retry chains, replay attribution |
+| Inspect replay receipts | `medre inspect receipts --replay-run <run_id> --storage-path <db>` | Replay run outcome |
 | Count orphaned events | SQL: `SELECT COUNT(*) FROM canonical_events e LEFT JOIN delivery_receipts r ON e.event_id = r.event_id WHERE r.event_id IS NULL;` | Assess recovery scope |
 | Preview replay | `medre replay --mode DRY_RUN --config my-bridge.toml` | See what replay would do |
 | Execute replay | `medre replay --mode BEST_EFFORT --config my-bridge.toml` | Re-deliver orphaned events |
-| Trace replay results | `medre trace replay <run_id> --config my-bridge.toml` | Inspect replay outcome |
-| Trace a specific event | `medre trace event <event_id> --config my-bridge.toml` | Full event lifecycle |
-| Recover a single event | `medre recover --event <event_id> --config my-bridge.toml` | Targeted recovery |
-| Dry-run single event recovery | `medre recover --event <event_id> --dry-run --config my-bridge.toml` | Preview without side effects |
+| Trace a specific event (specialized) | `medre trace event <event_id> --config my-bridge.toml` | Standalone timeline output |
+| Trace replay results (specialized) | `medre trace replay <run_id> --config my-bridge.toml` | Standalone replay timeline |
+| Recover a single event (specialized) | `medre recover --event <event_id> --config my-bridge.toml` | Multi-event recovery analysis |
+| Dry-run single event recovery (specialized) | `medre recover --event <event_id> --dry-run --config my-bridge.toml` | Preview without side effects |
 | Check recent errors | `grep ERROR {state}/logs/medre.log \| tail -20` | Scan for failure patterns |
 | Verify startup | `grep "Assembly complete" {state}/logs/medre.log \| tail -1` | Confirm all adapters started |
 

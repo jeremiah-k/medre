@@ -35,6 +35,7 @@ def _build_cross_linked_commands(
     event_id: str,
     config_path: str | None,
     snapshot_path: str | None,
+    storage_path: str | None = None,
 ) -> dict[str, Any]:
     """Build cross-linked CLI command strings for the report.
 
@@ -57,74 +58,66 @@ def _build_cross_linked_commands(
     Inspect-first: the primary recommended commands use ``medre inspect``.
     Specialised keys (``trace_event``, ``evidence_bundle``, ``recover_event``)
     are lower-level tools retained for advanced use.
-    """
-    def _safe(val: str | None) -> str:
-        return shlex.quote(val) if val else ""
 
-    cfg_flag_text = f"--config {_safe(config_path)}" if config_path else ""
+    When *storage_path* is provided, read-only commands (inspect, trace,
+    evidence) use ``--storage-path`` pointing at the actual runtime DB.
+    Config-required commands (recover, replay) always use ``--config`` because
+    those subcommands need the full config, not just the storage backend.
+    """
+    # --- Config flags (for config-required commands) ---
     cfg_flag_argv: list[str] = []
     if config_path:
         cfg_flag_argv = ["--config", config_path]
 
-    # --- Primary: inspect-first commands ---
-    primary_text: dict[str, str] = {
-        "inspect_event": (
-            f"medre inspect event {shlex.quote(event_id)} {cfg_flag_text}".strip()
-        ),
-        "inspect_timeline": (
-            f"medre inspect event {shlex.quote(event_id)} --timeline {cfg_flag_text}".strip()
-        ),
-        "inspect_receipts": (
-            f"medre inspect receipts --event {shlex.quote(event_id)} {cfg_flag_text}".strip()
-        ),
-        "inspect_evidence": (
-            f"medre inspect event {shlex.quote(event_id)} --evidence {cfg_flag_text}".strip()
-        ),
-        "inspect_recovery": (
-            f"medre inspect event {shlex.quote(event_id)} --recovery {cfg_flag_text}".strip()
-        ),
-    }
-    primary_argv: dict[str, list[str]] = {
-        "inspect_event": (
-            ["medre", "inspect", "event", event_id] + cfg_flag_argv
-        ),
-        "inspect_timeline": (
-            ["medre", "inspect", "event", event_id, "--timeline"] + cfg_flag_argv
-        ),
-        "inspect_receipts": (
-            ["medre", "inspect", "receipts", "--event", event_id] + cfg_flag_argv
-        ),
-        "inspect_evidence": (
-            ["medre", "inspect", "event", event_id, "--evidence"] + cfg_flag_argv
-        ),
-        "inspect_recovery": (
-            ["medre", "inspect", "event", event_id, "--recovery"] + cfg_flag_argv
-        ),
-    }
+    # --- Storage flags (for read-only commands when storage_path is known) ---
+    # Prefer --storage-path over --config for read-only inspection because
+    # the runtime overrides config storage to a temporary/custom DB path.
+    if storage_path:
+        ro_flag_argv: list[str] = ["--storage-path", storage_path]
+    else:
+        ro_flag_argv = list(cfg_flag_argv)
+
+    # Helper: build both argv list and shell-safe text from an argv list.
+    def _cmd(argv: list[str]) -> tuple[list[str], str]:
+        return argv, shlex.join(argv)
+
+    # --- Primary: inspect-first commands (read-only → storage-path) ---
+    primary_argv: dict[str, list[str]] = {}
+    primary_text: dict[str, str] = {}
+
+    for key, argv in [
+        ("inspect_event",
+         ["medre", "inspect", "event", event_id] + ro_flag_argv),
+        ("inspect_timeline",
+         ["medre", "inspect", "event", event_id, "--timeline"] + ro_flag_argv),
+        ("inspect_receipts",
+         ["medre", "inspect", "receipts", "--event", event_id] + ro_flag_argv),
+        ("inspect_evidence",
+         ["medre", "inspect", "event", event_id, "--evidence"] + ro_flag_argv),
+        ("inspect_recovery",
+         ["medre", "inspect", "event", event_id, "--recovery"] + ro_flag_argv),
+    ]:
+        primary_argv[key], primary_text[key] = _cmd(argv)
 
     # --- Specialised: lower-level tools ---
-    specialized_text: dict[str, str] = {
-        "trace_event": (
-            f"medre trace event {shlex.quote(event_id)} {cfg_flag_text}".strip()
-        ),
-        "evidence_bundle": (
-            f"medre evidence --event {shlex.quote(event_id)} {cfg_flag_text} --json".strip()
-        ),
-        "recover_event": (
-            f"medre recover --event {shlex.quote(event_id)} {cfg_flag_text}".strip()
-        ),
-    }
-    specialized_argv: dict[str, list[str]] = {
-        "trace_event": (
-            ["medre", "trace", "event", event_id] + cfg_flag_argv
-        ),
-        "evidence_bundle": (
-            ["medre", "evidence", "--event", event_id] + cfg_flag_argv + ["--json"]
-        ),
-        "recover_event": (
-            ["medre", "recover", "--event", event_id] + cfg_flag_argv
-        ),
-    }
+    specialized_argv: dict[str, list[str]] = {}
+    specialized_text: dict[str, str] = {}
+
+    # trace_event and evidence_bundle are read-only → storage-path
+    for key, argv in [
+        ("trace_event",
+         ["medre", "trace", "event", event_id] + ro_flag_argv),
+        ("evidence_bundle",
+         ["medre", "evidence", "--event", event_id] + ro_flag_argv + ["--json"]),
+    ]:
+        specialized_argv[key], specialized_text[key] = _cmd(argv)
+
+    # recover_event is config-required → --config
+    for key, argv in [
+        ("recover_event",
+         ["medre", "recover", "--event", event_id] + cfg_flag_argv),
+    ]:
+        specialized_argv[key], specialized_text[key] = _cmd(argv)
 
     return {
         "commands_text": {

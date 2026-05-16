@@ -628,10 +628,22 @@ class TestEvidenceCli:
         assert "Evidence:" in output
 
     def test_evidence_cli_config_error(self) -> None:
-        """CLI evidence with bad config path exits with error."""
-        with pytest.raises(SystemExit) as exc_info:
-            main(["evidence", "--config", "/nonexistent.toml", "--json"])
+        """CLI evidence with bad config path exits with error and clear message."""
+        stdout_buf = io.StringIO()
+        stderr_buf = io.StringIO()
+        with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
+            with pytest.raises(SystemExit) as exc_info:
+                main(["evidence", "--config", "/nonexistent.toml", "--json"])
         assert exc_info.value.code == 2  # EXIT_CONFIG
+        # Error is reported in the JSON bundle, not as a traceback on stderr.
+        assert "Traceback" not in stderr_buf.getvalue(), (
+            f"Expected no traceback for bad config, got:\n{stderr_buf.getvalue()}"
+        )
+        bundle = json.loads(stdout_buf.getvalue())
+        assert bundle["status"] == "error"
+        assert any("config" in e.lower() for e in bundle["errors"]), (
+            f"Expected config-related error message, got: {bundle['errors']}"
+        )
 
     def test_evidence_cli_event_arg(self, config_fake: Path) -> None:
         """CLI evidence --event passes event_id to bundle."""

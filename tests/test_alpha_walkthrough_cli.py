@@ -810,6 +810,11 @@ class TestAlphaE2EProductPathCLI:
         assert dry["mode"] == "dry_run"
         assert dry["events_scanned"] >= 1
         assert dry["events_replayed"] >= 1
+        # Taxonomy: by_status must contain all four canonical keys.
+        for status_key in ("passed", "skipped", "failed", "error"):
+            assert status_key in dry.get("by_status", {}), (
+                f"Replay dry_run by_status missing taxonomy key {status_key!r}"
+            )
 
         # 4b: best_effort — creates replay receipts
         stdout_buf = io.StringIO()
@@ -821,3 +826,8 @@ class TestAlphaE2EProductPathCLI:
         be = json.loads(stdout_buf.getvalue())
         assert be["mode"] == "best_effort"
         assert be["events_replayed"] >= 1
+        # Taxonomy: by_status must contain all four canonical keys.
+        for status_key in ("passed", "skipped", "failed", "error"):
+            assert status_key in be.get("by_status", {}), (
+                f"Replay best_effort by_status missing taxonomy key {status_key!r}"
+            )

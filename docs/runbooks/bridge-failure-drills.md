@@ -839,13 +839,20 @@ post-drill tracing and evidence collection:
 PYTHONPATH=src medre smoke --drill adapter_transient_failure \
   --storage-path /tmp/medre-drill.db --json
 
-# Step 2: Trace the drill's event through its lifecycle
-medre trace event <event_id> --config my-bridge.toml
+# Step 2: Inspect the drill's event (preferred):
+medre inspect event <event_id> --storage-path /tmp/medre-drill.db
 
-# Step 3: Inspect receipts for retry chains, failure kinds
-medre inspect receipts --event <event_id> --config my-bridge.toml
+# Step 3: Inspect receipts for retry chains, failure kinds:
+medre inspect receipts --event <event_id> --storage-path /tmp/medre-drill.db
 
-# Step 4: Collect full evidence for the drill
+# Step 4: Inspect with timeline for full lifecycle (covers trace event):
+medre inspect event <event_id> --timeline --storage-path /tmp/medre-drill.db
+
+# Step 5: Collect full evidence for the drill:
+medre inspect event <event_id> \
+  --evidence --storage-path /tmp/medre-drill.db
+
+# Or use the specialized evidence command for a full bridge bundle:
 medre evidence --event <event_id> --config my-bridge.toml --json \
   > drill-evidence.json
 ```

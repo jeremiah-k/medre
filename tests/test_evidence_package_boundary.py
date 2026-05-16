@@ -42,6 +42,17 @@ class TestEvidencePackageBoundary:
             f"import it from medre.runtime.evidence._helpers instead."
         )
 
+    def test_init_source_mentions_no_private_submodules(self, evidence_pkg) -> None:
+        """``__init__.py`` source must not import or assign ``_helpers``."""
+        import inspect
+
+        source = inspect.getsource(evidence_pkg)
+        # The word _helpers should never appear in __init__.py source.
+        assert "_helpers" not in source, (
+            "medre.runtime.evidence.__init__ must not reference _helpers — "
+            "private submodule imports belong in internal modules, not the package root."
+        )
+
     def test_private_helpers_live_in_helpers_module(self) -> None:
         """Canonical internal module still exports all helpers."""
         from medre.runtime.evidence._helpers import (

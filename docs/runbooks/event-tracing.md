@@ -1,14 +1,25 @@
 # Event Tracing Runbook
 
-> Last updated: 2026-05-14
+> Last updated: 2026-05-16
 > Scope: Operator guide for tracing events through the MEDRE pipeline lifecycle
 > Status: Pre-beta. Not production. All tracing commands require SQLite storage.
 > Prerequisites: medre installed, runtime previously run with `[storage] backend = "sqlite"`.
 
 This runbook describes how to trace an event from ingestion through delivery,
 inspect the timeline of what happened, and diagnose where things went wrong.
-Tracing works against the persistent SQLite database — it cannot trace events
+Tracing works against the persistent SQLite database, it cannot trace events
 that only existed in memory.
+
+**Inspect-first investigation path:** For day-to-day incident investigation,
+`medre inspect event --timeline` is the preferred operator command. It
+produces the same enriched timeline output as `medre trace event` within a
+unified command surface. `medre inspect event --evidence` covers
+`medre evidence --event`, and `medre inspect event --recovery` covers
+`medre recover --event`. The `trace` command documented here is a specialized
+command that remains available for standalone timeline output and scripting.
+See the [Alpha Walkthrough](alpha-walkthrough.md) for the preferred product
+path, and [Operator Command Surface](../architecture/operator-command-surface.md)
+for the full command classification.
 
 **What tracing shows you:**
 

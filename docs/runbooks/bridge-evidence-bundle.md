@@ -99,23 +99,42 @@ PYTHONPATH=src medre evidence --config my-bridge.toml --include-refresh-health -
 
 ### 1.6 Post-Run Inspection
 
+For day-to-day investigation, start with `medre inspect` (the preferred
+operator path). The specialized `trace` command remains available for
+standalone timeline output.
+
 ```bash
 # Using --storage-path (read-only, no config needed):
 medre inspect event <event_id> --storage-path /tmp/medre-smoke.db
 medre inspect receipts --event <event_id> --storage-path /tmp/medre-smoke.db
-medre trace event <event_id> --storage-path /tmp/medre-smoke.db
+
+# Inspect with timeline (covers trace event output):
+medre inspect event <event_id> --timeline --storage-path /tmp/medre-smoke.db
+
+# Inspect with evidence (covers evidence --event output):
+medre inspect event <event_id> --evidence --storage-path /tmp/medre-smoke.db
+
+# Inspect with recovery guidance (covers recover --event output):
+medre inspect event <event_id> --recovery --storage-path /tmp/medre-smoke.db
+
+# Other inspect subcommands:
+medre inspect native-ref --adapter <name> --message <native_id> --storage-path /tmp/medre-smoke.db
+medre inspect receipts --replay-run <run_id> --storage-path /tmp/medre-smoke.db
 
 # Using --config (reads storage path from config):
 medre inspect event <event_id> --config my-bridge.toml
 medre inspect receipts --event <event_id> --config my-bridge.toml
-medre inspect native-ref --adapter <name> --message <native_id> --storage-path /tmp/medre-smoke.db
-medre inspect receipts --replay-run <run_id> --storage-path /tmp/medre-smoke.db
+
+# Specialized commands (standalone output, available but not primary path):
+medre trace event <event_id> --storage-path /tmp/medre-smoke.db
 ```
 
 > **Note:** `inspect event`, `inspect receipts`, `trace event`, `inspect native-ref`,
 > `inspect receipts --replay-run`, and `trace replay` all support
 > `--storage-path` for direct read-only access to a SQLite database.
-> `replay` and `recover` require `--config`.
+> `replay` and `recover` require `--config`. Use `inspect` as your first
+> investigation step; reach for the specialized commands when you need
+> standalone output or features beyond inspect flags.
 
 
 ## 2. Command Reference

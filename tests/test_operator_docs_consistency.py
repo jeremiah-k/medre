@@ -25,8 +25,11 @@ RUNBOOKS_DIR = _ROOT / "docs" / "runbooks"
 TARGET_DOCS = [
     RUNBOOKS_DIR / "alpha-walkthrough.md",
     RUNBOOKS_DIR / "bridge-operation.md",
+    RUNBOOKS_DIR / "bridge-recovery.md",
     RUNBOOKS_DIR / "replay-operation.md",
     RUNBOOKS_DIR / "bridge-evidence-bundle.md",
+    RUNBOOKS_DIR / "event-tracing.md",
+    RUNBOOKS_DIR / "bridge-failure-drills.md",
     RUNBOOKS_DIR / "configuration.md",
 ]
 
@@ -606,3 +609,222 @@ class TestNoPassFailJsonReport:
                     f"Use 'passed/failed JSON report' (past-tense status values).\n"
                     f"  {line.strip()}"
                 )
+
+
+# ===========================================================================
+# 14. Inspect-first investigation consistency
+# ===========================================================================
+
+
+# Docs that contain general operator workflows (incident response, post-run
+# inspection, crash recovery). These must present inspect as the primary
+# investigation path, with trace/evidence/recover framed as specialized.
+_INSPECT_FIRST_WORKFLOW_DOCS = [
+    RUNBOOKS_DIR / "bridge-recovery.md",
+    RUNBOOKS_DIR / "bridge-evidence-bundle.md",
+    RUNBOOKS_DIR / "bridge-failure-drills.md",
+    RUNBOOKS_DIR / "event-tracing.md",
+]
+
+
+class TestInspectFirstConsistency:
+    """General operator workflow docs must present `medre inspect` as the
+    primary investigation path. Trace, evidence, and recover are specialized
+    commands documented where appropriate but not presented as default first
+    steps in general workflows."""
+
+    @pytest.mark.parametrize(
+        "doc_path",
+        _INSPECT_FIRST_WORKFLOW_DOCS,
+        ids=lambda p: p.name,
+    )
+    def test_workflow_doc_mentions_inspect(self, doc_path: Path) -> None:
+        """Workflow docs must reference `medre inspect` as an investigation
+        command."""
+        if not doc_path.exists():
+            pytest.skip(f"{doc_path.name} not found")
+        text = _read(doc_path)
+        assert "medre inspect" in text, (
+            f"{doc_path.name} must reference 'medre inspect' as the "
+            f"primary investigation command."
+        )
+
+    @pytest.mark.parametrize(
+        "doc_path",
+        _INSPECT_FIRST_WORKFLOW_DOCS,
+        ids=lambda p: p.name,
+    )
+    def test_inspect_appears_before_trace_in_workflow(self, doc_path: Path) -> None:
+        """In workflow docs, the first `medre inspect` reference should appear
+        before or at the same position as the first `medre trace` reference
+        in a general workflow context (not within a specialized trace command
+        section)."""
+        if not doc_path.exists():
+            pytest.skip(f"{doc_path.name} not found")
+        text = _read(doc_path)
+        inspect_pos = text.find("medre inspect")
+        trace_pos = text.find("medre trace")
+        if inspect_pos < 0 or trace_pos < 0:
+            pytest.skip("Both inspect and trace must be present")
+        assert inspect_pos <= trace_pos, (
+            f"{doc_path.name} should present 'medre inspect' before "
+            f"'medre trace' in the document flow. inspect is the primary "
+            f"investigation surface."
+        )
+
+    def test_bridge_recovery_incident_workflow_inspect_first(self) -> None:
+        """bridge-recovery.md Section 0 incident workflow must present
+        inspect as the primary step, not trace."""
+        path = RUNBOOKS_DIR / "bridge-recovery.md"
+        if not path.exists():
+            pytest.skip("bridge-recovery.md not found")
+        text = _read(path)
+        # Find Section 0
+        section0_start = text.find("## 0.")
+        if section0_start < 0:
+            pytest.skip("Section 0 not found")
+        # Find next section header
+        section1_start = text.find("\n## 1.", section0_start)
+        if section1_start < 0:
+            section1_start = len(text)
+        section0 = text[section0_start:section1_start]
+        # In Section 0, inspect should appear before trace in workflow steps
+        inspect_pos = section0.find("medre inspect event")
+        trace_pos = section0.find("medre trace event")
+        if inspect_pos < 0:
+            pytest.fail(
+                "bridge-recovery.md Section 0 must include "
+                "'medre inspect event' in the incident workflow."
+            )
+        if trace_pos >= 0:
+            assert inspect_pos < trace_pos, (
+                "bridge-recovery.md Section 0 should present "
+                "'medre inspect event' before 'medre trace event' "
+                "in the incident workflow."
+            )
+
+    def test_bridge_evidence_bundle_post_run_inspect_primary(self) -> None:
+        """bridge-evidence-bundle.md post-run inspection section must
+        present inspect as the primary path, with trace as specialized."""
+        path = RUNBOOKS_DIR / "bridge-evidence-bundle.md"
+        if not path.exists():
+            pytest.skip("bridge-evidence-bundle.md not found")
+        text = _read(path)
+        # Find the post-run inspection section
+        section_pos = text.find("### 1.6 Post-Run Inspection")
+        if section_pos < 0:
+            pytest.skip("Post-Run Inspection section not found")
+        section_end = text.find("\n## ", section_pos + 1)
+        if section_end < 0:
+            section_end = len(text)
+        section = text[section_pos:section_end]
+        # Inspect should appear before trace in this section
+        inspect_pos = section.find("medre inspect event")
+        trace_pos = section.find("medre trace event")
+        assert inspect_pos >= 0, (
+            "bridge-evidence-bundle.md post-run inspection must "
+            "include 'medre inspect event'."
+        )
+        if trace_pos >= 0:
+            assert inspect_pos < trace_pos, (
+                "bridge-evidence-bundle.md post-run inspection should "
+                "present 'medre inspect event' before 'medre trace event'."
+            )
+
+    def test_event_tracing_mentions_inspect_first_path(self) -> None:
+        """event-tracing.md must include an inspect-first cross-reference
+        near the top of the document."""
+        path = RUNBOOKS_DIR / "event-tracing.md"
+        if not path.exists():
+            pytest.skip("event-tracing.md not found")
+        text = _read(path)
+        assert "inspect event --timeline" in text, (
+            "event-tracing.md must cross-reference 'medre inspect event "
+            "--timeline' as the preferred operator path."
+        )
+
+    def test_bridge_failure_drills_incident_workflow_inspect_first(self) -> None:
+        """bridge-failure-drills.md incident workflow cross-check section
+        must present inspect as the primary step, not trace."""
+        path = RUNBOOKS_DIR / "bridge-failure-drills.md"
+        if not path.exists():
+            pytest.skip("bridge-failure-drills.md not found")
+        text = _read(path)
+        section_pos = text.find("## 11. Incident Workflow Cross-Check")
+        if section_pos < 0:
+            pytest.skip("Incident Workflow Cross-Check section not found")
+        section_end = text.find("\n## ", section_pos + 1)
+        if section_end < 0:
+            section_end = len(text)
+        section = text[section_pos:section_end]
+        inspect_pos = section.find("medre inspect event")
+        trace_pos = section.find("medre trace event")
+        assert inspect_pos >= 0, (
+            "bridge-failure-drills.md incident workflow must include "
+            "'medre inspect event'."
+        )
+        if trace_pos >= 0:
+            assert inspect_pos < trace_pos, (
+                "bridge-failure-drills.md incident workflow should present "
+                "'medre inspect event' before 'medre trace event'."
+            )
+
+
+# ===========================================================================
+# 15. Alpha command surface freeze section present
+# ===========================================================================
+
+
+class TestAlphaCommandSurfaceFreeze:
+    """operator-command-surface.md must include the alpha command surface
+    freeze section documenting the frozen command categories."""
+
+    def test_freeze_section_present(self) -> None:
+        """operator-command-surface.md must have an 'Alpha command surface
+        freeze' section."""
+        path = _ROOT / "docs" / "architecture" / "operator-command-surface.md"
+        if not path.exists():
+            pytest.skip("operator-command-surface.md not found")
+        text = _read(path)
+        assert "Alpha command surface freeze" in text, (
+            "operator-command-surface.md must include an 'Alpha command "
+            "surface freeze' section."
+        )
+
+    def test_freeze_section_lists_categories(self) -> None:
+        """The freeze section must list Product, Validation, and Specialized
+        categories."""
+        path = _ROOT / "docs" / "architecture" / "operator-command-surface.md"
+        if not path.exists():
+            pytest.skip("operator-command-surface.md not found")
+        text = _read(path)
+        freeze_start = text.find("Alpha command surface freeze")
+        if freeze_start < 0:
+            pytest.fail("Alpha command surface freeze section not found")
+        freeze_end = text.find("\n## ", freeze_start + 1)
+        if freeze_end < 0:
+            freeze_end = len(text)
+        section = text[freeze_start:freeze_end]
+        for category in ("Product surface", "Validation surface", "Specialized surface"):
+            assert category in section, (
+                f"Freeze section must list '{category}' category."
+            )
+
+    def test_freeze_section_states_inspect_preferred(self) -> None:
+        """The freeze section must state that inspect is the preferred
+        investigation path."""
+        path = _ROOT / "docs" / "architecture" / "operator-command-surface.md"
+        if not path.exists():
+            pytest.skip("operator-command-surface.md not found")
+        text = _read(path)
+        freeze_start = text.find("Alpha command surface freeze")
+        if freeze_start < 0:
+            pytest.fail("Alpha command surface freeze section not found")
+        freeze_end = text.find("\n## ", freeze_start + 1)
+        if freeze_end < 0:
+            freeze_end = len(text)
+        section = text[freeze_start:freeze_end]
+        assert "preferred investigation path" in section.lower(), (
+            "Freeze section must state that inspect is the preferred "
+            "investigation path."
+        )

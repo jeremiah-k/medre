@@ -230,3 +230,41 @@ available for operators who need standalone output or features beyond what
 inspect flags provide. No deprecations, no aliases, no shims. `smoke` is
 local validation tooling for developers and CI, not a daily bridge operator
 command.
+
+
+## Alpha command surface freeze
+
+The alpha command surface is frozen. No new commands, subcommands, or flags
+will be added without project coordinator review. This freeze applies to the
+following categories:
+
+**Product surface** (daily operator commands):
+
+- `medre config check`
+- `medre routes validate` / `topology` / `list`
+- `medre run`
+- `medre diagnostics`
+- `medre inspect event` / `receipts` / `native-ref` / `replay`
+- `medre replay`
+
+**Validation surface** (developer/CI tooling):
+
+- `medre smoke`
+
+**Specialized surface** (available, not primary daily path):
+
+- `medre trace event` / `replay`
+- `medre evidence`
+- `medre recover`
+
+**Freeze policy:**
+
+- `inspect` is the preferred investigation path for all operator workflows.
+  `inspect event --timeline` covers `trace event`, `inspect event --evidence`
+  covers `evidence --event`, and `inspect event --recovery` covers
+  `recover --event`.
+- The specialized commands (`trace`, `evidence`, `recover`) are supported and
+  will not be removed. They serve operators who need standalone output, batch
+  processing, or features not exposed through inspect flags.
+- No new product-surface commands or flags will be introduced without explicit
+  project coordinator approval and a corresponding update to this document.
