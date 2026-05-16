@@ -1041,3 +1041,52 @@ class TestRecoverClassification:
             assert "adapter_transient" in output
             assert "retryable" in output
             assert "Recommended next commands" in output
+
+    def test_commands_shape_primary_specialized(self) -> None:
+        """Recover runbook has commands with primary (inspect-first) and specialized."""
+        event = _FakeEvent()
+        receipt = _FakeReceipt(
+            status="failed",
+            target_adapter="adapter_a",
+            error="TimeoutError: timed out",
+        )
+
+        mock_storage = AsyncMock()
+        mock_storage.get = AsyncMock(return_value=event)
+        mock_storage.list_receipts_for_event = AsyncMock(return_value=[receipt])
+        mock_storage.list_native_refs_for_event = AsyncMock(return_value=[])
+        mock_storage.list_relations = AsyncMock(return_value=[])
+        mock_storage.close = AsyncMock()
+
+        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
+            output = _run_cli(
+                "recover", "--event", "evt-1",
+                "--json", "--config", "/nonexistent",
+            )
+            parsed = json.loads(output)
+            cmds = parsed["commands"]
+            assert "primary" in cmds
+            assert "specialized" in cmds
+            assert isinstance(cmds["primary"], list)
+            assert isinstance(cmds["specialized"], list)
+
+            # Primary commands are inspect-first (no trace/evidence/recover).
+            for cmd in cmds["primary"]:
+                assert not cmd.startswith("medre trace "), (
+                    f"Primary should not start with 'medre trace': {cmd}"
+                )
+                assert not cmd.startswith("medre evidence "), (
+                    f"Primary should not start with 'medre evidence': {cmd}"
+                )
+                assert not cmd.startswith("medre recover "), (
+                    f"Primary should not start with 'medre recover': {cmd}"
+                )
+
+            # Specialized includes the recover command.
+            recover_cmds = [
+                c for c in cmds["specialized"]
+                if c.startswith("medre recover ")
+            ]
+            assert len(recover_cmds) > 0, (
+                f"Expected 'medre recover' in specialized: {cmds['specialized']}"
+            )

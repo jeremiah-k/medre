@@ -73,6 +73,6 @@ async def _evidence(
             for err in errors:
                 print(f"  \u2717 {err}")
 
-    # Exit 0 for ok/partial, EXIT_CONFIG for config load failure.
+    # Exit 0 for passed/partial, EXIT_CONFIG for config load failure.
     if report["status"] == "error":
         sys.exit(EXIT_CONFIG)

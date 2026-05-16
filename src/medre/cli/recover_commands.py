@@ -113,6 +113,12 @@ async def _build_event_recovery_runbook(
             cat: items for cat, items in classification.items() if items
         },
         "recommended_commands": unique_commands,
+        "commands": {
+            "primary": unique_commands,
+            "specialized": [
+                f"medre recover --event {event_id}",
+            ],
+        },
         "timeline": timeline_entries,
         "warnings": [],
     }

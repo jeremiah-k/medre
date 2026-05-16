@@ -9,9 +9,9 @@ Phase 0: ``medre config check``, ``medre routes validate`` (pre-flight)
 Phase 1: ``medre smoke --config <path> --storage-path <db> --json`` (optional local validation)
 Phase 2: ``medre inspect event <id> --storage-path <db>`` (inspect-first)
          ``medre inspect receipts --event <id> --storage-path <db>``
-Phase 3: ``medre inspect event <id> --timeline --storage-path <db> --json`` (deeper investigation)
-         ``medre inspect event <id> --evidence --storage-path <db> --json``
-         ``medre inspect event <id> --recovery --storage-path <db> --json``
+Phase 3: ``medre inspect event <id> --timeline --storage-path <db>`` (deeper investigation)
+         ``medre inspect event <id> --evidence --storage-path <db>``
+         ``medre inspect event <id> --recovery --storage-path <db>``
 Phase 4: ``medre replay --config <path> --mode dry_run --event <id> --json`` (lower-level, specialized)
          ``medre replay --config <path> --mode best_effort --event <id> --json``
 
@@ -506,8 +506,8 @@ class TestAlphaFullWalkthroughCLI:
         Phases (as documented in alpha-walkthrough.md):
         Phase 1: medre smoke --config <path> --storage-path <db> --json  → event_id
         Phase 2: medre inspect receipts --event <id> --storage-path <db>  (inspect-first)
-        Phase 3: medre inspect event <id> --timeline --storage-path <db> --json  (deeper investigation)
-                 medre inspect event <id> --evidence --storage-path <db> --json
+        Phase 3: medre inspect event <id> --timeline --storage-path <db>  (deeper investigation)
+                 medre inspect event <id> --evidence --storage-path <db>
         Phase 4: medre replay --config <path> --mode dry_run --event <id> --json    (lower-level)
                  medre replay --config <path> --mode best_effort --event <id> --json
         """
@@ -684,7 +684,7 @@ class TestAlphaNoTracebacks:
     def test_inspect_event_missing_storage_path_and_config(self) -> None:
         """inspect event without --storage-path or --config exits cleanly."""
         with pytest.raises(SystemExit):
-            main(["inspect", "event", "nonexistent", "--timeline", "--json"])
+            main(["inspect", "event", "nonexistent", "--timeline"])
 
     def test_replay_rejects_storage_path(self, tmp_path: Path) -> None:
         """replay --storage-path exits with an error message."""

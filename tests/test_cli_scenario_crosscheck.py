@@ -149,7 +149,7 @@ class TestScenarioCrossCheck:
     async def test_commands_dict_has_argv_and_text(
         self, scenario: str, tmp_path: Path,
     ) -> None:
-        """Report commands dict has commands_argv (list) and commands_text (string)."""
+        """Report commands dict has commands_argv and commands_text with primary/specialized."""
         from medre.runtime.run_session import run_bridge_session
 
         db_path = str(tmp_path / f"cmds-{scenario}.db")
@@ -161,13 +161,21 @@ class TestScenarioCrossCheck:
         commands = report.get("commands", {})
         assert "commands_argv" in commands, f"Missing commands_argv for {scenario}"
         assert "commands_text" in commands, f"Missing commands_text for {scenario}"
+        # Each section has primary and specialized sub-dicts.
+        for section in ("commands_argv", "commands_text"):
+            assert "primary" in commands[section], (
+                f"Missing {section}['primary'] for {scenario}"
+            )
+            assert "specialized" in commands[section], (
+                f"Missing {section}['specialized'] for {scenario}"
+            )
 
     @pytest.mark.parametrize("scenario", _SCENARIOS)
     @pytest.mark.asyncio
     async def test_commands_argv_are_proper_lists(
         self, scenario: str, tmp_path: Path,
     ) -> None:
-        """commands_argv entries are proper lists (not strings) containing config path."""
+        """commands_argv entries (primary + specialized) are proper lists with --config."""
         from medre.runtime.run_session import run_bridge_session
 
         db_path = str(tmp_path / f"argv-{scenario}.db")
@@ -177,14 +185,18 @@ class TestScenarioCrossCheck:
         )
         assert report["status"] == "passed"
         commands_argv = report["commands"]["commands_argv"]
-        for cmd_name, argv in commands_argv.items():
-            assert isinstance(argv, list), (
-                f"commands_argv[{cmd_name!r}] is {type(argv).__name__}, expected list"
-            )
-            if argv:
-                assert "--config" in argv, (
-                    f"commands_argv[{cmd_name!r}] missing --config: {argv}"
+        for category in ("primary", "specialized"):
+            cat_cmds = commands_argv[category]
+            for cmd_name, argv in cat_cmds.items():
+                assert isinstance(argv, list), (
+                    f"commands_argv[{category}][{cmd_name!r}] is "
+                    f"{type(argv).__name__}, expected list"
                 )
+                if argv:
+                    assert "--config" in argv, (
+                        f"commands_argv[{category}][{cmd_name!r}] "
+                        f"missing --config: {argv}"
+                    )
 
     @pytest.mark.parametrize("scenario", _SCENARIOS)
     @pytest.mark.asyncio
@@ -245,7 +257,7 @@ class TestScenarioCrossCheck:
     async def test_report_commands_inspect_first(
         self, scenario: str, tmp_path: Path,
     ) -> None:
-        """Report commands include inspect-first keys (inspect_event, inspect_timeline, etc.)."""
+        """Report primary commands are inspect-first; specialized are lower-level."""
         from medre.runtime.run_session import run_bridge_session
 
         db_path = str(tmp_path / f"inspect-first-{scenario}.db")
@@ -256,16 +268,51 @@ class TestScenarioCrossCheck:
         assert report["status"] == "passed"
         commands = report.get("commands", {})
         text_commands = commands.get("commands_text", {})
+        primary = text_commands.get("primary", {})
+        specialized = text_commands.get("specialized", {})
 
         # Inspect-first primary keys present.
         for key in ("inspect_event", "inspect_timeline", "inspect_receipts",
                      "inspect_evidence", "inspect_recovery"):
-            assert key in text_commands, (
-                f"Missing commands_text[{key!r}] for {scenario}"
+            assert key in primary, (
+                f"Missing primary[{key!r}] for {scenario}"
             )
-            assert "medre inspect" in text_commands[key], (
-                f"{key} should start with 'medre inspect': {text_commands[key]}"
+            assert "medre inspect" in primary[key], (
+                f"{key} should contain 'medre inspect': {primary[key]}"
             )
 
-        # Trace is still present as specialised / lower-level.
-        assert "trace" in text_commands
+        # Primary commands do NOT start with trace/evidence/recover.
+        for key, cmd in primary.items():
+            assert not cmd.startswith("medre trace "), (
+                f"Primary command {key!r} starts with 'medre trace': {cmd}"
+            )
+            assert not cmd.startswith("medre evidence "), (
+                f"Primary command {key!r} starts with 'medre evidence': {cmd}"
+            )
+            assert not cmd.startswith("medre recover "), (
+                f"Primary command {key!r} starts with 'medre recover': {cmd}"
+            )
+
+        # Specialized keys present: trace_event, evidence_bundle, recover_event.
+        assert "trace_event" in specialized, (
+            f"Missing specialized['trace_event'] for {scenario}"
+        )
+        assert "evidence_bundle" in specialized, (
+            f"Missing specialized['evidence_bundle'] for {scenario}"
+        )
+        assert "recover_event" in specialized, (
+            f"Missing specialized['recover_event'] for {scenario}"
+        )
+
+        # Specialized commands use their respective CLI surfaces.
+        assert specialized["trace_event"].startswith("medre trace "), (
+            f"trace_event should start with 'medre trace': {specialized['trace_event']}"
+        )
+        assert specialized["evidence_bundle"].startswith("medre evidence "), (
+            f"evidence_bundle should start with 'medre evidence': "
+            f"{specialized['evidence_bundle']}"
+        )
+        assert specialized["recover_event"].startswith("medre recover "), (
+            f"recover_event should start with 'medre recover': "
+            f"{specialized['recover_event']}"
+        )

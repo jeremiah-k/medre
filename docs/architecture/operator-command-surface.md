@@ -1,13 +1,13 @@
 # Operator Command Surface
 
 > Last updated: 2026-05-16
-> Scope: Intended CLI command surface for first release
-> Status: Architecture definition. No CLI code changes.
+> Scope: CLI command surface source of truth
+> Status: Source of truth for all command operational properties. Runbooks and help text must align with this document.
 
-This document defines the intended operator command surface before first
-release. It inventories every CLI command that exists today, groups them by
-operator role, and classifies each as keep, consolidate, fold into another
-command, or developer tooling.
+This document is the source of truth for the operator command surface. It
+inventories every CLI command, groups them by role, and specifies their exact
+operational properties. CLI help text and runbooks must align with the decision
+table below.
 
 **No deprecations or compatibility shims are needed.** medre has not been
 publicly released. All consolidation can happen cleanly before any user depends
@@ -47,6 +47,51 @@ Every command registered in `src/medre/cli/main.py` as of this writing.
 | `medre trace` | `event`, `replay` | Chronological timeline assembly | `cli/trace_commands.py` |
 | `medre replay` | | Execute a replay operation | `cli/replay_commands.py` |
 | `medre recover` | | Analyze failed deliveries, generate recovery runbook | `cli/recover_commands.py` |
+
+
+## Operational properties decision table
+
+This table is the authoritative reference for what each command does. Every
+runbook, help string, and operator-facing description must be consistent with
+these properties. Column definitions:
+
+- **Starts runtime**: Whether the command initializes and starts adapters.
+  "build" means it constructs the runtime without starting adapters.
+  "fake" means it starts fake adapters only.
+- **Sends messages**: Whether the command can produce outbound messages on real
+  transports. "best_effort" means only in `best_effort` replay mode.
+- **Reads storage**: Whether the command reads from SQLite.
+- **Mutates storage**: Whether the command writes events or receipts to SQLite.
+- **Requires config**: Whether the command needs a config file to function.
+  "opt" means config is optional; `--storage-path` can substitute.
+- **Supports --storage-path**: Whether the command accepts a direct SQLite path.
+- **Role**: `product` for daily operator commands, `specialized` for advanced
+  incident commands, `validation` for developer/CI tooling, `internal` for
+  plumbing that is not a top-level command.
+
+| Command | Starts runtime | Sends messages | Reads storage | Mutates storage | Requires config | Supports --storage-path | Role |
+|---------|:---:|:---:|:---:|:---:|:---:|:---:|---|
+| `run` | yes | yes | yes | yes | yes | no | product |
+| `config check` | no | no | no | no | opt | no | product |
+| `config sample` | no | no | no | no | no | no | product |
+| `paths` | no | no | no | no | no | no | product |
+| `version` | no | no | no | no | no | no | product |
+| `adapters` | no | no | no | no | opt | no | product |
+| `diagnostics` | build | no | no | no | yes | no | product |
+| `diagnostics --refresh-health` | yes | no | yes | no | yes | no | product |
+| `routes validate` | no | no | no | no | yes | no | product |
+| `routes topology` | no | no | no | no | yes | no | product |
+| `routes list` | no | no | no | no | yes | no | product |
+| `inspect event` | no | no | yes | no | opt | yes | product (primary) |
+| `inspect receipts` | no | no | yes | no | opt | yes | product |
+| `inspect native-ref` | no | no | yes | no | opt | yes | product |
+| `inspect replay` | no | no | yes | no | opt | yes | product |
+| `trace event` | no | no | yes | no | opt | yes | specialized |
+| `trace replay` | no | no | yes | no | opt | yes | specialized |
+| `evidence` | build | no | yes | no | opt | yes | specialized |
+| `replay` | yes | best_effort | yes | yes | yes | no | product |
+| `recover` | no | no | yes | no | yes | no | specialized |
+| `smoke` | fake | fake only | opt | opt | opt | yes | validation |
 
 
 ## Per-command classification
@@ -162,9 +207,9 @@ medre replay           Recovery action (re-deliver historical events)
 **Specialized commands (3 commands, available but not primary daily path):**
 
 ```
-medre trace            Standalone timeline (usually prefer inspect event --timeline)
-medre evidence         Standalone support bundle (usually prefer inspect event --evidence)
-medre recover          Standalone recovery classification (usually prefer inspect event --recovery)
+medre trace            Specialized timeline (usually inspect event --timeline)
+medre evidence         Specialized support bundle (usually inspect event --evidence)
+medre recover          Specialized recovery classification (usually inspect event --recovery)
 ```
 
 **Developer tooling (1 command):**

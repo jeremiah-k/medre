@@ -1021,7 +1021,7 @@ investigation command. Operators should understand the boundaries:
 | Command | Storage | Starts adapters | Output | Persistence |
 |---------|---------|----------------|--------|-------------|
 | ``medre inspect *`` | Opens existing SQLite (read-only) | No | Queried data | Reads existing DB |
-| ``medre smoke`` | In-memory by default; SQLite with ``--storage-path`` | Yes (fake only) | pass/fail JSON report | Ephemeral by default; SQLite persists with ``--storage-path`` |
+| ``medre smoke`` | In-memory by default; SQLite with ``--storage-path`` | Yes (fake only) | passed/failed JSON report | Ephemeral by default; SQLite persists with ``--storage-path`` |
 | ``medre evidence`` | Per config (memory or SQLite) | Fake only (or real with ``--include-refresh-health``) | Full evidence bundle JSON | Per config |
 | ``medre diagnostics`` | None (build-time) | No | Build-time snapshot | N/A (no data written) |
 | ``medre diagnostics --refresh-health`` | None | Yes (real or fake) | Live health snapshot | Ephemeral — lost on exit |
@@ -1065,7 +1065,7 @@ file does not exist or cannot be opened.
 ### Evidence Command (Specialized)
 
 The `evidence` command is a specialized support bundle command. For per-event
-investigation, `inspect event --evidence` is usually preferred. Use `evidence`
+investigation, `inspect event --evidence` is usually the right choice. Use `evidence`
 when you need a full bridge evidence bundle with optional live health refresh.
 
 ```bash
@@ -1082,7 +1082,7 @@ medre evidence --config my-bridge.toml --event <event_id> --json
 `medre evidence` collects config summary, route validation, diagnostics
 snapshot, optional live health, and storage inspection into a single JSON
 report. It is the recommended operator command for pre-runtime validation
-and bug report attachments. Exit codes: 0 = ok/partial, 2 = config error.
+and bug report attachments. Exit codes: 0 (passed/partial), 2 = config error.
 
 With `--include-refresh-health`, the command starts all enabled adapters,
 polls health once, captures the live snapshot, and stops. This opens real

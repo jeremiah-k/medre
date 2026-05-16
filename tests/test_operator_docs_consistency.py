@@ -523,8 +523,8 @@ class TestBareStatusVocabularyDrift:
             # Skip drill_steps result lines.
             if '"result": "ok"' in stripped:
                 continue
-            # Skip exit code columns (e.g. "0=ok, 2=config").
-            if re.match(r".*\d=\bok\b", stripped):
+            # Skip exit code columns like "0 (success)" (distinguishes exit code from status).
+            if re.match(r".*\d\s*\(success\)", stripped):
                 continue
             # Catch "ok / passed" in table rows (backtick-wrapped).
             if re.search(r"`ok`\s*/\s*`passed`", stripped):
@@ -539,4 +539,70 @@ class TestBareStatusVocabularyDrift:
                     f"{doc_path.name}:{lineno}: bare 'ok' in status "
                     f"vocabulary. Code uses 'passed', not 'ok'.\n"
                     f"  {stripped}"
+                )
+
+
+# ===========================================================================
+# 12. No stale exit-code/status conflation (0=ok)
+# ===========================================================================
+
+
+class TestNoStaleExitCodeOk:
+    """Exit code columns must not use 'ok' as a status synonym.
+
+    The correct vocabulary is 'passed' for evidence/smoke status, or 'success'
+    for exit-code-only semantics (e.g. diagnostics). The pattern ``0=ok``
+    conflates exit codes with JSON status and must not appear.
+    """
+
+    @pytest.mark.parametrize(
+        "doc_path",
+        TARGET_DOCS,
+        ids=lambda p: p.name,
+    )
+    def test_no_0_equals_ok_in_exit_code_columns(self, doc_path: Path) -> None:
+        """Exit code columns must not contain ``0=ok``."""
+        if not doc_path.exists():
+            pytest.skip(f"{doc_path.name} not found")
+        text = _read(doc_path)
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            stripped = line.strip()
+            if re.search(r"\d=\bok\b", stripped):
+                pytest.fail(
+                    f"{doc_path.name}:{lineno}: stale '0=ok' in exit code "
+                    f"column. Use '0=passed' (for status-bearing commands) "
+                    f"or '0 (success)' (for exit-code-only commands).\n"
+                    f"  {stripped}"
+                )
+
+
+# ===========================================================================
+# 13. No "pass/fail JSON report" — use "passed/failed"
+# ===========================================================================
+
+
+class TestNoPassFailJsonReport:
+    """Docs must say 'passed/failed JSON report', not 'pass/fail JSON report'.
+
+    The smoke command JSON uses ``"status": "passed"`` and
+    ``"status": "failed"`` — past-tense, not present-tense.
+    """
+
+    @pytest.mark.parametrize(
+        "doc_path",
+        TARGET_DOCS,
+        ids=lambda p: p.name,
+    )
+    def test_no_pass_fail_json_report(self, doc_path: Path) -> None:
+        """Docs must not say 'pass/fail JSON report'."""
+        if not doc_path.exists():
+            pytest.skip(f"{doc_path.name} not found")
+        text = _read(doc_path)
+        pattern = re.compile(r"pass\s*/\s*fail\s+JSON\s+report", re.IGNORECASE)
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            if pattern.search(line):
+                pytest.fail(
+                    f"{doc_path.name}:{lineno}: stale 'pass/fail JSON report'. "
+                    f"Use 'passed/failed JSON report' (past-tense status values).\n"
+                    f"  {line.strip()}"
                 )

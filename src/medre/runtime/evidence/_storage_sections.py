@@ -1,0 +1,391 @@
+"""Storage evidence sections — shared backend collector, config-backed, and storage-path direct mode."""
+
+from __future__ import annotations
+
+import os
+from datetime import datetime
+from typing import Any, Callable
+
+from medre.config.paths import MedrePaths, MedrePathsError
+
+from ._helpers import (
+    SCHEMA_VERSION,
+    _LIMITATIONS,
+    _compute_overall_status,
+    _get_version,
+    _now_utc,
+    _section_error,
+    _section_ok,
+    _section_partial,
+    _section_skipped,
+)
+
+
+# ---------------------------------------------------------------------------
+# Shared storage data collector
+# ---------------------------------------------------------------------------
+
+
+async def _collect_storage_data_from_backend(
+    storage: Any,
+    db_path: str,
+    event_id: str | None,
+    replay_run_id: str | None,
+) -> dict[str, Any]:
+    """Collect storage evidence from an already-opened read-only backend.
+
+    Accepts a storage instance opened in read-only mode by the caller.
+    Returns a section dict (``status``, ``data``, ``error``) with the same
+    shape as the ``storage`` section in the evidence bundle.
+
+    The caller is responsible for opening and closing the storage backend.
+    """
+    from medre.runtime import timeline as _timeline
+
+    data: dict[str, Any] = {
+        "db_exists": True,
+        "db_path": db_path,
+        "event": None,
+        "event_count": None,
+        "native_refs_for_event": None,
+        "receipt_count": None,
+        "replay_run_receipts": None,
+        "timeline": None,
+        "replay_timeline": None,
+    }
+
+    try:
+        # Counts.
+        data["event_count"] = await storage.count_events()
+        data["receipt_count"] = await storage.count_receipts()
+
+        # Optional event lookup.
+        if event_id is not None:
+            import json as _json
+
+            import msgspec
+
+            tl_result = await _timeline.assemble_event_timeline(
+                storage, event_id,
+            )
+            if tl_result is not None:
+                event = tl_result["event"]
+                receipts = tl_result["receipts"]
+                native_refs = tl_result["native_refs"]
+
+                data["event"] = _json.loads(msgspec.json.encode(event))
+                data["native_refs_for_event"] = [
+                    _json.loads(msgspec.json.encode(r)) for r in native_refs
+                ]
+
+                data["timeline"] = tl_result["timeline_entries"]
+
+                # Compact incident summary using shared classification.
+                from medre.observability.classification import (
+                    infer_failure_kind,
+                    failure_category,
+                    recommended_commands,
+                )
+
+                receipt_dicts = [
+                    _json.loads(msgspec.json.encode(r)) for r in receipts
+                ]
+                failed_count = sum(
+                    1 for r in receipt_dicts
+                    if r.get("status") in ("failed", "dead_lettered")
+                )
+                sent_count = sum(
+                    1 for r in receipt_dicts
+                    if r.get("status") == "sent"
+                )
+
+                first_failure_kind: str | None = None
+                worst_category = "success"
+                for r in receipt_dicts:
+                    if r.get("status") in ("failed", "dead_lettered"):
+                        fk = infer_failure_kind(
+                            r.get("error"), r.get("status", ""),
+                        )
+                        if first_failure_kind is None:
+                            first_failure_kind = fk
+                        cat = failure_category(fk)
+                        if cat != "success":
+                            worst_category = cat
+                            break
+
+                has_replay = any(
+                    r.get("source") == "replay" for r in receipt_dicts
+                )
+                has_native_refs = len(native_refs) > 0
+
+                # Determine overall classification for the event.
+                if failed_count == 0:
+                    classification = "success"
+                elif worst_category != "success":
+                    classification = worst_category
+                else:
+                    classification = "unknown"
+
+                cmds = recommended_commands(classification, event_id) \
+                    if classification != "success" \
+                    else [f"medre inspect event {event_id} --timeline"]
+
+                # Specialised lower-level command for evidence bundle.
+                evidence_cmd = f"medre evidence --event {event_id} --json"
+
+                # Primary commands are the inspect-first recommendations.
+                # Specialised commands are lower-level tools (evidence, trace).
+                structured_commands: dict[str, Any] = {
+                    "primary": cmds,
+                    "specialized": [evidence_cmd],
+                }
+
+                # If a replay run is in context, add inspect_replay to primary.
+                if replay_run_id is not None:
+                    structured_commands["primary"] = list(cmds) + [
+                        f"medre inspect event {event_id} --replay-run {replay_run_id}",
+                    ]
+
+                data["incident_summary"] = {
+                    "event_id": event_id,
+                    "event_kind": event.event_kind,
+                    "source_adapter": event.source_adapter,
+                    "first_failure_kind": first_failure_kind,
+                    "classification": classification,
+                    "replay_receipts_present": has_replay,
+                    "native_refs_present": has_native_refs,
+                    "receipt_count": len(receipt_dicts),
+                    "failed_count": failed_count,
+                    "sent_count": sent_count,
+                    "recommended_commands": cmds,
+                    "commands": structured_commands,
+                }
+            # else: event not found — keep None, not an error for the section.
+
+        # Optional replay-run receipts.
+        if replay_run_id is not None:
+            import json as _json
+
+            import msgspec
+
+            tl_replay = await _timeline.assemble_replay_timeline(
+                storage, replay_run_id,
+            )
+            if tl_replay is not None:
+                data["replay_run_receipts"] = [
+                    _json.loads(msgspec.json.encode(r))
+                    for r in tl_replay["receipts"]
+                ]
+                data["replay_timeline"] = tl_replay["timeline_entries"]
+            else:
+                data["replay_run_receipts"] = []
+
+        # If event was requested but not found, report partial.
+        if event_id is not None and data["event"] is None:
+            return _section_partial(
+                data, f"Event {event_id!r} not found in storage"
+            )
+
+        return _section_ok(data)
+    except Exception as exc:
+        return _section_partial(data, f"Storage query error: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Storage section (config-backed)
+# ---------------------------------------------------------------------------
+
+
+async def _collect_storage_section(
+    config: Any,
+    paths: MedrePaths,
+    event_id: str | None,
+    replay_run_id: str | None,
+) -> dict[str, Any]:
+    """Build storage evidence section using read-only access.
+
+    Never creates or mutates the database file.  Missing/invalid storage
+    produces a partial or skipped section.
+    """
+    from medre.core.storage.sqlite import SQLiteStorage
+
+    storage_config = config.storage
+
+    # Memory backend — nothing persistent to inspect.
+    if storage_config.backend == "memory":
+        return _section_skipped(
+            "Storage backend is 'memory' — no persistent data to inspect"
+        )
+
+    # Resolve DB path.
+    if storage_config.path:
+        try:
+            db_path = str(paths.expand_placeholder(storage_config.path))
+        except MedrePathsError as exc:
+            return _section_error(f"Invalid storage path: {exc}")
+    else:
+        db_path = str(paths.database_path)
+
+    db_exists = os.path.exists(db_path)
+    if not db_exists:
+        return _section_partial(
+            {
+                "db_exists": False,
+                "db_path": db_path,
+                "event": None,
+                "event_count": None,
+                "native_refs_for_event": None,
+                "receipt_count": None,
+                "replay_run_receipts": None,
+                "timeline": None,
+                "replay_timeline": None,
+            },
+            f"Database file does not exist: {db_path}",
+        )
+
+    # Open read-only.
+    storage: Any | None = None
+    try:
+        storage = await SQLiteStorage.open_readonly(db_path)
+    except Exception as exc:
+        return _section_partial(
+            {
+                "db_exists": True,
+                "db_path": db_path,
+                "event": None,
+                "event_count": None,
+                "native_refs_for_event": None,
+                "receipt_count": None,
+                "replay_run_receipts": None,
+                "timeline": None,
+                "replay_timeline": None,
+            },
+            f"Cannot open database read-only: {exc}",
+        )
+
+    try:
+        return await _collect_storage_data_from_backend(
+            storage, db_path, event_id, replay_run_id,
+        )
+    finally:
+        if storage is not None:
+            await storage.close()
+
+
+# ---------------------------------------------------------------------------
+# storage-path direct mode
+# ---------------------------------------------------------------------------
+
+
+def _build_storage_path_bundle(
+    sections: dict[str, Any],
+    errors: list[str],
+    now_fn: Callable[[], datetime],
+) -> dict[str, Any]:
+    """Assemble the top-level bundle dict for ``--storage-path`` mode."""
+    overall = _compute_overall_status(sections)
+    return {
+        "collected_at": now_fn().isoformat(),
+        "command": "evidence",
+        "config_source": "storage_path",
+        "errors": errors,
+        "generated_at": now_fn().isoformat(),
+        "limitations": _LIMITATIONS,
+        "medre_version": _get_version(),
+        "runtime_started": False,
+        "schema_version": SCHEMA_VERSION,
+        "sections": sections,
+        "status": overall,
+    }
+
+
+async def _collect_storage_path_bundle(
+    storage_path: str,
+    *,
+    event_id: str | None = None,
+    replay_run_id: str | None = None,
+    now_fn: Callable[[], datetime] | None = None,
+) -> dict[str, Any]:
+    """Collect evidence bundle using a direct storage path (no config file).
+
+    Opens the database read-only and collects only storage/trace evidence.
+    Config, route validation, diagnostics, and live health sections are
+    skipped with clear notes.
+
+    Storage data collection is delegated to
+    :func:`_collect_storage_data_from_backend`, shared with the config-backed
+    path.
+    """
+    from medre.core.storage.sqlite import SQLiteStorage
+
+    _now = now_fn or _now_utc
+
+    sections: dict[str, Any] = {}
+    errors: list[str] = []
+
+    sections["config_summary"] = _section_skipped(
+        "Not available with --storage-path (no config file loaded)"
+    )
+    sections["route_validation"] = _section_skipped(
+        "Not available with --storage-path (no config file loaded)"
+    )
+    sections["diagnostics_snapshot"] = _section_skipped(
+        "Not available with --storage-path (no runtime built)"
+    )
+    sections["live_health"] = _section_skipped(
+        "Not available with --storage-path (no runtime started)"
+    )
+
+    # Storage section: open the DB directly.
+    db_exists = os.path.exists(storage_path)
+    if not db_exists:
+        sections["storage"] = _section_partial(
+            {
+                "db_exists": False,
+                "db_path": storage_path,
+                "event": None,
+                "event_count": None,
+                "native_refs_for_event": None,
+                "receipt_count": None,
+                "replay_run_receipts": None,
+                "timeline": None,
+                "replay_timeline": None,
+            },
+            f"Database file does not exist: {storage_path}",
+        )
+        errors.append(sections["storage"]["error"])
+        return _build_storage_path_bundle(sections, errors, _now)
+
+    storage: Any | None = None
+    try:
+        storage = await SQLiteStorage.open_readonly(storage_path)
+    except Exception as exc:
+        sections["storage"] = _section_partial(
+            {
+                "db_exists": True,
+                "db_path": storage_path,
+                "event": None,
+                "event_count": None,
+                "native_refs_for_event": None,
+                "receipt_count": None,
+                "replay_run_receipts": None,
+                "timeline": None,
+                "replay_timeline": None,
+            },
+            f"Cannot open database read-only: {exc}",
+        )
+        errors.append(sections["storage"]["error"])
+        return _build_storage_path_bundle(sections, errors, _now)
+
+    try:
+        sections["storage"] = await _collect_storage_data_from_backend(
+            storage, storage_path, event_id, replay_run_id,
+        )
+    finally:
+        if storage is not None:
+            await storage.close()
+
+    if sections["storage"]["error"]:
+        errors.append(sections["storage"]["error"])
+
+    return _build_storage_path_bundle(sections, errors, _now)

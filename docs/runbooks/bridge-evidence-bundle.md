@@ -126,15 +126,15 @@ medre inspect receipts --replay-run <run_id> --storage-path /tmp/medre-smoke.db
 | `medre smoke --storage-path <db> --json` | SQLite | Fake only | passed/failed JSON + DB | 0=passed (0), 1=failed (1) |
 | `medre smoke --drill <name> --json` | In-memory | Fake only | Drill report JSON | 0=passed (0), 1=failed (1) |
 | `medre smoke --drill <name> --storage-path <db> --json` | SQLite | Fake only | Drill report JSON + DB | 0=passed (0), 1=failed (1) |
-| `medre evidence --config <path> --json` | Per config (memory or SQLite) | Fake only (or real with `--include-refresh-health`) | Full bundle JSON | 0=ok/partial, 2=config error |
-| `medre evidence --config <path> --event <id> --json` | Per config (memory or SQLite) | No | Bundle with event/receipt lookup | 0=ok/partial, 2=config error |
-| `medre evidence --config <path> --include-refresh-health --json` | Per config (memory or SQLite) | Yes (real or fake) | Full bundle + live health JSON | 0=ok/partial, 2=config error |
+| `medre evidence --config <path> --json` | Per config (memory or SQLite) | Fake only (or real with `--include-refresh-health`) | Full bundle JSON | 0=passed/partial, 2=config error |
+| `medre evidence --config <path> --event <id> --json` | Per config (memory or SQLite) | No | Bundle with event/receipt lookup | 0=passed/partial, 2=config error |
+| `medre evidence --config <path> --include-refresh-health --json` | Per config (memory or SQLite) | Yes (real or fake) | Full bundle + live health JSON | 0=passed/partial, 2=config error |
 | `medre inspect event <id> --config <path>` | Opens SQLite (RO) | No | Event JSON | 0=found, 2=no SQLite |
 | `medre inspect receipts --event <id> --config <path>` | Opens SQLite (RO) | No | Receipt array JSON | 0=found, 2=no SQLite |
 | `medre inspect receipts --replay-run <id> --storage-path <db>` | Opens SQLite (RO) | No | Receipt array JSON | 0=found, 2=no SQLite |
 | `medre inspect native-ref --adapter <name> --message <id> --storage-path <db>` | Opens SQLite (RO) | No | Ref JSON | 0=found, 2=no SQLite |
-| `medre diagnostics --config <path>` | None | No | Build-time snapshot JSON | 0=ok, 2=config, 3=build |
-| `medre diagnostics --refresh-health --config <path>` | None | Yes (real or fake) | Live health snapshot JSON | 0=ok, 2=config, 3=build, 4=startup |
+| `medre diagnostics --config <path>` | None | No | Build-time snapshot JSON | 0 (success), 2=config, 3=build |
+| `medre diagnostics --refresh-health --config <path>` | None | Yes (real or fake) | Live health snapshot JSON | 0 (success), 2=config, 3=build, 4=startup |
 | `medre run --config <path> --snapshot-on-shutdown` | Per config (SQLite or memory) | Yes (real or fake) | Logs + writes final JSON snapshot after graceful shutdown to `{state_dir}/shutdown-snapshot.json` | 0=clean shutdown, 2=config, 3=build, 4=startup |
 
 

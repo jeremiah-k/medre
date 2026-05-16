@@ -804,6 +804,7 @@ class TestIncidentSummary:
             "replay_receipts_present", "native_refs_present",
             "receipt_count", "failed_count", "sent_count",
             "recommended_commands",
+            "commands",
         ]
         for field in required_fields:
             assert field in summary, f"Missing field: {field}"
@@ -820,6 +821,48 @@ class TestIncidentSummary:
         summary = report["sections"]["storage"]["data"]["incident_summary"]
         raw = json.dumps(summary, sort_keys=True)
         assert isinstance(raw, str)
+
+    @pytest.mark.asyncio
+    async def test_incident_summary_commands_shape(
+        self, config_fake: Path,
+    ) -> None:
+        """incident_summary commands has primary (inspect-first) and specialized."""
+        db_path = str(config_fake.parent / "state" / "test_evidence.db")
+        event_id = await _make_populated_db_with_failure(
+            db_path,
+            event_id="ev-cmds-shape-001",
+            receipt_status="failed",
+            receipt_error="TimeoutError: connection timed out",
+        )
+
+        report = await collect_evidence_bundle(
+            str(config_fake), event_id=event_id,
+        )
+        summary = report["sections"]["storage"]["data"]["incident_summary"]
+        cmds = summary["commands"]
+        assert "primary" in cmds
+        assert "specialized" in cmds
+        assert isinstance(cmds["primary"], list)
+        assert isinstance(cmds["specialized"], list)
+
+        # Primary commands are inspect-first (no trace/evidence/recover prefix).
+        for cmd in cmds["primary"]:
+            assert not cmd.startswith("medre trace "), (
+                f"Primary command should not start with 'medre trace': {cmd}"
+            )
+            assert not cmd.startswith("medre evidence "), (
+                f"Primary command should not start with 'medre evidence': {cmd}"
+            )
+            assert not cmd.startswith("medre recover "), (
+                f"Primary command should not start with 'medre recover': {cmd}"
+            )
+
+        # Specialized includes the evidence bundle command.
+        ev_cmds = [c for c in cmds["specialized"] if c.startswith("medre evidence ")]
+        assert len(ev_cmds) > 0, (
+            f"Expected at least one 'medre evidence' command in specialized: "
+            f"{cmds['specialized']}"
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -1220,9 +1220,9 @@ class TestPublicSanitizeError:
         assert "sanitize_error" in sanitization_mod.__all__
 
     def test_evidence_imports_public_name(self) -> None:
-        """evidence.py uses the direct import from observability.sanitization."""
+        """evidence package uses the direct import from observability.sanitization."""
         import inspect
-        from medre.runtime import evidence
+        from medre.runtime.evidence import _helpers
 
-        source = inspect.getsource(evidence)
+        source = inspect.getsource(_helpers)
         assert "from medre.observability.sanitization import sanitize_error" in source

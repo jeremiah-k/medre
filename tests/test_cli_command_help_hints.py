@@ -117,7 +117,7 @@ class TestInspectHelp:
 
 
 class TestReplayHelp:
-    """medre replay — may send messages, requires config."""
+    """medre replay — may send messages in best_effort, requires config."""
 
     def test_help_mentions_send_messages(self) -> None:
         help_text = _get_command_help_text("replay")
@@ -126,6 +126,10 @@ class TestReplayHelp:
     def test_help_mentions_config(self) -> None:
         help_text = _get_command_help_text("replay")
         assert "config" in help_text.lower()
+
+    def test_help_mentions_best_effort(self) -> None:
+        help_text = _get_command_help_text("replay")
+        assert "best_effort" in help_text.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -140,9 +144,9 @@ class TestSmokeHelp:
         help_text = _get_command_help_text("smoke")
         assert "local" in help_text.lower() or "validation" in help_text.lower()
 
-    def test_help_mentions_not_bridge(self) -> None:
+    def test_help_mentions_not_daily_operation(self) -> None:
         help_text = _get_command_help_text("smoke")
-        assert "not a bridge" in help_text.lower()
+        assert "not daily" in help_text.lower()
 
     def test_help_mentions_storage_path(self) -> None:
         help_text = _get_command_help_text("smoke")
@@ -155,7 +159,7 @@ class TestSmokeHelp:
 
 
 class TestTraceHelp:
-    """medre trace — read-only timeline, accepts --storage-path."""
+    """medre trace — specialized timeline, usually inspect event --timeline."""
 
     def test_help_mentions_read_only(self) -> None:
         help_text = _get_command_help_text("trace")
@@ -164,6 +168,10 @@ class TestTraceHelp:
     def test_help_mentions_storage_path(self) -> None:
         help_text = _get_command_help_text("trace")
         assert "storage-path" in help_text.lower()
+
+    def test_help_mentions_inspect_guidance(self) -> None:
+        help_text = _get_command_help_text("trace")
+        assert "inspect event" in help_text.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -172,7 +180,7 @@ class TestTraceHelp:
 
 
 class TestEvidenceHelp:
-    """medre evidence — read-only evidence collection, accepts --storage-path."""
+    """medre evidence — specialized support bundle, usually inspect event --evidence."""
 
     def test_help_mentions_read_only(self) -> None:
         help_text = _get_command_help_text("evidence")
@@ -182,6 +190,10 @@ class TestEvidenceHelp:
         help_text = _get_command_help_text("evidence")
         assert "storage-path" in help_text.lower()
 
+    def test_help_mentions_inspect_guidance(self) -> None:
+        help_text = _get_command_help_text("evidence")
+        assert "inspect event" in help_text.lower()
+
 
 # ---------------------------------------------------------------------------
 # recover
@@ -189,7 +201,7 @@ class TestEvidenceHelp:
 
 
 class TestRecoverHelp:
-    """medre recover — read-only analysis, requires config."""
+    """medre recover — specialized recovery classification, usually inspect event --recovery."""
 
     def test_help_mentions_read_only(self) -> None:
         help_text = _get_command_help_text("recover")
@@ -198,6 +210,10 @@ class TestRecoverHelp:
     def test_help_mentions_config(self) -> None:
         help_text = _get_command_help_text("recover")
         assert "config" in help_text.lower()
+
+    def test_help_mentions_inspect_guidance(self) -> None:
+        help_text = _get_command_help_text("recover")
+        assert "inspect event" in help_text.lower()
 
 
 # ---------------------------------------------------------------------------

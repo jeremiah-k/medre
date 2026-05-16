@@ -92,7 +92,7 @@ def _build_parser() -> argparse.ArgumentParser:
     routes_list_p.add_argument("--config", default=None, help="Path to config file")
 
     # smoke
-    smoke_p = sub.add_parser("smoke", help="Local validation tooling, not a bridge operation (developers/CI; accepts --storage-path)")
+    smoke_p = sub.add_parser("smoke", help="Local validation tooling, not daily operation (developers/CI; accepts --storage-path)")
     smoke_p.add_argument("--config", default=None, help="Path to config file (default: examples/configs/fake-bridge-smoke.toml)")
     smoke_p.add_argument("--message", default="medre smoke test", help="Text for test message")
     smoke_p.add_argument("--storage-path", default=None, metavar="PATH",
@@ -122,7 +122,7 @@ def _build_parser() -> argparse.ArgumentParser:
     smoke_p.add_argument("--json", action="store_true", default=False, help="Output JSON report")
 
     # evidence
-    evidence_p = sub.add_parser("evidence", help="Specialized support bundle (usually prefer inspect event --evidence; read-only; accepts --storage-path)")
+    evidence_p = sub.add_parser("evidence", help="Specialized support bundle, usually inspect event --evidence (read-only; accepts --storage-path)")
     evidence_mx = evidence_p.add_mutually_exclusive_group()
     evidence_mx.add_argument("--config", default=None, help="Path to config file")
     evidence_mx.add_argument("--storage-path", default=None, metavar="PATH",
@@ -192,7 +192,7 @@ def _build_parser() -> argparse.ArgumentParser:
     inspect_rpl.add_argument("run_id", help="Replay run ID to inspect")
 
     # trace (with sub-subcommands)
-    trace_p = sub.add_parser("trace", help="Specialized timeline (usually prefer inspect event --timeline; read-only; accepts --storage-path)")
+    trace_p = sub.add_parser("trace", help="Specialized timeline, usually inspect event --timeline (read-only; accepts --storage-path)")
     trace_sub = trace_p.add_subparsers(dest="trace_command", required=True)
 
     # trace event <event_id>
@@ -214,7 +214,7 @@ def _build_parser() -> argparse.ArgumentParser:
     trace_rpl.add_argument("--json", action="store_true", default=False, help="Output JSON timeline")
 
     # replay
-    replay_p = sub.add_parser("replay", help="Re-execute stored events (may send messages; requires --config)")
+    replay_p = sub.add_parser("replay", help="Re-execute stored events; best_effort mode may send messages (requires --config)")
     replay_p.add_argument("--config", default=None, help="Path to config file")
     replay_p.add_argument(
         "--mode", required=True,
@@ -238,7 +238,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     # recover
-    recover_p = sub.add_parser("recover", help="Specialized recovery classification (usually prefer inspect event --recovery; read-only; requires --config)")
+    recover_p = sub.add_parser("recover", help="Specialized recovery classification, usually inspect event --recovery (read-only; requires --config)")
     recover_p.add_argument("--config", default=None, help="Path to config file")
     recover_p.add_argument("--event", default=None, metavar="EVENT_ID", help="Event ID to analyze")
     recover_p.add_argument(

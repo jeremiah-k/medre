@@ -229,7 +229,7 @@ class TestInspectEventStoragePath:
         assert "does not exist" in stderr.lower()
 
     def test_inspect_event_invalid_db(self, tmp_path: Path) -> None:
-        """inspect event with an empty (invalid) file exits with error."""
+        """inspect event with a corrupt file exits with actionable error."""
         bad_db = tmp_path / "corrupt.db"
         bad_db.write_text("not a sqlite database")
         code, _, stderr = _run_cli_exit(
@@ -238,6 +238,8 @@ class TestInspectEventStoragePath:
             "evt-1",
         )
         assert code == EXIT_BUILD
+        assert "storage error" in stderr.lower()
+        assert "uninitialised" in stderr.lower() or "schema" in stderr.lower()
 
     def test_inspect_event_config_and_storage_path_exclusive(self, seeded_db: Path) -> None:
         """--config and --storage-path are mutually exclusive with clear error."""
@@ -645,6 +647,10 @@ class TestEvidenceStoragePath:
         )
         bundle = json.loads(stdout)
         assert bundle["sections"]["storage"]["status"] == "partial"
+        assert bundle["sections"]["storage"]["data"]["db_exists"] is False
+        assert "does not exist" in bundle["sections"]["storage"]["error"].lower()
+        # Evidence never creates the missing file.
+        assert not Path(str(missing)).exists()
 
     def test_evidence_invalid_db(self, tmp_path: Path) -> None:
         bad_db = tmp_path / "corrupt.db"
@@ -656,6 +662,12 @@ class TestEvidenceStoragePath:
         )
         bundle = json.loads(stdout)
         assert bundle["sections"]["storage"]["status"] in ("partial", "error")
+        assert bundle["sections"]["storage"]["data"]["db_exists"] is True
+        assert (
+            "cannot open" in bundle["sections"]["storage"]["error"].lower()
+            or "uninitialised" in bundle["sections"]["storage"]["error"].lower()
+            or "schema" in bundle["sections"]["storage"]["error"].lower()
+        )
 
     def test_evidence_config_and_storage_path_exclusive(self, seeded_db: Path) -> None:
         """--config and --storage-path are mutually exclusive for evidence."""
@@ -724,31 +736,34 @@ class TestInvalidDBShape:
     """Verify that an invalid DB shape gives actionable error and nonzero exit."""
 
     def test_empty_file_is_not_valid_db(self, tmp_path: Path) -> None:
-        """An empty file is not a valid SQLite database."""
+        """An empty file is not a valid SQLite database and reports actionable error."""
         bad_db = tmp_path / "empty.db"
         bad_db.write_bytes(b"")
-        code, _, _ = _run_cli_exit(
+        code, _, stderr = _run_cli_exit(
             "inspect", "event",
             "--storage-path", str(bad_db),
             "evt-1",
         )
         assert code == EXIT_BUILD
+        assert "storage error" in stderr.lower()
+        assert "uninitialised" in stderr.lower() or "schema" in stderr.lower()
 
     def test_wrong_schema_tables(self, tmp_path: Path) -> None:
-        """A SQLite file with wrong tables produces actionable error."""
+        """A SQLite file with wrong tables produces actionable error and nonzero exit."""
         bad_db = tmp_path / "wrong_tables.db"
         conn = sqlite3.connect(str(bad_db))
         conn.execute("CREATE TABLE foo (id INTEGER PRIMARY KEY)")
         conn.commit()
         conn.close()
 
-        stdout, stderr = _run_cli(
+        code, _, stderr = _run_cli_exit(
             "inspect", "event",
             "--storage-path", str(bad_db),
             "evt-1",
         )
-        # Should exit or print an error about schema shape.
-        assert "Storage error" in stderr or "schema" in stderr.lower()
+        assert code == EXIT_BUILD
+        assert "storage error" in stderr.lower()
+        assert "schema" in stderr.lower() or "uninitialised" in stderr.lower()
 
     def test_no_create_on_invalid_shape(self, tmp_path: Path) -> None:
         """Invalid DB is never modified/created by read-only commands."""
