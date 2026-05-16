@@ -35,7 +35,7 @@ The smoke command uses `examples/configs/fake-bridge-smoke.toml` by default.
 It starts fake adapters, injects a test message through the full pipeline,
 and reports results.
 
-Expected output: JSON object with `"status": "ok"` and drill results.
+Expected output: JSON object with `"status": "passed"` and evidence results.
 
 ### 1.3 Run a one-shot smoke with persistent storage
 
@@ -56,14 +56,28 @@ through the full pipeline, collects evidence, writes to the SQLite DB at
 
 ### 1.4 Inspect and trace events
 
-After the smoke command from Section 1.3 completes:
+After the smoke command from Section 1.3 completes, create a minimal config
+pointing to the smoke database so that ``inspect`` and ``trace`` can find it:
+
+```bash
+cat > /tmp/medre-alpha-config.toml <<EOF
+[runtime]
+name = "alpha-inspect"
+
+[storage]
+backend = "sqlite"
+path = "/tmp/medre-alpha.db"
+EOF
+```
+
+Then inspect the event and build its timeline:
 
 ```bash
 # Inspect a specific event by ID
-medre inspect event <event_id> --storage-path /tmp/medre-alpha.db
+medre inspect event <event_id> --config /tmp/medre-alpha-config.toml
 
 # Build a chronological timeline for an event
-medre trace event <event_id> --storage-path /tmp/medre-alpha.db
+medre trace event <event_id> --config /tmp/medre-alpha-config.toml
 
 # Collect an evidence bundle (JSON)
 medre evidence --config examples/configs/fake-bridge-smoke.toml --json
