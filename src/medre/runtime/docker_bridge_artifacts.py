@@ -131,7 +131,7 @@ _LIMITATIONS: list[str] = [
     "No real radio hardware proven (container-local meshtasticd simulation only)",
     "Single-direction or limited bidirectional smoke — not sustained throughput",
     "Meshtastic inbound through real pubsub callback is unconfirmed",
-    "No cross-transport bridge between two real adapters proven",
+    "Cross-adapter bridge proven in container smoke test only — not sustained or multi-hop",
     "No reconnect resilience, retry-against-live, or load evidence",
     "Fire-and-forget delivery model for radio transports",
 ]
@@ -188,7 +188,7 @@ _BEST_EFFORT: list[str] = [
 ]
 
 _SCENARIO_REQUIRED_LOGS: dict[str, tuple[str, ...]] = {
-    "matrix_to_meshtastic": ("synapse.log",),
+    "matrix_to_meshtastic": ("synapse.log", "meshtasticd.log"),
     "meshtastic_to_matrix": ("meshtasticd.log",),
     "bidirectional": ("synapse.log", "meshtasticd.log"),
 }
@@ -775,8 +775,13 @@ def collect_docker_bridge_artifacts(
 
     # -- Step 2: Build pytest command ----------------------------------------
     test_selectors = _scenario_test_selectors(scenario)
+    if not test_selectors:
+        raise ValueError(
+            f"No test selectors configured for scenario {scenario!r}. "
+            f"Add selectors to _scenario_test_selectors() or choose from: "
+            f"{', '.join(SUPPORTED_SCENARIOS)}"
+        )
     default_args = [
-        "tests/integration/",
         "-m", "docker",
         "-v",
         "--tb=short",
@@ -1025,6 +1030,7 @@ def _scenario_test_selectors(scenario: str) -> list[str]:
             "tests/integration/test_synapse_connectivity.py",
             "tests/integration/test_synapse_bridge_smoke.py",
             "tests/integration/test_synapse_run_session.py",
+            "tests/integration/test_cross_adapter_artifact_run.py",
         ]
     elif scenario == "meshtastic_to_matrix":
         return [

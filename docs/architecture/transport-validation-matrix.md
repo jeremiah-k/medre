@@ -22,6 +22,7 @@ For operator guidance on running validation tests, see
 | **Wrapper callback bridge** | Real adapter callback (`_on_packet` / `_on_room_message`) invoked directly with simulated data, through codec and pipeline to fake outbound | Adapter callback path, codec decode, pipeline routing, accounting work with real adapter code | Nothing about real SDK subscription chains, pubsub delivery, or network I/O |
 | **Docker SDK lifecycle** | Real SDK library connecting to a containerized service (Synapse, meshtasticd). Start, stop, health, diagnostics. | Dependency resolution, config loading, adapter lifecycle, real SDK init/connect/stop work against a real service process | Nothing about inbound event delivery through SDK callbacks (unless separately proven). Container runs on localhost, not a real network. |
 | **Docker inbound** | Real SDK receives inbound events from the containerized service through its normal subscription mechanism | Full SDK callback chain fires: service publishes event, SDK subscription delivers it, adapter callback processes it, pipeline routes it | Container runs on localhost. Not real network/hardware. |
+| **Docker cross-adapter** | Real SDK ingress adapter receives event from containerized service, PipelineRunner routes to real SDK outbound adapter delivering to a second containerized service | End-to-end SDK-to-SDK event flow through the pipeline with real adapter code on both sides | Docker loopback only. No real external accounts, no real radio, no sustained throughput. Uses PipelineRunner, not full MedreApp (no `medre.log`/`final-snapshot.json`). |
 | **Live network/radio** | Real SDK connecting to a real endpoint (homeserver account, LoRa radio hardware, Reticulum network) | Actual connectivity, protocol compliance, real-world message delivery | Does not prove sustained reliability, throughput, or reconnect resilience. Evidence is smoke-test level. |
 
 
@@ -33,6 +34,8 @@ For operator guidance on running validation tests, see
 | Wrapper callback bridge | ✅ proven | ✅ proven | ✅ proven | ✅ proven |
 | Docker SDK lifecycle | ✅ proven | ✅ proven (outbound only) | ❌ not set up | ❌ not set up |
 | Docker inbound | ✅ proven (sync_loop) | ❓ unconfirmed | ❌ not set up | ❌ not set up |
+| Docker cross-adapter (Matrix→Meshtastic) | ✅ proven (ingress side) | ✅ proven (outbound side) | ❌ not set up | ❌ not set up |
+| Docker cross-adapter (Meshtastic→Matrix) | ❌ deferred | ❌ deferred (inbound unconfirmed) | ❌ not set up | ❌ not set up |
 | Live network/radio | ✅ proven (Synapse) | ❌ not claimed | ❌ not claimed | ❌ not claimed |
 
 
@@ -85,6 +88,30 @@ Known gap: No Docker SDK-boundary or live validation. Unit-tested only.
 Known gap: No Docker SDK-boundary or live validation. Unit-tested only.
 
 
+## Cross-Adapter Detail
+
+### Matrix → Meshtastic (`matrix_to_meshtastic`)
+
+| Aspect | Status | Detail |
+|--------|--------|--------|
+| Matrix ingress | ✅ proven | Real nio SDK `sync_forever` callback delivers event from Docker-local Synapse. `MatrixCodec` decodes to `CanonicalEvent`. |
+| Pipeline routing | ✅ proven | `PipelineRunner` routes canonical event to Meshtastic adapter target. |
+| Meshtastic outbound | ✅ proven | Real `mtjk` SDK delivers payload to Docker-local meshtasticd via `sendText`, returning real packet ID. |
+| Required container logs | Both `synapse.log` and `meshtasticd.log` | Both containers participate in the cross-adapter path; both logs are required evidence. |
+| PipelineRunner vs. MedreApp | PipelineRunner | Tests use `PipelineRunner` directly, not full `MedreApp`. `medre.log` and `final-snapshot.json` are absent. |
+| Proof boundary | Docker loopback | No real external Matrix account. No real radio. No sustained throughput. |
+
+### Meshtastic → Matrix (`meshtastic_to_matrix`)
+
+| Aspect | Status | Detail |
+|--------|--------|--------|
+| Meshtastic SDK lifecycle | ✅ proven | Real `mtjk` SDK connects to Docker-local meshtasticd. Start, health, stop work. |
+| Meshtastic outbound | ✅ proven | Real `sendText` returns real packet ID. |
+| Meshtastic inbound | ❌ deferred | Uses `simulate_inbound`/`wrapper_callback`, not real pubsub from meshtasticd. |
+| Matrix outbound | ❌ deferred | No real external Matrix target. Not tested. |
+| Direction status | **Deferred** | Cross-adapter Meshtastic→Matrix flow not proven. Deferred until Matrix outbound with real Synapse is demonstrated. |
+
+
 ## Cross-Reference: Test File Index
 
 ### Unit tests (no Docker, no hardware)
@@ -124,7 +151,8 @@ Known gap: No Docker SDK-boundary or live validation. Unit-tested only.
 | meshtasticd two-client relay | Meshtastic | Inbound delivery through real pubsub callback unconfirmed. Docker tests inject via `simulate_inbound`. |
 | No Docker setup | MeshCore, LXMF | No evidence that real SDK connects to any service. Adapter code validated only through unit tests and wrapper callbacks. |
 | No live radio/network | Meshtastic, MeshCore, LXMF | No evidence that adapters work with real hardware or live networks. May have fundamental issues. |
-| No live cross-transport bridge | All | No test routes events between two real adapters. Bridge smoke routes real Matrix to fake outbound. |
+| No live cross-transport bridge (Meshtastic→Matrix) | All | No test routes Meshtastic inbound to Matrix outbound through real adapters. The `meshtastic_to_matrix` Docker scenario uses `simulate_inbound` and has no real external Matrix target. This direction is deferred until proven. |
+| Docker cross-adapter Matrix→Meshtastic proven | Matrix, Meshtastic | `matrix_to_meshtastic` Docker bridge artifact run proves real Matrix nio SDK ingress through PipelineRunner to real Meshtastic mtjk SDK outbound against meshtasticd. Both `synapse.log` and `meshtasticd.log` required. Docker loopback only; no real radio or external Matrix. |
 | No third-party Matrix inbound | Matrix | Bridge smoke uses HTTP API sender, not a second Matrix client. Inbound from a different user is unconfirmed. |
 
 

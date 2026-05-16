@@ -239,6 +239,7 @@ evidence available without real radio hardware or external accounts.
 | Docker SDK-boundary | **Proven** | Real SDK lifecycle, config, dependency resolution |
 | Docker SDK-boundary bridge smoke | **Proven** | Real Matrix SDK codec + pipeline routing + storage + accounting with genuine Synapse event_ids |
 | Docker cross-adapter (`matrix_to_meshtastic`) | **Proven** | Real Matrix nio SDK ingress + PipelineRunner routing + real Meshtastic mtjk SDK outbound to meshtasticd with real packet IDs |
+| Docker cross-adapter (`meshtastic_to_matrix`) | **Deferred** | Not proven at cross-adapter level. Meshtastic SDK lifecycle and outbound `sendText` proven, but inbound uses `simulate_inbound`/`wrapper_callback`. No real external Matrix target. Deferred until Matrix outbound is proven with real Synapse. |
 | Live network | **Not claimed** | No test against real external endpoints or real radio hardware |
 
 
@@ -254,20 +255,20 @@ The Docker bridge artifact collector (`scripts/ci/run-docker-bridge-artifacts.sh
 | `run-metadata.json` | All scenarios |
 | `config.toml` | All scenarios |
 | `synapse.log` | `matrix_to_meshtastic`, `bidirectional` |
-| `meshtasticd.log` | `meshtastic_to_matrix`, `bidirectional` |
+| `meshtasticd.log` | `matrix_to_meshtastic`, `meshtastic_to_matrix`, `bidirectional` |
 
-For `matrix_to_meshtastic`, `meshtasticd.log` is best-effort (collected when the cross-adapter run starts a meshtasticd container, but not required because the primary transport under test is Matrix inbound).
+For `matrix_to_meshtastic`, both `synapse.log` and `meshtasticd.log` are required because the scenario exercises the full cross-adapter path: real Synapse ingress through the nio SDK, PipelineRunner routing, and real Meshtastic adapter outbound delivery to meshtasticd. Both container logs are necessary evidence of SDK-to-SDK event flow.
 
 **Best-effort files** (present when the corresponding subsystem ran):
 
 | File | Meaning | When present |
 |------|---------|--------------|
-| `medre.log` | Runtime log. | Runtime initialized. |
+| `medre.log` | Runtime log. **Absent when PipelineRunner is used instead of full MedreApp** (the common case for Docker bridge artifact runs). | Full MedreApp runtime initialized. |
 | `receipts.json` | Delivery receipt snapshot. | At least one delivery attempted. |
 | `native-refs.json` | Inbound native message refs. | Inbound refs recorded. |
 | `inspect-timeline.json` | Per-event pipeline timeline. | Pipeline completed for at least one event. |
 | `evidence.json` | Full bridge evidence bundle. | Evidence collection succeeded. |
-| `final-snapshot.json` | Runtime shutdown snapshot. | Graceful shutdown. |
+| `final-snapshot.json` | Runtime shutdown snapshot. **Absent when PipelineRunner is used instead of full MedreApp**. | Full MedreApp graceful shutdown. |
 
 Missing best-effort files are explained in `summary.json` under `limitations`. For example: `"receipts.json absent: no deliveries attempted before failure"`.
 

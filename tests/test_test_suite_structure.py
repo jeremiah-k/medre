@@ -44,6 +44,7 @@ DELETED_MONOLITHS = (
     "test_replay",
     "test_cli",
     "test_alpha_walkthrough_cli",
+    "test_docker_bridge_artifacts",
 )
 
 # New bridge / operator files — must not contain fixed asyncio.sleep(N) with N>0.
@@ -79,6 +80,10 @@ NEW_BRIDGE_OPERATOR_FILES = [
     "test_alpha_cli_inspect_flow.py",
     "test_alpha_cli_replay_flow.py",
     "test_alpha_cli_error_paths.py",
+    "test_docker_artifact_core.py",
+    "test_docker_artifact_plan.py",
+    "test_docker_artifact_metadata.py",
+    "test_docker_artifact_honesty.py",
 ]
 
 # New helper modules — must not contain broad type: ignore / pyright: ignore.
@@ -90,6 +95,7 @@ HELPER_FILES = [
     "helpers/replay.py",
     "helpers/cli.py",
     "helpers/alpha_cli.py",
+    "helpers/docker_artifacts.py",
 ]
 
 
