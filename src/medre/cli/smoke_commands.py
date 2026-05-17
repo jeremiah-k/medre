@@ -30,6 +30,12 @@ def _setup_logging(config: object) -> None:
 
     level = getattr(log_cfg, "level", "INFO")
     fmt = getattr(log_cfg, "format", None) or "%(asctime)s %(levelname)s %(name)s: %(message)s"
+    # Map preset names to actual Python format strings.
+    _FORMAT_PRESETS = {
+        "text": "%(asctime)s [%(levelname)s] %(message)s",
+        "json": '{"time":"%(asctime)s","level":"%(levelname)s","message":"%(message)s"}',
+    }
+    fmt = _FORMAT_PRESETS.get(fmt, fmt)
     logging.basicConfig(level=getattr(logging, level.upper(), logging.INFO), format=fmt)
 
 
