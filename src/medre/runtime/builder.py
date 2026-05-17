@@ -224,7 +224,8 @@ def _register_adapter_renderers(pipeline: RenderingPipeline, config: RuntimeConf
     When *config* is provided, transport-specific renderer config is
     extracted and passed to renderers that accept it (e.g.
     ``MeshtasticRenderer`` receives the first ``MeshtasticConfig`` so
-    that ``relay_prefix`` is available).
+    that ``radio_relay_prefix`` is available, ``MatrixRenderer`` receives
+    it for ``matrix_relay_prefix``).
     """
     # Collect MeshtasticConfig for MeshtasticRenderer, if available.
     meshtastic_config: Any = None

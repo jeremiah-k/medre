@@ -5,12 +5,14 @@ Meshtastic-ready content payloads (dicts with ``text``, ``channel_index``,
 and optional ``meshnet_name``).
 
 When initialised with a :class:`~medre.adapters.meshtastic.config.MeshtasticConfig`
-that contains a non-empty ``relay_prefix``, the renderer prepends a formatted
+that contains a non-empty ``radio_relay_prefix``, the renderer prepends a formatted
 prefix to the message text.  The prefix template uses Python ``str.format()``
 syntax with the following variables:
 
 * ``{longname}`` — sender long name (from event native metadata, if available).
 * ``{shortname}`` — sender short name (from event native metadata, if available).
+* ``{shortname5}`` — first 5 characters of ``{shortname}`` (or ``{from_id}``
+  if shortname is empty).
 * ``{meshnet_name}`` — the mesh network name from the adapter config.
 * ``{from_id}`` — the sender's numeric node ID.
 
@@ -41,7 +43,7 @@ class MeshtasticRenderer:
     Produces content dicts with ``text``, ``channel_index``, and optional
     ``meshnet_name``.
 
-    When *config* is provided and ``config.relay_prefix`` is non-empty,
+    When *config* is provided and ``config.radio_relay_prefix`` is non-empty,
     the renderer prepends the formatted prefix to the message text using
     event source metadata.
 
@@ -56,7 +58,7 @@ class MeshtasticRenderer:
     """Internal platform identifier for matching via ``target_platform``."""
 
     def __init__(self, config: MeshtasticConfig | None = None) -> None:
-        self._relay_prefix = config.relay_prefix if config else ""
+        self._radio_relay_prefix = config.radio_relay_prefix if config else ""
         self._meshnet_name = config.meshnet_name if config else ""
 
     # ------------------------------------------------------------------
@@ -109,12 +111,13 @@ class MeshtasticRenderer:
     # ------------------------------------------------------------------
 
     def _format_prefix(self, event: CanonicalEvent) -> str:
-        """Format ``relay_prefix`` template using event source metadata.
+        """Format ``radio_relay_prefix`` template using event source metadata.
 
         Available template variables:
 
         * ``{longname}`` — sender long name from native metadata.
         * ``{shortname}`` — sender short name from native metadata.
+        * ``{shortname5}`` — first 5 chars of shortname (or from_id if empty).
         * ``{meshnet_name}`` — mesh network name from adapter config.
         * ``{from_id}`` — sender node ID from native metadata.
 
@@ -131,26 +134,32 @@ class MeshtasticRenderer:
         str
             The formatted prefix string.
         """
-        if not self._relay_prefix:
+        if not self._radio_relay_prefix:
             return ""
 
         native_data: dict[str, object] = {}
         if event.metadata and event.metadata.native:
             native_data = dict(event.metadata.native.data)
 
+        shortname = str(native_data.get("shortname", ""))
+        from_id = str(native_data.get("from_id", event.source_transport_id or ""))
+        # shortname5: first 5 chars of shortname, or first 5 chars of from_id
+        shortname5 = (shortname or from_id)[:5]
+
         format_vars = {
             "longname": str(native_data.get("longname", "")),
-            "shortname": str(native_data.get("shortname", "")),
+            "shortname": shortname,
+            "shortname5": shortname5,
             "meshnet_name": self._meshnet_name,
-            "from_id": str(native_data.get("from_id", event.source_transport_id or "")),
+            "from_id": from_id,
         }
 
         try:
-            return self._relay_prefix.format(**format_vars)
+            return self._radio_relay_prefix.format(**format_vars)
         except (KeyError, IndexError, ValueError):
             # If the template references unknown variables, return it as-is
             # so the message still goes through with an unformatted prefix.
-            return self._relay_prefix
+            return self._radio_relay_prefix
 
     # ------------------------------------------------------------------
     # Rendering
@@ -167,7 +176,7 @@ class MeshtasticRenderer:
         The rendered payload includes:
 
         * ``text``: extracted text from the event payload, with the
-          configured ``relay_prefix`` prepended if set.
+          configured ``radio_relay_prefix`` prepended if set.
         * ``channel_index``: parsed from *target_channel* or ``0``.
         * ``meshnet_name``: the configured mesh network name.
 
@@ -219,7 +228,7 @@ class MeshtasticRenderer:
             "original_length": len(text),
         }
         if prefix:
-            metadata["relay_prefix"] = prefix
+            metadata["radio_relay_prefix"] = prefix
 
         return RenderingResult(
             event_id=event.event_id,

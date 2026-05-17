@@ -49,8 +49,8 @@ class MatrixRenderer:
         self._meshnet_name = (
             meshtastic_config.meshnet_name if meshtastic_config else ""
         )
-        self._relay_prefix: str = (
-            (meshtastic_config.relay_prefix or "") if meshtastic_config else ""
+        self._matrix_relay_prefix: str = (
+            (meshtastic_config.matrix_relay_prefix or "") if meshtastic_config else ""
         )
 
     # ------------------------------------------------------------------
@@ -119,7 +119,7 @@ class MatrixRenderer:
         body = str(event.payload.get("body", event.payload.get("text", "")))
 
         # Apply relay prefix for Meshtastic→Matrix direction
-        body = self._apply_relay_prefix(event, body)
+        body = self._apply_matrix_relay_prefix(event, body)
 
         content: dict[str, object] = {
             "msgtype": "m.text",
@@ -183,10 +183,10 @@ class MatrixRenderer:
     # Relay prefix
     # ------------------------------------------------------------------
 
-    def _apply_relay_prefix(self, event: CanonicalEvent, body: str) -> str:
+    def _apply_matrix_relay_prefix(self, event: CanonicalEvent, body: str) -> str:
         """Prepend the configured relay prefix template to *body*.
 
-        When :attr:`_relay_prefix` is non-empty, the template is formatted
+        When :attr:`_matrix_relay_prefix` is non-empty, the template is formatted
         using variables extracted from the event's native metadata:
 
         * ``{longname}`` — sender long name.
@@ -196,14 +196,14 @@ class MatrixRenderer:
 
         If the prefix is empty, *body* is returned unchanged.
         """
-        if not self._relay_prefix:
+        if not self._matrix_relay_prefix:
             return body
 
         native_data: dict[str, object] = {}
         if event.metadata and event.metadata.native:
             native_data = dict(event.metadata.native.data)
 
-        formatted_prefix = self._relay_prefix.format(
+        formatted_prefix = self._matrix_relay_prefix.format(
             longname=native_data.get("longname", ""),
             shortname=native_data.get("shortname", ""),
             meshnet_name=self._meshnet_name,

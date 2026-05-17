@@ -52,9 +52,10 @@ enabled = true
 connection_type = "serial"
 serial_port = "/dev/ttyACM0"
 meshnet_name = "medre-radio"           # human-readable name in logs and mesh announcements
-relay_prefix = "[{longname}/{meshnet_name}]: "  # prepend sender info to relayed messages (default)
-# relay_prefix = "[{longname}/{shortname}]: "    # alternative: long name + short name
-# relay_prefix = ""                               # empty = no prefix
+matrix_relay_prefix = "[{longname}/{meshnet_name}]: "  # Meshtastic→Matrix: prepend sender info (default)
+radio_relay_prefix = "{shortname5}[M]: "                # Matrix→Meshtastic: prepend short name (default)
+# matrix_relay_prefix = "[{longname}/{shortname}]: "    # alternative: long name + short name
+# radio_relay_prefix = ""                               # empty = no prefix for radio direction
 # mmrelay_compatibility = true                    # embed mmrelay-compatible metadata in Matrix payloads
 
 # # --- TCP alternative (uncomment and comment out serial lines above) ---
@@ -64,7 +65,8 @@ relay_prefix = "[{longname}/{meshnet_name}]: "  # prepend sender info to relayed
 # host = "meshtastic.local"
 # port = 4403
 # meshnet_name = "medre-radio"
-# relay_prefix = "[{longname}/{meshnet_name}]: "
+# matrix_relay_prefix = "[{longname}/{meshnet_name}]: "
+# radio_relay_prefix = "{shortname5}[M]: "
 # mmrelay_compatibility = true
 
 # ---------------------------------------------------------------------------

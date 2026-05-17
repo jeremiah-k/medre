@@ -46,13 +46,25 @@ class MeshtasticConfig:
         Seconds after start to suppress stale backlog packets.
     sync_timeout_ms:
         Timeout in milliseconds for sync operations.
-    relay_prefix:
-        Template string prepended to messages relayed from Meshtastic to
-        other transports.  Uses Python ``str.format()`` syntax with
-        variables: ``{longname}``, ``{shortname}``, ``{meshnet_name}``,
-        ``{from_id}``.  Default: ``"[{longname}/{meshnet_name}]: "``.
+    matrix_relay_prefix:
+        Template string prepended to messages relayed **from** Meshtastic
+        **to** Matrix.  Uses Python ``str.format()`` syntax with variables:
+        ``{longname}``, ``{shortname}``, ``{meshnet_name}``, ``{from_id}``.
+        Default: ``"[{longname}/{meshnet_name}]: "``.
+        Matches mmrelay's ``DEFAULT_MATRIX_PREFIX = "[{long}/{mesh}]: "``.
 
         Example: ``"[{longname}/{meshnet_name}]: "``
+    radio_relay_prefix:
+        Template string prepended to messages relayed **from** Matrix
+        **to** Meshtastic radio.  Uses Python ``str.format()`` syntax with
+        variables: ``{longname}``, ``{shortname}``, ``{shortname5}``,
+        ``{meshnet_name}``, ``{from_id}``.  ``{shortname5}`` resolves to
+        the first 5 characters of ``{shortname}`` (or ``{from_id}`` if
+        shortname is empty).
+        Default: ``"{shortname5}[M]: "``.
+        Matches mmrelay's ``DEFAULT_MESHTASTIC_PREFIX = "{display5}[M]: "``.
+
+        Example: ``"{shortname5}[M]: "``
     mmrelay_compatibility:
         When ``True``, the Matrix renderer embeds mmrelay-compatible
         Meshtastic metadata into the Matrix event content payload.  This
@@ -73,7 +85,8 @@ class MeshtasticConfig:
     message_delay_seconds: float = 0.5
     startup_backlog_suppress_seconds: float = 5.0
     sync_timeout_ms: int = 30000
-    relay_prefix: str = "[{longname}/{meshnet_name}]: "
+    matrix_relay_prefix: str = "[{longname}/{meshnet_name}]: "
+    radio_relay_prefix: str = "{shortname5}[M]: "
     mmrelay_compatibility: bool = False
 
     def validate(self) -> Self:
