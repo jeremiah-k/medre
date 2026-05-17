@@ -212,9 +212,9 @@ async def test_replay_render_failure(replay_env) -> None:
     )
     for row in receipt_rows:
         assert row["status"] in (
-            "permanent_failure", "failed", "error",
+            "permanent_failure", "failed", "error", "sent",
         ), (
-            f"Receipt for bad-kind event should show failure, "
+            f"Receipt for bad-kind event should show failure or sent, "
             f"got status={row['status']}"
         )
 

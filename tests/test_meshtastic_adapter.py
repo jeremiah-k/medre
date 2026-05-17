@@ -611,6 +611,10 @@ class TestMeshtasticAdapterConnectionModes:
         monkeypatch.setattr(
             "medre.adapters.meshtastic.session.HAS_MESHTASTIC", True
         )
+        # Skip pubsub subscription — these tests use fake clients without pubsub.
+        monkeypatch.setattr(
+            MeshtasticSession, "_subscribe_callbacks", lambda self: None
+        )
 
     async def test_tcp_mode_with_monkeypatched_client(self, make_adapter_context, monkeypatch) -> None:
         """TCP mode creates TCPInterface(hostname, portNumber) via session."""
@@ -630,6 +634,7 @@ class TestMeshtasticAdapterConnectionModes:
 
         monkeypatch.setattr(MeshtasticSession, "_create_client", fake_create_client)
         monkeypatch.setattr("medre.adapters.meshtastic.session.HAS_MESHTASTIC", True)
+        monkeypatch.setattr(MeshtasticSession, "_subscribe_callbacks", lambda self: None)
 
         ctx = make_adapter_context("mesh-1")
         await adapter.start(ctx)
@@ -655,6 +660,7 @@ class TestMeshtasticAdapterConnectionModes:
 
         monkeypatch.setattr(MeshtasticSession, "_create_client", fake_create_client)
         monkeypatch.setattr("medre.adapters.meshtastic.session.HAS_MESHTASTIC", True)
+        monkeypatch.setattr(MeshtasticSession, "_subscribe_callbacks", lambda self: None)
 
         ctx = make_adapter_context("mesh-1")
         await adapter.start(ctx)
@@ -678,6 +684,7 @@ class TestMeshtasticAdapterConnectionModes:
 
         monkeypatch.setattr(MeshtasticSession, "_create_client", fake_create_client)
         monkeypatch.setattr("medre.adapters.meshtastic.session.HAS_MESHTASTIC", True)
+        monkeypatch.setattr(MeshtasticSession, "_subscribe_callbacks", lambda self: None)
 
         ctx = make_adapter_context("mesh-1")
         await adapter.start(ctx)
@@ -1095,6 +1102,7 @@ class TestMeshtasticAdapterQueueOwnership:
             MeshtasticSession, "_create_client",
             lambda self: fake_client,
         )
+        monkeypatch.setattr(MeshtasticSession, "_subscribe_callbacks", lambda self: None)
 
         ctx = make_adapter_context("mesh-1")
         await adapter.start(ctx)

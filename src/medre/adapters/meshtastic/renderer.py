@@ -21,8 +21,8 @@ Selection is via the rendering pipeline's platform registry: when the
 pipeline populates the adapter's platform as ``"meshtastic"``, the renderer
 matches on that platform string directly.
 
-**Tranche 1 scope**: text messages only.  Length-limit enforcement is
-noted but not applied; full enforcement is deferred to a later tranche.
+**Tranche 1 scope**: text messages only.  No truncation is applied — the
+full message text is passed through unchanged, matching mmrelay behaviour.
 """
 from __future__ import annotations
 
@@ -74,9 +74,6 @@ class MeshtasticRenderer:
         EventKind.PRESENCE_CHANGED,
         EventKind.PLUGIN_CUSTOM,
     })
-
-    # Maximum rendered text length in characters.
-    _MAX_TEXT_LENGTH: int = 500
 
     def can_render(
         self,
@@ -179,8 +176,8 @@ class MeshtasticRenderer:
         * *reply* with ``fallback_text`` — prepends
           ``"[replying to: {fallback_text}] "`` to the text.
 
-        Text exceeding 500 characters is truncated and the ``truncated``
-        flag is set on the result.
+        No truncation is applied — the full message text is passed
+        through unchanged.
 
         Parameters
         ----------
@@ -203,13 +200,6 @@ class MeshtasticRenderer:
         if prefix:
             text = f"{prefix}{text}"
 
-        # Truncate at _MAX_TEXT_LENGTH
-        original_length = len(text)
-        truncated = False
-        if len(text) > self._MAX_TEXT_LENGTH:
-            text = text[: self._MAX_TEXT_LENGTH]
-            truncated = True
-
         # Parse channel index from target_channel
         channel_index = 0
         if target_channel is not None:
@@ -226,7 +216,7 @@ class MeshtasticRenderer:
 
         metadata: dict[str, object] = {
             "renderer": self.name,
-            "original_length": original_length,
+            "original_length": len(text),
         }
         if prefix:
             metadata["relay_prefix"] = prefix
@@ -237,7 +227,6 @@ class MeshtasticRenderer:
             target_channel=target_channel,
             payload=content,
             metadata=metadata,
-            truncated=truncated,
         )
 
     # ------------------------------------------------------------------
@@ -246,7 +235,7 @@ class MeshtasticRenderer:
 
     @staticmethod
     def _extract_text(event: CanonicalEvent) -> str:
-        """Extract the raw (pre-truncation) text from *event*.
+        """Extract the full text from *event* without truncation.
 
         When the event carries a reply relation with ``fallback_text``,
         the text is augmented with a ``[replying to: ...]`` prefix

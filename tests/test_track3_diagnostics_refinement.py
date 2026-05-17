@@ -72,6 +72,10 @@ def _build_mock_nio_module() -> MagicMock:
             pass
 
     client.sync_forever = _sync_forever_stub
+    # whoami() is called by _discover_device_id() during _start_plaintext().
+    _whoami_resp = MagicMock(name="whoami_response")
+    _whoami_resp.device_id = "DEVICE_TEST_ID"
+    client.whoami = AsyncMock(return_value=_whoami_resp)
     mock.AsyncClient = MagicMock(return_value=client)
     mock.ClientConfig = MagicMock(name="ClientConfig")
     mock.RoomMessageText = MagicMock(name="RoomMessageText")

@@ -757,10 +757,10 @@ class TestBuilderIntegration:
             adapters=AdapterConfigSet(
                 meshtastic={
                     "radio_a": MeshtasticRuntimeConfig(
-                        adapter_id="radio_a", config=mesh_a,
+                        adapter_id="radio_a", adapter_kind="fake", config=mesh_a,
                     ),
                     "radio_b": MeshtasticRuntimeConfig(
-                        adapter_id="radio_b", config=mesh_b,
+                        adapter_id="radio_b", adapter_kind="fake", config=mesh_b,
                     ),
                 },
             ),

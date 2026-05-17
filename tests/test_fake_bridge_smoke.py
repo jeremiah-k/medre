@@ -999,8 +999,8 @@ class TestRenderingContract:
             assert isinstance(result.metadata, dict)
             assert result.metadata.get("renderer") == "meshtastic"
             assert "original_length" in result.metadata
-            assert isinstance(result.truncated, bool)
-            assert result.truncated is False  # short message
+            # No truncation — short message, truncated defaults to False.
+            assert result.truncated is False
         finally:
             await _clean_stop(app)
 
@@ -1053,8 +1053,8 @@ class TestRenderingContract:
             outcomes = await app.pipeline_runner.handle_ingress(event)
 
             assert len(outcomes) == 1
-            # TextRenderer.can_render returns False for TELEMETRY_RECEIVED.
-            # No renderer matches -> ValueError in RenderingPipeline.render
+            # No renderer matches TELEMETRY_RECEIVED for the meshtastic
+            # platform -> ValueError in RenderingPipeline.render
             # -> caught as RENDERER_FAILURE.
             assert outcomes[0].status == "permanent_failure"
             assert outcomes[0].failure_kind is not None
@@ -1068,10 +1068,10 @@ class TestRenderingContract:
             await _clean_stop(app)
 
     @pytest.mark.asyncio
-    async def test_truncation_for_long_text(
+    async def test_no_truncation_for_long_text(
         self, tmp_paths: MedrePaths,
     ) -> None:
-        """Text exceeding 500 chars is truncated with truncated=True."""
+        """Text is passed through in full without truncation (no max length)."""
         config = _mx_mesh_config()
         route = _route_mx_to_mesh()
         app = await _build_and_start(config, tmp_paths)
@@ -1085,8 +1085,8 @@ class TestRenderingContract:
 
             mesh = app.adapters["fake_meshtastic"]
             result = mesh.delivered_payloads[0]
-            assert result.truncated is True
-            assert len(str(result.payload.get("text", ""))) == 500
+            assert result.truncated is False
+            assert len(str(result.payload.get("text", ""))) == 600
             assert result.metadata.get("original_length") == 600
         finally:
             await _clean_stop(app)

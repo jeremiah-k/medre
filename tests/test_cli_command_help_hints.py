@@ -72,7 +72,8 @@ class TestRunHelp:
         help_text = _get_command_help_text("run")
         assert "send" in help_text.lower() or "messages" in help_text.lower()
 
-    def test_help_mentions_runtime(self) -> None:
+    def test_help_mentions_config(self) -> None:
+        """Run command help references runtime (not config) in its summary."""
         help_text = _get_command_help_text("run")
         assert "runtime" in help_text.lower()
 
