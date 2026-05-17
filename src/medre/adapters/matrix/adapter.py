@@ -131,6 +131,7 @@ class MatrixAdapter(BaseAdapter):
     role: AdapterRole = AdapterRole.PRESENTATION
 
     def __init__(self, config: MatrixConfig) -> None:
+        super().__init__()
         self._config = config.validate()
         self.adapter_id = config.adapter_id
         self._capabilities = _MATRIX_CAPABILITIES
@@ -190,6 +191,7 @@ class MatrixAdapter(BaseAdapter):
         self._inbound_suppressed_envelope = 0
         self._inbound_filtered_allowlist = 0
         self.ctx = ctx
+        self._mark_started(ctx)
 
         if not HAS_NIO:
             raise MatrixConnectionError(
@@ -539,7 +541,7 @@ class MatrixAdapter(BaseAdapter):
                 )
                 return
 
-            await self.ctx.publish_inbound(canonical)
+            await self.publish_inbound(canonical)
             self._inbound_published += 1
         except Exception:
             if self.ctx is not None:

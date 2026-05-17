@@ -393,6 +393,12 @@ class BaseAdapter(ABC):
     Optionally, adapters can expose an :class:`AdapterCodec` via
     :meth:`get_codec` to support the codec pattern.
 
+    **Stale event filtering**: adapters should call
+    :meth:`publish_inbound` (not ``ctx.publish_inbound`` directly) so
+    that events with a timestamp predating the adapter's start time are
+    silently dropped.  This prevents historical / replayed events from
+    previous sessions from entering the inbound pipeline.
+
     Attributes
     ----------
     adapter_id:
@@ -406,6 +412,28 @@ class BaseAdapter(ABC):
     adapter_id: str
     platform: str
     role: AdapterRole
+
+    _start_time: datetime | None
+    _stale_events_dropped: int
+
+    def __init__(self) -> None:
+        self._start_time: datetime | None = None
+        self._stale_events_dropped: int = 0
+
+    def _mark_started(self, ctx: AdapterContext) -> None:
+        """Record the adapter's start time from the context clock.
+
+        Subclasses **must** call this (typically right after storing
+        ``self.ctx = ctx`` in :meth:`start`) so that the stale-event
+        filter knows when the adapter became active.
+
+        Parameters
+        ----------
+        ctx:
+            The runtime context whose ``clock`` provides the current UTC
+            time.
+        """
+        self._start_time = ctx.clock()
 
     @abstractmethod
     async def deliver(self, result: RenderingResult) -> AdapterDeliveryResult | None:
@@ -475,6 +503,56 @@ class BaseAdapter(ABC):
         AdapterInfo
             Fresh metadata describing the adapter's state.
         """
+
+    def _is_stale_event(self, event: CanonicalEvent) -> bool:
+        """Return ``True`` if *event* predates the adapter's start time.
+
+        Events whose :attr:`~CanonicalEvent.timestamp` is strictly before
+        the moment the adapter started are considered stale and should be
+        silently dropped.  This mirrors the mmrelay pattern where
+        ``message_timestamp < facade.bot_start_time`` events are
+        discarded.
+
+        Returns ``False`` before :meth:`start` has been called (i.e.
+        when ``_start_time`` is ``None``), allowing events through until
+        the adapter is fully initialised.
+
+        Parameters
+        ----------
+        event:
+            The canonical event to check.
+
+        Returns
+        -------
+        bool
+            ``True`` if the event should be dropped; ``False`` otherwise.
+        """
+        if self._start_time is None:
+            return False
+        return event.timestamp < self._start_time
+
+    async def publish_inbound(self, event: CanonicalEvent) -> None:
+        """Publish a canonical event into the inbound pipeline.
+
+        Wraps the framework-provided ``ctx.publish_inbound`` with a
+        stale-event guard: events whose timestamp predates the adapter's
+        start time are silently dropped (not forwarded, not stored).
+
+        Subclasses **must** call this method instead of
+        ``self.ctx.publish_inbound(event)`` so the guard is applied
+        uniformly.
+
+        Parameters
+        ----------
+        event:
+            The canonical event to publish.
+        """
+        if self._is_stale_event(event):
+            self._stale_events_dropped += 1
+            return
+        ctx = getattr(self, "ctx", None)
+        if ctx is not None:
+            await ctx.publish_inbound(event)
 
     def get_codec(self) -> AdapterCodec | None:
         """Return the adapter's codec, if it supports the codec pattern.

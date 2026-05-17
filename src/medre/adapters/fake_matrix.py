@@ -124,6 +124,7 @@ class FakeMatrixAdapter(BaseAdapter):
         adapter_id: str = "fake_matrix",
         channel: str = "test_matrix_room",
     ) -> None:
+        super().__init__()
         self.adapter_id = adapter_id
         self._channel: str = channel
         self.ctx: AdapterContext | None = None
@@ -137,6 +138,7 @@ class FakeMatrixAdapter(BaseAdapter):
     async def start(self, ctx: AdapterContext) -> None:
         """Store the context and mark the adapter as started."""
         self.ctx = ctx
+        self._mark_started(ctx)
         self._started = True
         ctx.logger.info("FakeMatrixAdapter %s started", self.adapter_id)
 
@@ -236,7 +238,7 @@ class FakeMatrixAdapter(BaseAdapter):
                 f"Adapter {self.adapter_id!r} has not been started; "
                 "call start() before simulate_inbound()."
             )
-        await self.ctx.publish_inbound(event)
+        await self.publish_inbound(event)
         self.inbound_events.append(event)
         _trim(self.inbound_events)
 

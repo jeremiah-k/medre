@@ -237,9 +237,18 @@ class TestSynapseRunSession:
                 "FakeMatrixAdapter should have received at least one "
                 "rendered payload via the pipeline"
             )
-            rendered = fake_out.delivered_payloads[0]
-            assert rendered.payload["body"] == body_text
-
+            rendered = next(
+                (
+                    p
+                    for p in fake_out.delivered_payloads
+                    if p.payload.get("body") == body_text
+                ),
+                None,
+            )
+            assert rendered is not None, (
+                f"Expected a rendered payload with body {body_text!r}, "
+                f"got bodies: {[p.payload.get('body') for p in fake_out.delivered_payloads]}"
+            )
             # -- Assert: canonical event persisted --
             canonical_id = await temp_storage.resolve_native_ref(
                 adapter="synapse-run-session-bot",
@@ -523,8 +532,18 @@ class TestSynapseRunSession:
             )
 
             assert len(fake_out.delivered_payloads) >= 1
-            rendered = fake_out.delivered_payloads[0]
-            assert rendered.payload["body"] == body_text
+            rendered = next(
+                (
+                    p
+                    for p in fake_out.delivered_payloads
+                    if p.payload.get("body") == body_text
+                ),
+                None,
+            )
+            assert rendered is not None, (
+                f"Expected a rendered payload with body {body_text!r}, "
+                f"got bodies: {[p.payload.get('body') for p in fake_out.delivered_payloads]}"
+            )
 
             logger.info(
                 "Run-session fallback-tolerant: ingress_path=%s "

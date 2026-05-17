@@ -130,6 +130,7 @@ class FakeTransportAdapter(BaseAdapter):
         adapter_id: str = "fake_transport",
         channel: str = "test_channel",
     ) -> None:
+        super().__init__()
         self.adapter_id = adapter_id
         self._channel: str = channel
         self.ctx: AdapterContext | None = None
@@ -144,6 +145,7 @@ class FakeTransportAdapter(BaseAdapter):
     async def start(self, ctx: AdapterContext) -> None:
         """Store the context and mark the adapter as started."""
         self.ctx = ctx
+        self._mark_started(ctx)
         self._started = True
         ctx.logger.info("FakeTransportAdapter %s started", self.adapter_id)
 
@@ -218,7 +220,7 @@ class FakeTransportAdapter(BaseAdapter):
                 f"Adapter {self.adapter_id!r} has not been started; "
                 "call start() before simulate_inbound()."
             )
-        await self.ctx.publish_inbound(event)
+        await self.publish_inbound(event)
         self.delivered_events.append(event)
         _trim(self.delivered_events)
 

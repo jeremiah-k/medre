@@ -179,6 +179,7 @@ class FakeMeshCoreAdapter(BaseAdapter):
         *,
         adapter_id: str | None = None,
     ) -> None:
+        super().__init__()
         if config is None:
             if adapter_id is None:
                 adapter_id = "fake_meshcore"
@@ -211,6 +212,7 @@ class FakeMeshCoreAdapter(BaseAdapter):
     async def start(self, ctx: AdapterContext) -> None:
         """Store the context and mark the adapter as started."""
         self.ctx = ctx
+        self._mark_started(ctx)
         self._started = True
         ctx.logger.info("FakeMeshCoreAdapter %s started", self.adapter_id)
 
@@ -347,7 +349,7 @@ class FakeMeshCoreAdapter(BaseAdapter):
             return
 
         canonical = self._codec.decode(packet)
-        await self.ctx.publish_inbound(canonical)
+        await self.publish_inbound(canonical)
         self.inbound_events.append(canonical)
         _trim(self.inbound_events)
 

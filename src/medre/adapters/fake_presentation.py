@@ -125,6 +125,7 @@ class FakePresentationAdapter(BaseAdapter):
         adapter_id: str = "fake_presentation",
         channel: str = "test_channel",
     ) -> None:
+        super().__init__()
         self.adapter_id = adapter_id
         self._channel: str = channel
         self.ctx: AdapterContext | None = None
@@ -138,6 +139,7 @@ class FakePresentationAdapter(BaseAdapter):
     async def start(self, ctx: AdapterContext) -> None:
         """Store the context and mark the adapter as started."""
         self.ctx = ctx
+        self._mark_started(ctx)
         self._started = True
         ctx.logger.info("FakePresentationAdapter %s started", self.adapter_id)
 
@@ -221,7 +223,7 @@ class FakePresentationAdapter(BaseAdapter):
                 f"Adapter {self.adapter_id!r} has not been started; "
                 "call start() before simulate_inbound()."
             )
-        await self.ctx.publish_inbound(event)
+        await self.publish_inbound(event)
         self.inbound_events.append(event)
         _trim(self.inbound_events)
 
@@ -421,6 +423,7 @@ class FaultyPresentationAdapter(BaseAdapter):
         failure_mode: str = "always_fail",
         fail_count: int = 1,
     ) -> None:
+        super().__init__()
         self.adapter_id = adapter_id
         self._failure_mode = failure_mode
         self._fail_count = fail_count
@@ -434,6 +437,7 @@ class FaultyPresentationAdapter(BaseAdapter):
 
     async def start(self, ctx: AdapterContext) -> None:
         self.ctx = ctx
+        self._mark_started(ctx)
         self._started = True
 
     async def stop(self, timeout: float = 5.0) -> None:

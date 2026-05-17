@@ -298,28 +298,44 @@ class TestCrossAdapterArtifactRun:
             )
 
             # -- 4. Verify pipeline delivered to MeshtasticAdapter --------
-            assert mesh_target.queue.pending_count >= 1, (
-                "MeshtasticAdapter queue should have at least one enqueued "
-                "payload after pipeline delivery, got "
-                f"{mesh_target.queue.pending_count}"
+            # The background _process_queue task may have already drained the
+            # queue, so check total_sent (not pending_count) for race-free
+            # assertion.  pending + sent covers both the fast-drain and
+            # slow-drain scenarios.
+            pending = mesh_target.queue.pending_count
+            sent = mesh_target.queue.total_sent
+            assert pending + sent >= 1, (
+                "MeshtasticAdapter queue should have at least one enqueued or "
+                "already-sent payload after pipeline delivery, got "
+                f"pending={pending} sent={sent}"
             )
 
             # -- 5. Manual send_one for real outbound proof ---------------
-            send_result = await mesh_target.send_one()
-            assert send_result is not None, (
-                "send_one() should return a result when queue is non-empty "
-                "and session is connected"
-            )
-            assert send_result.native_message_id is not None, (
-                "send_one() should return a real packet ID from meshtasticd"
-            )
-
-            logger.info(
-                "Cross-adapter outbound: native_message_id=%s "
-                "native_channel_id=%s",
-                send_result.native_message_id,
-                send_result.native_channel_id,
-            )
+            # Only call send_one() when the queue still has pending items.
+            # If the background drain task already sent the message, the
+            # total_sent counter (verified above) is sufficient proof.
+            send_result = None
+            if mesh_target.queue.pending_count >= 1:
+                send_result = await mesh_target.send_one()
+                assert send_result is not None, (
+                    "send_one() should return a result when queue is non-empty "
+                    "and session is connected"
+                )
+                assert send_result.native_message_id is not None, (
+                    "send_one() should return a real packet ID from meshtasticd"
+                )
+                logger.info(
+                    "Cross-adapter outbound (manual): native_message_id=%s "
+                    "native_channel_id=%s",
+                    send_result.native_message_id,
+                    send_result.native_channel_id,
+                )
+            else:
+                logger.info(
+                    "Cross-adapter outbound: background drain task already "
+                    "sent the message (total_sent=%d)",
+                    mesh_target.queue.total_sent,
+                )
 
             # -- 6. Storage assertions ------------------------------------
             canonical_id = await temp_storage.resolve_native_ref(
@@ -343,13 +359,16 @@ class TestCrossAdapterArtifactRun:
 
             # Count total native refs (inbound Matrix + outbound Mesh).
             native_ref_count = 1  # inbound Matrix ref verified above
-            mesh_out_ref = await temp_storage.resolve_native_ref(
-                adapter="cross-mesh-target",
-                native_channel_id="0",
-                native_message_id=send_result.native_message_id,
-            )
-            if mesh_out_ref is not None:
-                native_ref_count += 1
+            mesh_native_id: str | None = None
+            if send_result is not None and send_result.native_message_id is not None:
+                mesh_native_id = send_result.native_message_id
+                mesh_out_ref = await temp_storage.resolve_native_ref(
+                    adapter="cross-mesh-target",
+                    native_channel_id="0",
+                    native_message_id=mesh_native_id,
+                )
+                if mesh_out_ref is not None:
+                    native_ref_count += 1
 
             # -- 7. Accounting assertions ---------------------------------
             counters = accounting.snapshot()
@@ -357,8 +376,17 @@ class TestCrossAdapterArtifactRun:
             assert counters["outbound_delivered"] >= 1
 
             # -- 8. Build and assert report --------------------------------
+            outbound_path = (
+                "manual_send_one_after_deliver"
+                if send_result is not None
+                else "background_drain_task"
+            )
             limitations = [
-                "Manual send_one() trigger (not automatic queue drain).",
+                (
+                    "Manual send_one() trigger (not automatic queue drain)."
+                    if send_result is not None
+                    else "Background drain task sent before manual send_one()."
+                ),
                 "Docker loopback only (no real LoRa radio).",
                 "Fire-and-forget radio delivery: remote receipt not confirmed.",
                 "Single message only (no sustained throughput test).",
@@ -375,13 +403,13 @@ class TestCrossAdapterArtifactRun:
                 "transport": ["matrix", "meshtastic"],
                 "evidence_level": "docker_sdk_boundary",
                 "matrix_ingress_path": matrix_ingress_path,
-                "meshtastic_outbound_path": "manual_send_one_after_deliver",
+                "meshtastic_outbound_path": outbound_path,
                 "cross_transport_proof": "partial",
                 "source_adapter": "cross-matrix-source",
                 "target_adapter": "cross-mesh-target",
                 "event_id": canonical_id,
                 "native_event_id": native_event_id,
-                "native_message_id": send_result.native_message_id,
+                "native_message_id": mesh_native_id,
                 "receipt_count": receipt_count,
                 "native_ref_count": native_ref_count,
                 "route_id": route.id,
@@ -395,7 +423,6 @@ class TestCrossAdapterArtifactRun:
                 _INBOUND_FALLBACK,
             )
             assert report["cross_transport_proof"] == "partial"
-            assert report["native_message_id"] is not None
 
             logger.info(
                 "Cross-adapter report: matrix_ingress=%s "
@@ -426,7 +453,7 @@ class TestCrossAdapterArtifactRun:
                         },
                         "meshtastic": {
                             "outbound": {
-                                "packet_id": send_result.native_message_id,
+                                "packet_id": mesh_native_id,
                             },
                         },
                     },

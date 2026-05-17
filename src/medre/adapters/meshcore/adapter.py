@@ -114,6 +114,7 @@ class MeshCoreAdapter(BaseAdapter):
     role: AdapterRole = AdapterRole.TRANSPORT
 
     def __init__(self, config: MeshCoreConfig) -> None:
+        super().__init__()
         config.validate()
         self._config = config
         self.adapter_id = config.adapter_id
@@ -150,6 +151,7 @@ class MeshCoreAdapter(BaseAdapter):
             return
 
         self.ctx = ctx
+        self._mark_started(ctx)
 
         # Create and start the session.
         self._session = MeshCoreSession(
@@ -376,7 +378,7 @@ class MeshCoreAdapter(BaseAdapter):
         """
         try:
             if self.ctx is not None:
-                await self.ctx.publish_inbound(canonical)
+                await self.publish_inbound(canonical)
         except Exception:
             if self.ctx is not None:
                 self.ctx.logger.exception(
@@ -413,7 +415,7 @@ class MeshCoreAdapter(BaseAdapter):
             return
 
         canonical = self._codec.decode(packet)
-        await self.ctx.publish_inbound(canonical)
+        await self.publish_inbound(canonical)
 
     # -- Diagnostics --------------------------------------------------------
 
