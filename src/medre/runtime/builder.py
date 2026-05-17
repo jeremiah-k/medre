@@ -202,6 +202,38 @@ def _build_fake_adapter(transport: str, adapter_id: str) -> BaseAdapter:
 
 
 # ---------------------------------------------------------------------------
+# Adapter renderer registration
+# ---------------------------------------------------------------------------
+
+_ADAPTER_RENDERER_SPECS: list[tuple[str, str]] = [
+    ("medre.adapters.matrix.renderer", "MatrixRenderer"),
+    ("medre.adapters.meshtastic.renderer", "MeshtasticRenderer"),
+    ("medre.adapters.meshcore.renderer", "MeshCoreRenderer"),
+    ("medre.adapters.lxmf.renderer", "LxmfRenderer"),
+]
+"""(module_path, class_name) pairs for transport-specific renderers."""
+
+
+def _register_adapter_renderers(pipeline: RenderingPipeline) -> None:
+    """Register all transport-specific renderers at priority 50.
+
+    Uses dynamic imports to avoid static coupling between the builder
+    and concrete adapter packages, preserving the architectural boundary
+    enforced by the test suite.
+    """
+    for module_path, class_name in _ADAPTER_RENDERER_SPECS:
+        try:
+            mod = __import__(module_path, fromlist=[class_name])
+            renderer_cls = getattr(mod, class_name)
+            pipeline.register(renderer_cls(), priority=50)
+        except ImportError:
+            _logger.debug(
+                "Skipping renderer %s.%s (import failed)",
+                module_path, class_name,
+            )
+
+
+# ---------------------------------------------------------------------------
 # RuntimeBuilder
 # ---------------------------------------------------------------------------
 
@@ -240,6 +272,11 @@ class RuntimeBuilder:
 
         # 2. RenderingPipeline with default TextRenderer
         rendering_pipeline = RenderingPipeline()
+        # Adapter-specific renderers at priority 50 (before TextRenderer's
+        # 100) so they match their platform first.  Each renderer's
+        # can_render() checks target_platform, so registering all four
+        # is safe — only the matching one will accept.
+        _register_adapter_renderers(rendering_pipeline)
         rendering_pipeline.register(TextRenderer(), priority=100)
 
         # 3. Router (empty — routes configured separately)
