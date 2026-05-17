@@ -5,7 +5,7 @@
 # Meshtastic channel.
 #
 # This config wires two real adapters (Matrix homeserver + Meshtastic serial
-# radio) with separate unidirectional routes.  Adapter IDs are "matrix" and
+# radio) with a single bidirectional route.  Adapter IDs are "matrix" and
 # "radio" — short, unambiguous, and used directly in route declarations.
 #
 # Prerequisites:
@@ -65,32 +65,31 @@ meshnet_name = "medre-radio"           # human-readable name in logs and mesh an
 # meshnet_name = "medre-radio"
 
 # ---------------------------------------------------------------------------
-# Routes — two unidirectional routes form the full bridge
+# Route — bidirectional bridge between Matrix and Meshtastic
 # ---------------------------------------------------------------------------
-# Each route is a named, explicit source→dest declaration.
-# Routes reference adapter IDs ("matrix", "radio") declared above.
+# A single bidirectional route expands into two runtime legs:
+#   Forward: matrix → radio  (Matrix room → Meshtastic channel)
+#   Reverse: radio → matrix  (Meshtastic channel → Matrix room)
+#
+# The expansion swaps source/dest adapters AND targeting fields:
+#   source_room (forward source) becomes dest targeting in the reverse leg.
+#   dest_channel (forward dest) becomes source targeting in the reverse leg.
+#
+# Use bidirectional for symmetric bridges where both sides have the same
+# policy.  For asymmetric behavior (different channels/rooms per direction,
+# different policies), use two explicit source_to_dest routes instead.
 #
 # Targeting fields:
 #   source_room / dest_room  — Matrix room IDs in !opaque:server format.
 #   source_channel / dest_channel — Meshtastic channel indexes as strings.
 #   First test channel is "0".
 
-# 1. Matrix → Meshtastic
-[routes.matrix_to_radio]
+[routes.matrix_radio_bridge]
 source_adapters = ["matrix"]
 dest_adapters = ["radio"]
-directionality = "source_to_dest"
+directionality = "bidirectional"
 enabled = true
-source_room = "!room:example.com"           # Matrix room to listen on
-dest_channel = "0"                          # Meshtastic channel index (string)
-
-# 2. Meshtastic → Matrix
-[routes.radio_to_matrix]
-source_adapters = ["radio"]
-dest_adapters = ["matrix"]
-directionality = "source_to_dest"
-enabled = true
-source_channel = "0"                        # Meshtastic channel index to listen on
-dest_room = "!room:example.com"             # Matrix room to deliver to
+source_room = "!room:example.com"           # Matrix room to listen on (forward); delivered to in reverse
+dest_channel = "0"                          # Meshtastic channel index (forward dest; reverse source)
 
 # Retry disabled for bring-up simplicity

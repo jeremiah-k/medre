@@ -265,6 +265,7 @@ class TestMatrixConfig:
     @pytest.fixture(autouse=True)
     def _medre_home(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
 
     def test_load_raises_credential_error(self) -> None:
         """Loading must fail with a credential-related error (empty access_token)."""
@@ -306,6 +307,7 @@ class TestMixedMatrixMeshtastic:
     @pytest.fixture(autouse=True)
     def _medre_home(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
 
     def test_load_raises_credential_error(self) -> None:
         with pytest.raises(MatrixConfigError, match="access_token"):
@@ -1273,14 +1275,17 @@ class TestDockerConfigsEnvVarValidation:
 
 class TestLiveMatrixMeshtasticTargeting:
     """The live-matrix-meshtastic config must carry explicit route targeting
-    fields (source_room, dest_channel, source_channel, dest_room) so that
-    routes are fully specified without relying on implicit defaults."""
+    fields (source_room, dest_channel) on its bidirectional route so that
+    both expansion legs are fully specified without relying on implicit defaults."""
 
     CONFIG_PATH = CONFIGS_DIR / "live-matrix-meshtastic.toml"
 
     @pytest.fixture(autouse=True)
     def _medre_home(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
+        # Isolate from operator's Matrix sidecar credentials so the test
+        # is deterministic regardless of local ~/.config/medre/credentials/.
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg-config"))
 
     def test_load_raises_credential_error(self) -> None:
         """Loading with empty credentials raises MatrixConfigError,
@@ -1289,58 +1294,39 @@ class TestLiveMatrixMeshtasticTargeting:
             load_config(str(self.CONFIG_PATH))
 
     def test_canonical_config_contains_explicit_targeting(self) -> None:
-        """matrix_to_radio has source_room + dest_channel; radio_to_matrix
-        has source_channel + dest_room."""
+        """The bidirectional route has source_room + dest_channel targeting fields."""
         raw = _read(self.CONFIG_PATH)
         data = tomllib.loads(raw)
         routes = data["routes"]
 
-        m2r = routes["matrix_to_radio"]
-        assert "source_room" in m2r, "matrix_to_radio missing source_room"
-        assert "dest_channel" in m2r, "matrix_to_radio missing dest_channel"
+        bridge = routes["matrix_radio_bridge"]
+        assert bridge["directionality"] == "bidirectional"
+        assert "source_room" in bridge, "matrix_radio_bridge missing source_room"
+        assert "dest_channel" in bridge, "matrix_radio_bridge missing dest_channel"
 
-        r2m = routes["radio_to_matrix"]
-        assert "source_channel" in r2m, "radio_to_matrix missing source_channel"
-        assert "dest_room" in r2m, "radio_to_matrix missing dest_room"
-
-    def test_matrix_to_radio_target_values_are_nonempty(self) -> None:
-        """matrix_to_radio targeting fields must be non-empty strings."""
+    def test_bidirectional_route_target_values_are_nonempty(self) -> None:
+        """Bidirectional route targeting fields must be non-empty strings."""
         raw = _read(self.CONFIG_PATH)
         data = tomllib.loads(raw)
-        m2r = data["routes"]["matrix_to_radio"]
-        assert isinstance(m2r["source_room"], str) and m2r["source_room"], (
-            "matrix_to_radio source_room must be a non-empty string"
-        )
-        assert isinstance(m2r["dest_channel"], str) and m2r["dest_channel"], (
-            "matrix_to_radio dest_channel must be a non-empty string"
-        )
+        bridge = data["routes"]["matrix_radio_bridge"]
 
-    def test_radio_to_matrix_target_values_are_nonempty(self) -> None:
-        """radio_to_matrix targeting fields must be non-empty strings."""
-        raw = _read(self.CONFIG_PATH)
-        data = tomllib.loads(raw)
-        r2m = data["routes"]["radio_to_matrix"]
-        assert isinstance(r2m["source_channel"], str) and r2m["source_channel"], (
-            "radio_to_matrix source_channel must be a non-empty string"
+        assert isinstance(bridge["source_room"], str) and bridge["source_room"], (
+            "matrix_radio_bridge source_room must be a non-empty string"
         )
-        assert isinstance(r2m["dest_room"], str) and r2m["dest_room"], (
-            "radio_to_matrix dest_room must be a non-empty string"
+        assert isinstance(bridge["dest_channel"], str) and bridge["dest_channel"], (
+            "matrix_radio_bridge dest_channel must be a non-empty string"
         )
 
     def test_live_config_does_not_rely_on_implicit_target(self) -> None:
-        """All four targeting fields are present and non-empty — no implicit
+        """The bidirectional route has explicit targeting fields — no implicit
         channel defaults used."""
         raw = _read(self.CONFIG_PATH)
         data = tomllib.loads(raw)
-        routes = data["routes"]
-        m2r = routes["matrix_to_radio"]
-        r2m = routes["radio_to_matrix"]
+        bridge = data["routes"]["matrix_radio_bridge"]
 
         targeting_fields = {
-            "source_room": m2r["source_room"],
-            "dest_channel": m2r["dest_channel"],
-            "source_channel": r2m["source_channel"],
-            "dest_room": r2m["dest_room"],
+            "source_room": bridge["source_room"],
+            "dest_channel": bridge["dest_channel"],
         }
         for field, value in targeting_fields.items():
             assert isinstance(value, str) and value, (

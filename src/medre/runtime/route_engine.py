@@ -505,7 +505,8 @@ def build_runtime_routes(
     create a direct loop.  This is already prevented at the config level
     by :class:`RouteConfig` validation (no source/dest overlap within a
     single route).  Cross-route loops (route A: X→Y and route B: Y→X)
-    are detected by :func:`check_route_loops` and logged as warnings.
+    are detected by :func:`check_route_loops` and logged as informational
+    messages.  Bidirectional bridges are an intentional topology.
 
     Parameters
     ----------
@@ -535,7 +536,9 @@ def check_route_loops(routes: list[Route]) -> list[str]:
     2. **Slow path** — multi-hop cycles via DFS on the directed
        adapter adjacency graph (X→Y→Z→X).
 
-    Both levels log warnings but do **not** block startup.
+    Both levels return descriptive messages but do **not** block startup.
+    The caller logs them at ``INFO`` level — bidirectional bridges are
+    an intentional topology, not a misconfiguration.
 
     Returns
     -------
@@ -635,7 +638,7 @@ def register_routes(
        failed target adapters have those targets removed.  This only
        applies when *built_adapter_ids* is provided and differs from
        *adapter_ids*.
-    4. Checks for direct routing loops and logs warnings.
+    4. Checks for direct routing loops and logs informational messages.
     5. Registers all surviving routes on the *router* in deterministic
        order.
 

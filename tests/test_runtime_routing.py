@@ -854,3 +854,97 @@ class TestStartupValidation:
             _rc("r1", ("missing",), ("also_missing",), enabled=False),
         ))
         validate_route_adapter_refs(rcs, frozenset())
+
+
+# ===================================================================
+# Bidirectional route targeting field expansion
+# ===================================================================
+
+
+class TestBidirectionalTargetingExpansion:
+    """A bidirectional route with source_room/dest_channel targeting fields
+    expands into two runtime routes with correct source/target channels.
+
+    This mirrors the canonical live-matrix-meshtastic.toml pattern:
+    source_adapters=["matrix"], dest_adapters=["radio"],
+    source_room="!room:example.com", dest_channel="0".
+
+    The RouteConfig normalises source_room → source_channel (alias),
+    and the bidirectional expansion swaps source_channel ↔ dest_channel
+    for the reverse leg.
+    """
+
+    def test_bidirectional_with_source_room_and_dest_channel(self) -> None:
+        """Bidirectional route expands with correct targeting for both legs."""
+        # Build config using from_toml_dict to exercise source_room→source_channel alias
+        rc = RouteConfig.from_toml_dict("bridge", {
+            "source_adapters": ["matrix"],
+            "dest_adapters": ["radio"],
+            "directionality": "bidirectional",
+            "enabled": True,
+            "source_room": "!room:example.com",
+            "dest_channel": "0",
+        })
+        rcs = RouteConfigSet(routes=(rc,))
+        routes = build_runtime_routes(rcs)
+
+        # Should produce exactly 2 routes (forward + reverse)
+        assert len(routes) == 2
+
+        # Forward leg: matrix → radio
+        fwd = routes[0]
+        assert fwd.source.adapter == "matrix"
+        assert fwd.source.channel == "!room:example.com"
+        assert len(fwd.targets) == 1
+        assert fwd.targets[0].adapter == "radio"
+        assert fwd.targets[0].channel == "0"
+
+        # Reverse leg: radio → matrix
+        rev = routes[1]
+        assert rev.source.adapter == "radio"
+        assert rev.source.channel == "0"
+        assert len(rev.targets) == 1
+        assert rev.targets[0].adapter == "matrix"
+        assert rev.targets[0].channel == "!room:example.com"
+
+    def test_bidirectional_targeting_registered_on_router(self) -> None:
+        """Bidirectional route with targeting registers and matches correctly."""
+        rc = RouteConfig.from_toml_dict("bridge", {
+            "source_adapters": ["matrix"],
+            "dest_adapters": ["radio"],
+            "directionality": "bidirectional",
+            "enabled": True,
+            "source_room": "!room:example.com",
+            "dest_channel": "0",
+        })
+        rcs = RouteConfigSet(routes=(rc,))
+        router = Router()
+        result = register_routes(
+            router, rcs,
+            frozenset({"matrix", "radio"}),
+        )
+        assert len(result.registered_routes) == 2
+
+        # Forward: event from matrix in the correct room matches forward route
+        evt_matrix = _make_event(
+            source_adapter="matrix",
+            source_channel_id="!room:example.com",
+        )
+        matched = router.match(evt_matrix)
+        assert len(matched) == 1
+        targets = router.resolve_targets(evt_matrix, matched[0])
+        assert len(targets) == 1
+        assert targets[0].adapter == "radio"
+        assert targets[0].channel == "0"
+
+        # Reverse: event from radio on the correct channel matches reverse route
+        evt_radio = _make_event(
+            source_adapter="radio",
+            source_channel_id="0",
+        )
+        matched = router.match(evt_radio)
+        assert len(matched) == 1
+        targets = router.resolve_targets(evt_radio, matched[0])
+        assert len(targets) == 1
+        assert targets[0].adapter == "matrix"
+        assert targets[0].channel == "!room:example.com"
