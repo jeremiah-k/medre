@@ -140,15 +140,11 @@ class MeshtasticCodec:
 
         to_id = packet.get("toId", "") or ""
 
-        # Extract user identity fields from the packet's user dict.
-        # Meshtastic packets may include a "user" dict with "longName" and
-        # "shortName" keys when the sender's node info is available.
-        user_info = packet.get("user", {})
+        # longname/shortname are populated by the adapter from the SDK's
+        # nodes dict after decode, because text message packets do not
+        # carry user info (that comes from separate NODEINFO_APP packets).
         longname = ""
         shortname = ""
-        if isinstance(user_info, dict):
-            longname = str(user_info.get("longName", "") or "")
-            shortname = str(user_info.get("shortName", "") or "")
 
         native_meta = NativeMetadata(
             data={

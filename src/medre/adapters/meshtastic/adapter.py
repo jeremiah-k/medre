@@ -51,6 +51,8 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Any
 
+import msgspec
+
 if TYPE_CHECKING:
     from medre.core.events.canonical import CanonicalEvent
 
@@ -372,6 +374,42 @@ class MeshtasticAdapter(BaseAdapter):
                 return
 
             canonical = self._codec.decode(packet)
+
+            # Enrich longname/shortname from the SDK's nodes dict.
+            # Text message packets don't carry user info; that comes from
+            # separate NODEINFO_APP packets.  The SDK client maintains a
+            # nodes dict mapping node IDs to user info.
+            try:
+                if (
+                    self._session is not None
+                    and self._session.client is not None
+                    and canonical.metadata.native is not None
+                ):
+                    from_id = canonical.metadata.native.data.get("from_id", "")
+                    if isinstance(from_id, str) and from_id:
+                        client_nodes = getattr(self._session.client, "nodes", None)
+                        if isinstance(client_nodes, dict):
+                            node_info = client_nodes.get(from_id, {})
+                            if isinstance(node_info, dict):
+                                user_info = node_info.get("user", {})
+                                if isinstance(user_info, dict):
+                                    ln = str(user_info.get("longName", "") or "")
+                                    sn = str(user_info.get("shortName", "") or "")
+                                    if ln or sn:
+                                        updated_data = dict(canonical.metadata.native.data)
+                                        updated_data["longname"] = ln
+                                        updated_data["shortname"] = sn
+                                        new_native = msgspec.structs.replace(
+                                            canonical.metadata.native, data=updated_data,
+                                        )
+                                        new_metadata = msgspec.structs.replace(
+                                            canonical.metadata, native=new_native,
+                                        )
+                                        canonical = msgspec.structs.replace(
+                                            canonical, metadata=new_metadata,
+                                        )
+            except Exception:
+                pass  # Non-critical enrichment; names are best-effort
             # Schedule the async publish — _on_packet is called from the
             # Meshtastic SDK reader thread, so we use run_coroutine_threadsafe
             # instead of asyncio.create_task (which requires a running loop

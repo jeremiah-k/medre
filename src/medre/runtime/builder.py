@@ -342,7 +342,7 @@ class RuntimeBuilder:
         # 9.6 ReplayEngine — replay harness with capacity controller wired.
         replay_engine = ReplayEngine(
             storage=storage,
-            pipeline=pipeline_runner,
+            pipeline=pipeline_runner,  # type: ignore[arg-type]
             capacity_controller=capacity_controller,
             diagnostician=diagnostician,
             accounting=runtime_accounting,
