@@ -47,7 +47,7 @@ def _setup_logging(config: object) -> None:
             )
     else:
         # Default: suppress SDK library noise
-        for name in ("nio", "meshtastic", "aiohttp"):
+        for name in ("nio", "meshtastic", "aiohttp", "peewee"):
             logging.getLogger(name).setLevel(logging.WARNING)
 
 
