@@ -226,7 +226,7 @@ class TestMeshtasticCallbackIsolation:
         self,
     ) -> None:
         """The sync _on_packet callback catches exceptions internally; a
-        subsequent valid packet publishes successfully via background task."""
+        subsequent valid packet publishes successfully."""
         adapter = MeshtasticAdapter(
             MeshtasticConfig(adapter_id="mesh-sync", connection_type="fake")
         )
@@ -238,16 +238,13 @@ class TestMeshtasticCallbackIsolation:
             # --- BAD: None packet → AttributeError caught by try/except ---
             adapter._on_packet(None)  # type: ignore[arg-type]  # should not raise
 
-            # No background tasks created for the bad packet
-            # (exception occurred before task creation)
-            assert len(adapter._background_tasks) == 0
-
-            # --- GOOD: valid packet → background task created ---
+            # --- GOOD: valid packet → submitted via run_coroutine_threadsafe ---
             valid = make_text_packet(text="sync recovery", sender="!sync-node")
             adapter._on_packet(valid)
 
-            # Wait for background task to complete (do NOT drain/cancel)
-            await _await_background_tasks(adapter)
+            # Yield to let the coroutine submitted via run_coroutine_threadsafe
+            # execute on the event loop.
+            await asyncio.sleep(0.1)
 
             assert len(collector.events) == 1
             assert collector.events[0].payload.get("body") == "sync recovery"
@@ -832,8 +829,9 @@ class TestAsyncPublishFailureIsolation:
             pkt1 = make_text_packet(text="will fail to publish", sender="!fail-node")
             adapter._on_packet(pkt1)
 
-            # Wait for background task to complete (it catches the error)
-            await _await_background_tasks(adapter)
+            # Yield to let the coroutine submitted via run_coroutine_threadsafe
+            # execute on the event loop.
+            await asyncio.sleep(0.1)
 
             # Now swap to working context
             adapter.ctx = good_ctx
@@ -841,7 +839,7 @@ class TestAsyncPublishFailureIsolation:
             # Second packet: should succeed
             pkt2 = make_text_packet(text="will succeed", sender="!ok-node")
             adapter._on_packet(pkt2)
-            await _await_background_tasks(adapter)
+            await asyncio.sleep(0.1)
 
             assert len(collector.events) == 1
             assert collector.events[0].payload.get("body") == "will succeed"

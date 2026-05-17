@@ -98,6 +98,10 @@ def _build_mock_nio_module() -> MagicMock:
     client.close = AsyncMock()
     client.sync_forever = _sync_forever_stub
     client.room_send = AsyncMock()
+    # whoami() is called by _discover_device_id() during _start_plaintext().
+    _whoami_resp = MagicMock(name="whoami_response")
+    _whoami_resp.device_id = "DEVICE_TEST_ID"
+    client.whoami = AsyncMock(return_value=_whoami_resp)
     mock.AsyncClient = MagicMock(return_value=client)
     mock.ClientConfig = MagicMock(name="ClientConfig")
     mock.RoomMessageText = MagicMock(name="RoomMessageText")
@@ -491,6 +495,10 @@ class TestMatrixAdapterSyncFailure:
         client.close = AsyncMock()
         client.sync_forever = _sync_forever_stub
         client.room_send = AsyncMock()
+        # whoami() is called by _discover_device_id() during _start_plaintext().
+        _whoami_resp = MagicMock(name="whoami_response_2")
+        _whoami_resp.device_id = "DEVICE_TEST_ID"
+        client.whoami = AsyncMock(return_value=_whoami_resp)
         mock_nio.AsyncClient.return_value = client
 
         await adapter.start(_make_context())

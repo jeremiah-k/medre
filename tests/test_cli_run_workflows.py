@@ -144,8 +144,8 @@ meshnet_name = "TestMesh"
                 now_fn=lambda: datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc),
                 monotonic_fn=lambda: 0.0,
             )
-            assert "build_failures" in snapshot
-            assert len(snapshot["build_failures"]) > 0
+            assert "build_failures" in snapshot["startup"]
+            assert len(snapshot["startup"]["build_failures"]) > 0
 
     def test_config_check_with_disabled_adapter(self, tmp_path: Path) -> None:
         """Config check shows disabled adapters clearly."""

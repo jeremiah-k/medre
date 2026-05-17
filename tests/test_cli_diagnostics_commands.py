@@ -9,7 +9,6 @@ import pytest
 
 from tests.helpers.cli import (
     CONFIG_NO_ADAPTERS,
-    CONFIG_WITH_ROUTES,
     _run_cli,
     _run_cli_both,
 )
@@ -29,7 +28,40 @@ def _clean_config_env(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture()
 def config_with_routes(tmp_path: Path) -> Path:
     p = tmp_path / "config.toml"
-    p.write_text(CONFIG_WITH_ROUTES)
+    p.write_text(
+        """\
+[runtime]
+name = "test-routes"
+
+[logging]
+level = "INFO"
+
+[storage]
+backend = "memory"
+
+[adapters.matrix.main]
+enabled = true
+adapter_kind = "fake"
+homeserver = "https://matrix.test"
+user_id = "@bot:test"
+access_token = "tok"
+room_allowlist = ["!room:test"]
+encryption_mode = "plaintext"
+
+[adapters.meshtastic.radio]
+enabled = true
+adapter_kind = "fake"
+connection_type = "serial"
+serial_port = "/dev/ttyACM0"
+meshnet_name = "TestMesh"
+
+[routes.matrix_to_radio]
+source_adapters = ["main"]
+dest_adapters = ["radio"]
+directionality = "source_to_dest"
+enabled = true
+"""
+    )
     return p
 
 

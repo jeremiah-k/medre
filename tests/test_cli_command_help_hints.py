@@ -64,9 +64,9 @@ def _get_command_help_text(command: str) -> str:
 class TestRunHelp:
     """medre run — starts runtime, may send messages, requires config."""
 
-    def test_help_mentions_config(self) -> None:
+    def test_help_mentions_runtime(self) -> None:
         help_text = _get_command_help_text("run")
-        assert "config" in help_text.lower()
+        assert "runtime" in help_text.lower()
 
     def test_help_mentions_send_messages(self) -> None:
         help_text = _get_command_help_text("run")

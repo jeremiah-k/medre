@@ -997,7 +997,7 @@ class TestRenderingContract:
             assert isinstance(result.payload, dict)
             assert "text" in result.payload
             assert isinstance(result.metadata, dict)
-            assert result.metadata.get("renderer") == "text"
+            assert result.metadata.get("renderer") == "meshtastic"
             assert "original_length" in result.metadata
             assert isinstance(result.truncated, bool)
             assert result.truncated is False  # short message

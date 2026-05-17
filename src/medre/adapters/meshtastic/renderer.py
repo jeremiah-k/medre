@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from medre.core.events import CanonicalEvent
+from medre.core.events import CanonicalEvent, EventKind
 from medre.core.rendering.renderer import RenderingResult
 
 if TYPE_CHECKING:
@@ -63,18 +63,34 @@ class MeshtasticRenderer:
     # Capability check
     # ------------------------------------------------------------------
 
+    # Event kinds that have a natural plain-text representation for
+    # Meshtastic radio transports.
+    _SUPPORTED_KINDS: frozenset[str] = frozenset({
+        EventKind.MESSAGE_TEXT,
+        EventKind.MESSAGE_CREATED,
+        EventKind.MESSAGE_EDITED,
+        EventKind.MESSAGE_DELETED,
+        EventKind.MESSAGE_REACTED,
+        EventKind.PRESENCE_CHANGED,
+        EventKind.PLUGIN_CUSTOM,
+    })
+
+    # Maximum rendered text length in characters.
+    _MAX_TEXT_LENGTH: int = 500
+
     def can_render(
         self,
         event: CanonicalEvent,
         target_adapter: str,
         target_platform: str | None = None,
     ) -> bool:
-        """Return ``True`` when *target_platform* is ``"meshtastic"``.
+        """Return ``True`` when *target_platform* is ``"meshtastic"``
+        and the event kind is supported.
 
         Parameters
         ----------
         event:
-            The canonical event to check (not used for discrimination).
+            The canonical event to check.
         target_adapter:
             Name of the target adapter.
         target_platform:
@@ -86,7 +102,10 @@ class MeshtasticRenderer:
         bool
             Whether this renderer handles events for the given adapter.
         """
-        return target_platform == self._PLATFORM
+        return (
+            target_platform == self._PLATFORM
+            and event.event_kind in self._SUPPORTED_KINDS
+        )
 
     # ------------------------------------------------------------------
     # Prefix formatting
@@ -155,6 +174,14 @@ class MeshtasticRenderer:
         * ``channel_index``: parsed from *target_channel* or ``0``.
         * ``meshnet_name``: the configured mesh network name.
 
+        **Relation fallback rendering** — when the event carries relations:
+
+        * *reply* with ``fallback_text`` — prepends
+          ``"[replying to: {fallback_text}] "`` to the text.
+
+        Text exceeding 500 characters is truncated and the ``truncated``
+        flag is set on the result.
+
         Parameters
         ----------
         event:
@@ -169,12 +196,19 @@ class MeshtasticRenderer:
         RenderingResult
             The rendered Meshtastic content dict wrapped in a result.
         """
-        text = str(event.payload.get("body", event.payload.get("text", "")))
+        text = self._extract_text(event)
 
         # Prepend relay prefix when configured
         prefix = self._format_prefix(event)
         if prefix:
             text = f"{prefix}{text}"
+
+        # Truncate at _MAX_TEXT_LENGTH
+        original_length = len(text)
+        truncated = False
+        if len(text) > self._MAX_TEXT_LENGTH:
+            text = text[: self._MAX_TEXT_LENGTH]
+            truncated = True
 
         # Parse channel index from target_channel
         channel_index = 0
@@ -192,14 +226,10 @@ class MeshtasticRenderer:
 
         metadata: dict[str, object] = {
             "renderer": self.name,
+            "original_length": original_length,
         }
         if prefix:
             metadata["relay_prefix"] = prefix
-
-        # TODO(tranche-N): Meshtastic has a ~228 byte payload limit.
-        # Future tranches should enforce truncation here.
-        # For now we pass through.
-        truncated = False
 
         return RenderingResult(
             event_id=event.event_id,
@@ -209,3 +239,26 @@ class MeshtasticRenderer:
             metadata=metadata,
             truncated=truncated,
         )
+
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _extract_text(event: CanonicalEvent) -> str:
+        """Extract the raw (pre-truncation) text from *event*.
+
+        When the event carries a reply relation with ``fallback_text``,
+        the text is augmented with a ``[replying to: ...]`` prefix
+        before further processing.
+        """
+        # -- Relation fallback rendering ------------------------------------
+        if event.relations:
+            rel = event.relations[0]
+            if rel.relation_type == "reply" and rel.fallback_text:
+                payload_text = str(
+                    event.payload.get("text", event.payload.get("body", ""))
+                )
+                return f"[replying to: {rel.fallback_text}] {payload_text}"
+
+        return str(event.payload.get("body", event.payload.get("text", "")))
