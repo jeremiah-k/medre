@@ -95,6 +95,12 @@ class MeshtasticCodec:
             if channel_index is not None
             else classification["channel_index"]
         )
+        # Fall back to the configured default channel when the packet
+        # does not carry an explicit channel index.  Without this,
+        # source_channel_id would be None and inbound events would not
+        # match routes that filter on source_channel (e.g. "0").
+        if pkt_channel is None:
+            pkt_channel = self._config.default_channel
         pkt_id = classification["packet_id"]
         portnum = classification["portnum"]
 

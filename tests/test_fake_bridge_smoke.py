@@ -1008,7 +1008,7 @@ class TestRenderingContract:
     async def test_empty_payload_renders_empty_text(
         self, tmp_paths: MedrePaths,
     ) -> None:
-        """Event with no 'text' key renders empty string, not an error."""
+        """Event with 'body' key (no 'text') renders body text via fallback."""
         config = _mx_mesh_config()
         route = _route_mx_to_mesh()
         app = await _build_and_start(config, tmp_paths)
@@ -1021,15 +1021,15 @@ class TestRenderingContract:
             event = mx.make_event("Payload body only")
             outcomes = await app.pipeline_runner.handle_ingress(event)
 
-            # Delivery still succeeds -- empty rendered text is valid.
+            # Delivery succeeds — TextRenderer reads payload["body"] as fallback.
             assert len(outcomes) == 1
             assert outcomes[0].status == "success"
 
             mesh = app.adapters["fake_meshtastic"]
             assert isinstance(mesh, FakeMeshtasticAdapter)
             result = mesh.delivered_payloads[0]
-            # TextRenderer reads payload["text"] which is absent -> "".
-            assert result.payload.get("text") == ""
+            # TextRenderer now checks "body" when "text" is absent.
+            assert result.payload.get("text") == "Payload body only"
         finally:
             await _clean_stop(app)
 

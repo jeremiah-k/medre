@@ -149,6 +149,11 @@ class TextRenderer:
 
         When the event carries relations the text is augmented with
         fallback formatting before kind-based logic is applied.
+
+        Both ``payload["text"]`` and ``payload["body"]`` are checked —
+        adapters use either key depending on their native format (Matrix
+        and Meshtastic codecs store text under ``"body"``, others may
+        use ``"text"``).
         """
         kind = event.event_kind
 
@@ -156,7 +161,7 @@ class TextRenderer:
         if event.relations:
             rel = event.relations[0]
             if rel.relation_type == "reply" and rel.fallback_text:
-                payload_text = str(event.payload.get("text", ""))
+                payload_text = str(event.payload.get("text", event.payload.get("body", "")))
                 return f"[replying to: {rel.fallback_text}] {payload_text}"
 
             if rel.relation_type == "reaction" and rel.key:
@@ -164,22 +169,22 @@ class TextRenderer:
                 return f"{actor} reacted with {rel.key}"
 
             if rel.relation_type == "edit":
-                payload_text = str(event.payload.get("text", ""))
+                payload_text = str(event.payload.get("text", event.payload.get("body", "")))
                 return f"[edited] {payload_text}"
 
         # -- Kind-based rendering -------------------------------------------
         if kind in (EventKind.MESSAGE_TEXT, EventKind.MESSAGE_CREATED):
-            return str(event.payload.get("text", ""))
+            return str(event.payload.get("text", event.payload.get("body", "")))
 
         if kind == EventKind.MESSAGE_EDITED:
-            return "[edited] " + str(event.payload.get("text", ""))
+            return "[edited] " + str(event.payload.get("text", event.payload.get("body", "")))
 
         if kind == EventKind.MESSAGE_DELETED:
             return "[deleted]"
 
         if kind == EventKind.MESSAGE_REACTED:
             # Without a relation, render the payload text if present.
-            return str(event.payload.get("text", ""))
+            return str(event.payload.get("text", event.payload.get("body", "")))
 
         if kind == EventKind.PRESENCE_CHANGED:
             user = str(event.payload.get("user", "unknown"))
@@ -187,11 +192,11 @@ class TextRenderer:
             return f"{user} is now {status}"
 
         if kind == EventKind.PLUGIN_CUSTOM:
-            return str(event.payload.get("text", ""))
+            return str(event.payload.get("text", event.payload.get("body", "")))
 
         # Defensive fallback for unrecognised kinds that slip through
         # can_render (should not happen in practice).
-        return str(event.payload.get("text", ""))
+        return str(event.payload.get("text", event.payload.get("body", "")))
 
     @staticmethod
     def _truncate(text: str) -> tuple[str, bool]:
