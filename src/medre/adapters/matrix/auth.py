@@ -413,3 +413,99 @@ def update_toml_credentials(
 
     config_path.write_text("".join(lines), encoding="utf-8")
     config_path.chmod(stat.S_IRUSR | stat.S_IWUSR)  # 0o600
+
+
+def extract_domain_from_mxid(user_id: str) -> str | None:
+    """Extract the domain part from a Matrix user ID.
+
+    Returns ``None`` when *user_id* is not a valid MXID (missing ``@``
+    prefix or missing ``:`` separator).  Returns ``""`` when the domain
+    portion is empty (e.g. ``"@a:"``).
+
+    Examples::
+
+        extract_domain_from_mxid("@bot:sk.community")  # "sk.community"
+        extract_domain_from_mxid("bot")                # None
+        extract_domain_from_mxid("")                   # None
+        extract_domain_from_mxid("@a:")                # ""
+    """
+    if not user_id or ":" not in user_id:
+        return None
+    parts = user_id.split(":", 1)
+    if not parts[0].startswith("@"):
+        return None
+    return parts[1]
+
+
+def discover_well_known(domain: str) -> str | None:
+    """Fetch ``/.well-known/matrix/client`` and return the homeserver base URL.
+
+    Returns ``None`` on *any* error (network, HTTP, JSON decode, missing key,
+    timeout).  No exception propagates to the caller.
+    """
+    url = f"https://{domain}/.well-known/matrix/client"
+    try:
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            data = json.loads(resp.read())
+        return data["m.homeserver"]["base_url"]  # type: ignore[index]
+    except Exception:
+        return None
+
+
+def get_credentials_path() -> Path:
+    """Return the canonical path for the Matrix credentials JSON file.
+
+    The path points to
+    ``$XDG_CONFIG_HOME/medre/credentials/matrix.json``
+    (defaulting to ``~/.config/medre/credentials/matrix.json``).
+
+    This function does **not** create any directories.
+    """
+    config_home = os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))
+    return Path(config_home) / "medre" / "credentials" / "matrix.json"
+
+
+def save_credentials_json(result: MatrixLoginResult) -> Path:
+    """Persist login credentials to disk with restrictive permissions (0o600).
+
+    Returns the :class:`Path` that was written.
+    """
+    path = get_credentials_path()
+    os.makedirs(path.parent, exist_ok=True)
+    payload = {
+        "homeserver": result.homeserver,
+        "access_token": result.access_token,
+        "user_id": result.user_id,
+        "device_id": result.device_id,
+    }
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)  # 0o600
+    return path
+
+
+def load_credentials_json() -> dict | None:
+    """Load previously saved Matrix credentials.
+
+    Returns the credential dict, or ``None`` if the file does not exist or
+    cannot be parsed.
+    """
+    path = get_credentials_path()
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def check_credentials_completeness(creds: dict) -> list[str]:
+    """Return a list of missing required credential keys.
+
+    Required keys are ``"homeserver"``, ``"access_token"``, and
+    ``"user_id"``.  The ``"device_id"`` key is optional.
+
+    Only non-empty string values (truthy) count as present.  An empty
+    return list means the credentials are complete.
+    """
+    required = ("homeserver", "access_token", "user_id")
+    return [key for key in required if not creds.get(key)]

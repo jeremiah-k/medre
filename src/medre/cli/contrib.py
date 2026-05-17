@@ -53,6 +53,11 @@ def _register_matrix_contributions(subparsers) -> None:
         dest="adapter_matrix_auth_command", required=True,
     )
 
+    # -- adapter matrix auth status -------------------------------------------
+    adapter_matrix_auth_sub.add_parser(
+        "status", help="Show Matrix credential file status without printing secrets",
+    )
+
     # -- adapter matrix auth login --------------------------------------------
     auth_login_p = adapter_matrix_auth_sub.add_parser(
         "login",
@@ -61,20 +66,25 @@ def _register_matrix_contributions(subparsers) -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 Examples:
-  Interactive (password prompt):
+  (a) Interactive (no flags — prompts for homeserver, user, and password):
+    medre adapter matrix auth login \\
+      --config ~/.config/medre/config.toml \\
+      --adapter-id mybot
+
+  (b) Non-interactive (all flags):
     medre adapter matrix auth login \\
       --config ~/.config/medre/config.toml \\
       --adapter-id mybot \\
       --homeserver matrix.example.com \\
-      --user @bot:example.com
+      --user @bot:example.com \\
+      --password 'your_password'
 
-  Piped password:
-    echo 'your_password' | medre adapter matrix auth login \\
+  (c) MXID derivation (localpart only — derives @localpart:homeserver):
+    medre adapter matrix auth login \\
       --config ~/.config/medre/config.toml \\
       --adapter-id mybot \\
       --homeserver matrix.example.com \\
-      --user @bot:example.com \\
-      --password-stdin
+      --user bot
 """,
     )
     auth_login_p.add_argument(
@@ -85,11 +95,16 @@ Examples:
         help="Adapter instance ID in config (e.g. 'matrix')",
     )
     auth_login_p.add_argument(
-        "--homeserver", required=True, help="Homeserver URL or bare domain (e.g. 'matrix.example.com')",
+        "--homeserver", required=False, default=None,
+        help="Homeserver URL or bare domain (e.g. 'matrix.example.com')",
     )
     auth_login_p.add_argument(
-        "--user", required=True,
-        help="User ID (e.g. @bot:example.com)",
+        "--user", required=False, default=None,
+        help="User ID (e.g. @bot:example.com) or localpart for MXID derivation",
+    )
+    auth_login_p.add_argument(
+        "--password", required=False, default=None,
+        help="Password for non-interactive mode",
     )
     auth_login_p.add_argument(
         "--password-stdin", action="store_true", default=False,
@@ -100,6 +115,17 @@ Examples:
 def dispatch_contribution(args) -> None:
     """Dispatch a contributed command, lazy-importing only when needed."""
     if (
+        args.command == "adapter"
+        and getattr(args, "adapter_command", None) == "matrix"
+        and getattr(args, "adapter_matrix_command", None) == "auth"
+        and getattr(args, "adapter_matrix_auth_command", None) == "status"
+    ):
+        from medre.adapters.matrix.cli import _adapter_matrix_auth_status
+
+        import asyncio
+
+        asyncio.run(_adapter_matrix_auth_status())
+    elif (
         args.command == "adapter"
         and getattr(args, "adapter_command", None) == "matrix"
         and getattr(args, "adapter_matrix_command", None) == "auth"

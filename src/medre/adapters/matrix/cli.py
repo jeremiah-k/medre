@@ -1,4 +1,4 @@
-"""Matrix adapter CLI commands: auth login."""
+"""Matrix adapter CLI commands: auth login, auth status."""
 from __future__ import annotations
 
 import getpass
@@ -10,29 +10,121 @@ from pathlib import Path
 async def _adapter_matrix_auth_login(args: object) -> None:
     """Handle ``medre adapter matrix auth login``.
 
-    Reads password from stdin (``--password-stdin``) or :func:`getpass.getpass`,
-    calls :func:`~medre.adapters.matrix.auth.matrix_login`,
-    :func:`~medre.adapters.matrix.auth.matrix_whoami`, and
-    :func:`~medre.adapters.matrix.auth.update_toml_credentials`.
+    Tristate dispatch:
+
+    - **Fully interactive** — no auth flags given.  Prompts for user ID and
+      password, derives homeserver from the MXID.
+    - **Non-interactive** — ``--user``, ``--password`` (or ``--password-stdin``)
+      all present.  ``--homeserver`` is optional when ``--user`` is a full MXID.
+    - **Partial** — some flags given but incomplete.  Prints guidance and exits.
 
     Never prints the access token.
     """
-    # Lazy import to keep --help fast and SDK-free
-    from medre.adapters.matrix.auth import (
-        matrix_login,
-        matrix_whoami,
-        update_toml_credentials,
-    )
-    from medre.adapters.matrix.errors import MatrixConnectionError
-
-    homeserver: str = args.homeserver  # type: ignore[attr-defined]
-    user_id: str = args.user  # type: ignore[attr-defined]
-    config_path = Path(args.config)  # type: ignore[attr-defined]
-    adapter_name: str = args.adapter_id  # type: ignore[attr-defined]
+    # Step 1: Read args via getattr (all optional now) -----------------------
+    homeserver = getattr(args, "homeserver", None)
+    user_id = getattr(args, "user", None)
+    password_cli = getattr(args, "password", None)
     password_stdin: bool = getattr(args, "password_stdin", False)
+    config_path = Path(getattr(args, "config"))
+    adapter_name = getattr(args, "adapter_id")
 
-    # Read password
-    if password_stdin:
+    # Step 2: Tristate dispatch ----------------------------------------------
+    # Count how many auth-relevant flags were explicitly provided.
+    provided = sum([
+        homeserver is not None,
+        user_id is not None,
+        password_cli is not None,
+        password_stdin,
+    ])
+
+    password: str | None = None
+
+    if provided == 0:
+        # --- FULLY INTERACTIVE ----------------------------------------------
+        user_id = input("Matrix user ID (e.g. @bot:example.com): ").strip()
+        if not user_id:
+            print("Error: user ID required", file=sys.stderr)
+            sys.exit(1)
+        password = getpass.getpass("Matrix password: ")
+        if not password:
+            print("Error: password is required", file=sys.stderr)
+            sys.exit(1)
+
+    elif provided > 0:
+        # Check whether we have enough for non-interactive mode.
+        # A full MXID counts as both user AND homeserver (derivable).
+        has_password = password_cli is not None or password_stdin
+
+        # Determine if user_id is a full MXID (contains ':')
+        user_is_mxid = (
+            user_id is not None
+            and user_id.startswith("@")
+            and ":" in user_id
+        )
+
+        # Homeserver is available if explicitly given or derivable from MXID
+        has_homeserver = homeserver is not None or user_is_mxid
+        has_user = user_id is not None
+
+        if has_user and has_password and has_homeserver:
+            # --- NON-INTERACTIVE (all required present) ---------------------
+            pass
+        else:
+            # --- PARTIAL — give guidance ------------------------------------
+            missing: list[str] = []
+            if not has_user:
+                missing.append("--user")
+            if not has_password:
+                missing.append("--password (or --password-stdin)")
+            if not has_homeserver:
+                missing.append(
+                    "--homeserver (or provide a full MXID like @bot:example.com)"
+                )
+            print(
+                f"Error: incomplete credentials. Missing: {', '.join(missing)}",
+                file=sys.stderr,
+            )
+            print(
+                "Provide all flags for non-interactive mode, "
+                "or run with no flags for interactive login.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+    # Step 3 (interactive password already acquired above)
+
+    # Step 4: Homeserver derivation ------------------------------------------
+    assert user_id is not None  # guaranteed by tristate dispatch above
+    if homeserver is None:
+        from medre.adapters.matrix.auth import (
+            discover_well_known,
+            extract_domain_from_mxid,
+        )
+
+        domain = extract_domain_from_mxid(user_id)
+        if domain is None:
+            print(
+                "Cannot derive homeserver. Use --homeserver or provide "
+                "a full MXID (@user:server).",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        discovered = discover_well_known(domain)
+        if discovered:
+            homeserver = discovered
+            print(f"Resolved homeserver via .well-known: {homeserver}")
+        else:
+            homeserver = f"https://{domain}"
+            print(f"Could not reach .well-known; using {homeserver}")
+
+    # Step 5: Password acquisition -------------------------------------------
+    if password is not None:
+        # Already set (interactive mode)
+        pass
+    elif password_cli:
+        password = password_cli
+    elif password_stdin:
         if os.isatty(sys.stdin.fileno()):
             print(
                 "Error: --password-stdin expects piped input. "
@@ -42,32 +134,34 @@ async def _adapter_matrix_auth_login(args: object) -> None:
             )
             sys.exit(1)
         password = sys.stdin.readline().rstrip("\n")
-    else:
-        password = getpass.getpass("Matrix password: ")
 
     if not password:
         print("Error: password is required", file=sys.stderr)
         sys.exit(1)
 
+    # Step 6: Login + whoami + mismatch check --------------------------------
+    from medre.adapters.matrix.auth import (
+        MatrixConnectionError,
+        matrix_login,
+        matrix_whoami,
+        save_credentials_json,
+    )
+
     try:
-        # Step 1: Login
         result = matrix_login(homeserver, user_id, password)
 
-        # Step 2: Verify token with whoami
         whoami_user = matrix_whoami(result.homeserver, result.access_token)
 
-        # Step 2b: Mismatch check
         if whoami_user != user_id:
-            print(f"Error: verified user_id {whoami_user!r} does not match requested {user_id!r}", file=sys.stderr)
+            print(
+                f"Error: verified user_id {whoami_user!r} does not match "
+                f"requested {user_id!r}",
+                file=sys.stderr,
+            )
             sys.exit(1)
 
-        # Step 3: Write credentials to config
-        update_toml_credentials(
-            config_path, "matrix", adapter_name,
-            homeserver=result.homeserver,
-            user_id=result.user_id,
-            access_token=result.access_token,
-        )
+        # Step 7: Save credentials to sidecar JSON
+        creds_path = save_credentials_json(result)
 
     except MatrixConnectionError as exc:
         print(f"Error: {exc}", file=sys.stderr)
@@ -79,12 +173,58 @@ async def _adapter_matrix_auth_login(args: object) -> None:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
 
-    # Step 4: Print results — never the token
-    print(f"Homeserver: {result.homeserver}")
-    print(f"User ID:    {whoami_user}")
-    print(f"Device ID:  {result.device_id}")
-    print(f"Config:     {config_path}")
-    print(f"Adapter:    {adapter_name}")
-    print()
-    print("Token saved to config file.")
-    print("Reminder: ensure your bot is joined to the required rooms.")
+    # Step 8: Print results — never the access token -------------------------
+    print(f"Homeserver:  {result.homeserver}")
+    print(f"User ID:     {result.user_id}")
+    print(f"Device ID:   {result.device_id}")
+    print(f"Credentials: {creds_path}")
+
+
+async def _adapter_matrix_auth_status() -> None:
+    """Handle ``medre adapter matrix auth status``.
+
+    Shows whether a credentials sidecar JSON exists, which fields are present,
+    and reports missing required keys.  Never prints the access token value.
+    """
+    from medre.adapters.matrix.auth import (
+        check_credentials_completeness,
+        get_credentials_path,
+        load_credentials_json,
+    )
+
+    path = get_credentials_path()
+
+    if not path.exists():
+        print(f"No credentials file at: {path}")
+        print("Run 'medre adapter matrix auth login' to authenticate.")
+        return
+
+    creds = load_credentials_json()
+    if creds is None:
+        print(f"Credentials file malformed: {path}")
+        return
+
+    missing = check_credentials_completeness(creds)
+
+    print(f"Credentials:  {path}")
+    print(
+        f"Homeserver:   "
+        f"{'✓ ' + str(creds.get('homeserver', '')) if creds.get('homeserver') else '✗ missing'}"
+    )
+    print(
+        f"User ID:      "
+        f"{'✓ ' + str(creds.get('user_id', '')) if creds.get('user_id') else '✗ missing'}"
+    )
+    print(
+        f"Device ID:    "
+        f"{'✓ ' + str(creds.get('device_id', '')) if creds.get('device_id') else '— (optional)'}"
+    )
+    print(
+        f"Access token: "
+        f"{'✓ (present)' if creds.get('access_token') else '✗ missing'}"
+    )
+
+    if missing:
+        print(f"\nMissing: {', '.join(missing)}")
+    else:
+        print("\nCredentials are complete.")
