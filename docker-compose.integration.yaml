@@ -34,7 +34,7 @@ services:
 
   # === meshtasticd (simulated Meshtastic node) ===
   meshtasticd:
-    image: meshtastic/meshtasticd:2.7.15
+    image: meshtastic/meshtasticd:2.7.15@sha256:1b8d88cd63991bfecb8b8ff1801b9ee806447299b849eff19d03bc6ae0edcd65
     container_name: medre-integration-meshtasticd
     network_mode: host
     command: >
