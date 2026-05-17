@@ -46,6 +46,13 @@ class MeshtasticConfig:
         Seconds after start to suppress stale backlog packets.
     sync_timeout_ms:
         Timeout in milliseconds for sync operations.
+    relay_prefix:
+        Template string prepended to messages relayed from Meshtastic to
+        other transports.  Uses Python ``str.format()`` syntax with
+        variables: ``{longname}``, ``{shortname}``, ``{meshnet_name}``,
+        ``{from_id}``.  Default: ``""`` (no prefix).
+
+        Example: ``"[{longname}/{shortname}]: "``
     """
 
     adapter_id: str
@@ -60,6 +67,7 @@ class MeshtasticConfig:
     message_delay_seconds: float = 0.5
     startup_backlog_suppress_seconds: float = 5.0
     sync_timeout_ms: int = 30000
+    relay_prefix: str = ""
 
     def validate(self) -> Self:
         """Validate the configuration and return *self* for chaining.

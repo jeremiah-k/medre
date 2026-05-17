@@ -214,18 +214,35 @@ _ADAPTER_RENDERER_SPECS: list[tuple[str, str]] = [
 """(module_path, class_name) pairs for transport-specific renderers."""
 
 
-def _register_adapter_renderers(pipeline: RenderingPipeline) -> None:
+def _register_adapter_renderers(pipeline: RenderingPipeline, config: RuntimeConfig | None = None) -> None:
     """Register all transport-specific renderers at priority 50.
 
     Uses dynamic imports to avoid static coupling between the builder
     and concrete adapter packages, preserving the architectural boundary
     enforced by the test suite.
+
+    When *config* is provided, transport-specific renderer config is
+    extracted and passed to renderers that accept it (e.g.
+    ``MeshtasticRenderer`` receives the first ``MeshtasticConfig`` so
+    that ``relay_prefix`` is available).
     """
+    # Collect MeshtasticConfig for MeshtasticRenderer, if available.
+    meshtastic_config: Any = None
+    if config is not None:
+        for _transport, _adapter_id, rtc in config.adapters.all_configs():
+            if _transport == "meshtastic" and getattr(rtc, "config", None) is not None:
+                meshtastic_config = rtc.config
+                break
+
     for module_path, class_name in _ADAPTER_RENDERER_SPECS:
         try:
             mod = __import__(module_path, fromlist=[class_name])
             renderer_cls = getattr(mod, class_name)
-            pipeline.register(renderer_cls(), priority=50)
+            # Pass MeshtasticConfig when constructing MeshtasticRenderer.
+            if class_name == "MeshtasticRenderer" and meshtastic_config is not None:
+                pipeline.register(renderer_cls(config=meshtastic_config), priority=50)
+            else:
+                pipeline.register(renderer_cls(), priority=50)
         except ImportError:
             _logger.debug(
                 "Skipping renderer %s.%s (import failed)",
@@ -276,7 +293,7 @@ class RuntimeBuilder:
         # 100) so they match their platform first.  Each renderer's
         # can_render() checks target_platform, so registering all four
         # is safe — only the matching one will accept.
-        _register_adapter_renderers(rendering_pipeline)
+        _register_adapter_renderers(rendering_pipeline, config=self._config)
         rendering_pipeline.register(TextRenderer(), priority=100)
 
         # 3. Router (empty — routes configured separately)

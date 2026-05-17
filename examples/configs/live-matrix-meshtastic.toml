@@ -52,6 +52,9 @@ enabled = true
 connection_type = "serial"
 serial_port = "/dev/ttyACM0"
 meshnet_name = "medre-radio"           # human-readable name in logs and mesh announcements
+# relay_prefix = "[{longname}/{shortname}]: "  # prepend sender info to relayed messages (Meshtastic→Matrix direction)
+# relay_prefix = "[{meshnet_name}] "            # alternative: just the mesh network name
+# relay_prefix = ""                             # empty = no prefix (default)
 
 # # --- TCP alternative (uncomment and comment out serial lines above) ---
 # [adapters.meshtastic.radio]
