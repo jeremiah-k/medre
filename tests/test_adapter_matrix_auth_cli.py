@@ -6,6 +6,7 @@ integration flow with mocked login/whoami/update functions.
 from __future__ import annotations
 
 import io
+import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,6 +15,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from medre.cli.main import _build_parser
+
+
+def _pipe_stdin(text: str) -> io.StringIO:
+    """Return a StringIO with a ``fileno`` stub (for ``os.isatty`` call)."""
+    buf = io.StringIO(text)
+    buf.fileno = lambda: 0  # type: ignore[attr-defined]
+    return buf
 
 
 # ---------------------------------------------------------------------------
@@ -153,6 +161,112 @@ class TestHelpNoSdkImport:
 
 
 # ---------------------------------------------------------------------------
+# --password-stdin TTY guard
+# ---------------------------------------------------------------------------
+
+class TestPasswordStdinTtyGuard:
+    """Tests for the TTY guard when ``--password-stdin`` is used."""
+
+    def _make_args(self, **overrides: object) -> SimpleNamespace:
+        defaults = {
+            "config": "/tmp/test.toml",
+            "adapter_id": "mybot",
+            "homeserver": "https://matrix.org",
+            "user": "@bot:matrix.org",
+            "password_stdin": True,
+        }
+        defaults.update(overrides)
+        return SimpleNamespace(**defaults)
+
+    @pytest.mark.asyncio
+    async def test_password_stdin_with_tty_exits_1(self) -> None:
+        """--password-stdin on a TTY should exit 1 with 'piped input' message."""
+        from medre.adapters.matrix.cli import _adapter_matrix_auth_login
+
+        args = self._make_args(password_stdin=True)
+
+        # stdin mock that has a fileno() so os.isatty gets called
+        mock_stdin = MagicMock()
+        mock_stdin.fileno.return_value = 0
+
+        stderr_buf = io.StringIO()
+        with (
+            patch("medre.adapters.matrix.cli.os.isatty", return_value=True),
+            patch("sys.stdin", mock_stdin),
+            patch("sys.stderr", stderr_buf),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            await _adapter_matrix_auth_login(args)
+
+        assert exc_info.value.code == 1
+        assert "piped input" in stderr_buf.getvalue()
+
+    @pytest.mark.asyncio
+    async def test_password_stdin_with_pipe_succeeds(self) -> None:
+        """--password-stdin on a pipe (not TTY) should proceed normally."""
+        from medre.adapters.matrix.auth import MatrixLoginResult
+        from medre.adapters.matrix.cli import _adapter_matrix_auth_login
+
+        args = self._make_args(password_stdin=True)
+
+        login_result = MatrixLoginResult(
+            homeserver="https://matrix.org",
+            user_id="@bot:matrix.org",
+            device_id="DEV",
+            access_token="tok",
+        )
+
+        # StringIO lacks fileno(); wrap it so os.isatty receives an int.
+        pipe_stdin = io.StringIO("test_pw\n")
+        pipe_stdin.fileno = lambda: 0  # type: ignore[attr-defined]
+
+        with (
+            patch("medre.adapters.matrix.cli.os.isatty", return_value=False),
+            patch("medre.adapters.matrix.auth.matrix_login", return_value=login_result),
+            patch("medre.adapters.matrix.auth.matrix_whoami", return_value="@bot:matrix.org"),
+            patch("medre.adapters.matrix.auth.update_toml_credentials"),
+            patch("sys.stdin", pipe_stdin),
+        ):
+            await _adapter_matrix_auth_login(args)
+
+
+# ---------------------------------------------------------------------------
+# Login help epilog
+# ---------------------------------------------------------------------------
+
+class TestLoginHelpEpilog:
+    """Tests for the login subcommand help epilog content."""
+
+    def test_help_shows_example_command(self) -> None:
+        """--help output should contain the example 'medre adapter matrix auth login' command."""
+        parser = _build_parser()
+        stdout_buf = io.StringIO()
+        with (
+            patch("sys.stdout", stdout_buf),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            parser.parse_args(["adapter", "matrix", "auth", "login", "--help"])
+
+        assert exc_info.value.code == 0
+        output = stdout_buf.getvalue()
+        assert "medre adapter matrix auth login" in output
+
+    def test_help_mentions_homeserver_format(self) -> None:
+        """--help output should mention bare domain / matrix.example.com."""
+        parser = _build_parser()
+        stdout_buf = io.StringIO()
+        with (
+            patch("sys.stdout", stdout_buf),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            parser.parse_args(["adapter", "matrix", "auth", "login", "--help"])
+
+        assert exc_info.value.code == 0
+        output = stdout_buf.getvalue()
+        assert "bare domain" in output or "matrix.example.com" in output
+
+
+# ---------------------------------------------------------------------------
 # Integration flow (monkeypatched)
 # ---------------------------------------------------------------------------
 
@@ -197,10 +311,11 @@ class TestAdapterMatrixAuthLoginIntegration:
         )
 
         with (
+            patch("medre.adapters.matrix.cli.os.isatty", return_value=False),
             patch("medre.adapters.matrix.auth.matrix_login", return_value=login_result) as mock_login,
             patch("medre.adapters.matrix.auth.matrix_whoami", return_value="@bot:matrix.org") as mock_whoami,
             patch("medre.adapters.matrix.auth.update_toml_credentials") as mock_update,
-            patch("sys.stdin", io.StringIO("test_password\n")),
+            patch("sys.stdin", _pipe_stdin("test_password\n")),
         ):
             await _adapter_matrix_auth_login(args)
 
@@ -243,10 +358,11 @@ class TestAdapterMatrixAuthLoginIntegration:
 
         stdout_buf = io.StringIO()
         with (
+            patch("medre.adapters.matrix.cli.os.isatty", return_value=False),
             patch("medre.adapters.matrix.auth.matrix_login", return_value=login_result),
             patch("medre.adapters.matrix.auth.matrix_whoami", return_value="@bot:m.org"),
             patch("medre.adapters.matrix.auth.update_toml_credentials"),
-            patch("sys.stdin", io.StringIO("pw\n")),
+            patch("sys.stdin", _pipe_stdin("pw\n")),
             patch("sys.stdout", stdout_buf),
         ):
             await _adapter_matrix_auth_login(args)
@@ -264,9 +380,10 @@ class TestAdapterMatrixAuthLoginIntegration:
 
         stderr_buf = io.StringIO()
         with (
+            patch("medre.adapters.matrix.cli.os.isatty", return_value=False),
             patch("medre.adapters.matrix.auth.matrix_login",
                   side_effect=MatrixConnectionError("Login failed")),
-            patch("sys.stdin", io.StringIO("pw\n")),
+            patch("sys.stdin", _pipe_stdin("pw\n")),
             patch("sys.stderr", stderr_buf),
             pytest.raises(SystemExit) as exc_info,
         ):
@@ -293,10 +410,11 @@ class TestAdapterMatrixAuthLoginIntegration:
 
         stderr_buf = io.StringIO()
         with (
+            patch("medre.adapters.matrix.cli.os.isatty", return_value=False),
             patch("medre.adapters.matrix.auth.matrix_login", return_value=login_result),
             patch("medre.adapters.matrix.auth.matrix_whoami",
                   side_effect=MatrixConnectionError("Token invalid")),
-            patch("sys.stdin", io.StringIO("pw\n")),
+            patch("sys.stdin", _pipe_stdin("pw\n")),
             patch("sys.stderr", stderr_buf),
             pytest.raises(SystemExit) as exc_info,
         ):
@@ -326,11 +444,12 @@ class TestAdapterMatrixAuthLoginIntegration:
 
         stderr_buf = io.StringIO()
         with (
+            patch("medre.adapters.matrix.cli.os.isatty", return_value=False),
             patch("medre.adapters.matrix.auth.matrix_login", return_value=login_result),
             patch("medre.adapters.matrix.auth.matrix_whoami", return_value="@b:m.org"),
             patch("medre.adapters.matrix.auth.update_toml_credentials",
                   side_effect=FileNotFoundError("Config file not found: /nope")),
-            patch("sys.stdin", io.StringIO("pw\n")),
+            patch("sys.stdin", _pipe_stdin("pw\n")),
             patch("sys.stderr", stderr_buf),
             pytest.raises(SystemExit) as exc_info,
         ):
@@ -380,7 +499,8 @@ class TestAdapterMatrixAuthLoginIntegration:
 
         stderr_buf = io.StringIO()
         with (
-            patch("sys.stdin", io.StringIO("\n")),
+            patch("medre.adapters.matrix.cli.os.isatty", return_value=False),
+            patch("sys.stdin", _pipe_stdin("\n")),
             patch("sys.stderr", stderr_buf),
             pytest.raises(SystemExit) as exc_info,
         ):
@@ -415,11 +535,12 @@ class TestAdapterMatrixAuthLoginIntegration:
 
         stdout_buf = io.StringIO()
         with (
+            patch("medre.adapters.matrix.cli.os.isatty", return_value=False),
             patch("medre.adapters.matrix.auth.matrix_login", return_value=login_result),
             patch("medre.adapters.matrix.auth.matrix_whoami",
                   return_value="@alice:matrix.example.com"),
             patch("medre.adapters.matrix.auth.update_toml_credentials"),
-            patch("sys.stdin", io.StringIO("pw\n")),
+            patch("sys.stdin", _pipe_stdin("pw\n")),
             patch("sys.stdout", stdout_buf),
         ):
             await _adapter_matrix_auth_login(args)
@@ -449,10 +570,11 @@ class TestAdapterMatrixAuthLoginIntegration:
 
         stderr_buf = io.StringIO()
         with (
+            patch("medre.adapters.matrix.cli.os.isatty", return_value=False),
             patch("medre.adapters.matrix.auth.matrix_login", return_value=login_result),
             patch("medre.adapters.matrix.auth.matrix_whoami", return_value="@bob:example.com"),
             patch("medre.adapters.matrix.auth.update_toml_credentials"),
-            patch("sys.stdin", io.StringIO("pw\n")),
+            patch("sys.stdin", _pipe_stdin("pw\n")),
             patch("sys.stderr", stderr_buf),
             pytest.raises(SystemExit) as exc_info,
         ):
@@ -491,9 +613,10 @@ class TestAdapterMatrixAuthLoginIntegration:
         )
 
         with (
+            patch("medre.adapters.matrix.cli.os.isatty", return_value=False),
             patch("medre.adapters.matrix.auth.matrix_login", return_value=login_result),
             patch("medre.adapters.matrix.auth.matrix_whoami", return_value="@bot:matrix.example.com"),
-            patch("sys.stdin", io.StringIO("pw\n")),
+            patch("sys.stdin", _pipe_stdin("pw\n")),
         ):
             # Use the real update_toml_credentials (not mocked)
             await _adapter_matrix_auth_login(args)

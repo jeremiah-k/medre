@@ -21,6 +21,8 @@ execute when the user explicitly invokes the corresponding subcommand.
 
 from __future__ import annotations
 
+import argparse
+
 ALLOWED_NAMESPACES = ("adapter", "plugin")
 DISALLOWED_TOPLEVEL = ("matrix", "meshtastic", "lxmf", "meshcore")
 
@@ -53,8 +55,27 @@ def _register_matrix_contributions(subparsers) -> None:
 
     # -- adapter matrix auth login --------------------------------------------
     auth_login_p = adapter_matrix_auth_sub.add_parser(
-        "login", help="Authenticate with homeserver, verify token, write credentials to config. Never prints the access token.",
+        "login",
+        help="Authenticate with homeserver, verify token, write credentials to config. Never prints the access token.",
         allow_abbrev=False,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+Examples:
+  Interactive (password prompt):
+    medre adapter matrix auth login \\
+      --config ~/.config/medre/config.toml \\
+      --adapter-id mybot \\
+      --homeserver matrix.example.com \\
+      --user @bot:example.com
+
+  Piped password:
+    echo 'your_password' | medre adapter matrix auth login \\
+      --config ~/.config/medre/config.toml \\
+      --adapter-id mybot \\
+      --homeserver matrix.example.com \\
+      --user @bot:example.com \\
+      --password-stdin
+""",
     )
     auth_login_p.add_argument(
         "--config", required=True, help="Path to config file to update",
@@ -64,7 +85,7 @@ def _register_matrix_contributions(subparsers) -> None:
         help="Adapter instance ID in config (e.g. 'matrix')",
     )
     auth_login_p.add_argument(
-        "--homeserver", required=True, help="Homeserver URL",
+        "--homeserver", required=True, help="Homeserver URL or bare domain (e.g. 'matrix.example.com')",
     )
     auth_login_p.add_argument(
         "--user", required=True,

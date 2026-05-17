@@ -17,6 +17,27 @@ from pathlib import Path
 from medre.adapters.matrix.errors import MatrixConnectionError
 
 
+def _normalize_homeserver(homeserver: str) -> str:
+    """Normalize a Matrix homeserver URL.
+
+    - Bare domain (no ``://``) → prepend ``https://``
+    - Full ``https://`` URL → pass through unchanged
+    - ``http://`` or any other scheme → raise :class:`ValueError`
+
+    Leading/trailing whitespace is stripped before inspection.
+    """
+    homeserver = homeserver.strip()
+    if "://" not in homeserver:
+        return f"https://{homeserver}"
+    if homeserver.startswith("https://"):
+        return homeserver
+    scheme = homeserver.split("://", 1)[0]
+    raise ValueError(
+        f"Unsupported scheme {scheme!r} for homeserver; "
+        f"use 'https://…' or a bare domain"
+    )
+
+
 @dataclass(frozen=True)
 class MatrixLoginResult:
     """Result of a successful Matrix password login."""
@@ -77,6 +98,9 @@ def matrix_login(homeserver: str, user_id: str, password: str) -> MatrixLoginRes
     ----------
     homeserver:
         Base URL of the Matrix homeserver (e.g. ``"https://matrix.org"``).
+        Bare domains (``"matrix.org"``) are accepted and automatically
+        normalised to ``https://``.  ``http://`` and other non-HTTPS
+        schemes raise :class:`ValueError`.
     user_id:
         Fully-qualified Matrix user ID (e.g. ``"@alice:matrix.org"``).
     password:
@@ -92,7 +116,7 @@ def matrix_login(homeserver: str, user_id: str, password: str) -> MatrixLoginRes
     MatrixConnectionError
         On network failure, HTTP error, or missing fields in response.
     """
-    homeserver = homeserver.rstrip("/")
+    homeserver = _normalize_homeserver(homeserver).rstrip("/")
     url = f"{homeserver}/_matrix/client/v3/login"
     payload = json.dumps({
         "type": "m.login.password",
@@ -155,7 +179,9 @@ def matrix_whoami(homeserver: str, access_token: str) -> str:
     Parameters
     ----------
     homeserver:
-        Base URL of the Matrix homeserver.
+        Base URL of the Matrix homeserver.  Normalised the same way as
+        in :func:`matrix_login` (bare domain → ``https://``, ``http://``
+        rejected).
     access_token:
         The access token to verify.
 
@@ -169,7 +195,7 @@ def matrix_whoami(homeserver: str, access_token: str) -> str:
     MatrixConnectionError
         On network failure, HTTP error, or missing user_id.
     """
-    homeserver = homeserver.rstrip("/")
+    homeserver = _normalize_homeserver(homeserver).rstrip("/")
     url = f"{homeserver}/_matrix/client/v3/account/whoami"
 
     req = urllib.request.Request(

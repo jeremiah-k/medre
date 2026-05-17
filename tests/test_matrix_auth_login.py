@@ -18,6 +18,7 @@ import pytest
 
 from medre.adapters.matrix.auth import (
     MatrixLoginResult,
+    _normalize_homeserver,
     matrix_login,
     matrix_whoami,
     update_toml_credentials,
@@ -58,6 +59,40 @@ class _FakeHTTPError(Exception):
 
     def read(self) -> bytes:
         return self._body
+
+
+# ---------------------------------------------------------------------------
+# _normalize_homeserver tests
+# ---------------------------------------------------------------------------
+
+class TestNormalizeHomeserver:
+    """Tests for ``_normalize_homeserver``."""
+
+    def test_bare_domain_gets_https_prefix(self) -> None:
+        assert _normalize_homeserver("matrix.org") == "https://matrix.org"
+
+    def test_bare_domain_with_port(self) -> None:
+        assert _normalize_homeserver("matrix.org:8448") == "https://matrix.org:8448"
+
+    def test_bare_domain_with_trailing_slash(self) -> None:
+        assert _normalize_homeserver("matrix.org/") == "https://matrix.org/"
+
+    def test_full_https_pass_through(self) -> None:
+        assert _normalize_homeserver("https://matrix.org") == "https://matrix.org"
+
+    def test_full_https_with_path_pass_through(self) -> None:
+        assert _normalize_homeserver("https://matrix.org:8448") == "https://matrix.org:8448"
+
+    def test_http_scheme_rejected(self) -> None:
+        with pytest.raises(ValueError, match="Unsupported"):
+            _normalize_homeserver("http://matrix.org")
+
+    def test_ftp_scheme_rejected(self) -> None:
+        with pytest.raises(ValueError, match="Unsupported"):
+            _normalize_homeserver("ftp://matrix.org")
+
+    def test_whitespace_stripped(self) -> None:
+        assert _normalize_homeserver("  matrix.org  ") == "https://matrix.org"
 
 
 # ---------------------------------------------------------------------------
@@ -181,6 +216,22 @@ class TestMatrixLogin:
         r = repr(result)
         assert "super_secret_token" not in r
         assert "***" in r
+
+    @patch("medre.adapters.matrix.auth.urllib.request.urlopen")
+    def test_bare_domain_normalized_to_https(self, mock_urlopen: MagicMock) -> None:
+        mock_urlopen.return_value = _FakeResponse({
+            "access_token": "tok",
+            "device_id": "D",
+            "user_id": "@u:matrix.org",
+        })
+
+        result = matrix_login("matrix.org", "@u:matrix.org", "pw")
+        assert result.homeserver == "https://matrix.org"
+
+        # Verify the URL passed to urlopen starts with the normalised form.
+        call_args = mock_urlopen.call_args
+        url_used = call_args[0][0].full_url
+        assert url_used.startswith("https://matrix.org/")
 
 
 # ---------------------------------------------------------------------------

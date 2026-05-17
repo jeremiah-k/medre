@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import getpass
+import os
 import sys
 from pathlib import Path
 
@@ -32,6 +33,14 @@ async def _adapter_matrix_auth_login(args: object) -> None:
 
     # Read password
     if password_stdin:
+        if os.isatty(sys.stdin.fileno()):
+            print(
+                "Error: --password-stdin expects piped input. "
+                "Use interactive login (without --password-stdin), "
+                "or pipe the password.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
         password = sys.stdin.readline().rstrip("\n")
     else:
         password = getpass.getpass("Matrix password: ")
