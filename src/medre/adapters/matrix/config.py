@@ -6,7 +6,7 @@ to verify the configuration before passing it to :class:`MatrixAdapter`.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Literal, Self
 
 from medre.adapters.matrix.errors import MatrixConfigError
@@ -69,14 +69,59 @@ class MatrixConfig:
     encryption_mode: str = "plaintext"
     require_encrypted_rooms: bool = False
 
-    def validate(self) -> Self:
-        """Validate the configuration and return *self* for chaining.
+    def validate(self) -> MatrixConfig:
+        """Validate the configuration and return it for chaining.
+
+        If ``homeserver``, ``user_id``, or ``access_token`` are empty in
+        this config, the sidecar credentials file
+        (``~/.config/medre/credentials/matrix.json``) is consulted as a
+        fallback before raising a validation error.
 
         Raises
         ------
         MatrixConfigError
-            If any required field is missing or malformed.
+            If any required field is missing or malformed and no
+            sidecar fallback is available.
         """
+        resolved = self._apply_sidecar_fallback()
+        return resolved._validate_fields()
+
+    def _apply_sidecar_fallback(self) -> MatrixConfig:
+        """Return a new config with empty credential fields filled from sidecar.
+
+        If none of ``homeserver``, ``user_id``, or ``access_token`` are
+        empty, returns *self* unchanged.  Otherwise loads the sidecar
+        JSON and applies any missing values it contains.
+        """
+        needs_homeserver = not (isinstance(self.homeserver, str) and self.homeserver.strip())
+        needs_user_id = not (isinstance(self.user_id, str) and self.user_id.strip())
+        needs_access_token = not (isinstance(self.access_token, str) and self.access_token.strip())
+
+        if not (needs_homeserver or needs_user_id or needs_access_token):
+            return self
+
+        # Lazy import to avoid circular dependency at module level.
+        from medre.adapters.matrix.auth import load_credentials_json
+
+        creds = load_credentials_json()
+        if creds is None:
+            return self
+
+        overrides: dict[str, str] = {}
+        if needs_homeserver and creds.get("homeserver"):
+            overrides["homeserver"] = creds["homeserver"]
+        if needs_user_id and creds.get("user_id"):
+            overrides["user_id"] = creds["user_id"]
+        if needs_access_token and creds.get("access_token"):
+            overrides["access_token"] = creds["access_token"]
+
+        if not overrides:
+            return self
+
+        return replace(self, **overrides)
+
+    def _validate_fields(self) -> MatrixConfig:
+        """Pure validation of already-resolved field values."""
         if not isinstance(self.homeserver, str) or not self.homeserver.strip():
             raise MatrixConfigError("homeserver must be a non-empty string")
         if not (

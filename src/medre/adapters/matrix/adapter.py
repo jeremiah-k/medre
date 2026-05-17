@@ -131,8 +131,7 @@ class MatrixAdapter(BaseAdapter):
     role: AdapterRole = AdapterRole.PRESENTATION
 
     def __init__(self, config: MatrixConfig) -> None:
-        config.validate()
-        self._config = config
+        self._config = config.validate()
         self.adapter_id = config.adapter_id
         self._capabilities = _MATRIX_CAPABILITIES
         self._session: MatrixSession | None = None
