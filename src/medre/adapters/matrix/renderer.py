@@ -20,6 +20,7 @@ from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
 from medre.adapters.matrix.relations import build_reply_body
 from medre.core.events import CanonicalEvent
 from medre.core.rendering.renderer import RenderingResult
+from medre.interop.mmrelay import KEY_ID, KEY_LONGNAME, KEY_SHORTNAME, KEY_MESHNET, KEY_PORTNUM, KEY_TEXT
 
 class MatrixRenderer:
     """Renderer for Matrix presentation targets.
@@ -209,9 +210,6 @@ class MatrixRenderer:
     # mmrelay compatibility
     # ------------------------------------------------------------------
 
-    # mmrelay key prefix — constructed to avoid literal adapter name in source
-    _MMRELAY_PREFIX: str = "mesh" + "tastic_"
-
     def _inject_mmrelay_metadata(
         self,
         event: CanonicalEvent,
@@ -220,18 +218,19 @@ class MatrixRenderer:
         """Embed mmrelay-compatible mesh metadata into *content*.
 
         When mmrelay compatibility is enabled, the Matrix content payload
-        is augmented with ``mesh*`` keys that mirror the fields mmrelay
-        consumers expect.  Fields are extracted from the event's native
-        metadata and payload.
+        is augmented with wire-format keys that mirror the fields mmrelay
+        consumers expect.  The key names come from
+        :mod:`medre.interop.mmrelay` so that the wire contract lives
+        outside any single adapter.
 
-        Injected keys (prefixed at runtime):
+        Injected keys (see :mod:`medre.interop.mmrelay` for names):
 
-        * ``{prefix}id`` — packet ID from native metadata.
-        * ``{prefix}longname`` — sender long name from native metadata.
-        * ``{prefix}shortname`` — sender short name from native metadata.
-        * ``{prefix}meshnet`` — mesh network name from config.
-        * ``{prefix}portnum`` — hardcoded ``"TEXT_MESSAGE_APP"``.
-        * ``{prefix}text`` — message body/text from the event payload.
+        * packet ID from native metadata.
+        * sender long name from native metadata.
+        * sender short name from native metadata.
+        * mesh network name from config.
+        * hardcoded ``"TEXT_MESSAGE_APP"`` port number.
+        * message body/text from the event payload.
         """
         native_data: dict[str, object] = {}
         if event.metadata and event.metadata.native:
@@ -239,10 +238,9 @@ class MatrixRenderer:
 
         text = str(event.payload.get("body", event.payload.get("text", "")))
 
-        p = self._MMRELAY_PREFIX
-        content[f"{p}id"] = str(native_data.get("packet_id", ""))
-        content[f"{p}longname"] = str(native_data.get("longname", ""))
-        content[f"{p}shortname"] = str(native_data.get("shortname", ""))
-        content[f"{p}meshnet"] = self._meshnet_name
-        content[f"{p}portnum"] = "TEXT_MESSAGE_APP"
-        content[f"{p}text"] = text
+        content[KEY_ID] = str(native_data.get("packet_id", ""))
+        content[KEY_LONGNAME] = str(native_data.get("longname", ""))
+        content[KEY_SHORTNAME] = str(native_data.get("shortname", ""))
+        content[KEY_MESHNET] = self._meshnet_name
+        content[KEY_PORTNUM] = "TEXT_MESSAGE_APP"
+        content[KEY_TEXT] = text
