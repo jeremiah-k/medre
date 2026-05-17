@@ -71,15 +71,13 @@ def startup_summary(
         return "Runtime starting with 0 adapters."
 
     lines: list[str] = []
-    ids = ", ".join(r[0] for r in results)
-    lines.append(f"Runtime starting with {len(results)} adapter(s): {ids}")
 
     succeeded = 0
     failed = 0
     for adapter_id, transport, success, duration_s, error in results:
         dur = format_duration_ms(0.0, duration_s) if duration_s > 0 else "0ms"
         if success:
-            lines.append(f"  \u2713 {transport}.{adapter_id} started ({dur})")
+            lines.append(f"  started {transport}.{adapter_id} ({dur})")
             succeeded += 1
         else:
             err_msg = error or "unknown error"
@@ -115,14 +113,13 @@ def shutdown_summary(
     str
         Formatted multi-line summary.
     """
-    lines: list[str] = ["Runtime shutting down"]
-
-    for aid in adapter_ids:
-        lines.append(f"  stopping {aid}")
+    lines: list[str] = []
 
     if errors:
+        lines.append("Runtime stopped with errors")
         for aid, err in errors:
             lines.append(f"  \u2717 {aid}: shutdown error ({err})")
+    else:
+        lines.append(f"Runtime stopped ({len(adapter_ids)} adapter(s))")
 
-    lines.append("Runtime stopped")
     return "\n".join(lines)

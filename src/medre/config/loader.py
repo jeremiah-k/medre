@@ -13,11 +13,12 @@ from __future__ import annotations
 
 import os
 import tomllib
+from dataclasses import replace
 from enum import Enum
 from pathlib import Path
 from typing import Any, Protocol, Self, TypeVar
 
-from medre.config.errors import ConfigError, ConfigNotFoundError, ConfigFileError, ConfigValidationError
+from medre.config.errors import ConfigNotFoundError, ConfigFileError, ConfigValidationError
 from medre.config.model import (
     RuntimeConfig,
     RuntimeOptions,
@@ -162,7 +163,7 @@ def load_config(
         Config file cannot be read or parsed as valid TOML.
     """
     path, source = find_config(config_path)
-    paths = resolve()
+    paths = replace(resolve(), config_file=path)
 
     try:
         raw = path.read_bytes()

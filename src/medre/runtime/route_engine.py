@@ -773,10 +773,12 @@ def register_routes(
             len(skipped_routes),
         )
 
-    # Step 4: Loop detection — log warnings but do not block startup.
+    # Step 4: Loop detection — informational only. Bidirectional bridges
+    # intentionally create adapter cycles; runtime loop prevention handles
+    # source echo and route-trace feedback at delivery time.
     loops = check_route_loops(registered_routes)
     for loop_msg in loops:
-        _logger.warning("Route loop warning: %s", loop_msg)
+        _logger.info("Route topology cycle: %s", loop_msg)
 
     # Step 5: Register routes in deterministic order.
     for route in registered_routes:

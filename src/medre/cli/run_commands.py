@@ -14,7 +14,6 @@ from medre.config.loader import load_config
 from medre.config.errors import ConfigError
 from medre.config.env import apply_env_overrides
 from medre.observability import (
-    adapter_logger,
     format_duration_ms,
     sanitize_for_log,
     startup_summary,
@@ -27,6 +26,11 @@ from .smoke_commands import _transport_for_adapter, _setup_logging
 logger = logging.getLogger("medre")
 
 shutdown_requested: bool = False
+
+
+def _print(line: str = "") -> None:
+    """Print a console status line immediately, even when output is captured."""
+    print(line, flush=True)
 
 
 class _RunSignals:
@@ -49,6 +53,33 @@ def _request_shutdown(signum: int, _frame: object) -> None:
     global shutdown_requested  # noqa: PLW0603
     shutdown_requested = True
     logger.info("Received signal %s — requesting shutdown", signal.Signals(signum).name)
+
+
+async def _start_interruptibly(app: Any) -> bool:
+    """Start *app*, allowing SIGINT/SIGTERM to cancel startup cleanly."""
+    start_task = asyncio.create_task(app.start())
+    try:
+        while not start_task.done():
+            done, _pending = await asyncio.wait({start_task}, timeout=0.1)
+            if done:
+                break
+            if shutdown_requested:
+                logger.info("Shutdown requested during startup — cancelling startup")
+                start_task.cancel()
+                try:
+                    await start_task
+                except asyncio.CancelledError:
+                    pass
+                try:
+                    await app.stop()
+                except Exception as exc:
+                    logger.error("Error stopping after interrupted startup: %s", exc)
+                return False
+        await start_task
+        return True
+    except asyncio.CancelledError:
+        start_task.cancel()
+        raise
 
 
 async def _run(config_path: str | None, snapshot_path: str | None = None) -> None:
@@ -74,6 +105,7 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
         print(
             "Error: no adapters enabled. Set at least one adapter enabled = true in config.",
             file=sys.stderr,
+            flush=True,
         )
         sys.exit(EXIT_CONFIG)
 
@@ -85,27 +117,33 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
     logger.info("Config path: %s", paths.config_file)
     logger.info("State dir:   %s", paths.state_dir)
 
-    # Print startup header to console with adapter inventory.
-    print(f"Runtime starting with {len(enabled_adapters)} adapter(s): {', '.join(adapter_ids)}")
+    # Print one concise console header; detailed construction/start timing
+    # belongs in the logger and the post-start summary below.
+    _print(
+        f"MEDRE starting ({config.runtime.name}) with "
+        f"{len(enabled_adapters)} adapter(s): {', '.join(adapter_ids)}"
+    )
+    _print(f"  Config:  {paths.config_file}")
+    _print(f"  State:   {paths.state_dir}")
 
     # Show disabled adapters for visibility.
     all_cfgs = config.adapters.all_configs()
     disabled = [(t, aid) for t, aid, rtc in all_cfgs if not rtc.enabled]
     if disabled:
-        print(f"  Disabled adapters: {', '.join(f'{t}.{aid}' for t, aid in disabled)}")
+        _print(f"  Disabled adapters: {', '.join(f'{t}.{aid}' for t, aid in disabled)}")
 
     builder = RuntimeBuilder(config, paths)
     try:
         app = builder.build()
     except Exception as exc:
-        print(f"Runtime build error: {exc}", file=sys.stderr)
+        print(f"Runtime build error: {exc}", file=sys.stderr, flush=True)
         sys.exit(EXIT_BUILD)
 
     # Report build failures before startup.
     if app.build_failures:
-        print(f"  Build failures ({len(app.build_failures)}):")
+        _print(f"  Build failures ({len(app.build_failures)}):")
         for bf in app.build_failures:
-            print(f"    \u2717 {bf.transport}.{bf.adapter_id}: {bf.error}")
+            _print(f"    \u2717 {bf.transport}.{bf.adapter_id}: {bf.error}")
 
     # If ALL enabled adapters failed construction there is nothing to start.
     # Exit with EXIT_BUILD (3) — this is a build-phase failure, not startup.
@@ -114,6 +152,7 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
             f"\nRuntime build error: all {len(app.build_failures)} enabled "
             "adapter(s) failed to construct",
             file=sys.stderr,
+            flush=True,
         )
         sys.exit(EXIT_BUILD)
 
@@ -122,7 +161,7 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
     enabled_routes = [r for r in route_list if r.enabled]
     disabled_routes = [r for r in route_list if not r.enabled]
     if route_list:
-        print(
+        _print(
             f"  Routes: {len(enabled_routes)} enabled, "
             f"{len(disabled_routes)} disabled "
             f"({len(route_list)} total)"
@@ -130,11 +169,11 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
 
     # Show storage backend.
     storage_backend = config.storage.backend if config.storage else "none"
-    print(f"  Storage: {storage_backend}")
+    _print(f"  Storage: {storage_backend}")
 
     # Show runtime limits.
     limits = config.limits
-    print(
+    _print(
         f"  Limits: max_inflight_deliveries={limits.max_inflight_deliveries}, "
         f"max_inflight_replay_events={limits.max_inflight_replay_events}, "
         f"drain_timeout={limits.shutdown_drain_timeout_seconds}s"
@@ -150,7 +189,10 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
 
     try:
         try:
-            await app.start()
+            started = await _start_interruptibly(app)
+            if not started:
+                _print("Runtime startup interrupted")
+                return
         except Exception as exc:
             # RuntimeStartupError means total failure (zero adapters).
             # Print what we know and exit with a startup-specific code.
@@ -169,17 +211,20 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
                 )
 
             summary = startup_summary(startup_results)
-            print(summary)
+            _print(summary)
             if isinstance(exc, RuntimeStartupError):
-                print(f"\nRuntime startup failed: {exc}")
+                _print(f"\nRuntime startup failed: {exc}")
                 sys.exit(EXIT_STARTUP)
             # Unexpected exception during startup (core subsystem failure).
-            print(f"\nRuntime startup failed: {exc}", file=sys.stderr)
+            print(f"\nRuntime startup failed: {exc}", file=sys.stderr, flush=True)
             sys.exit(EXIT_STARTUP)
 
         # Build startup results from app state (supports partial startup).
         for adapter_id in app.started_adapter_ids:
-            dur = time.monotonic() - run_start
+            dur = getattr(app, "adapter_start_duration_ms", {}).get(
+                adapter_id,
+                (time.monotonic() - run_start) * 1000,
+            ) / 1000.0
             startup_results.append(
                 (adapter_id, _transport_for_adapter(adapter_id, config), True, dur, None)
             )
@@ -191,7 +236,7 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
 
         # Print startup summary
         summary = startup_summary(startup_results)
-        print(summary)
+        _print(summary)
 
         # Route eligibility summary (build-time classification).
         route_elig = getattr(app, "route_eligibility", None)
@@ -204,21 +249,21 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
                 parts.append(f"{n_degraded} degraded")
             if n_skipped:
                 parts.append(f"{n_skipped} skipped")
-            print(f"  Route eligibility: {', '.join(parts)}")
+            _print(f"  Route eligibility: {', '.join(parts)}")
 
-        print("  Run `medre diagnostics --refresh-health` for live adapter health")
+        _print("  Run `medre diagnostics --refresh-health` for live adapter health")
 
         # Print boot summary diagnostics if available.
         if app.boot_summary is not None:
             bs = app.boot_summary
             if bs.runtime_health == "degraded":
-                print(f"  \u26a0 Runtime is DEGRADED: {bs.adapters_started}/{bs.adapters_total} adapter(s) started")
+                _print(f"  \u26a0 Runtime is DEGRADED: {bs.adapters_started}/{bs.adapters_total} adapter(s) started")
                 if bs.failed_adapter_ids:
-                    print(f"    Failed adapters: {', '.join(bs.failed_adapter_ids)}")
+                    _print(f"    Failed adapters: {', '.join(bs.failed_adapter_ids)}")
             if bs.persisted_events_count is not None:
-                print(f"  Persisted events: {bs.persisted_events_count}")
+                _print(f"  Persisted events: {bs.persisted_events_count}")
             if bs.adapters_disabled > 0:
-                print(f"  Disabled adapters: {bs.adapters_disabled}")
+                _print(f"  Disabled adapters: {bs.adapters_disabled}")
 
         # Log structured startup
         logger.info(
@@ -238,8 +283,8 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
             logger.info("KeyboardInterrupt — shutting down")
         finally:
             # Shutdown
-            print("Runtime shutting down")
-            logger.info("Runtime shutting down")
+            _print("Runtime shutting down")
+            logger.info("Runtime shutdown requested")
 
             # Capture final accounting counters before stop.
             final_accounting: dict[str, int] | None = None
@@ -265,27 +310,22 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
                 # Count adapters that were still running as abandoned work.
                 abandoned_count = len(getattr(app, "started_adapter_ids", []))
 
-            # Print drain outcome
+            # Print drain outcome once. Adapter stop details are already
+            # logged by the runtime in deterministic order.
             if drain_outcome == "completed":
-                print(f"  Drain completed (timeout={drain_timeout}s)")
+                _print(f"  drain completed (timeout={drain_timeout}s)")
             else:
-                print(
-                    f"  Drain timed out after {drain_timeout}s "
+                _print(
+                    f"  drain timed out after {drain_timeout}s "
                     f"({abandoned_count} adapter(s) abandoned)"
                 )
 
-            # Per-adapter shutdown messages
-            for adapter_id in app.adapters:
-                alog = adapter_logger("medre.adapters", adapter_id, _transport_for_adapter(adapter_id, config))
-                alog.info("Adapter %s stopped", adapter_id)
-                print(f"  stopped {adapter_id}")
-
             summary = shutdown_summary(list(app.adapters.keys()), shutdown_errors or None)
-            print(summary)
+            _print(summary)
 
             # Print final accounting counters.
             if final_accounting is not None:
-                print(
+                _print(
                     f"  Accounting: inbound={final_accounting.get('inbound_accepted', 0)} "
                     f"outbound_delivered={final_accounting.get('outbound_delivered', 0)} "
                     f"outbound_failed={final_accounting.get('outbound_failed', 0)} "
@@ -302,9 +342,9 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
                     snap_path = Path(snapshot_path)
                     snap_path.parent.mkdir(parents=True, exist_ok=True)
                     snap_path.write_text(json.dumps(snap, indent=2, sort_keys=True) + "\n")
-                    print(f"  Final snapshot written to: {snapshot_path}")
+                    _print(f"  Final snapshot written to: {snapshot_path}")
                 except Exception as exc:
-                    print(f"  Warning: failed to write snapshot: {exc}", file=sys.stderr)
+                    print(f"  Warning: failed to write snapshot: {exc}", file=sys.stderr, flush=True)
 
             logger.info("MEDRE stopped")
     finally:

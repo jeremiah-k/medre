@@ -5,8 +5,6 @@ import json as _json
 import logging
 import sys
 
-from .exit_codes import EXIT_CONFIG
-
 
 def _transport_for_adapter(adapter_id: str, config: object) -> str:
     """Look up the transport type for an adapter_id from config."""
@@ -25,30 +23,45 @@ def _setup_logging(config: object) -> None:
     """Apply logging configuration from the parsed config."""
     log_cfg = getattr(config, "logging", None)
     if log_cfg is None:
-        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+            stream=sys.stdout,
+        )
         return
 
     level = getattr(log_cfg, "level", "INFO")
     fmt = getattr(log_cfg, "format", None) or "%(asctime)s %(levelname)s %(name)s: %(message)s"
     # Map preset names to actual Python format strings.
     _FORMAT_PRESETS = {
-        "text": "%(asctime)s [%(levelname)s] %(message)s",
+        "text": "%(asctime)s %(levelname)-8s %(name)s: %(message)s",
         "json": '{"time":"%(asctime)s","level":"%(levelname)s","message":"%(message)s"}',
     }
     fmt = _FORMAT_PRESETS.get(fmt, fmt)
-    logging.basicConfig(level=getattr(logging, level.upper(), logging.INFO), format=fmt)
+    logging.basicConfig(
+        level=getattr(logging, level.upper(), logging.INFO),
+        format=fmt,
+        stream=sys.stdout,
+    )
 
     # Apply per-logger level overrides (or defaults if none configured).
     overrides = getattr(log_cfg, "overrides", None)
+    # Keep noisy third-party SDK internals out of operator logs by default.
+    # MEDRE loggers remain controlled by the root level/explicit overrides.
+    for name, default_level in (
+        ("nio", logging.WARNING),
+        ("nio.events", logging.ERROR),
+        ("meshtastic", logging.WARNING),
+        ("aiohttp", logging.WARNING),
+        ("peewee", logging.WARNING),
+    ):
+        logging.getLogger(name).setLevel(default_level)
+
     if overrides:
         for name, level_str in overrides.items():
             logging.getLogger(name).setLevel(
                 getattr(logging, level_str.upper(), logging.WARNING)
             )
-    else:
-        # Default: suppress SDK library noise
-        for name in ("nio", "meshtastic", "aiohttp", "peewee"):
-            logging.getLogger(name).setLevel(logging.WARNING)
 
 
 async def _smoke(
@@ -97,9 +110,9 @@ async def _smoke(
         # JSON status uses lowercase "passed"/"failed"; terminal output uses
         # "PASS"/"FAIL" labels for visual clarity.
         if status == "passed":
-            print(f"Fake bridge smoke: PASS")
+            print("Fake bridge smoke: PASS")
         else:
-            print(f"Fake bridge smoke: FAIL")
+            print("Fake bridge smoke: FAIL")
             reasons = report.get("fail_reasons", [])
             for r in reasons:
                 print(f"  \u2717 {r}")

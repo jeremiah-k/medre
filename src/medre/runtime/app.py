@@ -139,6 +139,9 @@ class MedreApp:
         Per-adapter monotonic start timestamps in milliseconds
         (``time.monotonic() * 1000``).  Populated during :meth:`start`;
         process-local only — not wall-clock, not persisted, not refreshed.
+    adapter_start_duration_ms:
+        Per-adapter startup duration in milliseconds. Populated alongside
+        :attr:`adapter_start_monotonic` for operator summaries.
     started_adapter_ids:
         Ordered list of adapter IDs that successfully started.
     route_stats:
@@ -165,6 +168,7 @@ class MedreApp:
     route_stats: RouteStats | None = None
     build_failures: list[AdapterBuildFailure] = field(default_factory=list)
     adapter_start_monotonic: dict[str, float] = field(default_factory=dict)
+    adapter_start_duration_ms: dict[str, float] = field(default_factory=dict)
     started_adapter_ids: list[str] = field(default_factory=list)
     _state: RuntimeState = field(default=RuntimeState.INITIALIZED, init=False)
     _capacity_controller: CapacityController | None = field(default=None, init=False)
@@ -586,6 +590,7 @@ class MedreApp:
                     await adapter.start(ctx)
                     elapsed = _monotonic_ms() - t0
                     self.adapter_start_monotonic[adapter_id] = t0
+                    self.adapter_start_duration_ms[adapter_id] = elapsed
                     self.started_adapter_ids.append(adapter_id)
                     self._set_adapter_state(adapter_id, AdapterState.READY)
                     _logger.info(

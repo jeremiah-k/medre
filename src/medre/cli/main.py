@@ -38,7 +38,12 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     # run
-    run_p = sub.add_parser("run", help="Start the runtime (requires --config; may send messages)")
+    run_p = sub.add_parser("run", help="Start the runtime (may send messages)")
+    run_p.add_argument(
+        "config_path",
+        nargs="?",
+        help="Path to config file (shorthand for --config)",
+    )
     run_p.add_argument("--config", default=None, help="Path to config file")
     run_p.add_argument(
         "--snapshot-on-shutdown",
@@ -260,7 +265,12 @@ def main(argv: list[str] | None = None) -> None:
         from .run_commands import _run
 
         try:
-            asyncio.run(_run(args.config, snapshot_path=getattr(args, "snapshot_on_shutdown", None)))
+            asyncio.run(
+                _run(
+                    args.config or getattr(args, "config_path", None),
+                    snapshot_path=getattr(args, "snapshot_on_shutdown", None),
+                )
+            )
         except KeyboardInterrupt:
             pass
     elif args.command == "config":
