@@ -11,3 +11,6 @@ KEY_SHORTNAME = "meshtastic_shortname"
 KEY_MESHNET = "meshtastic_meshnet"
 KEY_PORTNUM = "meshtastic_portnum"
 KEY_TEXT = "meshtastic_text"
+
+# Protocol values
+PORTNUM_TEXT = "TEXT_MESSAGE_APP"

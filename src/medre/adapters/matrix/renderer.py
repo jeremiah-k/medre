@@ -20,7 +20,7 @@ from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
 from medre.adapters.matrix.relations import build_reply_body
 from medre.core.events import CanonicalEvent
 from medre.core.rendering.renderer import RenderingResult
-from medre.interop.mmrelay import KEY_ID, KEY_LONGNAME, KEY_SHORTNAME, KEY_MESHNET, KEY_PORTNUM, KEY_TEXT
+from medre.interop.mmrelay import KEY_ID, KEY_LONGNAME, KEY_SHORTNAME, KEY_MESHNET, KEY_PORTNUM, KEY_TEXT, PORTNUM_TEXT
 
 class MatrixRenderer:
     """Renderer for Matrix presentation targets.
@@ -242,5 +242,5 @@ class MatrixRenderer:
         content[KEY_LONGNAME] = str(native_data.get("longname", ""))
         content[KEY_SHORTNAME] = str(native_data.get("shortname", ""))
         content[KEY_MESHNET] = self._meshnet_name
-        content[KEY_PORTNUM] = "TEXT_MESSAGE_APP"
+        content[KEY_PORTNUM] = PORTNUM_TEXT
         content[KEY_TEXT] = text
