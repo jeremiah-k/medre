@@ -37,8 +37,6 @@ class TestAdapterMatrixAuthParserStructure:
         parser = _build_parser()
         args = parser.parse_args([
             "adapter", "matrix", "auth", "login",
-            "--config", "/tmp/c.toml",
-            "--adapter-id", "bot",
             "--homeserver", "https://m.org",
             "--user", "@b:m.org",
         ])
@@ -46,8 +44,6 @@ class TestAdapterMatrixAuthParserStructure:
         assert args.adapter_command == "matrix"
         assert args.adapter_matrix_command == "auth"
         assert args.adapter_matrix_auth_command == "login"
-        assert args.config == "/tmp/c.toml"
-        assert args.adapter_id == "bot"
         assert args.homeserver == "https://m.org"
         assert args.user == "@b:m.org"
         assert args.password_stdin is False
@@ -56,8 +52,6 @@ class TestAdapterMatrixAuthParserStructure:
         parser = _build_parser()
         args = parser.parse_args([
             "adapter", "matrix", "auth", "login",
-            "--config", "/tmp/c.toml",
-            "--adapter-id", "bot",
             "--homeserver", "https://m.org",
             "--user", "@b:m.org",
             "--password-stdin",
@@ -74,44 +68,18 @@ class TestAdapterMatrixAuthParserStructure:
         with pytest.raises(SystemExit):
             parser.parse_args(["adapter", "matrix"])
 
-    def test_login_requires_config(self) -> None:
-        parser = _build_parser()
-        with pytest.raises(SystemExit):
-            parser.parse_args([
-                "adapter", "matrix", "auth", "login",
-                "--adapter-id", "bot",
-                "--homeserver", "https://m.org",
-                "--user", "@b:m.org",
-            ])
-
-    def test_login_requires_adapter(self) -> None:
-        parser = _build_parser()
-        with pytest.raises(SystemExit):
-            parser.parse_args([
-                "adapter", "matrix", "auth", "login",
-                "--config", "/tmp/c.toml",
-                "--homeserver", "https://m.org",
-                "--user", "@b:m.org",
-            ])
-
     def test_login_accepts_no_flags(self) -> None:
         """Homeserver and user are optional; minimal invocation parses."""
         parser = _build_parser()
-        args = parser.parse_args([
-            "adapter", "matrix", "auth", "login",
-            "--config", "/tmp/c.toml",
-            "--adapter-id", "bot",
-        ])
-        assert args.homeserver is None
-        assert args.user is None
+        args = parser.parse_args(["adapter", "matrix", "auth", "login"])
+        assert getattr(args, "homeserver", None) is None
+        assert getattr(args, "user", None) is None
 
     def test_login_accepts_user_only_mxid(self) -> None:
         """Providing only --user (no --homeserver) is accepted."""
         parser = _build_parser()
         args = parser.parse_args([
             "adapter", "matrix", "auth", "login",
-            "--config", "/tmp/c.toml",
-            "--adapter-id", "bot",
             "--user", "@bot:server",
         ])
         assert args.homeserver is None
@@ -122,8 +90,6 @@ class TestAdapterMatrixAuthParserStructure:
         parser = _build_parser()
         args = parser.parse_args([
             "adapter", "matrix", "auth", "login",
-            "--config", "/tmp/c.toml",
-            "--adapter-id", "bot",
             "--homeserver", "https://m.org",
             "--user", "@b:m.org",
             "--password", "somepass",
@@ -136,16 +102,13 @@ class TestAdapterMatrixAuthParserStructure:
         args = parser.parse_args(["adapter", "matrix", "auth", "status"])
         assert args.adapter_matrix_auth_command == "status"
 
-    def test_adapter_abbrev_rejected(self) -> None:
-        """--adapter must not be accepted as abbreviation for --adapter-id."""
+    def test_unknown_flag_rejected(self) -> None:
+        """Unknown flags are rejected by the parser."""
         parser = _build_parser()
         with pytest.raises(SystemExit):
             parser.parse_args([
                 "adapter", "matrix", "auth", "login",
-                "--config", "/tmp/c.toml",
-                "--adapter", "bot",
-                "--homeserver", "https://m.org",
-                "--user", "@bot:m.org",
+                "--unknown", "value",
             ])
 
 
@@ -185,8 +148,6 @@ class TestPasswordStdinTtyGuard:
 
     def _make_args(self, **overrides: object) -> SimpleNamespace:
         defaults = {
-            "config": "/tmp/test.toml",
-            "adapter_id": "mybot",
             "homeserver": "https://matrix.org",
             "user": "@bot:matrix.org",
             "password": None,
@@ -202,13 +163,10 @@ class TestPasswordStdinTtyGuard:
 
         args = self._make_args(password_stdin=True)
 
-        mock_stdin = MagicMock()
-        mock_stdin.fileno.return_value = 0
-
         stderr_buf = io.StringIO()
         with (
             patch("medre.adapters.matrix.cli.os.isatty", return_value=True),
-            patch("sys.stdin", mock_stdin),
+            patch("sys.stdin", _pipe_stdin("")),
             patch("sys.stderr", stderr_buf),
             pytest.raises(SystemExit) as exc_info,
         ):
@@ -239,6 +197,7 @@ class TestPasswordStdinTtyGuard:
             patch("medre.adapters.matrix.cli.os.isatty", return_value=False),
             patch("medre.adapters.matrix.auth.matrix_login", return_value=login_result),
             patch("medre.adapters.matrix.auth.matrix_whoami", return_value="@bot:matrix.org"),
+            patch("medre.adapters.matrix.auth.update_toml_credentials"),
             patch("medre.adapters.matrix.auth.save_credentials_json", return_value=Path("/tmp/matrix.json")),
             patch("sys.stdin", pipe_stdin),
         ):
@@ -296,8 +255,6 @@ class TestAdapterMatrixAuthLoginIntegration:
 
     def _make_args(self, **overrides: object) -> SimpleNamespace:
         defaults: dict[str, object] = {
-            "config": "/tmp/test.toml",
-            "adapter_id": "mybot",
             "homeserver": None,
             "user": None,
             "password": None,
@@ -313,7 +270,7 @@ class TestAdapterMatrixAuthLoginIntegration:
         from medre.adapters.matrix.cli import _adapter_matrix_auth_login
 
         cred_path = tmp_path / "matrix.json"
-        args = self._make_args()
+        args = self._make_args(config=None, adapter_id=None)
 
         login_result = MatrixLoginResult(
             homeserver="https://server",

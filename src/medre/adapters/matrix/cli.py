@@ -25,8 +25,6 @@ async def _adapter_matrix_auth_login(args: object) -> None:
     user_id = getattr(args, "user", None)
     password_cli = getattr(args, "password", None)
     password_stdin: bool = getattr(args, "password_stdin", False)
-    config_path = Path(getattr(args, "config"))
-    adapter_name = getattr(args, "adapter_id")
 
     # Step 2: Tristate dispatch ----------------------------------------------
     # Count how many auth-relevant flags were explicitly provided.
@@ -160,7 +158,7 @@ async def _adapter_matrix_auth_login(args: object) -> None:
             )
             sys.exit(1)
 
-        # Step 7: Save credentials to sidecar JSON
+        # Step 7: Save credentials to sidecar JSON (always)
         creds_path = save_credentials_json(result)
 
     except MatrixConnectionError as exc:

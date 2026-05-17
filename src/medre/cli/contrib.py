@@ -61,38 +61,27 @@ def _register_matrix_contributions(subparsers) -> None:
     # -- adapter matrix auth login --------------------------------------------
     auth_login_p = adapter_matrix_auth_sub.add_parser(
         "login",
-        help="Authenticate with homeserver, verify token, write credentials to config. Never prints the access token.",
+        help="Authenticate with homeserver, verify token, save credentials to sidecar file. Never prints the access token.",
         allow_abbrev=False,
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""\
-Examples:
-  (a) Interactive (no flags — prompts for homeserver, user, and password):
-    medre adapter matrix auth login \\
-      --config ~/.config/medre/config.toml \\
-      --adapter-id mybot
-
-  (b) Non-interactive (all flags):
-    medre adapter matrix auth login \\
-      --config ~/.config/medre/config.toml \\
-      --adapter-id mybot \\
-      --homeserver matrix.example.com \\
-      --user @bot:example.com \\
-      --password 'your_password'
-
-  (c) MXID derivation (localpart only — derives @localpart:homeserver):
-    medre adapter matrix auth login \\
-      --config ~/.config/medre/config.toml \\
-      --adapter-id mybot \\
-      --homeserver matrix.example.com \\
-      --user bot
-""",
-    )
-    auth_login_p.add_argument(
-        "--config", required=True, help="Path to config file to update",
-    )
-    auth_login_p.add_argument(
-        "--adapter-id", dest="adapter_id", required=True,
-        help="Adapter instance ID in config (e.g. 'matrix')",
+        epilog=(
+            "Examples:\n"
+            "  Interactive (no flags — prompts for user ID and password, derives\n"
+            "  homeserver from MXID, does well-known discovery):\n"
+            "    medre adapter matrix auth login\n"
+            "\n"
+            "  Non-interactive (all flags):\n"
+            "    medre adapter matrix auth login \\\n"
+            "      --homeserver matrix.example.com \\\n"
+            "      --user @bot:example.com \\\n"
+            "      --password 'your_password'\n"
+            "\n"
+            "  With MXID derivation (homeserver optional):\n"
+            "    medre adapter matrix auth login \\\n"
+            "      --user @bot:example.com\n"
+            "\n"
+            "Credentials are saved to a sidecar JSON file. No config file required.\n"
+        ),
     )
     auth_login_p.add_argument(
         "--homeserver", required=False, default=None,
