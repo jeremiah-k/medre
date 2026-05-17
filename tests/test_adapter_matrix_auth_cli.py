@@ -1,4 +1,4 @@
-"""Tests for medre.cli.auth_commands and the auth CLI parser surface.
+"""Tests for medre.adapters.matrix.cli and the adapter matrix auth login CLI surface.
 
 Covers: parser structure, required flag enforcement, help output, and
 integration flow with mocked login/whoami/update functions.
@@ -20,21 +20,22 @@ from medre.cli.main import _build_parser
 # Parser structure tests
 # ---------------------------------------------------------------------------
 
-class TestAuthParserStructure:
-    """Parser-level tests for ``medre auth matrix login``."""
+class TestAdapterMatrixAuthParserStructure:
+    """Parser-level tests for ``medre adapter matrix auth login``."""
 
-    def test_auth_matrix_login_accepted(self) -> None:
+    def test_adapter_matrix_auth_login_accepted(self) -> None:
         parser = _build_parser()
         args = parser.parse_args([
-            "auth", "matrix", "login",
+            "adapter", "matrix", "auth", "login",
             "--config", "/tmp/c.toml",
             "--adapter", "bot",
             "--homeserver", "https://m.org",
             "--user", "@b:m.org",
         ])
-        assert args.command == "auth"
-        assert args.auth_command == "matrix"
-        assert args.auth_matrix_command == "login"
+        assert args.command == "adapter"
+        assert args.adapter_command == "matrix"
+        assert args.adapter_matrix_command == "auth"
+        assert args.adapter_matrix_auth_command == "login"
         assert args.config == "/tmp/c.toml"
         assert args.adapter == "bot"
         assert args.homeserver == "https://m.org"
@@ -44,7 +45,7 @@ class TestAuthParserStructure:
     def test_password_stdin_flag(self) -> None:
         parser = _build_parser()
         args = parser.parse_args([
-            "auth", "matrix", "login",
+            "adapter", "matrix", "auth", "login",
             "--config", "/tmp/c.toml",
             "--adapter", "bot",
             "--homeserver", "https://m.org",
@@ -53,21 +54,21 @@ class TestAuthParserStructure:
         ])
         assert args.password_stdin is True
 
-    def test_auth_requires_subcommand(self) -> None:
+    def test_adapter_requires_subcommand(self) -> None:
         parser = _build_parser()
         with pytest.raises(SystemExit):
-            parser.parse_args(["auth"])
+            parser.parse_args(["adapter"])
 
-    def test_auth_matrix_requires_subcommand(self) -> None:
+    def test_adapter_matrix_requires_subcommand(self) -> None:
         parser = _build_parser()
         with pytest.raises(SystemExit):
-            parser.parse_args(["auth", "matrix"])
+            parser.parse_args(["adapter", "matrix"])
 
     def test_login_requires_config(self) -> None:
         parser = _build_parser()
         with pytest.raises(SystemExit):
             parser.parse_args([
-                "auth", "matrix", "login",
+                "adapter", "matrix", "auth", "login",
                 "--adapter", "bot",
                 "--homeserver", "https://m.org",
                 "--user", "@b:m.org",
@@ -77,7 +78,7 @@ class TestAuthParserStructure:
         parser = _build_parser()
         with pytest.raises(SystemExit):
             parser.parse_args([
-                "auth", "matrix", "login",
+                "adapter", "matrix", "auth", "login",
                 "--config", "/tmp/c.toml",
                 "--homeserver", "https://m.org",
                 "--user", "@b:m.org",
@@ -87,7 +88,7 @@ class TestAuthParserStructure:
         parser = _build_parser()
         with pytest.raises(SystemExit):
             parser.parse_args([
-                "auth", "matrix", "login",
+                "adapter", "matrix", "auth", "login",
                 "--config", "/tmp/c.toml",
                 "--adapter", "bot",
                 "--user", "@b:m.org",
@@ -97,7 +98,7 @@ class TestAuthParserStructure:
         parser = _build_parser()
         with pytest.raises(SystemExit):
             parser.parse_args([
-                "auth", "matrix", "login",
+                "adapter", "matrix", "auth", "login",
                 "--config", "/tmp/c.toml",
                 "--adapter", "bot",
                 "--homeserver", "https://m.org",
@@ -122,18 +123,18 @@ class TestHelpNoSdkImport:
         import importlib
         main_mod = importlib.import_module("medre.cli.main")
         source = Path(main_mod.__file__).read_text()
-        # The auth dispatch branch imports auth_commands lazily
-        assert "from .auth_commands import" in source
+        # The adapter dispatch branch imports contrib lazily
+        assert "from .contrib import" in source
         # No direct nio import
         assert "import nio" not in source
         assert "from nio" not in source
 
-    def test_auth_matrix_login_help(self) -> None:
+    def test_adapter_matrix_auth_login_help(self) -> None:
         parser = _build_parser()
         # Should not raise
         out = io.StringIO()
         try:
-            parser.parse_args(["auth", "matrix", "login", "--help"])
+            parser.parse_args(["adapter", "matrix", "auth", "login", "--help"])
         except SystemExit as exc:
             # --help exits with 0
             assert exc.code == 0
@@ -143,8 +144,8 @@ class TestHelpNoSdkImport:
 # Integration flow (monkeypatched)
 # ---------------------------------------------------------------------------
 
-class TestAuthMatrixLoginIntegration:
-    """Integration tests for ``_auth_matrix_login`` with mocked internals."""
+class TestAdapterMatrixAuthLoginIntegration:
+    """Integration tests for ``_adapter_matrix_auth_login`` with mocked internals."""
 
     def _make_args(self, **overrides: object) -> SimpleNamespace:
         defaults = {
@@ -161,7 +162,7 @@ class TestAuthMatrixLoginIntegration:
     async def test_full_success_flow(self, tmp_path: Path) -> None:
         """Successful login, whoami, and TOML update."""
         from medre.adapters.matrix.auth import MatrixLoginResult
-        from medre.cli.auth_commands import _auth_matrix_login
+        from medre.adapters.matrix.cli import _adapter_matrix_auth_login
 
         # Create a minimal TOML
         toml_path = tmp_path / "test.toml"
@@ -189,7 +190,7 @@ class TestAuthMatrixLoginIntegration:
             patch("medre.adapters.matrix.auth.update_toml_credentials") as mock_update,
             patch("sys.stdin", io.StringIO("test_password\n")),
         ):
-            await _auth_matrix_login(args)
+            await _adapter_matrix_auth_login(args)
 
             mock_login.assert_called_once_with(
                 "https://matrix.org", "@bot:matrix.org", "test_password"
@@ -206,7 +207,7 @@ class TestAuthMatrixLoginIntegration:
     async def test_token_not_in_stdout(self, tmp_path: Path) -> None:
         """Token must never appear in stdout."""
         from medre.adapters.matrix.auth import MatrixLoginResult
-        from medre.cli.auth_commands import _auth_matrix_login
+        from medre.adapters.matrix.cli import _adapter_matrix_auth_login
 
         toml_path = tmp_path / "test.toml"
         toml_path.write_text(
@@ -236,7 +237,7 @@ class TestAuthMatrixLoginIntegration:
             patch("sys.stdin", io.StringIO("pw\n")),
             patch("sys.stdout", stdout_buf),
         ):
-            await _auth_matrix_login(args)
+            await _adapter_matrix_auth_login(args)
 
         output = stdout_buf.getvalue()
         assert secret not in output
@@ -245,7 +246,7 @@ class TestAuthMatrixLoginIntegration:
     async def test_login_error_exits_1(self) -> None:
         """Login failure should print to stderr and exit 1."""
         from medre.adapters.matrix.errors import MatrixConnectionError
-        from medre.cli.auth_commands import _auth_matrix_login
+        from medre.adapters.matrix.cli import _adapter_matrix_auth_login
 
         args = self._make_args(password_stdin=True)
 
@@ -257,7 +258,7 @@ class TestAuthMatrixLoginIntegration:
             patch("sys.stderr", stderr_buf),
             pytest.raises(SystemExit) as exc_info,
         ):
-            await _auth_matrix_login(args)
+            await _adapter_matrix_auth_login(args)
 
         assert exc_info.value.code == 1
         assert "Login failed" in stderr_buf.getvalue()
@@ -267,7 +268,7 @@ class TestAuthMatrixLoginIntegration:
         """Whoami failure should exit 1."""
         from medre.adapters.matrix.auth import MatrixLoginResult
         from medre.adapters.matrix.errors import MatrixConnectionError
-        from medre.cli.auth_commands import _auth_matrix_login
+        from medre.adapters.matrix.cli import _adapter_matrix_auth_login
 
         args = self._make_args(password_stdin=True)
 
@@ -287,7 +288,7 @@ class TestAuthMatrixLoginIntegration:
             patch("sys.stderr", stderr_buf),
             pytest.raises(SystemExit) as exc_info,
         ):
-            await _auth_matrix_login(args)
+            await _adapter_matrix_auth_login(args)
 
         assert exc_info.value.code == 1
         assert "Token invalid" in stderr_buf.getvalue()
@@ -296,7 +297,7 @@ class TestAuthMatrixLoginIntegration:
     async def test_missing_config_file_exits_1(self) -> None:
         """FileNotFoundError from update should exit 1."""
         from medre.adapters.matrix.auth import MatrixLoginResult
-        from medre.cli.auth_commands import _auth_matrix_login
+        from medre.adapters.matrix.cli import _adapter_matrix_auth_login
 
         args = self._make_args(
             password_stdin=True,
@@ -321,7 +322,7 @@ class TestAuthMatrixLoginIntegration:
             patch("sys.stderr", stderr_buf),
             pytest.raises(SystemExit) as exc_info,
         ):
-            await _auth_matrix_login(args)
+            await _adapter_matrix_auth_login(args)
 
         assert exc_info.value.code == 1
         assert "Config file not found" in stderr_buf.getvalue()
@@ -330,7 +331,7 @@ class TestAuthMatrixLoginIntegration:
     async def test_getpass_used_when_no_stdin_flag(self) -> None:
         """Without --password-stdin, getpass.getpass is called."""
         from medre.adapters.matrix.auth import MatrixLoginResult
-        from medre.cli.auth_commands import _auth_matrix_login
+        from medre.adapters.matrix.cli import _adapter_matrix_auth_login
 
         args = self._make_args(
             password_stdin=False,
@@ -346,12 +347,12 @@ class TestAuthMatrixLoginIntegration:
         )
 
         with (
-            patch("medre.cli.auth_commands.getpass.getpass", return_value="interactive_pw") as mock_gp,
+            patch("medre.adapters.matrix.cli.getpass.getpass", return_value="interactive_pw") as mock_gp,
             patch("medre.adapters.matrix.auth.matrix_login", return_value=login_result) as mock_login,
             patch("medre.adapters.matrix.auth.matrix_whoami", return_value="@b:m.org"),
             patch("medre.adapters.matrix.auth.update_toml_credentials"),
         ):
-            await _auth_matrix_login(args)
+            await _adapter_matrix_auth_login(args)
 
             mock_gp.assert_called_once_with("Matrix password: ")
             mock_login.assert_called_once_with(
@@ -361,7 +362,7 @@ class TestAuthMatrixLoginIntegration:
     @pytest.mark.asyncio
     async def test_empty_password_exits_1(self) -> None:
         """Empty password from stdin should exit 1."""
-        from medre.cli.auth_commands import _auth_matrix_login
+        from medre.adapters.matrix.cli import _adapter_matrix_auth_login
 
         args = self._make_args(password_stdin=True)
 
@@ -371,7 +372,7 @@ class TestAuthMatrixLoginIntegration:
             patch("sys.stderr", stderr_buf),
             pytest.raises(SystemExit) as exc_info,
         ):
-            await _auth_matrix_login(args)
+            await _adapter_matrix_auth_login(args)
 
         assert exc_info.value.code == 1
         assert "password is required" in stderr_buf.getvalue()
@@ -380,7 +381,7 @@ class TestAuthMatrixLoginIntegration:
     async def test_output_contains_expected_fields(self, tmp_path: Path) -> None:
         """Successful output should contain homeserver, user_id, device_id, config, adapter."""
         from medre.adapters.matrix.auth import MatrixLoginResult
-        from medre.cli.auth_commands import _auth_matrix_login
+        from medre.adapters.matrix.cli import _adapter_matrix_auth_login
 
         toml_path = tmp_path / "c.toml"
         toml_path.write_text("[adapters.matrix.bot]\naccess_token = \"old\"\n")
@@ -409,7 +410,7 @@ class TestAuthMatrixLoginIntegration:
             patch("sys.stdin", io.StringIO("pw\n")),
             patch("sys.stdout", stdout_buf),
         ):
-            await _auth_matrix_login(args)
+            await _adapter_matrix_auth_login(args)
 
         output = stdout_buf.getvalue()
         assert "https://matrix.example.com" in output
@@ -423,7 +424,7 @@ class TestAuthMatrixLoginIntegration:
     async def test_whoami_mismatch_exits_1(self) -> None:
         """whoami user_id different from requested user_id should exit 1."""
         from medre.adapters.matrix.auth import MatrixLoginResult
-        from medre.cli.auth_commands import _auth_matrix_login
+        from medre.adapters.matrix.cli import _adapter_matrix_auth_login
 
         args = self._make_args(password_stdin=True)
 
@@ -443,7 +444,7 @@ class TestAuthMatrixLoginIntegration:
             patch("sys.stderr", stderr_buf),
             pytest.raises(SystemExit) as exc_info,
         ):
-            await _auth_matrix_login(args)
+            await _adapter_matrix_auth_login(args)
 
         assert exc_info.value.code == 1
         assert "does not match" in stderr_buf.getvalue()
@@ -452,7 +453,7 @@ class TestAuthMatrixLoginIntegration:
     async def test_homeserver_user_id_written_to_toml(self, tmp_path: Path) -> None:
         """update_toml_credentials writes homeserver, user_id, access_token to TOML."""
         from medre.adapters.matrix.auth import MatrixLoginResult, update_toml_credentials as real_fn
-        from medre.cli.auth_commands import _auth_matrix_login
+        from medre.adapters.matrix.cli import _adapter_matrix_auth_login
 
         toml_path = tmp_path / "test.toml"
         toml_path.write_text(
@@ -483,7 +484,7 @@ class TestAuthMatrixLoginIntegration:
             patch("sys.stdin", io.StringIO("pw\n")),
         ):
             # Use the real update_toml_credentials (not mocked)
-            await _auth_matrix_login(args)
+            await _adapter_matrix_auth_login(args)
 
         import tomllib
         data = tomllib.loads(toml_path.read_text(encoding="utf-8"))

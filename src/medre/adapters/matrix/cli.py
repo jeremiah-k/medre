@@ -1,4 +1,4 @@
-"""Auth CLI commands: matrix login."""
+"""Matrix adapter CLI commands: auth login."""
 from __future__ import annotations
 
 import getpass
@@ -6,8 +6,8 @@ import sys
 from pathlib import Path
 
 
-async def _auth_matrix_login(args: object) -> None:
-    """Handle ``medre auth matrix login``.
+async def _adapter_matrix_auth_login(args: object) -> None:
+    """Handle ``medre adapter matrix auth login``.
 
     Reads password from stdin (``--password-stdin``) or :func:`getpass.getpass`,
     calls :func:`~medre.adapters.matrix.auth.matrix_login`,

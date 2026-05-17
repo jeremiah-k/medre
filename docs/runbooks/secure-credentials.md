@@ -41,7 +41,7 @@ Never commit config files containing real tokens to version control. MEDRE's
 `.gitignore` excludes `*.toml` files outside `examples/configs/`, but operators
 must verify this before pushing.
 
-**Use `medre auth matrix login` to populate tokens safely.** This command is a
+**Use `medre adapter matrix auth login` to populate tokens safely.** This command is a
 credential setup utility — it does not start the runtime, mutates the config
 file specified with `--config`, never prints the token to the terminal, and
 prompts for the password securely unless `--password-stdin` is given. It writes
@@ -49,7 +49,7 @@ the `homeserver`, `user_id`, and `access_token` fields into the adapter section
 of the config file:
 
 ```bash
-medre auth matrix login \
+medre adapter matrix auth login \
   --config /path/to/config.toml \
   --adapter matrix \
   --homeserver https://matrix.example.com \
@@ -62,7 +62,7 @@ Test first with a throwaway room before bridging to any real room.
 **If a token is leaked** (pasted in chat, committed to git, appeared in logs):
 
 1. Revoke the token immediately via the Matrix client or Synapse admin API.
-2. Re-run `medre auth matrix login` to obtain and store a fresh token.
+2. Re-run `medre adapter matrix auth login` to obtain and store a fresh token.
 3. Rotate the config file and delete any artifacts containing the old token.
 
 **Never paste tokens into bug reports.** MEDRE's built-in sanitizers redact

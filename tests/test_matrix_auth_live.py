@@ -47,7 +47,7 @@ class TestMatrixAuthLive:
         assert who == os.environ["MATRIX_USER_ID"]
 
     def test_login_writes_to_config(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
-        from medre.adapters.matrix.auth import matrix_login, update_toml_access_token
+        from medre.adapters.matrix.auth import matrix_login, _update_toml_access_token
 
         result = matrix_login(
             homeserver=os.environ["MATRIX_HOMESERVER"],
@@ -61,7 +61,7 @@ class TestMatrixAuthLive:
             encoding="utf-8",
         )
 
-        update_toml_access_token(
+        _update_toml_access_token(
             config_path, "matrix", "mybot", result.access_token
         )
 

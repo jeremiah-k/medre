@@ -243,7 +243,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     recover_p.add_argument("--json", action="store_true", default=False, help="Output JSON runbook")
 
-    # Adapter/plugin contributed commands (auth, adapter, plugin namespaces)
+    # Adapter/plugin contributed commands (adapter, plugin namespaces)
     from .contrib import register_builtin_contributors
     register_builtin_contributors(sub)
 
@@ -413,7 +413,6 @@ def main(argv: list[str] | None = None) -> None:
                 json_output=args.json,
             )
         )
-    elif args.command == "auth":
-        from .auth_commands import _auth_matrix_login  # lazy — SDK not imported until here
+    elif args.command == "adapter":
         from .contrib import dispatch_contribution
         dispatch_contribution(args)

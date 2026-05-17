@@ -20,7 +20,7 @@ from medre.adapters.matrix.auth import (
     MatrixLoginResult,
     matrix_login,
     matrix_whoami,
-    update_toml_access_token,
+    _update_toml_access_token,
     update_toml_credentials,
     _update_toml_field,
 )
@@ -276,7 +276,7 @@ class TestUpdateTomlAccessToken:
         )
         p = self._write_toml(tmp_path, toml_content)
 
-        update_toml_access_token(p, "matrix", "mybot", "new_secret_token")
+        _update_toml_access_token(p, "matrix", "mybot", "new_secret_token")
 
         updated = p.read_text(encoding="utf-8")
         assert 'access_token = "new_secret_token"' in updated
@@ -291,7 +291,7 @@ class TestUpdateTomlAccessToken:
             'access_token = "old"\n'
         ))
 
-        update_toml_access_token(p, "matrix", "bot", "new")
+        _update_toml_access_token(p, "matrix", "bot", "new")
 
         mode = p.stat().st_mode
         assert mode & stat.S_IRUSR  # owner read
@@ -304,7 +304,7 @@ class TestUpdateTomlAccessToken:
     def test_missing_file_raises(self, tmp_path: Path) -> None:
         p = tmp_path / "nonexistent.toml"
         with pytest.raises(FileNotFoundError, match="Config file not found"):
-            update_toml_access_token(p, "matrix", "bot", "tok")
+            _update_toml_access_token(p, "matrix", "bot", "tok")
 
     def test_missing_section_raises(self, tmp_path: Path) -> None:
         p = self._write_toml(tmp_path, (
@@ -313,7 +313,7 @@ class TestUpdateTomlAccessToken:
         ))
 
         with pytest.raises(ValueError, match="not found"):
-            update_toml_access_token(p, "matrix", "bot", "tok")
+            _update_toml_access_token(p, "matrix", "bot", "tok")
 
     def test_missing_access_token_key_raises(self, tmp_path: Path) -> None:
         p = self._write_toml(tmp_path, (
@@ -322,7 +322,7 @@ class TestUpdateTomlAccessToken:
         ))
 
         with pytest.raises(ValueError, match="access_token key not found"):
-            update_toml_access_token(p, "matrix", "bot", "tok")
+            _update_toml_access_token(p, "matrix", "bot", "tok")
 
     def test_preserves_comments_and_formatting(self, tmp_path: Path) -> None:
         toml_content = (
@@ -337,7 +337,7 @@ class TestUpdateTomlAccessToken:
         )
         p = self._write_toml(tmp_path, toml_content)
 
-        update_toml_access_token(p, "matrix", "mybot", "new")
+        _update_toml_access_token(p, "matrix", "mybot", "new")
 
         lines = p.read_text(encoding="utf-8").splitlines()
         assert lines[0] == "# Top comment"
@@ -351,7 +351,7 @@ class TestUpdateTomlAccessToken:
             "access_token = 'old_token'\n"
         ))
 
-        update_toml_access_token(p, "matrix", "bot", "new_token")
+        _update_toml_access_token(p, "matrix", "bot", "new_token")
 
         updated = p.read_text(encoding="utf-8")
         assert 'access_token = "new_token"' in updated
@@ -365,7 +365,7 @@ class TestUpdateTomlAccessToken:
             'access_token = "beta_old"\n'
         ))
 
-        update_toml_access_token(p, "matrix", "beta", "beta_new")
+        _update_toml_access_token(p, "matrix", "beta", "beta_new")
 
         updated = p.read_text(encoding="utf-8")
         assert '"alpha_old"' in updated  # alpha untouched
@@ -387,7 +387,7 @@ class TestTomlEscaping:
             '[adapters.matrix.bot]\n'
             'access_token = "old"\n'
         ))
-        update_toml_access_token(p, "matrix", "bot", token)
+        _update_toml_access_token(p, "matrix", "bot", token)
         data = tomllib.loads(p.read_text(encoding="utf-8"))
         return data["adapters"]["matrix"]["bot"]["access_token"]
 
@@ -428,7 +428,7 @@ class TestTomlEscaping:
             '[adapters.matrix.bot]\n'
             'access_token = "old"\n'
         ))
-        update_toml_access_token(p, "matrix", "bot", 'x"y\\z\t\n')
+        _update_toml_access_token(p, "matrix", "bot", 'x"y\\z\t\n')
         raw = p.read_text(encoding="utf-8")
         data = tomllib.loads(raw)
         assert data["adapters"]["matrix"]["bot"]["access_token"] == 'x"y\\z\t\n'

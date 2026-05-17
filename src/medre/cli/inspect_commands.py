@@ -34,7 +34,7 @@ async def _inspect_event(
 
     When *timeline*, *evidence*, or *recovery* flags are set, the output
     is augmented with the corresponding data sections.  When no flags are
-    set, the original event-only JSON is printed (backward compatible).
+    set, the original event-only JSON is printed (default behaviour).
     """
     # Fast path: no augmentation flags — preserve exact existing behaviour.
     if not (timeline or evidence or recovery):

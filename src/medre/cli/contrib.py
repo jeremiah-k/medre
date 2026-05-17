@@ -1,13 +1,13 @@
 """MEDRE CLI command-contribution registry.
 
-Adapter-specific subcommands (auth, adapter, plugin) are registered here
+Adapter-specific subcommands (adapter, plugin) are registered here
 instead of :pymod:`medre.cli.main` so that the core parser never imports
 optional SDK packages.  Only the registration and dispatch plumbing lives in
 this module; actual command logic is lazy-imported inside dispatch branches.
 
 Namespace rules
 ---------------
-- **Allowed top-level namespaces:** ``auth``, ``adapter``, ``plugin``.
+- **Allowed top-level namespaces:** ``adapter``, ``plugin``.
 - **Disallowed top-level names:** transport names (``matrix``,
   ``meshtastic``, ``lxmf``, ``meshcore``) must never appear as a
   top-level command — they belong under a namespace.
@@ -21,30 +21,38 @@ execute when the user explicitly invokes the corresponding subcommand.
 
 from __future__ import annotations
 
-ALLOWED_NAMESPACES = ("auth", "adapter", "plugin")
+ALLOWED_NAMESPACES = ("adapter", "plugin")
 DISALLOWED_TOPLEVEL = ("matrix", "meshtastic", "lxmf", "meshcore")
 
 
 def register_builtin_contributors(subparsers) -> None:
     """Register all built-in command contributors in deterministic order."""
-    _register_auth_matrix_login(subparsers)
+    _register_matrix_contributions(subparsers)
 
 
-def _register_auth_matrix_login(subparsers) -> None:
-    # -- auth namespace -------------------------------------------------------
-    auth_p = subparsers.add_parser("auth", help="Authentication commands")
-    auth_sub = auth_p.add_subparsers(dest="auth_command", required=True)
+def _register_matrix_contributions(subparsers) -> None:
+    # -- adapter namespace ----------------------------------------------------
+    adapter_p = subparsers.add_parser("adapter", help="Adapter management commands")
+    adapter_sub = adapter_p.add_subparsers(dest="adapter_command", required=True)
 
-    # -- auth matrix ----------------------------------------------------------
-    auth_matrix_p = auth_sub.add_parser(
-        "matrix", help="Matrix transport auth",
+    # -- adapter matrix -------------------------------------------------------
+    adapter_matrix_p = adapter_sub.add_parser(
+        "matrix", help="Matrix transport adapter commands",
     )
-    auth_matrix_sub = auth_matrix_p.add_subparsers(
-        dest="auth_matrix_command", required=True,
+    adapter_matrix_sub = adapter_matrix_p.add_subparsers(
+        dest="adapter_matrix_command", required=True,
     )
 
-    # -- auth matrix login ----------------------------------------------------
-    auth_login_p = auth_matrix_sub.add_parser(
+    # -- adapter matrix auth --------------------------------------------------
+    adapter_matrix_auth_p = adapter_matrix_sub.add_parser(
+        "auth", help="Matrix authentication commands",
+    )
+    adapter_matrix_auth_sub = adapter_matrix_auth_p.add_subparsers(
+        dest="adapter_matrix_auth_command", required=True,
+    )
+
+    # -- adapter matrix auth login --------------------------------------------
+    auth_login_p = adapter_matrix_auth_sub.add_parser(
         "login", help="Login and store Matrix access token",
     )
     auth_login_p.add_argument(
@@ -70,12 +78,13 @@ def _register_auth_matrix_login(subparsers) -> None:
 def dispatch_contribution(args) -> None:
     """Dispatch a contributed command, lazy-importing only when needed."""
     if (
-        args.command == "auth"
-        and getattr(args, "auth_command", None) == "matrix"
-        and getattr(args, "auth_matrix_command", None) == "login"
+        args.command == "adapter"
+        and getattr(args, "adapter_command", None) == "matrix"
+        and getattr(args, "adapter_matrix_command", None) == "auth"
+        and getattr(args, "adapter_matrix_auth_command", None) == "login"
     ):
-        from .auth_commands import _auth_matrix_login
+        from medre.adapters.matrix.cli import _adapter_matrix_auth_login
 
         import asyncio
 
-        asyncio.run(_auth_matrix_login(args))
+        asyncio.run(_adapter_matrix_auth_login(args))

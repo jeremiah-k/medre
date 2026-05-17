@@ -309,7 +309,7 @@ def _check_section_exists(lines: list[str], section_header: str) -> bool:
     return any(line.strip() == section_header for line in lines)
 
 
-def update_toml_access_token(
+def _update_toml_access_token(
     config_path: Path,
     transport: str,
     adapter_name: str,

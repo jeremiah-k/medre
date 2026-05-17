@@ -26,6 +26,7 @@ set -euo pipefail
 OUTPUT_DIR="/tmp/medre-live-smoke"
 CONFIG=""
 STORAGE_PATH=""
+EVENT_ID=""
 
 # ---- Usage -----------------------------------------------------------------
 usage() {
@@ -40,7 +41,10 @@ Options:
                           Default: /tmp/medre-live-smoke
   --storage-path PATH    Database path for `medre inspect receipts`.
                           If omitted, the script attempts to read
-                          storage_path from the config file.
+                          path from the [storage] section of the config file.
+  --event-id     ID      Run `medre inspect event` after the run completes.
+                          Requires a valid --storage-path (or config-derived
+                          path). Output is saved to inspect-event.txt.
   --help                 Show this help message and exit.
 
 Artifacts produced in OUTPUT_DIR:
@@ -49,6 +53,7 @@ Artifacts produced in OUTPUT_DIR:
   receipts.json      Receipts dump from the storage backend.
   evidence.json      Evidence bundle in JSON format.
   config.redacted    Copy of config with access_token masked.
+  inspect-event.txt  (if --event-id is provided) Full inspect-first output.
 EOF
 }
 
@@ -65,6 +70,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --storage-path)
       STORAGE_PATH="$2"
+      shift 2
+      ;;
+    --event-id)
+      EVENT_ID="$2"
       shift 2
       ;;
     --help|-h)
@@ -91,13 +100,59 @@ if [[ ! -f "$CONFIG" ]]; then
   exit 1
 fi
 
-# ---- Attempt to extract storage_path from config if not provided -----------
-# Looks for a line like:  storage_path = "/some/path.db"
+# ---- Attempt to extract storage path from config if not provided -----------
+# Parses the TOML [storage] section to find `path = "..."`.
+# Falls back to a flat `storage_path = "..."` key for legacy configs.
 if [[ -z "$STORAGE_PATH" ]]; then
-  # grep + awk is sufficient for simple TOML; works with or without quotes
-  STORAGE_PATH=$(grep -E '^\s*storage_path\s*=' "$CONFIG" 2>/dev/null \
-    | awk -F'=' '{for(i=2;i<=NF;i++){gsub(/["'"'"' ]/,"",$i); if($i!=""){print $i; break}}}' \
-    || true)
+  in_storage_section=false
+  while IFS= read -r line; do
+    # Detect section headers: [storage] or [storage.xxx]
+    if [[ "$line" =~ ^[[:space:]]*\[storage\] ]]; then
+      in_storage_section=true
+      continue
+    fi
+    # Any other section header exits the [storage] scope
+    if [[ "$line" =~ ^[[:space:]]*\[ ]]; then
+      if $in_storage_section; then
+        in_storage_section=false
+      fi
+      continue
+    fi
+    # Inside [storage]: look for path = "..." or path = ...
+    if $in_storage_section && [[ "$line" =~ ^[[:space:]]*path[[:space:]]*= ]]; then
+      # Extract value after '=', strip quotes and surrounding whitespace
+      raw_val="${line#*=}"
+      raw_val="${raw_val#"${raw_val%%[![:space:]]*}"}"  # trim leading whitespace
+      raw_val="${raw_val%"${raw_val##*[![:space:]]}"}"  # trim trailing whitespace
+      raw_val="${raw_val#\"}"   # strip leading double quote
+      raw_val="${raw_val%\"}"   # strip trailing double quote
+      raw_val="${raw_val#\'}"   # strip leading single quote
+      raw_val="${raw_val%\'}"   # strip trailing single quote
+      # Check for XDG placeholder {state}
+      if [[ "$raw_val" == *'{state}'* ]]; then
+        echo "WARNING: Config [storage] path contains XDG placeholder '{state}':" >&2
+        echo "         $raw_val" >&2
+        echo "         This requires Python-level resolution. Use --storage-path to" >&2
+        echo "         provide the resolved database path explicitly." >&2
+        raw_val=""
+      fi
+      STORAGE_PATH="$raw_val"
+      break
+    fi
+  done < "$CONFIG"
+
+  # Fallback: try legacy flat key  storage_path = "..."
+  if [[ -z "$STORAGE_PATH" ]]; then
+    STORAGE_PATH=$(grep -E '^\s*storage_path\s*=' "$CONFIG" 2>/dev/null \
+      | awk -F'=' '{for(i=2;i<=NF;i++){gsub(/["'"'"' ]/,"",$i); if($i!=""){print $i; break}}}' \
+      || true)
+  fi
+
+  # Validate: if we got a path, check the file exists (warn but don't fail)
+  if [[ -n "$STORAGE_PATH" && ! -f "$STORAGE_PATH" ]]; then
+    echo "WARNING: Resolved storage path does not exist: $STORAGE_PATH" >&2
+    echo "         Receipt and evidence collection may fail." >&2
+  fi
 fi
 
 # ---- Create output directory (idempotent) ----------------------------------
@@ -145,17 +200,34 @@ medre evidence \
   > "$OUTPUT_DIR/evidence.json" 2>/dev/null \
   || echo "     WARNING: evidence collection failed."
 
-# ---- Step 4: Redacted config copy ------------------------------------------
+# ---- Step 4: Inspect-first investigation (if --event-id provided) ----------
+if [[ -n "$EVENT_ID" ]]; then
+  if [[ -n "$STORAGE_PATH" ]]; then
+    echo "  -> inspect-event.txt  (event: $EVENT_ID)"
+    medre inspect event "$EVENT_ID" \
+      --storage-path "$STORAGE_PATH" \
+      --timeline --evidence --recovery \
+      > "$OUTPUT_DIR/inspect-event.txt" 2>&1 \
+      || echo "     WARNING: inspect event failed (event may not exist or db unavailable)."
+  else
+    echo "  -> inspect-event.txt  SKIPPED (--event-id provided but no storage path available)"
+  fi
+else
+  echo "  -> inspect-event.txt  SKIPPED (no --event-id provided)"
+  echo "     Tip: pass --event-id <ID> to run full inspect-first investigation after the run."
+fi
+
+# ---- Step 5: Redacted config copy ------------------------------------------
 # Replace any access_token value with "***" to avoid leaking secrets.
 # Matches TOML pattern:  access_token = "any-token-here"
 echo "  -> config.redacted"
 sed -E 's/(access_token\s*=\s*").*"/\1***"/' "$CONFIG" > "$OUTPUT_DIR/config.redacted"
 
-# ---- Step 5: Summary -------------------------------------------------------
+# ---- Step 6: Summary -------------------------------------------------------
 echo ""
 echo "=== Artifact summary ==="
 
-for artifact in medre.log snapshot.json receipts.json evidence.json config.redacted; do
+for artifact in medre.log snapshot.json receipts.json evidence.json config.redacted inspect-event.txt; do
   path="$OUTPUT_DIR/$artifact"
   if [[ -f "$path" ]]; then
     size=$(stat --format='%s' "$path" 2>/dev/null || stat -f '%z' "$path" 2>/dev/null || echo "?")

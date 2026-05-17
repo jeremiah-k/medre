@@ -136,7 +136,7 @@ For live Matrix setups, use the auth CLI to obtain and store an access token
 without manual editing:
 
 ```bash
-medre auth matrix login \
+medre adapter matrix auth login \
   --config /tmp/medre-alpha.toml \
   --adapter matrix \
   --homeserver https://matrix.example.com \

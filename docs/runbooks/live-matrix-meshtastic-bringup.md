@@ -65,7 +65,7 @@ Before editing the config manually, use the auth CLI to obtain and store a
 Matrix access token:
 
 ```bash
-medre auth matrix login \
+medre adapter matrix auth login \
   --config /tmp/medre-live.toml \
   --adapter matrix \
   --homeserver https://matrix.example.com \
@@ -101,9 +101,9 @@ path = "/tmp/medre-live.sqlite"
 [adapters.matrix.matrix]
 enabled = true
 adapter_kind = "real"
-homeserver = "https://matrix.example.com"   # populated by medre auth matrix login
-user_id = "@bot:example.com"                  # populated by medre auth matrix login
-access_token = ""                             # populated by medre auth matrix login — treat as a secret
+homeserver = "https://matrix.example.com"   # populated by medre adapter matrix auth login
+user_id = "@bot:example.com"                  # populated by medre adapter matrix auth login
+access_token = ""                             # populated by medre adapter matrix auth login — treat as a secret
 room_allowlist = ["!room:example.com"] # FILL IN — your throwaway room
 encryption_mode = "plaintext"
 
@@ -140,11 +140,11 @@ EOF
 ```
 
 Edit the following fields in `/tmp/medre-live.toml` (credential fields are
-already populated by `medre auth matrix login`):
+already populated by `medre adapter matrix auth login`):
 
 ### [adapters.matrix.matrix]
 
-> After running `medre auth matrix login`, the `homeserver`, `user_id`, and
+> After running `medre adapter matrix auth login`, the `homeserver`, `user_id`, and
 > `access_token` fields are already populated. Edit only the fields below.
 
 | Field | Set to |
@@ -392,11 +392,11 @@ adapter status, and storage contents.
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| `"access_token must be non-empty"` | Empty access token in config | Run `medre auth matrix login --config /tmp/medre-live.toml --adapter matrix --homeserver ... --user ...` to populate the token, or fill in `access_token` manually. |
+| `"access_token must be non-empty"` | Empty access token in config | Run `medre adapter matrix auth login --config /tmp/medre-live.toml --adapter matrix --homeserver ... --user ...` to populate the token, or fill in `access_token` manually. |
 | `"serial_port required"` | No serial device path configured | Check USB connection. Run `ls /dev/ttyACM* /dev/ttyUSB*` to find the device. Set `serial_port` in config. |
 | Permission denied on serial port | User not in `dialout` group | `sudo usermod -aG dialout $USER` then log out and back in. |
 | `"host is required"` | TCP connection type without host | Set `host` in `[adapters.meshtastic.radio]`, or switch `connection_type` to `"serial"`. |
-| Matrix adapter not healthy | Invalid or expired access token | Re-run `medre auth matrix login` to obtain a fresh token, or verify token via Element. |
+| Matrix adapter not healthy | Invalid or expired access token | Re-run `medre adapter matrix auth login` to obtain a fresh token, or verify token via Element. |
 | Radio not responding | Connection issue or firmware problem | Check USB cable, verify firmware version, try the Meshtastic CLI tool (`meshtastic --info`). |
 | No messages arriving | Room allowlist mismatch | Ensure `room_allowlist` contains the actual room ID (format: `!opaque:server`). |
 | Matrix adapter starts but radio fails | Radio SDK not installed | Run `pip install -e ".[meshtastic]"`. Verify with `medre adapters`. |

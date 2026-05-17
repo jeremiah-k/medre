@@ -25,12 +25,12 @@ medre run --config examples/configs/fake-bridge-smoke.toml
 # 2. Have a Matrix bot and a Meshtastic radio? Use the live bridge:
 cp examples/configs/live-matrix-meshtastic.toml my-bridge.toml
 # Populate Matrix access token without manual editing:
-medre auth matrix login --config my-bridge.toml --adapter matrix --homeserver https://matrix.example.com --user @bot:example.com
+medre adapter matrix auth login --config my-bridge.toml --adapter matrix --homeserver https://matrix.example.com --user @bot:example.com
 # Then edit my-bridge.toml — fill in room IDs, serial port, channel indexes
 medre run --config my-bridge.toml
 ```
 
-> **Note:** `medre auth matrix login` performs an interactive login against the
+> **Note:** `medre adapter matrix auth login` performs an interactive login against the
 > homeserver and stores the access token directly in the config file. It does
 > not print the token to the terminal. See `docs/runbooks/secure-credentials.md`
 > for full credential handling guidance.

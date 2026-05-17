@@ -50,7 +50,7 @@ Every command registered in `src/medre/cli/main.py` as of this writing.
 | `medre trace` | `event`, `replay` | Chronological timeline assembly | `cli/trace_commands.py` |
 | `medre replay` | | Execute a replay operation | `cli/replay_commands.py` |
 | `medre recover` | | Analyze failed deliveries, generate recovery runbook | `cli/recover_commands.py` |
-| `medre auth matrix login` | | Matrix credential setup — obtains and stores access token, homeserver, user_id | `cli/contrib.py` → `cli/auth_commands.py` |
+| `medre adapter matrix auth login` | | Matrix credential setup — obtains and stores access token, homeserver, user_id | `cli/contrib.py` → `adapters/matrix/cli.py` |
 
 
 ## Operational properties decision table
@@ -96,7 +96,7 @@ these properties. Column definitions:
 | `replay` | yes | best_effort | yes | yes | yes | no | product |
 | `recover` | no | no | yes | no | yes | no | specialized |
 | `smoke` | fake | fake only | opt | opt | opt | yes | validation |
-| `auth matrix login` | no | no | no | no | yes | no | product |
+| `adapter matrix auth login` | no | no | no | no | yes | no | product |
 
 
 ## Per-command classification
@@ -138,7 +138,7 @@ surface.
 
 | Command | Classification | Rationale |
 |---------|---------------|-----------|
-| `medre auth matrix login` | **Credential setup** | Credential setup utility. Does not start runtime. Mutates config with `--config`. Never prints token. Password prompted securely unless `--password-stdin`. Writes `homeserver`, `user_id`, and `access_token` to the adapter section in the config file. |
+| `medre adapter matrix auth login` | **Credential setup** | Credential setup utility. Does not start runtime. Mutates config with `--config`. Never prints token. Password prompted securely unless `--password-stdin`. Writes `homeserver`, `user_id`, and `access_token` to the adapter section in the config file. |
 
 ### Specialized commands (inspect-first guidance)
 
@@ -231,7 +231,7 @@ medre config sample    Starter TOML generation
 **Credential setup (1 command):**
 
 ```
-medre auth matrix login  Matrix credential setup — obtains and stores access token, homeserver, user_id
+medre adapter matrix auth login  Matrix credential setup — obtains and stores access token, homeserver, user_id
 ```
 
 **Specialized commands (3 commands, available but not primary daily path):**
@@ -281,7 +281,7 @@ following categories:
 
 **Credential setup surface:**
 
-- `medre auth matrix login`
+- `medre adapter matrix auth login`
 
 **Validation surface** (developer/CI tooling):
 

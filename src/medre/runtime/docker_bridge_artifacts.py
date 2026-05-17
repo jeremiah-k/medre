@@ -662,8 +662,8 @@ def _collect_artifact_manifest(
     scenario:
         Optional scenario name.  When provided the required list is
         looked up via :func:`get_artifact_plan`.  When *None* the
-        historical :data:`ARTIFACT_PLAN` (both logs) is used for
-        backward compatibility.
+        historical :data:`ARTIFACT_PLAN` (both logs) is used as the
+        default plan.
 
     Returns a dict with:
     - ``artifact_paths``: mapping filename → absolute path for existing artifacts

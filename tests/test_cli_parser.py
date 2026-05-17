@@ -47,3 +47,9 @@ def test_lxmf_not_toplevel() -> None:
     """'lxmf' must not be accepted as a top-level command."""
     with pytest.raises(SystemExit):
         main(["lxmf"])
+
+
+def test_auth_not_toplevel() -> None:
+    """'auth' must not be accepted as a top-level command (moved to adapter namespace)."""
+    with pytest.raises(SystemExit):
+        main(["auth"])
