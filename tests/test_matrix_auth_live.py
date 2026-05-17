@@ -47,7 +47,7 @@ class TestMatrixAuthLive:
         assert who == os.environ["MATRIX_USER_ID"]
 
     def test_login_writes_to_config(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
-        from medre.adapters.matrix.auth import matrix_login, _update_toml_access_token
+        from medre.adapters.matrix.auth import matrix_login, update_toml_credentials
 
         result = matrix_login(
             homeserver=os.environ["MATRIX_HOMESERVER"],
@@ -57,18 +57,24 @@ class TestMatrixAuthLive:
 
         config_path = tmp_path / "test.toml"
         config_path.write_text(
-            '[adapters.matrix.mybot]\naccess_token = ""\n',
+            '[adapters.matrix.mybot]\n'
+            'homeserver = ""\n'
+            'user_id = ""\n'
+            'access_token = ""\n',
             encoding="utf-8",
         )
 
-        _update_toml_access_token(
-            config_path, "matrix", "mybot", result.access_token
+        update_toml_credentials(
+            config_path, "matrix", "mybot",
+            homeserver=result.homeserver,
+            user_id=result.user_id,
+            access_token=result.access_token,
         )
 
         with config_path.open("rb") as f:
             data = tomllib.load(f)
 
-        assert (
-            data["adapters"]["matrix"]["mybot"]["access_token"]
-            == result.access_token
-        )
+        section = data["adapters"]["matrix"]["mybot"]
+        assert section["access_token"] == result.access_token
+        assert section["homeserver"] == result.homeserver
+        assert section["user_id"] == result.user_id

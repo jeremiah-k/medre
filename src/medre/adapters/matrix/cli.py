@@ -27,7 +27,7 @@ async def _adapter_matrix_auth_login(args: object) -> None:
     homeserver: str = args.homeserver  # type: ignore[attr-defined]
     user_id: str = args.user  # type: ignore[attr-defined]
     config_path = Path(args.config)  # type: ignore[attr-defined]
-    adapter_name: str = args.adapter  # type: ignore[attr-defined]
+    adapter_name: str = args.adapter_id  # type: ignore[attr-defined]
     password_stdin: bool = getattr(args, "password_stdin", False)
 
     # Read password

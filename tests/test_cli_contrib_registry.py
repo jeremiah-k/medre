@@ -26,7 +26,7 @@ def test_register_builtin_contributors_creates_auth_parser() -> None:
     args = parser.parse_args([
         "adapter", "matrix", "auth", "login",
         "--config", "/tmp/x.toml",
-        "--adapter", "m",
+        "--adapter-id", "m",
         "--homeserver", "https://x.org",
         "--user", "@x:x.org",
     ])
@@ -35,7 +35,7 @@ def test_register_builtin_contributors_creates_auth_parser() -> None:
     assert args.adapter_matrix_command == "auth"
     assert args.adapter_matrix_auth_command == "login"
     assert args.config == "/tmp/x.toml"
-    assert args.adapter == "m"
+    assert args.adapter_id == "m"
     assert args.homeserver == "https://x.org"
     assert args.user == "@x:x.org"
 
@@ -48,7 +48,7 @@ def test_dispatch_contribution_routes_auth_login() -> None:
         adapter_matrix_command="auth",
         adapter_matrix_auth_command="login",
         config="/tmp/x.toml",
-        adapter="m",
+        adapter_id="m",
         homeserver="https://x.org",
         user="@x:x.org",
     )

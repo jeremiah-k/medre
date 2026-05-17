@@ -28,7 +28,7 @@ class TestAdapterMatrixAuthParserStructure:
         args = parser.parse_args([
             "adapter", "matrix", "auth", "login",
             "--config", "/tmp/c.toml",
-            "--adapter", "bot",
+            "--adapter-id", "bot",
             "--homeserver", "https://m.org",
             "--user", "@b:m.org",
         ])
@@ -37,7 +37,7 @@ class TestAdapterMatrixAuthParserStructure:
         assert args.adapter_matrix_command == "auth"
         assert args.adapter_matrix_auth_command == "login"
         assert args.config == "/tmp/c.toml"
-        assert args.adapter == "bot"
+        assert args.adapter_id == "bot"
         assert args.homeserver == "https://m.org"
         assert args.user == "@b:m.org"
         assert args.password_stdin is False
@@ -47,7 +47,7 @@ class TestAdapterMatrixAuthParserStructure:
         args = parser.parse_args([
             "adapter", "matrix", "auth", "login",
             "--config", "/tmp/c.toml",
-            "--adapter", "bot",
+            "--adapter-id", "bot",
             "--homeserver", "https://m.org",
             "--user", "@b:m.org",
             "--password-stdin",
@@ -69,7 +69,7 @@ class TestAdapterMatrixAuthParserStructure:
         with pytest.raises(SystemExit):
             parser.parse_args([
                 "adapter", "matrix", "auth", "login",
-                "--adapter", "bot",
+                "--adapter-id", "bot",
                 "--homeserver", "https://m.org",
                 "--user", "@b:m.org",
             ])
@@ -90,7 +90,7 @@ class TestAdapterMatrixAuthParserStructure:
             parser.parse_args([
                 "adapter", "matrix", "auth", "login",
                 "--config", "/tmp/c.toml",
-                "--adapter", "bot",
+                "--adapter-id", "bot",
                 "--user", "@b:m.org",
             ])
 
@@ -100,8 +100,20 @@ class TestAdapterMatrixAuthParserStructure:
             parser.parse_args([
                 "adapter", "matrix", "auth", "login",
                 "--config", "/tmp/c.toml",
+                "--adapter-id", "bot",
+                "--homeserver", "https://m.org",
+            ])
+
+    def test_adapter_abbrev_rejected(self) -> None:
+        """--adapter must not be accepted as abbreviation for --adapter-id."""
+        parser = _build_parser()
+        with pytest.raises(SystemExit):
+            parser.parse_args([
+                "adapter", "matrix", "auth", "login",
+                "--config", "/tmp/c.toml",
                 "--adapter", "bot",
                 "--homeserver", "https://m.org",
+                "--user", "@bot:m.org",
             ])
 
 
@@ -150,7 +162,7 @@ class TestAdapterMatrixAuthLoginIntegration:
     def _make_args(self, **overrides: object) -> SimpleNamespace:
         defaults = {
             "config": "/tmp/test.toml",
-            "adapter": "mybot",
+            "adapter_id": "mybot",
             "homeserver": "https://matrix.org",
             "user": "@bot:matrix.org",
             "password_stdin": True,
@@ -388,7 +400,7 @@ class TestAdapterMatrixAuthLoginIntegration:
 
         args = self._make_args(
             config=str(toml_path),
-            adapter="bot",
+            adapter_id="bot",
             user="@alice:matrix.example.com",
             homeserver="https://matrix.example.com",
             password_stdin=True,

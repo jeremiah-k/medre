@@ -20,7 +20,6 @@ from medre.adapters.matrix.auth import (
     MatrixLoginResult,
     matrix_login,
     matrix_whoami,
-    _update_toml_access_token,
     update_toml_credentials,
     _update_toml_field,
 )
@@ -252,7 +251,7 @@ class TestMatrixWhoami:
 # ---------------------------------------------------------------------------
 
 class TestUpdateTomlAccessToken:
-    """Tests for ``update_toml_access_token``."""
+    """Tests for ``update_toml_credentials``."""
 
     def _write_toml(self, tmp_path: Path, content: str) -> Path:
         p = tmp_path / "config.toml"
@@ -272,26 +271,43 @@ class TestUpdateTomlAccessToken:
             'room_allowlist = ["!room:matrix.org"]\n'
             '\n'
             '[adapters.matrix.otherbot]\n'
+            'homeserver = ""\n'
+            'user_id = ""\n'
             'access_token = "other_token"\n'
         )
         p = self._write_toml(tmp_path, toml_content)
 
-        _update_toml_access_token(p, "matrix", "mybot", "new_secret_token")
+        update_toml_credentials(
+            p, "matrix", "mybot",
+            homeserver="https://example.com",
+            user_id="@bot:example.com",
+            access_token="new_secret_token",
+        )
 
-        updated = p.read_text(encoding="utf-8")
-        assert 'access_token = "new_secret_token"' in updated
-        assert 'old_token' not in updated
-        assert '"other_token"' in updated  # other section unchanged
+        data = tomllib.loads(p.read_text(encoding="utf-8"))
+        section = data["adapters"]["matrix"]["mybot"]
+        assert section["access_token"] == "new_secret_token"
+        assert section["homeserver"] == "https://example.com"
+        assert section["user_id"] == "@bot:example.com"
+        # other section unchanged
+        assert data["adapters"]["matrix"]["otherbot"]["access_token"] == "other_token"
         # Comments preserved
-        assert "# medre config" in updated
+        assert "# medre config" in p.read_text(encoding="utf-8")
 
     def test_chmod_0600(self, tmp_path: Path) -> None:
         p = self._write_toml(tmp_path, (
             '[adapters.matrix.bot]\n'
+            'homeserver = ""\n'
+            'user_id = ""\n'
             'access_token = "old"\n'
         ))
 
-        _update_toml_access_token(p, "matrix", "bot", "new")
+        update_toml_credentials(
+            p, "matrix", "bot",
+            homeserver="https://example.com",
+            user_id="@bot:example.com",
+            access_token="new",
+        )
 
         mode = p.stat().st_mode
         assert mode & stat.S_IRUSR  # owner read
@@ -304,7 +320,12 @@ class TestUpdateTomlAccessToken:
     def test_missing_file_raises(self, tmp_path: Path) -> None:
         p = tmp_path / "nonexistent.toml"
         with pytest.raises(FileNotFoundError, match="Config file not found"):
-            _update_toml_access_token(p, "matrix", "bot", "tok")
+            update_toml_credentials(
+                p, "matrix", "bot",
+                homeserver="https://example.com",
+                user_id="@bot:example.com",
+                access_token="tok",
+            )
 
     def test_missing_section_raises(self, tmp_path: Path) -> None:
         p = self._write_toml(tmp_path, (
@@ -313,16 +334,32 @@ class TestUpdateTomlAccessToken:
         ))
 
         with pytest.raises(ValueError, match="not found"):
-            _update_toml_access_token(p, "matrix", "bot", "tok")
+            update_toml_credentials(
+                p, "matrix", "bot",
+                homeserver="https://example.com",
+                user_id="@bot:example.com",
+                access_token="tok",
+            )
 
     def test_missing_access_token_key_raises(self, tmp_path: Path) -> None:
         p = self._write_toml(tmp_path, (
             '[adapters.matrix.bot]\n'
             'homeserver = "https://matrix.org"\n'
+            'user_id = "@bot:matrix.org"\n'
+            'access_token = ""\n'
         ))
+        # Remove access_token line to trigger key-not-found
+        content = p.read_text(encoding="utf-8")
+        content = content.replace('access_token = ""\n', '')
+        p.write_text(content, encoding="utf-8")
 
         with pytest.raises(ValueError, match="access_token key not found"):
-            _update_toml_access_token(p, "matrix", "bot", "tok")
+            update_toml_credentials(
+                p, "matrix", "bot",
+                homeserver="https://example.com",
+                user_id="@bot:example.com",
+                access_token="tok",
+            )
 
     def test_preserves_comments_and_formatting(self, tmp_path: Path) -> None:
         toml_content = (
@@ -333,11 +370,17 @@ class TestUpdateTomlAccessToken:
             '# Matrix adapter\n'
             '[adapters.matrix.mybot]\n'
             'homeserver = "https://matrix.org"  # homeserver\n'
+            'user_id = "@bot:matrix.org"\n'
             'access_token = "old"\n'
         )
         p = self._write_toml(tmp_path, toml_content)
 
-        _update_toml_access_token(p, "matrix", "mybot", "new")
+        update_toml_credentials(
+            p, "matrix", "mybot",
+            homeserver="https://example.com",
+            user_id="@bot:example.com",
+            access_token="new",
+        )
 
         lines = p.read_text(encoding="utf-8").splitlines()
         assert lines[0] == "# Top comment"
@@ -348,32 +391,48 @@ class TestUpdateTomlAccessToken:
     def test_single_quoted_token(self, tmp_path: Path) -> None:
         p = self._write_toml(tmp_path, (
             "[adapters.matrix.bot]\n"
+            "homeserver = ''\n"
+            "user_id = ''\n"
             "access_token = 'old_token'\n"
         ))
 
-        _update_toml_access_token(p, "matrix", "bot", "new_token")
+        update_toml_credentials(
+            p, "matrix", "bot",
+            homeserver="https://example.com",
+            user_id="@bot:example.com",
+            access_token="new_token",
+        )
 
-        updated = p.read_text(encoding="utf-8")
-        assert 'access_token = "new_token"' in updated
+        data = tomllib.loads(p.read_text(encoding="utf-8"))
+        assert data["adapters"]["matrix"]["bot"]["access_token"] == "new_token"
 
     def test_different_adapter_names(self, tmp_path: Path) -> None:
         p = self._write_toml(tmp_path, (
             '[adapters.matrix.alpha]\n'
+            'homeserver = ""\n'
+            'user_id = ""\n'
             'access_token = "alpha_old"\n'
             '\n'
             '[adapters.matrix.beta]\n'
+            'homeserver = ""\n'
+            'user_id = ""\n'
             'access_token = "beta_old"\n'
         ))
 
-        _update_toml_access_token(p, "matrix", "beta", "beta_new")
+        update_toml_credentials(
+            p, "matrix", "beta",
+            homeserver="https://example.com",
+            user_id="@bot:example.com",
+            access_token="beta_new",
+        )
 
-        updated = p.read_text(encoding="utf-8")
-        assert '"alpha_old"' in updated  # alpha untouched
-        assert 'access_token = "beta_new"' in updated
+        data = tomllib.loads(p.read_text(encoding="utf-8"))
+        assert data["adapters"]["matrix"]["alpha"]["access_token"] == "alpha_old"
+        assert data["adapters"]["matrix"]["beta"]["access_token"] == "beta_new"
 
 
 class TestTomlEscaping:
-    """Verify update_toml_access_token escapes special characters so the
+    """Verify update_toml_credentials escapes special characters so the
     written TOML parses back to the original token value."""
 
     def _write_toml(self, tmp_path: Path, content: str) -> Path:
@@ -385,9 +444,16 @@ class TestTomlEscaping:
         """Write *token*, parse the file with tomllib, return stored value."""
         p = self._write_toml(tmp_path, (
             '[adapters.matrix.bot]\n'
+            'homeserver = ""\n'
+            'user_id = ""\n'
             'access_token = "old"\n'
         ))
-        _update_toml_access_token(p, "matrix", "bot", token)
+        update_toml_credentials(
+            p, "matrix", "bot",
+            homeserver="https://example.com",
+            user_id="@bot:example.com",
+            access_token=token,
+        )
         data = tomllib.loads(p.read_text(encoding="utf-8"))
         return data["adapters"]["matrix"]["bot"]["access_token"]
 
@@ -426,9 +492,16 @@ class TestTomlEscaping:
         """Token with mixed special characters produces parseable TOML."""
         p = self._write_toml(tmp_path, (
             '[adapters.matrix.bot]\n'
+            'homeserver = ""\n'
+            'user_id = ""\n'
             'access_token = "old"\n'
         ))
-        _update_toml_access_token(p, "matrix", "bot", 'x"y\\z\t\n')
+        update_toml_credentials(
+            p, "matrix", "bot",
+            homeserver="https://example.com",
+            user_id="@bot:example.com",
+            access_token='x"y\\z\t\n',
+        )
         raw = p.read_text(encoding="utf-8")
         data = tomllib.loads(raw)
         assert data["adapters"]["matrix"]["bot"]["access_token"] == 'x"y\\z\t\n'

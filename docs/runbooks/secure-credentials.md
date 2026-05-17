@@ -51,7 +51,7 @@ of the config file:
 ```bash
 medre adapter matrix auth login \
   --config /path/to/config.toml \
-  --adapter matrix \
+  --adapter-id matrix \
   --homeserver https://matrix.example.com \
   --user @bot:example.com
 ```

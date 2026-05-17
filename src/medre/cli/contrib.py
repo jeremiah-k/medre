@@ -45,7 +45,7 @@ def _register_matrix_contributions(subparsers) -> None:
 
     # -- adapter matrix auth --------------------------------------------------
     adapter_matrix_auth_p = adapter_matrix_sub.add_parser(
-        "auth", help="Matrix authentication commands",
+        "auth", help="Matrix credential setup (no runtime). Mutates config file. Writes homeserver, user_id, access_token. Never prints token. Prompts for password securely.",
     )
     adapter_matrix_auth_sub = adapter_matrix_auth_p.add_subparsers(
         dest="adapter_matrix_auth_command", required=True,
@@ -53,14 +53,15 @@ def _register_matrix_contributions(subparsers) -> None:
 
     # -- adapter matrix auth login --------------------------------------------
     auth_login_p = adapter_matrix_auth_sub.add_parser(
-        "login", help="Login and store Matrix access token",
+        "login", help="Authenticate with homeserver, verify token, write credentials to config. Never prints the access token.",
+        allow_abbrev=False,
     )
     auth_login_p.add_argument(
         "--config", required=True, help="Path to config file to update",
     )
     auth_login_p.add_argument(
-        "--adapter", required=True,
-        help="Adapter instance name in config (e.g. 'matrix')",
+        "--adapter-id", dest="adapter_id", required=True,
+        help="Adapter instance ID in config (e.g. 'matrix')",
     )
     auth_login_p.add_argument(
         "--homeserver", required=True, help="Homeserver URL",

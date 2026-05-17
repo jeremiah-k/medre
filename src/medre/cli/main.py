@@ -33,6 +33,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="medre",
         description="Modular Event-driven Routing Engine",
+        allow_abbrev=False,
     )
     sub = parser.add_subparsers(dest="command", required=True)
 

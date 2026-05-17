@@ -67,7 +67,7 @@ Matrix access token:
 ```bash
 medre adapter matrix auth login \
   --config /tmp/medre-live.toml \
-  --adapter matrix \
+  --adapter-id matrix \
   --homeserver https://matrix.example.com \
   --user @bot:example.com
 ```
@@ -351,32 +351,36 @@ medre run --snapshot-on-shutdown /tmp/medre-live-snapshot.json --config /tmp/med
 This writes a snapshot to the specified path with runtime counters, capacity
 gauges, and route statistics.
 
-### Inspect receipts
+### Collect evidence via inspect
+
+After shutdown, use inspect commands to review what happened. These are
+read-only and need only `--storage-path`.
 
 ```bash
+# List all delivery receipts
 medre inspect receipts --storage-path /tmp/medre-live.sqlite
 ```
 
 Expected: JSON array of delivery receipts showing Matrix → Meshtastic
 deliveries (and Meshtastic → Matrix if the reverse path worked).
 
-### Inspect event timeline
+Pick an `event_id` from the receipts and drill into the timeline:
 
 ```bash
 medre inspect event <event_id> --timeline --storage-path /tmp/medre-live.sqlite
 ```
 
-Replace `<event_id>` with the ID from the receipt output. The timeline shows
-every stage the event passed through.
+The timeline shows every stage the event passed through.
 
-### Collect evidence bundle
+If you need a structured JSON bundle for offline review, use the smoke script
+in `--event-id` mode to replay a specific event's artifacts:
 
 ```bash
-medre evidence --config /tmp/medre-live.toml --json
+scripts/live-matrix-meshtastic-smoke.sh --event-id <event_id>
 ```
 
-This collects a structured JSON evidence bundle including config, paths,
-adapter status, and storage contents.
+This replays inspection data for the given event, producing a structured
+output suitable for archival or comparison.
 
 ### Artifacts summary
 
@@ -384,7 +388,7 @@ adapter status, and storage contents.
 |----------|----------|
 | SQLite database | `/tmp/medre-live.sqlite` |
 | Shutdown snapshot | `/tmp/medre-live-snapshot.json` (if `--snapshot-on-shutdown` used) |
-| Evidence bundle | stdout (redirect to file) |
+| Inspect output | stdout (redirect to file) |
 | Config file | `/tmp/medre-live.toml` |
 
 
@@ -392,7 +396,7 @@ adapter status, and storage contents.
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| `"access_token must be non-empty"` | Empty access token in config | Run `medre adapter matrix auth login --config /tmp/medre-live.toml --adapter matrix --homeserver ... --user ...` to populate the token, or fill in `access_token` manually. |
+| `"access_token must be non-empty"` | Empty access token in config | Run `medre adapter matrix auth login --config /tmp/medre-live.toml --adapter-id matrix --homeserver ... --user ...` to populate the token, or fill in `access_token` manually. |
 | `"serial_port required"` | No serial device path configured | Check USB connection. Run `ls /dev/ttyACM* /dev/ttyUSB*` to find the device. Set `serial_port` in config. |
 | Permission denied on serial port | User not in `dialout` group | `sudo usermod -aG dialout $USER` then log out and back in. |
 | `"host is required"` | TCP connection type without host | Set `host` in `[adapters.meshtastic.radio]`, or switch `connection_type` to `"serial"`. |
@@ -427,3 +431,26 @@ The following are explicitly **out of scope**:
 See `docs/runbooks/matrix-live-smoke.md` and
 `docs/runbooks/meshtastic-live-smoke.md` for per-transport live smoke
 procedures that validate each adapter independently.
+
+
+## 9. Execution Checklist
+
+Use this checklist to track progress through a bring-up session. Each step
+must pass before proceeding to the next.
+
+- [ ] **Install.** `pip install -e ".[matrix,meshtastic,dev]"` — verify with
+  `medre adapters` showing both SDKs available.
+- [ ] **Config check.** `medre config check --config /tmp/medre-live.toml`
+  reports `Config valid`.
+- [ ] **Auth.** `medre adapter matrix auth login --config /tmp/medre-live.toml
+  --adapter-id matrix --homeserver ... --user ...` — confirm `access_token`
+  is populated in the config file.
+- [ ] **Run.** `medre run --config /tmp/medre-live.toml` — both adapters
+  report `started` in logs.
+- [ ] **Test messages.** Send a Matrix message and verify delivery on the
+  radio. Optionally test Meshtastic → Matrix direction.
+- [ ] **Shutdown.** `Ctrl+C` — wait for graceful drain. Optionally use
+  `--snapshot-on-shutdown`.
+- [ ] **Inspect artifacts.** `medre inspect receipts --storage-path
+  /tmp/medre-live.sqlite` — verify delivery receipts are present. Drill into
+  specific events with `medre inspect event <event_id> --timeline`.

@@ -138,7 +138,7 @@ without manual editing:
 ```bash
 medre adapter matrix auth login \
   --config /tmp/medre-alpha.toml \
-  --adapter matrix \
+  --adapter-id matrix \
   --homeserver https://matrix.example.com \
   --user @bot:example.com
 ```
