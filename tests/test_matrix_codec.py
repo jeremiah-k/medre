@@ -13,9 +13,7 @@ from datetime import datetime, timezone
 from medre.adapters.matrix.codec import MatrixCodec
 from medre.adapters.matrix.config import MatrixConfig
 from medre.adapters.matrix.errors import MatrixCodecError
-from medre.core.events.canonical import CanonicalEvent, NativeRef
 from medre.core.events.kinds import EventKind
-from medre.core.events.metadata import EventMetadata
 
 
 def _make_config(**overrides: Any) -> MatrixConfig:
@@ -68,6 +66,30 @@ class TestMatrixCodec:
         assert event.event_kind == EventKind.MESSAGE_CREATED
         assert event.source_adapter == "matrix-1"
         assert event.payload["body"] == "hello matrix"
+        assert event.payload["msgtype"] == "m.text"
+
+    def test_decode_uses_matrix_origin_server_timestamp(self) -> None:
+        """Backlog events must retain their native timestamp for stale filtering."""
+        codec = MatrixCodec("matrix-1", _make_config())
+        native = _make_native_event(body="old message")
+        native.source["origin_server_ts"] = 1_700_000_000_123
+
+        event = codec.decode(native, room_id="!room:server")
+
+        assert event.timestamp == datetime.fromtimestamp(
+            1_700_000_000.123,
+            tz=timezone.utc,
+        )
+
+    def test_decode_defaults_missing_msgtype_to_text(self) -> None:
+        """Malformed/legacy Matrix content should not produce schema-noisy payloads."""
+        codec = MatrixCodec("matrix-1", _make_config())
+        native = _make_native_event(body="hello", content={"body": "hello"})
+
+        event = codec.decode(native, room_id="!room:server")
+
+        assert event.payload["body"] == "hello"
+        assert event.payload["msgtype"] == "m.text"
 
     def test_decode_with_body(self) -> None:
         codec = MatrixCodec("matrix-1", _make_config())

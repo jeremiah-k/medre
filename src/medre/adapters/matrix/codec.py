@@ -21,7 +21,6 @@ from typing import Any
 
 from medre.adapters.base import AdapterCodec
 from medre.adapters.matrix.errors import MatrixCodecError
-from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
 from medre.adapters.matrix.relations import extract_reply_target
 from medre.core.events.canonical import CanonicalEvent, EventRelation, NativeRef
 from medre.core.events.kinds import EventKind
@@ -84,17 +83,19 @@ class MatrixCodec(AdapterCodec):
         if not body:
             body = ""
 
-        # Build payload from body + msgtype
+        # Build payload from body + msgtype. Matrix message events should always
+        # carry msgtype, but older/fake events can omit it; keep canonical
+        # Matrix-originated messages schema-compatible instead of emitting a
+        # noisy validation warning downstream.
         content = source.get("content", {})
-        payload: dict[str, object] = {"body": body}
-        if "msgtype" in content:
-            payload["msgtype"] = content["msgtype"]
+        msgtype = content.get("msgtype") or getattr(native_event, "msgtype", None)
+        payload: dict[str, object] = {
+            "body": body,
+            "msgtype": msgtype if isinstance(msgtype, str) and msgtype else "m.text",
+        }
 
         # Native metadata
         native_meta = self._make_native_metadata(room_id, event_id, sender)
-
-        # Extract envelope if present
-        envelope = MatrixMetadataEnvelope.from_content(content)
 
         # Build event metadata
         metadata = EventMetadata(native=native_meta)
@@ -132,7 +133,7 @@ class MatrixCodec(AdapterCodec):
             event_id=str(uuid.uuid4()),
             event_kind=EventKind.MESSAGE_CREATED,
             schema_version=1,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=self._event_timestamp(native_event, source),
             source_adapter=self._adapter_id,
             source_transport_id=sender,
             source_channel_id=room_id,
@@ -147,6 +148,28 @@ class MatrixCodec(AdapterCodec):
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _event_timestamp(native_event: Any, source: dict[str, Any]) -> datetime:
+        """Return the Matrix event occurrence time as a UTC datetime.
+
+        nio exposes Matrix ``origin_server_ts`` as milliseconds since epoch.
+        Some tests/fakes expose equivalent values under related names.  Falling
+        back to ``now`` preserves behavior for synthetic events that do not
+        model native timestamps.
+        """
+        raw = (
+            getattr(native_event, "server_timestamp", None)
+            or getattr(native_event, "origin_server_ts", None)
+            or source.get("origin_server_ts")
+            or source.get("unsigned", {}).get("age_ts")
+        )
+        if isinstance(raw, (int, float)):
+            # Matrix timestamps are milliseconds. Accept seconds for defensive
+            # compatibility with lightweight fakes.
+            seconds = raw / 1000 if raw > 10_000_000_000 else raw
+            return datetime.fromtimestamp(seconds, tz=timezone.utc)
+        return datetime.now(timezone.utc)
 
     @staticmethod
     def _extract_body(event: CanonicalEvent) -> str:

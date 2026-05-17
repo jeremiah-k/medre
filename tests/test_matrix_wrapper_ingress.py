@@ -6,21 +6,23 @@ Uses mocked nio SDK — no live Matrix connection required.
 
 No Docker, no live transports, no SDK dependencies required.
 """
+# ruff: noqa: F811
 
 from __future__ import annotations
+
+from datetime import datetime, timezone
 
 from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.meshtastic.config import MeshtasticConfig
 from medre.core.engine.pipeline import PipelineRunner
-from medre.core.events.kinds import EventKind
 from medre.core.rendering.renderer import RenderingPipeline, RenderingResult
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, RouteSource, RouteTarget, Router
 from medre.core.storage.sqlite import SQLiteStorage
 
 from tests.helpers.bridge import make_adapter_context, make_pipeline_config
-from tests.helpers.matrix import make_nio_event, make_nio_room, make_matrix_config, mock_nio
+from tests.helpers.matrix import make_nio_event, make_nio_room, make_matrix_config, mock_nio  # noqa: F401
 
 
 class TestMatrixWrapperCallbackPath:
@@ -89,6 +91,64 @@ class TestMatrixWrapperCallbackPath:
             )
             assert len(receipts) == 1
             assert receipts[0]["status"] == "sent"
+        finally:
+            await matrix_adapter.stop()
+            await fake_target.stop()
+            await runner.stop()
+
+    async def test_pre_start_matrix_event_is_dropped_before_pipeline(
+        self, mock_nio, temp_storage: SQLiteStorage
+    ) -> None:
+        """Historical Matrix sync events must not be stored, deduped, or routed."""
+        matrix_adapter = MatrixAdapter(
+            make_matrix_config(adapter_id="matrix-stale-cb")
+        )
+        fake_target = FakeMeshtasticAdapter(
+            MeshtasticConfig(adapter_id="fake-stale-target")
+        )
+
+        route = Route(
+            id="matrix-stale-route",
+            source=RouteSource(
+                adapter="matrix-stale-cb",
+                event_kinds=("message.created",),
+                channel="!stale_room:example.com",
+            ),
+            targets=[RouteTarget(adapter="fake-stale-target", channel="0")],
+        )
+        router = Router(routes=[route])
+
+        rp = RenderingPipeline()
+        rp.register(TextRenderer(), priority=100)
+
+        config = make_pipeline_config(
+            temp_storage,
+            router,
+            adapters={"matrix-stale-cb": matrix_adapter, "fake-stale-target": fake_target},
+            rendering_pipeline=rp,
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        await matrix_adapter.start(make_adapter_context("matrix-stale-cb", runner))
+        await fake_target.start(make_adapter_context("fake-stale-target", runner))
+
+        try:
+            room = make_nio_room("!stale_room:example.com")
+            event = make_nio_event(
+                sender="@alice:example.com",
+                event_id="$stale-evt-001",
+                body="historical message",
+            )
+            event.source["origin_server_ts"] = int(
+                datetime(2000, 1, 1, tzinfo=timezone.utc).timestamp() * 1000
+            )
+
+            await matrix_adapter._on_room_message(room, event)
+
+            assert fake_target.delivered_payloads == []
+            assert await temp_storage.count_events() == 0
+            assert matrix_adapter._stale_events_dropped == 1
         finally:
             await matrix_adapter.stop()
             await fake_target.stop()
