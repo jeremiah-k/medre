@@ -300,30 +300,28 @@ class MatrixSession:
             await self._start_plaintext()
 
     async def _start_plaintext(self) -> None:
-        """Standard plaintext startup — no crypto.
+        """Standard plaintext startup — no explicit crypto.
 
         When ``vodozemac`` is installed, nio sets
         ``ENCRYPTION_ENABLED=True`` and ``restore_login`` calls
-        ``load_store()`` which requires a non-empty ``device_id``.
-        We provide a stable fallback so plaintext mode works regardless
-        of whether E2EE dependencies happen to be installed.
+        ``load_store()`` which requires a valid ``device_id``.
+        We discover the device_id via ``whoami()`` before
+        ``restore_login``, matching mmrelay's pattern, so
+        plaintext mode never uploads keys with a mismatched device_id.
         """
         import nio
-
-        # When E2EE libs are present nio.restore_login() calls
-        # load_store() which requires device_id.  Provide a stable
-        # fallback so plaintext mode never crashes on this.
-        _device_id = self._config.device_id or "MEDRE_PLAINTEXT"
 
         self._client = nio.AsyncClient(
             homeserver=self._config.homeserver,
             user=self._config.user_id,
-            device_id=_device_id,
+            device_id=self._config.device_id or None,
             store_path=self._config.store_path,
         )
+        # Discover the actual device_id from the authenticated session
+        device_id = await self._discover_device_id()
         self._client.restore_login(
             user_id=self._config.user_id,
-            device_id=_device_id,
+            device_id=device_id,
             access_token=self._config.access_token,
         )
         await self._finalize_start()

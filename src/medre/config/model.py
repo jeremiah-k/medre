@@ -122,10 +122,25 @@ class RuntimeOptions:
 
 @dataclass(frozen=True)
 class LoggingConfig:
-    """Logging configuration."""
+    """Logging configuration.
+
+    Attributes
+    ----------
+    level:
+        Root logger level (e.g. ``"DEBUG"``, ``"INFO"``).
+    format:
+        Log format preset — ``"text"`` or ``"json"``.
+    overrides:
+        Per-logger level overrides keyed by logger name.  Allows
+        suppressing noisy SDK loggers (e.g. ``nio``, ``meshtastic``,
+        ``aiohttp``) at a higher level than the root logger.  Values
+        are level name strings (e.g. ``"WARNING"``).  When empty, the
+        CLI layer applies sensible defaults.
+    """
 
     level: str = "INFO"
     format: str = "text"  # "text" or "json"
+    overrides: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

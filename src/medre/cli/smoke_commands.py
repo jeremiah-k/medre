@@ -38,6 +38,18 @@ def _setup_logging(config: object) -> None:
     fmt = _FORMAT_PRESETS.get(fmt, fmt)
     logging.basicConfig(level=getattr(logging, level.upper(), logging.INFO), format=fmt)
 
+    # Apply per-logger level overrides (or defaults if none configured).
+    overrides = getattr(log_cfg, "overrides", None)
+    if overrides:
+        for name, level_str in overrides.items():
+            logging.getLogger(name).setLevel(
+                getattr(logging, level_str.upper(), logging.WARNING)
+            )
+    else:
+        # Default: suppress SDK library noise
+        for name in ("nio", "meshtastic", "aiohttp"):
+            logging.getLogger(name).setLevel(logging.WARNING)
+
 
 async def _smoke(
     config_path: str | None,

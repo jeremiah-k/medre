@@ -209,6 +209,7 @@ def _parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
     logging = LoggingConfig(
         level=log_data.get("level", "INFO"),
         format=log_data.get("format", "text"),
+        overrides=log_data.get("overrides", {}),
     )
 
     # [storage] section — expand path placeholders

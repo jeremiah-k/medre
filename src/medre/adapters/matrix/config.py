@@ -115,6 +115,11 @@ class MatrixConfig:
         if needs_access_token and creds.get("access_token"):
             overrides["access_token"] = creds["access_token"]
 
+        if self.device_id is None:
+            device_id_val = creds.get("device_id")
+            if device_id_val:
+                overrides["device_id"] = device_id_val
+
         if not overrides:
             return self
 
