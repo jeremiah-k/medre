@@ -243,7 +243,17 @@ def _register_adapter_renderers(pipeline: RenderingPipeline, config: RuntimeConf
             if class_name == "MeshtasticRenderer" and meshtastic_config is not None:
                 pipeline.register(renderer_cls(config=meshtastic_config), priority=50)
             elif class_name == "MatrixRenderer" and meshtastic_config is not None:
-                pipeline.register(renderer_cls(meshtastic_config=meshtastic_config), priority=50)
+                mmrelay_compat = meshtastic_config.mmrelay_compatibility
+                meshnet_name = meshtastic_config.meshnet_name
+                matrix_relay_prefix = meshtastic_config.matrix_relay_prefix
+                pipeline.register(
+                    renderer_cls(
+                        mmrelay_compat=mmrelay_compat,
+                        meshnet_name=meshnet_name,
+                        matrix_relay_prefix=matrix_relay_prefix,
+                    ),
+                    priority=50,
+                )
             else:
                 pipeline.register(renderer_cls(), priority=50)
         except ImportError:
