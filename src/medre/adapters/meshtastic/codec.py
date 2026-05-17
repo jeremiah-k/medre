@@ -140,6 +140,16 @@ class MeshtasticCodec:
 
         to_id = packet.get("toId", "") or ""
 
+        # Extract user identity fields from the packet's user dict.
+        # Meshtastic packets may include a "user" dict with "longName" and
+        # "shortName" keys when the sender's node info is available.
+        user_info = packet.get("user", {})
+        longname = ""
+        shortname = ""
+        if isinstance(user_info, dict):
+            longname = str(user_info.get("longName", "") or "")
+            shortname = str(user_info.get("shortName", "") or "")
+
         native_meta = NativeMetadata(
             data={
                 "packet_id": pkt_id,
@@ -148,6 +158,8 @@ class MeshtasticCodec:
                 "portnum": str(portnum) if portnum else None,
                 "to_id": to_id,
                 "is_direct_message": classification["is_direct_message"],
+                "longname": longname,
+                "shortname": shortname,
             }
         )
 

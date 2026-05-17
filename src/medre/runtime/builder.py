@@ -241,6 +241,8 @@ def _register_adapter_renderers(pipeline: RenderingPipeline, config: RuntimeConf
             # Pass MeshtasticConfig when constructing MeshtasticRenderer.
             if class_name == "MeshtasticRenderer" and meshtastic_config is not None:
                 pipeline.register(renderer_cls(config=meshtastic_config), priority=50)
+            elif class_name == "MatrixRenderer" and meshtastic_config is not None:
+                pipeline.register(renderer_cls(meshtastic_config=meshtastic_config), priority=50)
             else:
                 pipeline.register(renderer_cls(), priority=50)
         except ImportError:

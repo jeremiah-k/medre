@@ -50,9 +50,15 @@ class MeshtasticConfig:
         Template string prepended to messages relayed from Meshtastic to
         other transports.  Uses Python ``str.format()`` syntax with
         variables: ``{longname}``, ``{shortname}``, ``{meshnet_name}``,
-        ``{from_id}``.  Default: ``""`` (no prefix).
+        ``{from_id}``.  Default: ``"[{longname}/{meshnet_name}]: "``.
 
-        Example: ``"[{longname}/{shortname}]: "``
+        Example: ``"[{longname}/{meshnet_name}]: "``
+    mmrelay_compatibility:
+        When ``True``, the Matrix renderer embeds mmrelay-compatible
+        Meshtastic metadata into the Matrix event content payload.  This
+        allows downstream consumers expecting mmrelay's ``meshtastic_*``
+        fields to interoperate with medre-relayed messages.  Default:
+        ``False``.
     """
 
     adapter_id: str
@@ -67,7 +73,8 @@ class MeshtasticConfig:
     message_delay_seconds: float = 0.5
     startup_backlog_suppress_seconds: float = 5.0
     sync_timeout_ms: int = 30000
-    relay_prefix: str = ""
+    relay_prefix: str = "[{longname}/{meshnet_name}]: "
+    mmrelay_compatibility: bool = False
 
     def validate(self) -> Self:
         """Validate the configuration and return *self* for chaining.
