@@ -1,7 +1,7 @@
 # Alpha Readiness Gap Audit
 
 > Document version: 2
-> Last updated: 2026-05-16
+> Last updated: 2026-05-17
 > Status: Honest assessment. No overclaims.
 
 This document records what is NOT ready, what is partially ready, and what
@@ -42,7 +42,8 @@ begin.
 |-----|--------|----------|
 | Docker outbound | Proven | `test_meshtasticd_sdk_bridge.py` exercises outbound delivery against containerized `meshtasticd`. |
 | Inbound from 2nd client | Unconfirmed (xfail) | No live test exercises inbound message reception from a second Meshtastic client. |
-| Live radio | None | No test against real LoRa hardware through medre. |
+| Live radio | Scaffold (manual smoke only) | `tests/test_meshtastic_live.py` (existing adapter tests), `tests/test_live_matrix_meshtastic_bridge.py` (bridge scaffold, skipped by default). `docs/runbooks/live-matrix-meshtastic-bringup.md` for operator procedure. |
+| Live Matrix ↔ Meshtastic bridge | Controlled manual smoke, not unattended production | `examples/configs/live-matrix-meshtastic.toml`, `tests/test_live_matrix_meshtastic_bridge.py`, `docs/runbooks/live-matrix-meshtastic-bringup.md` |
 
 ### MeshCore
 
@@ -177,6 +178,12 @@ What is NOT proven at alpha:
 - No transport is proven under sustained load.
 - No transport has proven reconnect resilience.
 - Two transports (MeshCore, LXMF) have zero live evidence.
+- Meshtastic live radio is scaffolded for controlled manual smoke only (not
+  proven under sustained load or unattended operation). Meshtastic → Matrix
+  direction has higher risk due to inbound callback reliability.
+- Live Matrix ↔ Meshtastic bridge is scaffolded for controlled manual smoke
+  only. Not proven under sustained load or unattended operation. Meshtastic →
+  Matrix direction has higher risk due to inbound callback reliability.
 - No adapter restarts on crash. No adapter supervision or health polling scheduler.
 - No replay deduplication. Native-ref dedup (Stage 1.5) prevents echo loops at the pipeline level, but BEST_EFFORT replay produces duplicate sends and no storage-level dedup exists.
 - No accounting survives a process restart (counters reset; snapshot-on-shutdown

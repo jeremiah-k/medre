@@ -5,6 +5,10 @@
 #
 # Adapter "main"  — Matrix (plaintext, real homeserver)
 # Adapter "radio" — Meshtastic (USB-serial radio)
+#
+# NOTE: For live Matrix ↔ Meshtastic bring-up, prefer live-matrix-meshtastic.toml
+# which uses clearer adapter IDs ("matrix"/"radio") and separate unidirectional routes.
+# This config is retained for backward compatibility with pre-release testing.
 
 [runtime]
 name = "matrix-mesh-bridge"

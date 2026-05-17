@@ -1,0 +1,84 @@
+# MEDRE Example: Live Matrix ↔ Meshtastic Bridge (Controlled Smoke)
+#
+# Canonical real-device bridge config for controlled live smoke testing.
+# NOT for unattended production. Use a throwaway Matrix room and non-critical
+# Meshtastic channel.
+#
+# This config wires two real adapters (Matrix homeserver + Meshtastic serial
+# radio) with separate unidirectional routes.  Adapter IDs are "matrix" and
+# "radio" — short, unambiguous, and used directly in route declarations.
+#
+# Prerequisites:
+#   pip install ".[matrix,meshtastic]"
+#   A Meshtastic radio on /dev/ttyACM0 (or change serial_port below)
+#   A Matrix bot account with a valid access token
+#
+# Usage:
+#   medre run --config examples/configs/live-matrix-meshtastic.toml
+
+[runtime]
+name = "live-matrix-meshtastic"
+shutdown_timeout_seconds = 30          # give adapters time to drain on Ctrl-C
+
+[logging]
+level = "INFO"                         # use DEBUG for bring-up visibility
+format = "text"                        # "text" for humans, "json" for log aggregation
+
+[storage]
+backend = "sqlite"
+path = "{state}/medre.sqlite"          # {state} resolves to XDG state dir
+
+# ---------------------------------------------------------------------------
+# Matrix transport
+# ---------------------------------------------------------------------------
+# Fill in your real homeserver URL, bot credentials, and a test room ID.
+# encryption_mode = "plaintext" keeps things simple for smoke testing.
+# Change to "e2ee_required" once you have vodozemac installed.
+[adapters.matrix.matrix]
+enabled = true
+homeserver = ""                        # REQUIRED — your homeserver URL (e.g. https://matrix.example.com)
+user_id = ""                           # REQUIRED — bot user ID (e.g. @mesh-bot:example.com)
+access_token = ""                      # REQUIRED — bot access token
+room_allowlist = ["!room:example.com"] # REQUIRED — your test room ID
+encryption_mode = "plaintext"          # plaintext | e2ee_optional | e2ee_required
+
+# ---------------------------------------------------------------------------
+# Meshtastic transport (serial)
+# ---------------------------------------------------------------------------
+# Connects to a Meshtastic node over USB-serial.  Change serial_port to
+# match your device (common: /dev/ttyACM0, /dev/ttyUSB0, /dev/cu.usbmodem*).
+[adapters.meshtastic.radio]
+enabled = true
+connection_type = "serial"
+serial_port = "/dev/ttyACM0"
+meshnet_name = "medre-radio"           # human-readable name in logs and mesh announcements
+
+# # --- TCP alternative (uncomment and comment out serial lines above) ---
+# [adapters.meshtastic.radio]
+# enabled = true
+# connection_type = "tcp"
+# host = "meshtastic.local"
+# port = 4403
+# meshnet_name = "medre-radio"
+
+# ---------------------------------------------------------------------------
+# Routes — two unidirectional routes form the full bridge
+# ---------------------------------------------------------------------------
+# Each route is a named, explicit source→dest declaration.
+# Routes reference adapter IDs ("matrix", "radio") declared above.
+
+# 1. Matrix → Meshtastic
+[routes.matrix_to_radio]
+source_adapters = ["matrix"]
+dest_adapters = ["radio"]
+directionality = "source_to_dest"
+enabled = true
+
+# 2. Meshtastic → Matrix
+[routes.radio_to_matrix]
+source_adapters = ["radio"]
+dest_adapters = ["matrix"]
+directionality = "source_to_dest"
+enabled = true
+
+# Retry disabled for bring-up simplicity

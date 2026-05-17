@@ -164,6 +164,25 @@ See `docs/runbooks/container-operation.md` §10 for 16 container tests (C1–C16
 See `docs/runbooks/deployment-validation.md` §11 for deployment summary evidence.
 
 
+## 5.2 Live Matrix ↔ Meshtastic Bridge Validation
+
+> Status: Controlled manual smoke. Not automated. Requires real hardware and credentials.
+
+See `docs/runbooks/live-matrix-meshtastic-bringup.md` for the full operator procedure.
+
+| # | Evidence | Command | Pass criteria |
+|---|----------|---------|---------------|
+| LB1 | Live bridge config loads | `python3 -c "import tomllib; tomllib.loads(open('examples/configs/live-matrix-meshtastic.toml').read()); print('OK')"` | Prints "OK" |
+| LB2 | Bridge config validates | `medre config check --config examples/configs/live-matrix-meshtastic.toml` | Reports structure valid (may warn about empty credentials — expected) |
+| LB3 | Live tests collected | `pytest -m live --collect-only tests/test_live_matrix_meshtastic_bridge.py` | Tests collected, none run |
+| LB4 | Matrix adapter live | `pytest tests/test_live_matrix_meshtastic_bridge.py -m live -k "matrix_adapter_healthy"` | PASS (requires MATRIX_* env vars) |
+| LB5 | Meshtastic adapter live | `pytest tests/test_live_matrix_meshtastic_bridge.py -m live -k "meshtastic_adapter_healthy"` | PASS (requires MESHTASTIC_* env vars) |
+
+LB1–LB5 require real Matrix credentials and a real Meshtastic radio node.
+If hardware or credentials are unavailable, record **NOT EXECUTED** with the
+reason (see §4 Evidence Honesty Requirements).
+
+
 ## 6. Beta Entry Decision Checklist
 
 Based on the execution evidence above:

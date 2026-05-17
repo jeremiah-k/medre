@@ -1,6 +1,6 @@
 # Transport Validation Matrix
 
-> Last updated: 2026-05-16
+> Last updated: 2026-05-17
 > Scope: Single authoritative source of truth for transport validation evidence
 > Status: Pre-beta. Evidence claims are honest per-transport.
 
@@ -36,7 +36,7 @@ For operator guidance on running validation tests, see
 | Docker inbound | ✅ proven (sync_loop) | ❓ unconfirmed | ❌ not set up | ❌ not set up |
 | Docker cross-adapter (Matrix→Meshtastic) | ✅ proven (ingress side) | ✅ proven (outbound side) | ❌ not set up | ❌ not set up |
 | Docker cross-adapter (Meshtastic→Matrix) | ❌ deferred | ❌ deferred (inbound unconfirmed) | ❌ not set up | ❌ not set up |
-| Live network/radio | ✅ proven (Synapse) | ❌ not claimed | ❌ not claimed | ❌ not claimed |
+| Live network/radio | ✅ proven (Synapse) | ⚠️ scaffold exists¹ | ❌ not claimed | ❌ not claimed |
 
 
 ## Per-Adapter Detail
@@ -111,6 +111,19 @@ Known gap: No Docker SDK-boundary or live validation. Unit-tested only.
 | Matrix outbound | ❌ deferred | No real external Matrix target. Not tested. |
 | Direction status | **Deferred** | Cross-adapter Meshtastic→Matrix flow not proven. Deferred until Matrix outbound with real Synapse is demonstrated. |
 
+### Matrix ↔ Meshtastic (Live Bridge)
+
+| Aspect | Status | Detail |
+|--------|--------|--------|
+| Config | Canonical example exists | `examples/configs/live-matrix-meshtastic.toml` — adapter IDs "matrix" and "radio", separate unidirectional routes |
+| Runbook | Operator bring-up guide | `docs/runbooks/live-matrix-meshtastic-bringup.md` — step-by-step controlled smoke procedure |
+| Test scaffold | Exists, skipped by default | `tests/test_live_matrix_meshtastic_bridge.py` — `@pytest.mark.live`, requires both `MATRIX_*` and `MESHTASTIC_*` env vars |
+| Matrix → Meshtastic | Adapter-boundary proven separately | Matrix outbound delivery proven via `test_matrix_live.py`. Meshtastic outbound delivery proven via `test_meshtasticd_sdk_bridge.py`. End-to-end bridge path through runtime not yet live-tested. |
+| Meshtastic → Matrix | Higher risk, not automated | Meshtastic inbound callback reliability is a known gap. No automated test for this direction. Manual smoke test documented in runbook. |
+| Status | **Controlled manual smoke** | Test room + test mesh channel only. Not for unattended production. |
+
+¹ Meshtastic live-radio scaffold: see [Matrix ↔ Meshtastic (Live Bridge)](#matrix--meshtastic-live-bridge) subsection below.
+
 
 ## Cross-Reference: Test File Index
 
@@ -142,6 +155,7 @@ Known gap: No Docker SDK-boundary or live validation. Unit-tested only.
 | File | Adapters covered | What it tests |
 |------|-----------------|---------------|
 | `tests/test_matrix_live.py` | Matrix | Live Matrix smoke against real homeserver (gated by `@require_live`, requires `MATRIX_*` env vars) |
+| `tests/test_live_matrix_meshtastic_bridge.py` | Matrix + Meshtastic | Live bridge scaffold: config build, adapter health, Matrix outbound smoke. Gated by both `MATRIX_*` and `MESHTASTIC_*` env vars. |
 
 
 ## Summary of Known Gaps
@@ -150,7 +164,7 @@ Known gap: No Docker SDK-boundary or live validation. Unit-tested only.
 |-----|---------------------|--------|
 | meshtasticd two-client relay | Meshtastic | Inbound delivery through real pubsub callback unconfirmed. Docker tests inject via `simulate_inbound`. |
 | No Docker setup | MeshCore, LXMF | No evidence that real SDK connects to any service. Adapter code validated only through unit tests and wrapper callbacks. |
-| No live radio/network | Meshtastic, MeshCore, LXMF | No evidence that adapters work with real hardware or live networks. May have fundamental issues. |
+| No live radio/network | Meshtastic (scaffold, manual only), MeshCore, LXMF | Meshtastic: scaffold exists (`test_live_matrix_meshtastic_bridge.py`, runbook) but is manual-only, not automated. MeshCore and LXMF: no evidence that adapters work with real hardware or live networks. May have fundamental issues. |
 | No live cross-transport bridge (Meshtastic→Matrix) | All | No test routes Meshtastic inbound to Matrix outbound through real adapters. The `meshtastic_to_matrix` Docker scenario uses `simulate_inbound` and has no real external Matrix target. This direction is deferred until proven. |
 | Docker cross-adapter Matrix→Meshtastic proven | Matrix, Meshtastic | `matrix_to_meshtastic` Docker bridge artifact run proves real Matrix nio SDK ingress through PipelineRunner to real Meshtastic mtjk SDK outbound against meshtasticd. Both `synapse.log` and `meshtasticd.log` required. Docker loopback only; no real radio or external Matrix. |
 | No third-party Matrix inbound | Matrix | Bridge smoke uses HTTP API sender, not a second Matrix client. Inbound from a different user is unconfirmed. |
