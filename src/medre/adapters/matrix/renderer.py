@@ -49,6 +49,9 @@ class MatrixRenderer:
         self._meshnet_name = (
             meshtastic_config.meshnet_name if meshtastic_config else ""
         )
+        self._relay_prefix: str = (
+            (meshtastic_config.relay_prefix or "") if meshtastic_config else ""
+        )
 
     # ------------------------------------------------------------------
     # Capability check
@@ -115,6 +118,9 @@ class MatrixRenderer:
         """
         body = str(event.payload.get("body", event.payload.get("text", "")))
 
+        # Apply relay prefix for Meshtastic→Matrix direction
+        body = self._apply_relay_prefix(event, body)
+
         content: dict[str, object] = {
             "msgtype": "m.text",
             "body": body,
@@ -172,6 +178,38 @@ class MatrixRenderer:
             payload=content,
             metadata=metadata,
         )
+
+    # ------------------------------------------------------------------
+    # Relay prefix
+    # ------------------------------------------------------------------
+
+    def _apply_relay_prefix(self, event: CanonicalEvent, body: str) -> str:
+        """Prepend the configured relay prefix template to *body*.
+
+        When :attr:`_relay_prefix` is non-empty, the template is formatted
+        using variables extracted from the event's native metadata:
+
+        * ``{longname}`` — sender long name.
+        * ``{shortname}`` — sender short name.
+        * ``{meshnet_name}`` — mesh network name from config.
+        * ``{from_id}`` — sender node ID.
+
+        If the prefix is empty, *body* is returned unchanged.
+        """
+        if not self._relay_prefix:
+            return body
+
+        native_data: dict[str, object] = {}
+        if event.metadata and event.metadata.native:
+            native_data = dict(event.metadata.native.data)
+
+        formatted_prefix = self._relay_prefix.format(
+            longname=native_data.get("longname", ""),
+            shortname=native_data.get("shortname", ""),
+            meshnet_name=self._meshnet_name,
+            from_id=native_data.get("from_id", ""),
+        )
+        return f"{formatted_prefix}{body}"
 
     # ------------------------------------------------------------------
     # mmrelay compatibility
