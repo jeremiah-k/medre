@@ -25,9 +25,49 @@ This runbook provides guidance for handling secret material (access tokens, priv
 
 **Device ID and store path:** MEDRE derives the device ID automatically via `whoami()` and uses an internal store path. These are not operator-configured. The crypto store directory contains sensitive key material and should be excluded from version control.
 
-**Built-in protection:** `MatrixConfig.__repr__()` redacts the access token to a 3-character preview (`syt_…`) to prevent accidental credential leakage in logs and debug output. No code change is needed — this is already implemented.
-
 **Token rotation:** If the access token is compromised or revoked, generate a new one from the Matrix client (e.g., Element → Settings → Help & About → Access Token) and update the environment variable. Restart the adapter to pick up the new token.
+
+#### Bearer-token in config files (auth-first workflow)
+
+When using a TOML config file (e.g. for `medre run`), the `access_token` field
+in `[adapters.matrix.matrix]` is stored as **plaintext**. Treat the config file
+as a secret:
+
+```bash
+chmod 600 /path/to/config.toml
+```
+
+Never commit config files containing real tokens to version control. MEDRE's
+`.gitignore` excludes `*.toml` files outside `examples/configs/`, but operators
+must verify this before pushing.
+
+**Use `medre auth matrix login` to populate tokens safely.** This command
+performs an interactive login against the homeserver and writes the resulting
+access token directly into the config file — it does not print the token to the
+terminal:
+
+```bash
+medre auth matrix login \
+  --config /path/to/config.toml \
+  --adapter matrix \
+  --homeserver https://matrix.example.com \
+  --user @bot:example.com
+```
+
+**Use a dedicated Matrix bot account** for MEDRE, never a personal account.
+Test first with a throwaway room before bridging to any real room.
+
+**If a token is leaked** (pasted in chat, committed to git, appeared in logs):
+
+1. Revoke the token immediately via the Matrix client or Synapse admin API.
+2. Re-run `medre auth matrix login` to obtain and store a fresh token.
+3. Rotate the config file and delete any artifacts containing the old token.
+
+**Never paste tokens into bug reports.** MEDRE's built-in sanitizers redact
+known token patterns from evidence bundles and diagnostics output, but operators
+must review any artifacts before sharing. `MatrixConfig.__repr__()` redacts
+tokens to a short 3-character preview (`syt_…`) to prevent accidental leakage
+in logs and debug output.
 
 ### 2.2 Meshtastic / MeshCore
 

@@ -194,6 +194,7 @@ def build_live_bridge_runtime_config(tmp_path: Path) -> "RuntimeConfig":
         homeserver=homeserver,
         user_id=user_id,
         access_token=access_token,
+        room_allowlist={room_id},
     )
     meshtastic_config = MeshtasticConfig(**meshtastic_kwargs)
 
@@ -203,12 +204,16 @@ def build_live_bridge_runtime_config(tmp_path: Path) -> "RuntimeConfig":
         source_adapters=("matrix",),
         dest_adapters=("radio",),
         directionality=RouteDirectionality.SOURCE_TO_DEST,
+        source_room=room_id,
+        dest_channel=channel_index,
     )
     route_radio_to_matrix = RouteConfig(
         route_id="radio_to_matrix",
         source_adapters=("radio",),
         dest_adapters=("matrix",),
         directionality=RouteDirectionality.SOURCE_TO_DEST,
+        source_channel=channel_index,
+        dest_room=room_id,
     )
 
     return RuntimeConfig(
@@ -341,6 +346,7 @@ enabled = true
 homeserver = "{_escape_toml_string(homeserver)}"
 user_id = "{_escape_toml_string(user_id)}"
 access_token = "{_escape_toml_string(access_token)}"
+room_allowlist = ["{_escape_toml_string(room_id)}"]
 
 [adapters.meshtastic.radio]
 adapter_kind = "real"
@@ -351,12 +357,16 @@ enabled = true
 source_adapters = ["matrix"]
 dest_adapters = ["radio"]
 directionality = "source_to_dest"
+source_room = "{_escape_toml_string(room_id)}"
+dest_channel = "{_escape_toml_string(channel_index)}"
 enabled = true
 
 [routes.radio_to_matrix]
 source_adapters = ["radio"]
 dest_adapters = ["matrix"]
 directionality = "source_to_dest"
+source_channel = "{_escape_toml_string(channel_index)}"
+dest_room = "{_escape_toml_string(room_id)}"
 enabled = true
 """
 

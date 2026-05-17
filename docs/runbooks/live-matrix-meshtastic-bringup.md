@@ -59,6 +59,25 @@ connection details:
 cp examples/configs/live-matrix-meshtastic.toml /tmp/medre-live.toml
 ```
 
+### Authenticate with Matrix (auth-first)
+
+Before editing the config manually, use the auth CLI to obtain and store a
+Matrix access token:
+
+```bash
+medre auth matrix login \
+  --config /tmp/medre-live.toml \
+  --adapter matrix \
+  --homeserver https://matrix.example.com \
+  --user @bot:example.com
+```
+
+This opens an interactive login flow against the homeserver, stores the
+resulting access token directly into the config file, and does **not** print the
+token to the terminal. After this step, the `access_token` field in
+`[adapters.matrix.matrix]` is populated and you can proceed to edit the
+remaining fields.
+
 If the template does not exist, create one from scratch using
 `medre config sample` and modify it, or use the following as a starting
 point:
@@ -96,17 +115,25 @@ serial_port = "/dev/ttyACM0"           # FILL IN — check with ls /dev/ttyACM* 
 meshnet_name = "live-bridge-test"
 
 # Routes — two unidirectional routes form the full bridge
+# Each route uses explicit targeting fields to select source and dest:
+#   source_room / dest_room        — Matrix room IDs (!opaque:server)
+#   source_channel / dest_channel  — Meshtastic channel indexes as strings
+
 [routes.matrix_to_radio]
 source_adapters = ["matrix"]
 dest_adapters = ["radio"]
 directionality = "source_to_dest"
 enabled = true
+source_room = "!room:example.com"           # FILL IN — Matrix room to listen on
+dest_channel = "0"                          # FILL IN — Meshtastic channel index
 
 [routes.radio_to_matrix]
 source_adapters = ["radio"]
 dest_adapters = ["matrix"]
 directionality = "source_to_dest"
 enabled = true
+source_channel = "0"                        # FILL IN — Meshtastic channel to listen on
+dest_room = "!room:example.com"             # FILL IN — Matrix room to deliver to
 EOF
 ```
 
@@ -118,8 +145,20 @@ Edit the following fields in `/tmp/medre-live.toml`:
 |-------|--------|
 | `homeserver` | Your Matrix homeserver URL (e.g. `https://matrix.org`) |
 | `user_id` | Bot's fully-qualified user ID (e.g. `@bot:example.com`) |
-| `access_token` | Bot's access token — **do not commit this** |
+| `access_token` | Bot's access token — **do not commit this**. Use `medre auth matrix login` to populate. |
 | `room_allowlist` | List with your throwaway room ID (e.g. `["!abc123:example.com"]`) |
+
+### Routes (targeting fields)
+
+Each route declares explicit targeting fields that select which Matrix room and
+Meshtastic channel to use as source and destination:
+
+| Field | Route | Set to |
+|-------|-------|--------|
+| `source_room` | `matrix_to_radio` | Matrix room ID to listen on (e.g. `"!abc123:example.com"`) |
+| `dest_channel` | `matrix_to_radio` | Meshtastic channel index as string (e.g. `"0"`) |
+| `source_channel` | `radio_to_matrix` | Meshtastic channel index to listen on (e.g. `"0"`) |
+| `dest_room` | `radio_to_matrix` | Matrix room ID to deliver to (e.g. `"!abc123:example.com"`) |
 
 ### [adapters.meshtastic.radio]
 
@@ -172,7 +211,7 @@ separately in live smoke tests.
 ### Start the runtime
 
 ```bash
-PYTHONPATH=src medre run --config /tmp/medre-live.toml
+medre run --config /tmp/medre-live.toml
 ```
 
 ### Watch for adapter startup
@@ -228,8 +267,10 @@ Check the Meshtastic radio shows the message. This is a manual step:
 medre diagnostics --refresh-health --config /tmp/medre-live.toml
 ```
 
-This starts adapters, polls health, and reports. Requires the runtime to be
-running.
+This starts a **short-lived runtime** internally — it creates adapters, polls
+their health, reports results, and exits. It does **not** require an
+already-running medre runtime. Use it standalone or in a separate terminal while
+the main runtime is running to get an independent health snapshot.
 
 ### What this proves
 
@@ -301,11 +342,11 @@ adapters have stopped.
 ### Alternative: snapshot on shutdown
 
 ```bash
-PYTHONPATH=src medre run --snapshot-on-shutdown --config /tmp/medre-live.toml
+medre run --snapshot-on-shutdown /tmp/medre-live-snapshot.json --config /tmp/medre-live.toml
 ```
 
-This writes a `shutdown-snapshot.json` to the state directory with runtime
-counters, capacity gauges, and route statistics.
+This writes a snapshot to the specified path with runtime counters, capacity
+gauges, and route statistics.
 
 ### Inspect receipts
 
@@ -339,7 +380,7 @@ adapter status, and storage contents.
 | Artifact | Location |
 |----------|----------|
 | SQLite database | `/tmp/medre-live.sqlite` |
-| Shutdown snapshot | State directory (use `medre paths` to find) |
+| Shutdown snapshot | `/tmp/medre-live-snapshot.json` (if `--snapshot-on-shutdown` used) |
 | Evidence bundle | stdout (redirect to file) |
 | Config file | `/tmp/medre-live.toml` |
 
@@ -348,11 +389,11 @@ adapter status, and storage contents.
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| `"access_token must be non-empty"` | Empty access token in config | Fill in `access_token` in `[adapters.matrix.matrix]`. Treat as a secret. |
+| `"access_token must be non-empty"` | Empty access token in config | Run `medre auth matrix login --config /tmp/medre-live.toml --adapter matrix --homeserver ... --user ...` to populate the token, or fill in `access_token` manually. |
 | `"serial_port required"` | No serial device path configured | Check USB connection. Run `ls /dev/ttyACM* /dev/ttyUSB*` to find the device. Set `serial_port` in config. |
 | Permission denied on serial port | User not in `dialout` group | `sudo usermod -aG dialout $USER` then log out and back in. |
 | `"host is required"` | TCP connection type without host | Set `host` in `[adapters.meshtastic.radio]`, or switch `connection_type` to `"serial"`. |
-| Matrix adapter not healthy | Invalid or expired access token | Verify token via Element or re-authenticate via `/_matrix/client/v3/login`. |
+| Matrix adapter not healthy | Invalid or expired access token | Re-run `medre auth matrix login` to obtain a fresh token, or verify token via Element. |
 | Radio not responding | Connection issue or firmware problem | Check USB cable, verify firmware version, try the Meshtastic CLI tool (`meshtastic --info`). |
 | No messages arriving | Room allowlist mismatch | Ensure `room_allowlist` contains the actual room ID (format: `!opaque:server`). |
 | Matrix adapter starts but radio fails | Radio SDK not installed | Run `pip install -e ".[meshtastic]"`. Verify with `medre adapters`. |

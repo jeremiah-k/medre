@@ -132,6 +132,21 @@ The sample config uses `adapter_kind = "fake"` for all adapters. To switch to
 real adapters, change `adapter_kind` to `"real"` and fill in transport-specific
 credentials (homeserver URL, access token, serial port, etc.).
 
+For live Matrix setups, use the auth CLI to obtain and store an access token
+without manual editing:
+
+```bash
+medre auth matrix login \
+  --config /tmp/medre-alpha.toml \
+  --adapter matrix \
+  --homeserver https://matrix.example.com \
+  --user @bot:example.com
+```
+
+This performs an interactive login and writes the token directly into the
+config file. See `docs/runbooks/secure-credentials.md` for full credential
+handling guidance.
+
 Config file locations:
 
 - Default: `~/.config/medre/config.toml` (XDG)

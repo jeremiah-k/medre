@@ -66,6 +66,11 @@ meshnet_name = "medre-radio"           # human-readable name in logs and mesh an
 # ---------------------------------------------------------------------------
 # Each route is a named, explicit source→dest declaration.
 # Routes reference adapter IDs ("matrix", "radio") declared above.
+#
+# Targeting fields:
+#   source_room / dest_room  — Matrix room IDs in !opaque:server format.
+#   source_channel / dest_channel — Meshtastic channel indexes as strings.
+#   First test channel is "0".
 
 # 1. Matrix → Meshtastic
 [routes.matrix_to_radio]
@@ -73,6 +78,8 @@ source_adapters = ["matrix"]
 dest_adapters = ["radio"]
 directionality = "source_to_dest"
 enabled = true
+source_room = "!room:example.com"           # Matrix room to listen on
+dest_channel = "0"                          # Meshtastic channel index (string)
 
 # 2. Meshtastic → Matrix
 [routes.radio_to_matrix]
@@ -80,5 +87,7 @@ source_adapters = ["radio"]
 dest_adapters = ["matrix"]
 directionality = "source_to_dest"
 enabled = true
+source_channel = "0"                        # Meshtastic channel index to listen on
+dest_room = "!room:example.com"             # Matrix room to deliver to
 
 # Retry disabled for bring-up simplicity

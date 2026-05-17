@@ -10,7 +10,7 @@ credentials, and run `medre run --config <path>`.
 | `fake-retry-smoke.toml` | Config-driven retry for transient failures | Fake Matrix, Fake Meshtastic | No | Demonstrates `[retry]` worker and per-route retry policy |
 | `matrix.toml` | Single Matrix adapter (plaintext or E2EE) | Matrix | Yes (homeserver) | Copy and adjust for your bot account |
 | `meshtastic-serial.toml` | Single Meshtastic adapter over USB-serial | Meshtastic | Yes (radio) | Most common setup for a dedicated node |
-| `live-matrix-meshtastic.toml` | Live Matrix ↔ Meshtastic bridge | Matrix + Meshtastic | Yes (homeserver + radio) | **Start here for live bring-up.** Canonical real-device bridge config |
+| `live-matrix-meshtastic.toml` | Live Matrix ↔ Meshtastic bridge | Matrix + Meshtastic | Yes (homeserver + radio) | **Start here for live bring-up.** Canonical real-device bridge config. Routes use explicit targeting: `source_room`, `dest_room`, `source_channel`, `dest_channel` |
 | `mixed-matrix-meshtastic.toml` | Earlier Matrix ↔ Meshtastic bridge variant | Matrix + Meshtastic | Yes (homeserver + radio) | **Superseded by `live-matrix-meshtastic.toml`.** Retained for backward compatibility |
 | `docker-matrix-bridge.toml` | Real Matrix SDK against Docker Synapse | Real Matrix, Fake Meshtastic | Docker Synapse | SDK-boundary validation; not for direct `medre run` |
 | `docker-meshtastic-bridge.toml` | Real Meshtastic SDK against Docker meshtasticd | Real Meshtastic, Fake Matrix | Docker meshtasticd | SDK-boundary validation; tests TCP interface |
@@ -24,6 +24,13 @@ medre run --config examples/configs/fake-bridge-smoke.toml
 
 # 2. Have a Matrix bot and a Meshtastic radio? Use the live bridge:
 cp examples/configs/live-matrix-meshtastic.toml my-bridge.toml
-# Edit my-bridge.toml — fill in homeserver, user_id, access_token, room_allowlist
+# Populate Matrix access token without manual editing:
+medre auth matrix login --config my-bridge.toml --adapter matrix --homeserver https://matrix.example.com --user @bot:example.com
+# Then edit my-bridge.toml — fill in room IDs, serial port, channel indexes
 medre run --config my-bridge.toml
 ```
+
+> **Note:** `medre auth matrix login` performs an interactive login against the
+> homeserver and stores the access token directly in the config file. It does
+> not print the token to the terminal. See `docs/runbooks/secure-credentials.md`
+> for full credential handling guidance.

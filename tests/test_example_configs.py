@@ -1264,3 +1264,98 @@ class TestDockerConfigsEnvVarValidation:
             f"Expected error to mention 'host' or 'MESHTASTIC_HOST', got: {error_msg}"
         )
         assert "Traceback" not in error_msg
+
+
+# ===========================================================================
+# 13. Live Matrix ↔ Meshtastic: explicit route targeting fields
+# ===========================================================================
+
+
+class TestLiveMatrixMeshtasticTargeting:
+    """The live-matrix-meshtastic config must carry explicit route targeting
+    fields (source_room, dest_channel, source_channel, dest_room) so that
+    routes are fully specified without relying on implicit defaults."""
+
+    CONFIG_PATH = CONFIGS_DIR / "live-matrix-meshtastic.toml"
+
+    @pytest.fixture(autouse=True)
+    def _medre_home(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
+
+    def test_load_raises_credential_error(self) -> None:
+        """Loading with empty credentials raises MatrixConfigError,
+        confirming the config is properly structured but credential-incomplete."""
+        with pytest.raises(MatrixConfigError):
+            load_config(str(self.CONFIG_PATH))
+
+    def test_canonical_config_contains_explicit_targeting(self) -> None:
+        """matrix_to_radio has source_room + dest_channel; radio_to_matrix
+        has source_channel + dest_room."""
+        raw = _read(self.CONFIG_PATH)
+        data = tomllib.loads(raw)
+        routes = data["routes"]
+
+        m2r = routes["matrix_to_radio"]
+        assert "source_room" in m2r, "matrix_to_radio missing source_room"
+        assert "dest_channel" in m2r, "matrix_to_radio missing dest_channel"
+
+        r2m = routes["radio_to_matrix"]
+        assert "source_channel" in r2m, "radio_to_matrix missing source_channel"
+        assert "dest_room" in r2m, "radio_to_matrix missing dest_room"
+
+    def test_matrix_to_radio_target_values_are_nonempty(self) -> None:
+        """matrix_to_radio targeting fields must be non-empty strings."""
+        raw = _read(self.CONFIG_PATH)
+        data = tomllib.loads(raw)
+        m2r = data["routes"]["matrix_to_radio"]
+        assert isinstance(m2r["source_room"], str) and m2r["source_room"], (
+            "matrix_to_radio source_room must be a non-empty string"
+        )
+        assert isinstance(m2r["dest_channel"], str) and m2r["dest_channel"], (
+            "matrix_to_radio dest_channel must be a non-empty string"
+        )
+
+    def test_radio_to_matrix_target_values_are_nonempty(self) -> None:
+        """radio_to_matrix targeting fields must be non-empty strings."""
+        raw = _read(self.CONFIG_PATH)
+        data = tomllib.loads(raw)
+        r2m = data["routes"]["radio_to_matrix"]
+        assert isinstance(r2m["source_channel"], str) and r2m["source_channel"], (
+            "radio_to_matrix source_channel must be a non-empty string"
+        )
+        assert isinstance(r2m["dest_room"], str) and r2m["dest_room"], (
+            "radio_to_matrix dest_room must be a non-empty string"
+        )
+
+    def test_live_config_does_not_rely_on_implicit_target(self) -> None:
+        """All four targeting fields are present and non-empty — no implicit
+        channel defaults used."""
+        raw = _read(self.CONFIG_PATH)
+        data = tomllib.loads(raw)
+        routes = data["routes"]
+        m2r = routes["matrix_to_radio"]
+        r2m = routes["radio_to_matrix"]
+
+        targeting_fields = {
+            "source_room": m2r["source_room"],
+            "dest_channel": m2r["dest_channel"],
+            "source_channel": r2m["source_channel"],
+            "dest_room": r2m["dest_room"],
+        }
+        for field, value in targeting_fields.items():
+            assert isinstance(value, str) and value, (
+                f"Targeting field {field!r} must be a non-empty string, "
+                f"got {value!r}"
+            )
+
+    def test_targeting_comments_present_in_toml(self) -> None:
+        """The TOML file includes comments explaining the targeting fields."""
+        raw = _read(self.CONFIG_PATH)
+        # Check for comment explaining source_room/dest_room format
+        assert "!opaque:server" in raw or "Matrix room IDs" in raw, (
+            "Missing comment explaining Matrix room ID format"
+        )
+        # Check for comment explaining channel index format
+        assert "channel index" in raw.lower() or "Meshtastic channel" in raw, (
+            "Missing comment explaining Meshtastic channel index format"
+        )

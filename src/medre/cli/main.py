@@ -243,6 +243,25 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     recover_p.add_argument("--json", action="store_true", default=False, help="Output JSON runbook")
 
+    # auth (with sub-subcommands)
+    auth_p = sub.add_parser("auth", help="Authentication commands")
+    auth_sub = auth_p.add_subparsers(dest="auth_command", required=True)
+
+    # auth matrix (with sub-subcommands)
+    auth_matrix_p = auth_sub.add_parser("matrix", help="Matrix authentication")
+    auth_matrix_sub = auth_matrix_p.add_subparsers(dest="auth_matrix_command", required=True)
+
+    # auth matrix login
+    auth_mx_login = auth_matrix_sub.add_parser("login", help="Login to Matrix homeserver and save access token")
+    auth_mx_login.add_argument("--config", required=True, help="Path to config file")
+    auth_mx_login.add_argument("--adapter", required=True, help="Adapter name in config")
+    auth_mx_login.add_argument("--homeserver", required=True, help="Matrix homeserver URL")
+    auth_mx_login.add_argument("--user", required=True, help="Matrix user ID (e.g. @user:matrix.org)")
+    auth_mx_login.add_argument(
+        "--password-stdin", action="store_true", default=False,
+        help="Read password from stdin instead of interactive prompt",
+    )
+
     return parser
 
 
@@ -409,3 +428,9 @@ def main(argv: list[str] | None = None) -> None:
                 json_output=args.json,
             )
         )
+    elif args.command == "auth":
+        if args.auth_command == "matrix":
+            if args.auth_matrix_command == "login":
+                from .auth_commands import _auth_matrix_login
+
+                asyncio.run(_auth_matrix_login(args))
