@@ -134,6 +134,8 @@ class MeshtasticAdapter(BaseAdapter):
         self.ctx: AdapterContext | None = None
         self._started: bool = False
         self._background_tasks: set[asyncio.Task] = set()
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._drain_task: asyncio.Task | None = None
 
     # -- Lifecycle ----------------------------------------------------------
 
@@ -177,6 +179,9 @@ class MeshtasticAdapter(BaseAdapter):
         # Mirror session client for diagnostics
         self._client = self._session.client
 
+        self._loop = asyncio.get_running_loop()
+        self._drain_task = asyncio.create_task(self._process_queue())
+
         self._started = True
         ctx.logger.info(
             "MeshtasticAdapter %s started (mode=%s)",
@@ -197,6 +202,15 @@ class MeshtasticAdapter(BaseAdapter):
         """
         if not self._started:
             return
+
+        # Cancel the queue drain background task.
+        if self._drain_task is not None:
+            self._drain_task.cancel()
+            try:
+                await asyncio.wait_for(self._drain_task, timeout=timeout)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
+                pass
+            self._drain_task = None
 
         # Cancel all tracked background tasks and drain them.
         await self._drain_background_tasks(timeout)
@@ -356,11 +370,14 @@ class MeshtasticAdapter(BaseAdapter):
                 return
 
             canonical = self._codec.decode(packet)
-            # Schedule the async publish — _on_packet is synchronous
-            # so we create a tracked task that is cleaned up on stop().
-            task = asyncio.create_task(self._on_packet_async(canonical))
-            task.add_done_callback(self._background_tasks.discard)
-            self._background_tasks.add(task)
+            # Schedule the async publish — _on_packet is called from the
+            # Meshtastic SDK reader thread, so we use run_coroutine_threadsafe
+            # instead of asyncio.create_task (which requires a running loop
+            # in the current thread).
+            if self._loop is not None and not self._loop.is_closed():
+                asyncio.run_coroutine_threadsafe(
+                    self._on_packet_async(canonical), self._loop
+                )
         except Exception:
             if self.ctx is not None:
                 self.ctx.logger.exception(
@@ -513,6 +530,31 @@ class MeshtasticAdapter(BaseAdapter):
             })
 
         return await self._queue.process_one(send_fn=_send_fn)
+
+    async def _process_queue(self) -> None:
+        """Background task that continuously drains the outbound queue.
+
+        Started during :meth:`start` and cancelled during :meth:`stop`.
+        Calls :meth:`send_one` in a loop; sleeps when the queue is empty
+        or on transient errors.
+        """
+        try:
+            while self._started:
+                try:
+                    result = await self.send_one()
+                    if result is None:
+                        await asyncio.sleep(0.1)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    if self.ctx is not None:
+                        self.ctx.logger.exception(
+                            "MeshtasticAdapter %s: error in queue drain",
+                            self.adapter_id,
+                        )
+                    await asyncio.sleep(1.0)
+        except asyncio.CancelledError:
+            pass
 
     @property
     def queue_health(self) -> dict[str, Any]:
