@@ -11,7 +11,7 @@ credentials, and run `medre run --config <path>`.
 | `matrix.toml` | Single Matrix adapter (plaintext or E2EE) | Matrix | Yes (homeserver) | Copy and adjust for your bot account |
 | `meshtastic-serial.toml` | Single Meshtastic adapter over USB-serial | Meshtastic | Yes (radio) | Most common setup for a dedicated node |
 | `live-matrix-meshtastic.toml` | Live Matrix ↔ Meshtastic bridge | Matrix + Meshtastic | Yes (homeserver + radio) | **Start here for live bring-up.** Canonical real-device bridge config. Routes use explicit targeting: `source_room`, `dest_room`, `source_channel`, `dest_channel` |
-| `mixed-matrix-meshtastic.toml` | Earlier Matrix ↔ Meshtastic bridge variant | Matrix + Meshtastic | Yes (homeserver + radio) | **Superseded by `live-matrix-meshtastic.toml`.** Retained for backward compatibility |
+| `mixed-matrix-meshtastic.toml` | Earlier Matrix ↔ Meshtastic bridge variant | Matrix + Meshtastic | Yes (homeserver + radio) | **Superseded by `live-matrix-meshtastic.toml`.** Historical reference only. |
 | `docker-matrix-bridge.toml` | Real Matrix SDK against Docker Synapse | Real Matrix, Fake Meshtastic | Docker Synapse | SDK-boundary validation; not for direct `medre run` |
 | `docker-meshtastic-bridge.toml` | Real Meshtastic SDK against Docker meshtasticd | Real Meshtastic, Fake Matrix | Docker meshtasticd | SDK-boundary validation; tests TCP interface |
 | `docker-bridge-smoke.toml` | Real Matrix + real Meshtastic in Docker | Real + Fake Matrix, Real + Fake Meshtastic | Docker Synapse + meshtasticd | Full SDK-boundary smoke; credentials are placeholders |

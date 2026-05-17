@@ -41,10 +41,12 @@ Never commit config files containing real tokens to version control. MEDRE's
 `.gitignore` excludes `*.toml` files outside `examples/configs/`, but operators
 must verify this before pushing.
 
-**Use `medre auth matrix login` to populate tokens safely.** This command
-performs an interactive login against the homeserver and writes the resulting
-access token directly into the config file — it does not print the token to the
-terminal:
+**Use `medre auth matrix login` to populate tokens safely.** This command is a
+credential setup utility — it does not start the runtime, mutates the config
+file specified with `--config`, never prints the token to the terminal, and
+prompts for the password securely unless `--password-stdin` is given. It writes
+the `homeserver`, `user_id`, and `access_token` fields into the adapter section
+of the config file:
 
 ```bash
 medre auth matrix login \

@@ -21,6 +21,8 @@ from medre.adapters.matrix.auth import (
     matrix_login,
     matrix_whoami,
     update_toml_access_token,
+    update_toml_credentials,
+    _update_toml_field,
 )
 from medre.adapters.matrix.errors import MatrixConnectionError
 
@@ -453,3 +455,180 @@ class TestNoSdkImport:
         source = Path(auth_mod.__file__).read_text()
         assert "import nio" not in source
         assert "from nio" not in source
+
+
+# ---------------------------------------------------------------------------
+# update_toml_credentials tests
+# ---------------------------------------------------------------------------
+
+class TestUpdateTomlCredentials:
+    """Tests for ``update_toml_credentials``."""
+
+    def _write_toml(self, tmp_path: Path, content: str) -> Path:
+        p = tmp_path / "config.toml"
+        p.write_text(content, encoding="utf-8")
+        return p
+
+    def test_writes_homeserver_user_id_access_token(self, tmp_path: Path) -> None:
+        p = self._write_toml(tmp_path, (
+            '[adapters.matrix.mybot]\n'
+            'homeserver = ""\n'
+            'user_id = ""\n'
+            'access_token = ""\n'
+        ))
+
+        update_toml_credentials(
+            p, "matrix", "mybot",
+            homeserver="https://matrix.example.com",
+            user_id="@alice:example.com",
+            access_token="syt_secret123",
+        )
+
+        data = tomllib.loads(p.read_text(encoding="utf-8"))
+        section = data["adapters"]["matrix"]["mybot"]
+        assert section["homeserver"] == "https://matrix.example.com"
+        assert section["user_id"] == "@alice:example.com"
+        assert section["access_token"] == "syt_secret123"
+
+    def test_preserves_comments(self, tmp_path: Path) -> None:
+        toml_content = (
+            '# medre config\n'
+            '[general]\n'
+            'log_level = "info"\n'
+            '\n'
+            '# Matrix adapter section\n'
+            '[adapters.matrix.mybot]\n'
+            '# Homeserver URL\n'
+            'homeserver = ""\n'
+            '# User ID\n'
+            'user_id = ""\n'
+            '# Access token\n'
+            'access_token = ""\n'
+        )
+        p = self._write_toml(tmp_path, toml_content)
+
+        update_toml_credentials(
+            p, "matrix", "mybot",
+            homeserver="https://m.org",
+            user_id="@b:m.org",
+            access_token="tok",
+        )
+
+        updated = p.read_text(encoding="utf-8")
+        assert "# medre config" in updated
+        assert "# Matrix adapter section" in updated
+        assert "# Homeserver URL" in updated
+        assert "# User ID" in updated
+        assert "# Access token" in updated
+
+    def test_raises_valueerror_section_not_found(self, tmp_path: Path) -> None:
+        p = self._write_toml(tmp_path, (
+            '[general]\n'
+            'log_level = "info"\n'
+        ))
+
+        with pytest.raises(ValueError, match="not found"):
+            update_toml_credentials(
+                p, "matrix", "mymatrix",
+                homeserver="https://m.org",
+                user_id="@a:m.org",
+                access_token="tok",
+            )
+
+    def test_raises_valueerror_key_not_found(self, tmp_path: Path) -> None:
+        p = self._write_toml(tmp_path, (
+            '[adapters.matrix.mymatrix]\n'
+            'homeserver = "https://m.org"\n'
+        ))
+
+        with pytest.raises(ValueError, match="key not found"):
+            update_toml_credentials(
+                p, "matrix", "mymatrix",
+                homeserver="https://m.org",
+                user_id="@a:m.org",
+                access_token="tok",
+            )
+
+    def test_chmod_0600(self, tmp_path: Path) -> None:
+        p = self._write_toml(tmp_path, (
+            '[adapters.matrix.bot]\n'
+            'homeserver = ""\n'
+            'user_id = ""\n'
+            'access_token = ""\n'
+        ))
+
+        update_toml_credentials(
+            p, "matrix", "bot",
+            homeserver="https://m.org",
+            user_id="@b:m.org",
+            access_token="tok",
+        )
+
+        mode = p.stat().st_mode
+        assert mode & stat.S_IRUSR  # owner read
+        assert mode & stat.S_IWUSR  # owner write
+        assert not (mode & stat.S_IRGRP)  # no group read
+        assert not (mode & stat.S_IWGRP)  # no group write
+        assert not (mode & stat.S_IROTH)  # no other read
+        assert not (mode & stat.S_IWOTH)  # no other write
+
+
+# ---------------------------------------------------------------------------
+# _update_toml_field tests
+# ---------------------------------------------------------------------------
+
+class TestUpdateTomlField:
+    """Tests for ``_update_toml_field`` helper."""
+
+    def test_replaces_correct_line(self) -> None:
+        lines = [
+            "[adapters.matrix.mybot]\n",
+            'access_token = "old"\n',
+        ]
+        new_lines, found = _update_toml_field(
+            lines, Path("/dummy"), "matrix", "mybot",
+            "access_token", "new_secret",
+        )
+        assert found is True
+        assert 'access_token = "new_secret"\n' in new_lines
+
+    def test_does_not_touch_other_sections(self) -> None:
+        lines = [
+            "[adapters.matrix.alpha]\n",
+            'access_token = "alpha_old"\n',
+            "\n",
+            "[adapters.matrix.beta]\n",
+            'access_token = "beta_old"\n',
+        ]
+        new_lines, found = _update_toml_field(
+            lines, Path("/dummy"), "matrix", "beta",
+            "access_token", "beta_new",
+        )
+        assert found is True
+        assert 'access_token = "alpha_old"\n' in new_lines
+        assert 'access_token = "beta_new"\n' in new_lines
+
+    def test_handles_double_quoted_and_single_quoted(self) -> None:
+        # Double-quoted value
+        lines_dq = [
+            "[adapters.matrix.bot]\n",
+            'access_token = "old_dq"\n',
+        ]
+        new_lines_dq, found_dq = _update_toml_field(
+            lines_dq, Path("/dummy"), "matrix", "bot",
+            "access_token", "new_val",
+        )
+        assert found_dq is True
+        assert 'access_token = "new_val"\n' in new_lines_dq
+
+        # Single-quoted value
+        lines_sq = [
+            "[adapters.matrix.bot]\n",
+            "access_token = 'old_sq'\n",
+        ]
+        new_lines_sq, found_sq = _update_toml_field(
+            lines_sq, Path("/dummy"), "matrix", "bot",
+            "access_token", "new_val",
+        )
+        assert found_sq is True
+        assert 'access_token = "new_val"\n' in new_lines_sq

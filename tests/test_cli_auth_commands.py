@@ -186,7 +186,7 @@ class TestAuthMatrixLoginIntegration:
         with (
             patch("medre.adapters.matrix.auth.matrix_login", return_value=login_result) as mock_login,
             patch("medre.adapters.matrix.auth.matrix_whoami", return_value="@bot:matrix.org") as mock_whoami,
-            patch("medre.adapters.matrix.auth.update_toml_access_token") as mock_update,
+            patch("medre.adapters.matrix.auth.update_toml_credentials") as mock_update,
             patch("sys.stdin", io.StringIO("test_password\n")),
         ):
             await _auth_matrix_login(args)
@@ -196,7 +196,10 @@ class TestAuthMatrixLoginIntegration:
             )
             mock_whoami.assert_called_once_with("https://matrix.org", "syt_secret_token")
             mock_update.assert_called_once_with(
-                toml_path, "matrix", "mybot", "syt_secret_token"
+                toml_path, "matrix", "mybot",
+                homeserver="https://matrix.org",
+                user_id="@bot:matrix.org",
+                access_token="syt_secret_token",
             )
 
     @pytest.mark.asyncio
@@ -213,6 +216,8 @@ class TestAuthMatrixLoginIntegration:
         secret = "syt_SUPER_SECRET_TOKEN_9999"
         args = self._make_args(
             config=str(toml_path),
+            user="@bot:m.org",
+            homeserver="https://m.org",
             password_stdin=True,
         )
 
@@ -227,7 +232,7 @@ class TestAuthMatrixLoginIntegration:
         with (
             patch("medre.adapters.matrix.auth.matrix_login", return_value=login_result),
             patch("medre.adapters.matrix.auth.matrix_whoami", return_value="@bot:m.org"),
-            patch("medre.adapters.matrix.auth.update_toml_access_token"),
+            patch("medre.adapters.matrix.auth.update_toml_credentials"),
             patch("sys.stdin", io.StringIO("pw\n")),
             patch("sys.stdout", stdout_buf),
         ):
@@ -293,7 +298,11 @@ class TestAuthMatrixLoginIntegration:
         from medre.adapters.matrix.auth import MatrixLoginResult
         from medre.cli.auth_commands import _auth_matrix_login
 
-        args = self._make_args(password_stdin=True)
+        args = self._make_args(
+            password_stdin=True,
+            user="@b:m.org",
+            homeserver="https://m.org",
+        )
 
         login_result = MatrixLoginResult(
             homeserver="https://m.org",
@@ -306,7 +315,7 @@ class TestAuthMatrixLoginIntegration:
         with (
             patch("medre.adapters.matrix.auth.matrix_login", return_value=login_result),
             patch("medre.adapters.matrix.auth.matrix_whoami", return_value="@b:m.org"),
-            patch("medre.adapters.matrix.auth.update_toml_access_token",
+            patch("medre.adapters.matrix.auth.update_toml_credentials",
                   side_effect=FileNotFoundError("Config file not found: /nope")),
             patch("sys.stdin", io.StringIO("pw\n")),
             patch("sys.stderr", stderr_buf),
@@ -323,7 +332,11 @@ class TestAuthMatrixLoginIntegration:
         from medre.adapters.matrix.auth import MatrixLoginResult
         from medre.cli.auth_commands import _auth_matrix_login
 
-        args = self._make_args(password_stdin=False)
+        args = self._make_args(
+            password_stdin=False,
+            user="@b:m.org",
+            homeserver="https://m.org",
+        )
 
         login_result = MatrixLoginResult(
             homeserver="https://m.org",
@@ -336,13 +349,13 @@ class TestAuthMatrixLoginIntegration:
             patch("medre.cli.auth_commands.getpass.getpass", return_value="interactive_pw") as mock_gp,
             patch("medre.adapters.matrix.auth.matrix_login", return_value=login_result) as mock_login,
             patch("medre.adapters.matrix.auth.matrix_whoami", return_value="@b:m.org"),
-            patch("medre.adapters.matrix.auth.update_toml_access_token"),
+            patch("medre.adapters.matrix.auth.update_toml_credentials"),
         ):
             await _auth_matrix_login(args)
 
             mock_gp.assert_called_once_with("Matrix password: ")
             mock_login.assert_called_once_with(
-                "https://matrix.org", "@bot:matrix.org", "interactive_pw"
+                "https://m.org", "@b:m.org", "interactive_pw"
             )
 
     @pytest.mark.asyncio
@@ -375,6 +388,8 @@ class TestAuthMatrixLoginIntegration:
         args = self._make_args(
             config=str(toml_path),
             adapter="bot",
+            user="@alice:matrix.example.com",
+            homeserver="https://matrix.example.com",
             password_stdin=True,
         )
 
@@ -390,7 +405,7 @@ class TestAuthMatrixLoginIntegration:
             patch("medre.adapters.matrix.auth.matrix_login", return_value=login_result),
             patch("medre.adapters.matrix.auth.matrix_whoami",
                   return_value="@alice:matrix.example.com"),
-            patch("medre.adapters.matrix.auth.update_toml_access_token"),
+            patch("medre.adapters.matrix.auth.update_toml_credentials"),
             patch("sys.stdin", io.StringIO("pw\n")),
             patch("sys.stdout", stdout_buf),
         ):
@@ -403,3 +418,82 @@ class TestAuthMatrixLoginIntegration:
         assert str(toml_path) in output
         assert "bot" in output
         assert "room" in output.lower() or "Reminder" in output
+
+    @pytest.mark.asyncio
+    async def test_whoami_mismatch_exits_1(self) -> None:
+        """whoami user_id different from requested user_id should exit 1."""
+        from medre.adapters.matrix.auth import MatrixLoginResult
+        from medre.cli.auth_commands import _auth_matrix_login
+
+        args = self._make_args(password_stdin=True)
+
+        login_result = MatrixLoginResult(
+            homeserver="https://m.org",
+            user_id="@alice:example.com",
+            device_id="DEV",
+            access_token="tok",
+        )
+
+        stderr_buf = io.StringIO()
+        with (
+            patch("medre.adapters.matrix.auth.matrix_login", return_value=login_result),
+            patch("medre.adapters.matrix.auth.matrix_whoami", return_value="@bob:example.com"),
+            patch("medre.adapters.matrix.auth.update_toml_credentials"),
+            patch("sys.stdin", io.StringIO("pw\n")),
+            patch("sys.stderr", stderr_buf),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            await _auth_matrix_login(args)
+
+        assert exc_info.value.code == 1
+        assert "does not match" in stderr_buf.getvalue()
+
+    @pytest.mark.asyncio
+    async def test_homeserver_user_id_written_to_toml(self, tmp_path: Path) -> None:
+        """update_toml_credentials writes homeserver, user_id, access_token to TOML."""
+        from medre.adapters.matrix.auth import MatrixLoginResult, update_toml_credentials as real_fn
+        from medre.cli.auth_commands import _auth_matrix_login
+
+        toml_path = tmp_path / "test.toml"
+        toml_path.write_text(
+            "[adapters.matrix.mybot]\n"
+            'homeserver = ""\n'
+            'user_id = ""\n'
+            'access_token = ""\n',
+            encoding="utf-8",
+        )
+
+        args = self._make_args(
+            config=str(toml_path),
+            user="@bot:matrix.example.com",
+            homeserver="https://matrix.example.com",
+            password_stdin=True,
+        )
+
+        login_result = MatrixLoginResult(
+            homeserver="https://matrix.example.com",
+            user_id="@bot:matrix.example.com",
+            device_id="DEV_999",
+            access_token="syt_written_token",
+        )
+
+        with (
+            patch("medre.adapters.matrix.auth.matrix_login", return_value=login_result),
+            patch("medre.adapters.matrix.auth.matrix_whoami", return_value="@bot:matrix.example.com"),
+            patch("sys.stdin", io.StringIO("pw\n")),
+        ):
+            # Use the real update_toml_credentials (not mocked)
+            await _auth_matrix_login(args)
+
+        import tomllib
+        data = tomllib.loads(toml_path.read_text(encoding="utf-8"))
+        section = data["adapters"]["matrix"]["mybot"]
+        assert section["homeserver"] == "https://matrix.example.com"
+        assert section["user_id"] == "@bot:matrix.example.com"
+        assert section["access_token"] == "syt_written_token"
+
+        # Verify chmod 0600
+        import stat
+        mode = toml_path.stat().st_mode
+        assert not (mode & stat.S_IRGRP)
+        assert not (mode & stat.S_IROTH)

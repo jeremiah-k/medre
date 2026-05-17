@@ -1485,3 +1485,107 @@ class TestOperatorAnswerability:
             "bringup runbook must describe the Meshtastic → Matrix "
             "direction as higher risk or unproven."
         )
+
+
+# ---------------------------------------------------------------------------
+# Paths used by tests 28–30
+# ---------------------------------------------------------------------------
+
+_OPERATOR_COMMAND_SURFACE = _ROOT / "docs" / "architecture" / "operator-command-surface.md"
+_EXAMPLES_CONFIGS_DIR = _ROOT / "examples" / "configs"
+_LIVE_CONFIG_HELPER = _ROOT / "tests" / "helpers" / "live_config.py"
+
+
+# ===========================================================================
+# 28. Auth command in operator command surface
+# ===========================================================================
+
+
+class TestAuthCommandInOperatorSurface:
+    """operator-command-surface.md must list ``medre auth matrix login`` in
+    both the command inventory and the operational properties decision table."""
+
+    def test_auth_matrix_login_in_command_inventory(self) -> None:
+        """The command inventory must include ``auth matrix login``."""
+        if not _OPERATOR_COMMAND_SURFACE.exists():
+            pytest.skip("operator-command-surface.md not found")
+        text = _read(_OPERATOR_COMMAND_SURFACE)
+        assert "auth matrix login" in text.lower(), (
+            "operator-command-surface.md must include 'auth matrix login' "
+            "in the command inventory."
+        )
+
+    def test_auth_in_decision_table(self) -> None:
+        """The operational properties decision table must include
+        ``auth matrix login`` as a row."""
+        if not _OPERATOR_COMMAND_SURFACE.exists():
+            pytest.skip("operator-command-surface.md not found")
+        text = _read(_OPERATOR_COMMAND_SURFACE)
+        # Locate the decision table section.
+        dt_start = text.find("## Operational properties decision table")
+        if dt_start < 0:
+            pytest.fail(
+                "operator-command-surface.md is missing the "
+                "'Operational properties decision table' section."
+            )
+        dt_end = text.find("\n## ", dt_start + 1)
+        if dt_end < 0:
+            dt_end = len(text)
+        section = text[dt_start:dt_end]
+        assert "auth matrix login" in section.lower(), (
+            "The decision table section must include an "
+            "'auth matrix login' row."
+        )
+
+
+# ===========================================================================
+# 29. No tcp_port in example configs
+# ===========================================================================
+
+
+class TestNoTcpPortInExamples:
+    """Example TOML configs must use ``port`` (not ``tcp_port``) to match
+    the current config schema and live-config helper."""
+
+    def test_no_example_uses_tcp_port(self) -> None:
+        """No .toml file under examples/configs/ may contain ``tcp_port``."""
+        if not _EXAMPLES_CONFIGS_DIR.is_dir():
+            pytest.skip("examples/configs/ directory not found")
+        toml_files = sorted(_EXAMPLES_CONFIGS_DIR.glob("*.toml"))
+        if not toml_files:
+            pytest.skip("No .toml files found in examples/configs/")
+        violations: list[str] = []
+        for toml_path in toml_files:
+            text = _read(toml_path)
+            if "tcp_port" in text.lower():
+                violations.append(toml_path.name)
+        assert not violations, (
+            "The following example configs contain 'tcp_port' (should be "
+            "'port'): " + ", ".join(violations)
+        )
+
+
+# ===========================================================================
+# 30. Live config helper uses port, not tcp_port
+# ===========================================================================
+
+
+class TestLiveConfigHelperUsesPort:
+    """tests/helpers/live_config.py must write ``port = `` (not
+    ``tcp_port``) in the TOML it generates, keeping the helper consistent
+    with the config schema and example configs."""
+
+    def test_live_config_uses_port_not_tcp_port(self) -> None:
+        """write_live_bridge_toml must emit ``port = `` and never
+        ``tcp_port``."""
+        if not _LIVE_CONFIG_HELPER.exists():
+            pytest.skip("tests/helpers/live_config.py not found")
+        text = _read(_LIVE_CONFIG_HELPER)
+        assert "port = " in text, (
+            "tests/helpers/live_config.py must contain 'port = ' in the "
+            "write_live_bridge_toml function area."
+        )
+        assert "tcp_port" not in text, (
+            "tests/helpers/live_config.py must not contain 'tcp_port'. "
+            "The config schema uses 'port', not 'tcp_port'."
+        )

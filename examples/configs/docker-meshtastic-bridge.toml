@@ -64,7 +64,7 @@ enabled = true
 adapter_kind = "real"
 connection_type = "tcp"
 host = "${MESHTASTIC_HOST}"
-tcp_port = 4403
+port = 4403
 meshnet_name = "TestMesh"
 
 # ---------------------------------------------------------------------------

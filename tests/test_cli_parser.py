@@ -29,3 +29,21 @@ class TestCLIParser:
     def test_routes_list_has_config_flag(self) -> None:
         with pytest.raises(SystemExit):
             main(["routes", "list", "--config", "/nonexistent/path.toml"])
+
+
+def test_matrix_not_toplevel() -> None:
+    """'matrix' must not be accepted as a top-level command."""
+    with pytest.raises(SystemExit):
+        main(["matrix"])
+
+
+def test_meshtastic_not_toplevel() -> None:
+    """'meshtastic' must not be accepted as a top-level command."""
+    with pytest.raises(SystemExit):
+        main(["meshtastic"])
+
+
+def test_lxmf_not_toplevel() -> None:
+    """'lxmf' must not be accepted as a top-level command."""
+    with pytest.raises(SystemExit):
+        main(["lxmf"])

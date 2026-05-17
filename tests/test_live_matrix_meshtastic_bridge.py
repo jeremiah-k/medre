@@ -182,6 +182,34 @@ class TestLiveBridgeConfig:
                 f"Route {route_id!r} missing dest_adapters"
             )
 
+        # Verify targeting fields on specific routes.
+        assert "matrix_to_radio" in routes, "Expected 'matrix_to_radio' route"
+        m2r = routes["matrix_to_radio"]
+        assert "source_room" in m2r, (
+            "Route 'matrix_to_radio' missing source_room targeting field"
+        )
+        assert "dest_channel" in m2r, (
+            "Route 'matrix_to_radio' missing dest_channel targeting field"
+        )
+
+        assert "radio_to_matrix" in routes, "Expected 'radio_to_matrix' route"
+        r2m = routes["radio_to_matrix"]
+        assert "source_channel" in r2m, (
+            "Route 'radio_to_matrix' missing source_channel targeting field"
+        )
+        assert "dest_room" in r2m, (
+            "Route 'radio_to_matrix' missing dest_room targeting field"
+        )
+
+        # Verify Matrix adapter has room_allowlist.
+        adapters = data.get("adapters", {})
+        matrix_adapters = adapters.get("matrix", {})
+        assert "matrix" in matrix_adapters, "Expected [adapters.matrix.matrix] section"
+        matrix_cfg = matrix_adapters["matrix"]
+        assert "room_allowlist" in matrix_cfg, (
+            "Matrix adapter config missing room_allowlist"
+        )
+
 
 # ===========================================================================
 # 2. Adapter health and diagnostics

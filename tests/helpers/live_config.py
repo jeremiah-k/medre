@@ -311,7 +311,7 @@ def write_live_bridge_toml(tmp_path: Path) -> Path:
         meshtastic_connection_block = (
             f'connection_type = "tcp"\n'
             f'host = "{_escape_toml_string(host)}"\n'
-            f'tcp_port = {int(port) if port else 4403}'
+            f'port = {int(port) if port else 4403}'
         )
     elif ct == "serial":
         meshtastic_connection_block = (

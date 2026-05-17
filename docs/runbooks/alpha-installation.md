@@ -143,9 +143,11 @@ medre auth matrix login \
   --user @bot:example.com
 ```
 
-This performs an interactive login and writes the token directly into the
-config file. See `docs/runbooks/secure-credentials.md` for full credential
-handling guidance.
+This performs an interactive login and writes the `homeserver`, `user_id`, and
+`access_token` directly into the config file. It does not start the runtime,
+never prints the token to the terminal, and prompts for the password securely
+unless `--password-stdin` is given. See `docs/runbooks/secure-credentials.md`
+for full credential handling guidance.
 
 Config file locations:
 

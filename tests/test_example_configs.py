@@ -905,7 +905,7 @@ class TestDockerMeshtasticBridgeConfig:
         assert daemon["adapter_kind"] == "real"
         assert daemon["connection_type"] == "tcp"
         assert daemon["host"] == "${MESHTASTIC_HOST}"
-        assert daemon["tcp_port"] == 4403
+        assert daemon["port"] == 4403
         # Fake Matrix adapter
         fake_out = adapters["matrix"]["fake_out"]
         assert fake_out["adapter_kind"] == "fake"

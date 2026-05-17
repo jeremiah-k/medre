@@ -12,7 +12,7 @@ async def _auth_matrix_login(args: object) -> None:
     Reads password from stdin (``--password-stdin``) or :func:`getpass.getpass`,
     calls :func:`~medre.adapters.matrix.auth.matrix_login`,
     :func:`~medre.adapters.matrix.auth.matrix_whoami`, and
-    :func:`~medre.adapters.matrix.auth.update_toml_access_token`.
+    :func:`~medre.adapters.matrix.auth.update_toml_credentials`.
 
     Never prints the access token.
     """
@@ -20,7 +20,7 @@ async def _auth_matrix_login(args: object) -> None:
     from medre.adapters.matrix.auth import (
         matrix_login,
         matrix_whoami,
-        update_toml_access_token,
+        update_toml_credentials,
     )
     from medre.adapters.matrix.errors import MatrixConnectionError
 
@@ -47,8 +47,18 @@ async def _auth_matrix_login(args: object) -> None:
         # Step 2: Verify token with whoami
         whoami_user = matrix_whoami(result.homeserver, result.access_token)
 
-        # Step 3: Write token to config
-        update_toml_access_token(config_path, "matrix", adapter_name, result.access_token)
+        # Step 2b: Mismatch check
+        if whoami_user != user_id:
+            print(f"Error: verified user_id {whoami_user!r} does not match requested {user_id!r}", file=sys.stderr)
+            sys.exit(1)
+
+        # Step 3: Write credentials to config
+        update_toml_credentials(
+            config_path, "matrix", adapter_name,
+            homeserver=result.homeserver,
+            user_id=result.user_id,
+            access_token=result.access_token,
+        )
 
     except MatrixConnectionError as exc:
         print(f"Error: {exc}", file=sys.stderr)

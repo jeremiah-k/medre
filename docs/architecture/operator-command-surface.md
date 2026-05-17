@@ -16,11 +16,12 @@ on the current command layout.
 
 ## Command groups
 
-The operator surface has four tiers:
+The operator surface has five tiers:
 
 | Group | Audience | Purpose |
 |-------|----------|---------|
 | Product operation | Bridge operators | Daily runtime management, health checks, incident investigation, recovery |
+| Credential setup | Bridge operators | Matrix credential setup — obtains and stores access token, homeserver, user_id |
 | Utility | All users | Version, path resolution, adapter inventory, config generation |
 | Developer/local validation | Developers, CI | Pre-release validation, alpha smoke testing, pipeline verification |
 | Internal/test-only | Codebase internals | `run_session`, drill helpers, evidence helpers, trace/timeline assembly |
@@ -49,6 +50,7 @@ Every command registered in `src/medre/cli/main.py` as of this writing.
 | `medre trace` | `event`, `replay` | Chronological timeline assembly | `cli/trace_commands.py` |
 | `medre replay` | | Execute a replay operation | `cli/replay_commands.py` |
 | `medre recover` | | Analyze failed deliveries, generate recovery runbook | `cli/recover_commands.py` |
+| `medre auth matrix login` | | Matrix credential setup — obtains and stores access token, homeserver, user_id | `cli/contrib.py` → `cli/auth_commands.py` |
 
 
 ## Operational properties decision table
@@ -94,6 +96,7 @@ these properties. Column definitions:
 | `replay` | yes | best_effort | yes | yes | yes | no | product |
 | `recover` | no | no | yes | no | yes | no | specialized |
 | `smoke` | fake | fake only | opt | opt | opt | yes | validation |
+| `auth matrix login` | no | no | no | no | yes | no | product |
 
 
 ## Per-command classification
@@ -130,6 +133,12 @@ surface.
 | `medre paths` | **Utility** | Path resolution. Lives in `config_commands.py`. May be revisited after alpha. |
 | `medre adapters` | **Utility** | Adapter inventory. Lives in `config_commands.py`. May be revisited after alpha. |
 | `medre config sample` | **Utility** | Onboarding. Generates a starter TOML file. |
+
+### Credential setup
+
+| Command | Classification | Rationale |
+|---------|---------------|-----------|
+| `medre auth matrix login` | **Credential setup** | Credential setup utility. Does not start runtime. Mutates config with `--config`. Never prints token. Password prompted securely unless `--password-stdin`. Writes `homeserver`, `user_id`, and `access_token` to the adapter section in the config file. |
 
 ### Specialized commands (inspect-first guidance)
 
@@ -219,6 +228,12 @@ medre adapters         Adapter inventory (utility; may be revisited after alpha)
 medre config sample    Starter TOML generation
 ```
 
+**Credential setup (1 command):**
+
+```
+medre auth matrix login  Matrix credential setup — obtains and stores access token, homeserver, user_id
+```
+
 **Specialized commands (3 commands, available but not primary daily path):**
 
 ```
@@ -263,6 +278,10 @@ following categories:
 - `medre paths`
 - `medre adapters`
 - `medre config sample`
+
+**Credential setup surface:**
+
+- `medre auth matrix login`
 
 **Validation surface** (developer/CI tooling):
 

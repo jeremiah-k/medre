@@ -72,11 +72,13 @@ medre auth matrix login \
   --user @bot:example.com
 ```
 
-This opens an interactive login flow against the homeserver, stores the
-resulting access token directly into the config file, and does **not** print the
-token to the terminal. After this step, the `access_token` field in
-`[adapters.matrix.matrix]` is populated and you can proceed to edit the
-remaining fields.
+This opens an interactive login flow against the homeserver, writes the
+resulting `homeserver`, `user_id`, and `access_token` directly into the config
+file, and does **not** print the token to the terminal. After this step, all
+credential fields in `[adapters.matrix.matrix]` are populated. You only need to
+edit the remaining fields: `room_allowlist`, route targeting fields
+(`source_room`, `dest_room`, `source_channel`, `dest_channel`), serial/TCP
+connection details for the Meshtastic adapter, and the channel index.
 
 If the template does not exist, create one from scratch using
 `medre config sample` and modify it, or use the following as a starting
@@ -99,9 +101,9 @@ path = "/tmp/medre-live.sqlite"
 [adapters.matrix.matrix]
 enabled = true
 adapter_kind = "real"
-homeserver = "https://matrix.example.com"
-user_id = "@bot:example.com"
-access_token = ""                      # FILL IN — treat as a secret
+homeserver = "https://matrix.example.com"   # populated by medre auth matrix login
+user_id = "@bot:example.com"                  # populated by medre auth matrix login
+access_token = ""                             # populated by medre auth matrix login — treat as a secret
 room_allowlist = ["!room:example.com"] # FILL IN — your throwaway room
 encryption_mode = "plaintext"
 
@@ -137,15 +139,16 @@ dest_room = "!room:example.com"             # FILL IN — Matrix room to deliver
 EOF
 ```
 
-Edit the following fields in `/tmp/medre-live.toml`:
+Edit the following fields in `/tmp/medre-live.toml` (credential fields are
+already populated by `medre auth matrix login`):
 
 ### [adapters.matrix.matrix]
 
+> After running `medre auth matrix login`, the `homeserver`, `user_id`, and
+> `access_token` fields are already populated. Edit only the fields below.
+
 | Field | Set to |
 |-------|--------|
-| `homeserver` | Your Matrix homeserver URL (e.g. `https://matrix.org`) |
-| `user_id` | Bot's fully-qualified user ID (e.g. `@bot:example.com`) |
-| `access_token` | Bot's access token — **do not commit this**. Use `medre auth matrix login` to populate. |
 | `room_allowlist` | List with your throwaway room ID (e.g. `["!abc123:example.com"]`) |
 
 ### Routes (targeting fields)
