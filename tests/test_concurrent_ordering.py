@@ -402,7 +402,7 @@ async def test_concurrent_append_wait_until_verification(
             r = _make_receipt(event_id, f"bg-adapter-{i}")
             await temp_storage.append_receipt(r)
 
-    asyncio.ensure_future(_bg_append())
+    bg_task = asyncio.ensure_future(_bg_append())
 
     # Poll until all receipts visible
     found = await wait_until(
@@ -410,6 +410,9 @@ async def test_concurrent_append_wait_until_verification(
         timeout=5.0,
     )
     assert found, "Receipts did not appear within timeout"
+
+    # Ensure background task completed and surface any exceptions
+    await bg_task
 
     receipts = await temp_storage.list_receipts_for_event(event_id)
     assert len(receipts) == expected_count

@@ -614,12 +614,11 @@ class TestMatrixStorePathDerivation:
             adapters=AdapterConfigSet(matrix={"mybot": rt}),
         )
         builder = RuntimeBuilder(config, tmp_paths)
-        built_config = builder._build_single_adapter("matrix", "mybot", rt)
+        injected_store_path = self._capture_store_path(builder, rt, "mybot")
 
         # The adapter was constructed with a derived store_path.
-        # We verify via the config that was passed to the factory.
         expected = tmp_paths.state_dir / "adapters" / "mybot" / "matrix" / "store"
-        assert built_config is not None
+        assert injected_store_path == str(expected)
 
     def test_store_path_derived_medre_home(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """MEDRE_HOME produces $MEDRE_HOME/state/adapters/<adapter_id>/matrix/store."""

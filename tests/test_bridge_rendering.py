@@ -392,8 +392,8 @@ class TestReplyThreadContext:
         pipeline = _make_pipeline()
         result = await _render(pipeline, event, "mesh-target", "meshtastic")
 
-        # MeshtasticRenderer just extracts text, no relation context
-        assert result.payload["text"] == "a reply"
+        # MeshtasticRenderer prepends [replying to: ...] for reply events with fallback_text
+        assert result.payload["text"] == "[replying to: original text] a reply"
         assert "m.relates_to" not in result.payload
 
 

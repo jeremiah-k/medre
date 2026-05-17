@@ -26,6 +26,7 @@ dev = [
     "pytest-cov>=5.0",
     "coverage>=7.0",
     "build>=1.0",
+    "setuptools>=75.0",
 ]
 # mindroom-nio v0.25.3 — fork of matrix-nio with MindRoom patches.
 # Floor pin matches the version audited in docs/contracts/25-matrix-e2ee-readiness.md.
