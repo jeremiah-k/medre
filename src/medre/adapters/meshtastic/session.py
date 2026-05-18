@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from medre.adapters.meshtastic.compat import HAS_MESHTASTIC
-from medre.adapters.meshtastic.config import MeshtasticConfig
+from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.adapters.meshtastic.errors import (
     MeshtasticConnectionError,
     MeshtasticSendError,
@@ -66,7 +66,7 @@ class MeshtasticSession:
     Parameters
     ----------
     config:
-        Validated :class:`~medre.adapters.meshtastic.config.MeshtasticConfig`.
+        Validated :class:`~medre.config.adapters.meshtastic.MeshtasticConfig`.
     adapter_id:
         The adapter identifier (for logging).
     platform:

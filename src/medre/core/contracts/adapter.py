@@ -1,22 +1,20 @@
-"""Abstract base classes and value types for the adapter framework.
+"""Core adapter contract types and abstract base class.
 
-Adapters are the bridge between the medre and external
-systems (radio transports, chat platforms, etc.).  Every adapter
-inherits from :class:`BaseAdapter` and is driven by an
-:class:`AdapterContext` supplied at start-up.
+This module owns the adapter runtime contracts used by the core engine.
+It defines the value types, protocols, and the abstract
+:class:`AdapterContract` that every concrete adapter must implement.
 
-This module defines:
+Definitions:
 
+* :class:`AdapterSendError` – base error raised by adapters when delivery fails.
+* :class:`AdapterPermanentError` – permanent delivery error.
+* :class:`AdapterDeliveryResult` – immutable result returned after successful delivery.
 * :class:`AdapterRole` – the functional role of an adapter.
-* :class:`AdapterCapabilities` – feature flags describing what an
-  adapter supports.
-* :class:`AdapterInfo` – runtime metadata about a running adapter.
-* :class:`AdapterContext` – the runtime context injected into every
-  adapter on start-up.
-* :class:`BaseAdapter` – the abstract contract all adapters must
-  implement.
-* :class:`AdapterCodec` – optional encode/decode helper that adapters
-  may expose.
+* :class:`AdapterCapabilities` – feature flags describing what an adapter supports.
+* :class:`AdapterInfo` – runtime metadata about a running adapter instance.
+* :class:`AdapterContext` – the runtime context injected into every adapter on start-up.
+* :class:`AdapterCodec` – optional encode/decode helper that adapters may expose.
+* :class:`AdapterContract` – abstract base class that every adapter must implement.
 """
 
 from __future__ import annotations
@@ -27,10 +25,11 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from types import MappingProxyType
-from typing import Any, Awaitable, Callable
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
-from medre.core.events.canonical import CanonicalEvent
-from medre.core.rendering.renderer import RenderingResult
+if TYPE_CHECKING:
+    from medre.core.events.canonical import CanonicalEvent
+    from medre.core.rendering.renderer import RenderingResult
 
 
 # ---------------------------------------------------------------------------
@@ -271,7 +270,7 @@ class AdapterContext:
     """Runtime context injected into an adapter on start-up.
 
     The framework constructs an :class:`AdapterContext` and passes it
-    to :meth:`BaseAdapter.start`.  The adapter *must* store it for the
+    to :meth:`AdapterContract.start`.  The adapter *must* store it for the
     duration of its lifetime.
 
     Attributes
@@ -314,7 +313,7 @@ class AdapterCodec(ABC):
     representations.
 
     Adapters that follow the codec pattern can expose a codec instance
-    via :meth:`BaseAdapter.get_codec`.  The framework may use the codec
+    via :meth:`AdapterContract.get_codec`.  The framework may use the codec
     for batch transformations, testing, or payload inspection without
     coupling to a specific adapter class.
 
@@ -369,11 +368,11 @@ class AdapterCodec(ABC):
 
 
 # ---------------------------------------------------------------------------
-# BaseAdapter
+# AdapterContract
 # ---------------------------------------------------------------------------
 
 
-class BaseAdapter(ABC):
+class AdapterContract(ABC):
     """Abstract base class that every adapter must implement.
 
     Subclasses declare their identity (``adapter_id``, ``platform``,
@@ -560,16 +559,22 @@ class BaseAdapter(ABC):
         The default implementation returns ``None``.  Subclasses that
         implement the codec pattern should override this method.
 
-        **Boundary note:** This method is not abstract — it has a default
-        implementation returning ``None``.  Adapters that support codec
-        operations override it.  Similarly, ``diagnostics()`` is not
-        defined on ``BaseAdapter`` at all; individual adapters implement
-        it voluntarily.  Making either method abstract is deferred to
-        future adapter boundary hardening.
-
         Returns
         -------
         AdapterCodec | None
             The codec instance, or ``None`` if not supported.
         """
         return None
+
+
+__all__ = [
+    "AdapterCapabilities",
+    "AdapterCodec",
+    "AdapterContext",
+    "AdapterContract",
+    "AdapterDeliveryResult",
+    "AdapterInfo",
+    "AdapterPermanentError",
+    "AdapterRole",
+    "AdapterSendError",
+]

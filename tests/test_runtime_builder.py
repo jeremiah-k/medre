@@ -10,11 +10,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from medre.adapters.base import BaseAdapter
-from medre.adapters.matrix.config import MatrixConfig
-from medre.adapters.meshtastic.config import MeshtasticConfig
-from medre.adapters.meshcore.config import MeshCoreConfig
-from medre.adapters.lxmf.config import LxmfConfig
+from medre.core.contracts.adapter import AdapterContract
+from medre.config.adapters.matrix import MatrixConfig
+from medre.config.adapters.meshtastic import MeshtasticConfig
+from medre.config.adapters.meshcore import MeshCoreConfig
+from medre.config.adapters.lxmf import LxmfConfig
 from medre.config.model import (
     AdapterConfigSet,
     LoggingConfig,
@@ -211,7 +211,7 @@ class TestBuildWithMockedAdapters:
         config = _make_all_enabled_config()
         builder = RuntimeBuilder(config, tmp_paths)
 
-        mock_adapter = MagicMock(spec=BaseAdapter)
+        mock_adapter = MagicMock(spec=AdapterContract)
         with patch.object(builder, "_build_single_adapter", return_value=mock_adapter):
             app = builder.build()
 
@@ -440,7 +440,7 @@ class TestAdapterKindFake:
             adapters=AdapterConfigSet(matrix={"fake_matrix": rt}),
         )
         builder = RuntimeBuilder(config, tmp_paths)
-        adapters: dict[str, BaseAdapter] = {}
+        adapters: dict[str, AdapterContract] = {}
         builder._build_adapters(adapters)
         assert "fake_matrix" in adapters
         assert adapters["fake_matrix"].platform == "matrix"
@@ -457,7 +457,7 @@ class TestAdapterKindFake:
             adapters=AdapterConfigSet(meshtastic={"fake_mesh": rt}),
         )
         builder = RuntimeBuilder(config, tmp_paths)
-        adapters: dict[str, BaseAdapter] = {}
+        adapters: dict[str, AdapterContract] = {}
         builder._build_adapters(adapters)
         assert "fake_mesh" in adapters
         assert adapters["fake_mesh"].platform == "meshtastic"
@@ -474,7 +474,7 @@ class TestAdapterKindFake:
             adapters=AdapterConfigSet(meshcore={"fake_core": rt}),
         )
         builder = RuntimeBuilder(config, tmp_paths)
-        adapters: dict[str, BaseAdapter] = {}
+        adapters: dict[str, AdapterContract] = {}
         builder._build_adapters(adapters)
         assert "fake_core" in adapters
         assert adapters["fake_core"].platform == "meshcore"
@@ -491,7 +491,7 @@ class TestAdapterKindFake:
             adapters=AdapterConfigSet(lxmf={"fake_lxmf": rt}),
         )
         builder = RuntimeBuilder(config, tmp_paths)
-        adapters: dict[str, BaseAdapter] = {}
+        adapters: dict[str, AdapterContract] = {}
         builder._build_adapters(adapters)
         assert "fake_lxmf" in adapters
         assert adapters["fake_lxmf"].platform == "lxmf"
@@ -710,9 +710,9 @@ class TestMatrixStorePathDerivation:
         captured: list[str | None] = []
         original_factory = builder_mod._ADAPTER_BUILDERS.get("matrix")
 
-        def _capture_factory_build(cfg: Any) -> BaseAdapter:
+        def _capture_factory_build(cfg: Any) -> AdapterContract:
             captured.append(getattr(cfg, "store_path", None))
-            return MagicMock(spec=BaseAdapter)
+            return MagicMock(spec=AdapterContract)
 
         capture_factory = MagicMock(spec=_AdapterFactory)
         capture_factory.build = MagicMock(side_effect=_capture_factory_build)
@@ -1028,7 +1028,7 @@ class TestDegradedRouteValidation:
         original_build = builder._build_single_adapter
         call_count = 0
 
-        def _selective_build(transport: str, adapter_id: str, rtc: Any) -> BaseAdapter:
+        def _selective_build(transport: str, adapter_id: str, rtc: Any) -> AdapterContract:
             nonlocal call_count
             call_count += 1
             if adapter_id == "ft":
@@ -1104,7 +1104,7 @@ class TestDegradedRouteValidation:
 
         original_build = builder._build_single_adapter
 
-        def _selective_build(transport: str, adapter_id: str, rtc: Any) -> BaseAdapter:
+        def _selective_build(transport: str, adapter_id: str, rtc: Any) -> AdapterContract:
             if adapter_id == "ft":
                 raise RuntimeConfigError("simulated build failure for ft")
             return original_build(transport, adapter_id, rtc)
@@ -1144,7 +1144,7 @@ class TestFakeAdapterIdPropagation:
             adapters=AdapterConfigSet(matrix={"cm": rt}),
         )
         builder = RuntimeBuilder(config, tmp_paths)
-        adapters: dict[str, BaseAdapter] = {}
+        adapters: dict[str, AdapterContract] = {}
         builder._build_adapters(adapters)
         assert "custom_matrix_id" in adapters
         assert adapters["custom_matrix_id"].adapter_id == "custom_matrix_id"
@@ -1160,7 +1160,7 @@ class TestFakeAdapterIdPropagation:
             adapters=AdapterConfigSet(meshtastic={"cm": rt}),
         )
         builder = RuntimeBuilder(config, tmp_paths)
-        adapters: dict[str, BaseAdapter] = {}
+        adapters: dict[str, AdapterContract] = {}
         builder._build_adapters(adapters)
         assert "custom_mesh_id" in adapters
         assert adapters["custom_mesh_id"].adapter_id == "custom_mesh_id"
@@ -1176,7 +1176,7 @@ class TestFakeAdapterIdPropagation:
             adapters=AdapterConfigSet(meshcore={"cc": rt}),
         )
         builder = RuntimeBuilder(config, tmp_paths)
-        adapters: dict[str, BaseAdapter] = {}
+        adapters: dict[str, AdapterContract] = {}
         builder._build_adapters(adapters)
         assert "custom_core_id" in adapters
         assert adapters["custom_core_id"].adapter_id == "custom_core_id"
@@ -1192,7 +1192,7 @@ class TestFakeAdapterIdPropagation:
             adapters=AdapterConfigSet(lxmf={"cl": rt}),
         )
         builder = RuntimeBuilder(config, tmp_paths)
-        adapters: dict[str, BaseAdapter] = {}
+        adapters: dict[str, AdapterContract] = {}
         builder._build_adapters(adapters)
         assert "custom_lxmf_id" in adapters
         assert adapters["custom_lxmf_id"].adapter_id == "custom_lxmf_id"
@@ -1275,12 +1275,12 @@ class TestDeterministicBuildOrdering:
         build_order: list[str] = []
         original_build = builder._build_single_adapter
 
-        def _tracking_build(transport: str, adapter_id: str, rtc: Any) -> BaseAdapter:
+        def _tracking_build(transport: str, adapter_id: str, rtc: Any) -> AdapterContract:
             build_order.append(f"{transport}.{adapter_id}")
             return original_build(transport, adapter_id, rtc)
 
         with patch.object(builder, "_build_single_adapter", side_effect=_tracking_build):
-            adapters: dict[str, BaseAdapter] = {}
+            adapters: dict[str, AdapterContract] = {}
             builder._build_adapters(adapters)
 
         # Expected order: sorted by (transport, adapter_id):
@@ -1311,11 +1311,11 @@ class TestDeterministicBuildOrdering:
         )
         builder = RuntimeBuilder(config, tmp_paths)
 
-        adapters1: dict[str, BaseAdapter] = {}
+        adapters1: dict[str, AdapterContract] = {}
         builder._build_adapters(adapters1)
         order1 = list(adapters1.keys())
 
-        adapters2: dict[str, BaseAdapter] = {}
+        adapters2: dict[str, AdapterContract] = {}
         builder._build_adapters(adapters2)
         order2 = list(adapters2.keys())
 
@@ -1425,7 +1425,7 @@ class TestAllAdaptersBuildFailure:
         builder = RuntimeBuilder(config, tmp_paths)
         original_build = builder._build_single_adapter
 
-        def _selective_fail(transport: str, adapter_id: str, rtc: Any) -> BaseAdapter:
+        def _selective_fail(transport: str, adapter_id: str, rtc: Any) -> AdapterContract:
             if adapter_id == "bad_one":
                 raise RuntimeConfigError("simulated failure")
             return original_build(transport, adapter_id, rtc)

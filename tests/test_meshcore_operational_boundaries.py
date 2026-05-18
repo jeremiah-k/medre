@@ -91,7 +91,7 @@ def _make_ctx(adapter_id: str = "test_op") -> Any:
     from asyncio import Event
     from datetime import datetime, timezone
 
-    from medre.adapters.base import AdapterContext
+    from medre.core.contracts.adapter import AdapterContext
 
     return AdapterContext(
         adapter_id=adapter_id,
@@ -279,7 +279,7 @@ class TestMeshCoreFakeAdapterOperability:
         for isolated testing.
         """
         from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
-        from medre.adapters.meshcore.config import MeshCoreConfig
+        from medre.config.adapters.meshcore import MeshCoreConfig
 
         config = MeshCoreConfig(adapter_id="test_op_boundary")
         adapter = FakeMeshCoreAdapter(config)
@@ -294,7 +294,7 @@ class TestMeshCoreFakeAdapterOperability:
         it could not stand in for the real adapter in integration tests.
         """
         from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
-        from medre.adapters.meshcore.config import MeshCoreConfig
+        from medre.config.adapters.meshcore import MeshCoreConfig
 
         config = MeshCoreConfig(adapter_id="test_op_lifecycle")
         adapter = FakeMeshCoreAdapter(config)
@@ -311,7 +311,7 @@ class TestMeshCoreFakeAdapterOperability:
         tests would fail in clean environments.
         """
         from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
-        from medre.adapters.meshcore.config import MeshCoreConfig
+        from medre.config.adapters.meshcore import MeshCoreConfig
         from medre.core.rendering.renderer import RenderingResult
 
         config = MeshCoreConfig(adapter_id="test_op_deliver")
@@ -340,7 +340,7 @@ class TestMeshCoreFakeAdapterOperability:
         connection.
         """
         from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
-        from medre.adapters.meshcore.config import MeshCoreConfig
+        from medre.config.adapters.meshcore import MeshCoreConfig
 
         config = MeshCoreConfig(adapter_id="test_lifecycle_diag")
         adapter = FakeMeshCoreAdapter(config)
@@ -425,7 +425,7 @@ class TestMeshCoreDiagnosticSafety:
         custom encoders that might accidentally serialize SDK internals.
         """
         from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
-        from medre.adapters.meshcore.config import MeshCoreConfig
+        from medre.config.adapters.meshcore import MeshCoreConfig
 
         config = MeshCoreConfig(adapter_id="test_diag_safe")
         adapter = FakeMeshCoreAdapter(config)
@@ -446,7 +446,7 @@ class TestMeshCoreDiagnosticSafety:
         logging or API serialization could leak sensitive state.
         """
         from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
-        from medre.adapters.meshcore.config import MeshCoreConfig
+        from medre.config.adapters.meshcore import MeshCoreConfig
 
         config = MeshCoreConfig(adapter_id="test_no_sdk_leak")
         adapter = FakeMeshCoreAdapter(config)
@@ -469,7 +469,7 @@ class TestMeshCoreDiagnosticSafety:
         import json
 
         from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
-        from medre.adapters.meshcore.config import MeshCoreConfig
+        from medre.config.adapters.meshcore import MeshCoreConfig
 
         config = MeshCoreConfig(adapter_id="test_diag_str_safe")
         adapter = FakeMeshCoreAdapter(config)

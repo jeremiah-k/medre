@@ -16,7 +16,7 @@ The four adapters are:
 
 ## 1. Platform String Value
 
-The `platform` class attribute on each adapter's `BaseAdapter` subclass.
+The `platform` class attribute on each adapter's `AdapterContract` subclass.
 
 | Adapter | `platform` value | Notes |
 |---|---|---|
@@ -227,7 +227,7 @@ See contract 16 (`16-production-connectivity-readiness.md`) for a detailed readi
 
 ## 13. Adapter Delivery Error Hierarchy
 
-Base adapter delivery failure exceptions in `src/medre/adapters/base.py`:
+Base adapter delivery failure exceptions in `src/medre/core/contracts/adapter.py`:
 
 ```python
 class AdapterSendError(Exception):

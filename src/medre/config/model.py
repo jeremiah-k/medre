@@ -15,10 +15,10 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Self, get_type_hints, get_args
 
-from medre.adapters.matrix.config import MatrixConfig
-from medre.adapters.meshtastic.config import MeshtasticConfig
-from medre.adapters.meshcore.config import MeshCoreConfig
-from medre.adapters.lxmf.config import LxmfConfig
+from medre.config.adapters.matrix import MatrixConfig
+from medre.config.adapters.meshtastic import MeshtasticConfig
+from medre.config.adapters.meshcore import MeshCoreConfig
+from medre.config.adapters.lxmf import LxmfConfig
 from medre.config.errors import ConfigValidationError
 
 _logger = logging.getLogger(__name__)

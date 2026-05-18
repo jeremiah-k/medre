@@ -26,7 +26,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from medre.adapters.base import AdapterPermanentError, AdapterSendError
+from medre.core.contracts.adapter import AdapterPermanentError, AdapterSendError
 from medre.config.model import (
     AdapterConfigSet,
     MatrixRuntimeConfig,

@@ -115,7 +115,7 @@ class MeshtasticPacketClassifier:
     Parameters
     ----------
     config:
-        Optional :class:`~medre.adapters.meshtastic.config.MeshtasticConfig`
+        Optional :class:`~medre.config.adapters.meshtastic.MeshtasticConfig`
         for channel mapping lookups (unused in tranche 1).
     """
 

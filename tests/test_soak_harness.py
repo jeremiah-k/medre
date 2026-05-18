@@ -41,7 +41,7 @@ from typing import Any
 
 import pytest
 
-from medre.adapters.base import BaseAdapter
+from medre.core.contracts.adapter import AdapterContract
 from medre.config.model import (
     AdapterConfigSet,
     LxmfRuntimeConfig,

@@ -109,7 +109,7 @@ The adapter supports four connection types via `MeshtasticConfig.connection_type
 No real client. Used for development and testing without hardware.
 
 ```python
-from medre.adapters.meshtastic.config import MeshtasticConfig
+from medre.config.adapters.meshtastic import MeshtasticConfig
 
 config = MeshtasticConfig(
     adapter_id="mesh-alpha",
@@ -211,8 +211,8 @@ import asyncio
 import logging
 
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
-from medre.adapters.meshtastic.config import MeshtasticConfig
-from medre.adapters.base import AdapterContext
+from medre.config.adapters.meshtastic import MeshtasticConfig
+from medre.core.contracts.adapter import AdapterContext
 from medre.core.events.event_bus import EventBus
 
 logging.basicConfig(level=logging.INFO)

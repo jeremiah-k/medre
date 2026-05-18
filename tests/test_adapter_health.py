@@ -20,12 +20,12 @@ from datetime import datetime, timezone
 
 import pytest
 
-from medre.adapters.base import (
+from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
     AdapterInfo,
     AdapterRole,
-    BaseAdapter,
+    AdapterContract,
 )
 from medre.core.lifecycle.states import AdapterState
 from medre.core.runtime.health import (

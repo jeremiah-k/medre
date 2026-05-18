@@ -22,7 +22,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from medre.adapters.base import AdapterSendError
+from medre.core.contracts.adapter import AdapterSendError
 from medre.config.model import (
     AdapterConfigSet,
     LoggingConfig,

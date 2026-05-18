@@ -9,7 +9,6 @@ Hierarchy::
     MeshCoreError
     ├── MeshCoreConnectionError — connection failures
     ├── MeshCoreSendError       — message send failures
-    ├── MeshCoreConfigError     — invalid configuration (also ValueError)
     ├── MeshCoreCodecError      — encode / decode failures
     └── MeshCorePacketError     — malformed or unparseable packets
 """
@@ -40,15 +39,6 @@ class MeshCoreSendError(MeshCoreError):
     def __init__(self, *args: object, transient: bool = True) -> None:
         self.transient = transient
         super().__init__(*args)
-
-
-class MeshCoreConfigError(MeshCoreError, ValueError):
-    """Raised when the MeshCore configuration is invalid.
-
-    Inherits from both :class:`MeshCoreError` and :class:`ValueError` so
-    that it is caught by either ``except MeshCoreError`` or
-    ``except ValueError``.
-    """
 
 
 class MeshCoreCodecError(MeshCoreError):

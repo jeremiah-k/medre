@@ -15,11 +15,11 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from medre.adapters import FakeMatrixAdapter, FakePresentationAdapter
-from medre.adapters.base import AdapterDeliveryResult, AdapterPermanentError, AdapterSendError
+from medre.core.contracts.adapter import AdapterDeliveryResult, AdapterPermanentError, AdapterSendError
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.codec import MatrixCodec
 from medre.adapters.matrix.compat import HAS_NIO
-from medre.adapters.matrix.config import MatrixConfig
+from medre.config.adapters.matrix import MatrixConfig
 from medre.adapters.matrix.errors import MatrixSendError
 from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
 from medre.adapters.matrix.relations import MatrixRelationHandler
@@ -54,7 +54,7 @@ class TestMatrixBoundaries:
         import medre.adapters.matrix.adapter as adapter_mod
         import medre.adapters.matrix.codec as codec_mod
         import medre.adapters.matrix.renderer as renderer_mod
-        import medre.adapters.matrix.config as config_mod
+        import medre.config.adapters.matrix as config_mod
 
         for mod in (adapter_mod, codec_mod, renderer_mod, config_mod):
             assert mod.__file__ is not None
@@ -351,7 +351,7 @@ class TestMatrixBoundaryCrossImports:
         "medre.adapters.matrix.adapter",
         "medre.adapters.matrix.codec",
         "medre.adapters.matrix.renderer",
-        "medre.adapters.matrix.config",
+        "medre.config.adapters.matrix",
         "medre.adapters.matrix.relations",
         "medre.adapters.matrix.metadata",
         "medre.adapters.matrix.compat",

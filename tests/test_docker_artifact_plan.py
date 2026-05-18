@@ -109,7 +109,7 @@ class TestGetArtifactPlan:
             assert set(plan["required"]).isdisjoint(set(plan["best_effort"]))
 
     def test_bidirectional_matches_artifact_plan_constant(self) -> None:
-        """Bidirectional plan equals the legacy ARTIFACT_PLAN."""
+        """Bidirectional plan equals the ARTIFACT_PLAN constant."""
         plan = get_artifact_plan("bidirectional")
         assert plan["required"] == ARTIFACT_PLAN["required"]
         assert plan["best_effort"] == ARTIFACT_PLAN["best_effort"]

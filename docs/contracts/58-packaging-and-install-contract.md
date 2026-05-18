@@ -91,13 +91,13 @@ import medre
 import medre.config
 import medre.runtime
 import medre.adapters
-import medre.adapters.base
+import medre.core.contracts.adapter
 import medre.cli
 ```
 
 ### 6.2 Adapter Config Imports
 
-Adapter configuration modules (e.g., `medre.adapters.matrix.config`) are pure
+Adapter configuration modules (e.g., `medre.config.adapters.matrix`) are pure
 dataclass definitions and **must not** transitively import their corresponding SDK.
 This ensures `medre.config.model` can reference all adapter config types at
 module load time without requiring any SDK.

@@ -15,19 +15,19 @@ import logging
 import random
 from typing import Any
 
-from medre.adapters.base import (
+from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
+    AdapterContract,
     AdapterDeliveryResult,
     AdapterInfo,
     AdapterPermanentError,
     AdapterRole,
     AdapterSendError,
-    BaseAdapter,
 )
 from medre.adapters.matrix.codec import MatrixCodec
 from medre.adapters.matrix.compat import HAS_NIO
-from medre.adapters.matrix.config import MatrixConfig
+from medre.config.adapters.matrix import MatrixConfig
 from medre.adapters.matrix.errors import MatrixConnectionError, MatrixSendError
 from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
 from medre.adapters.matrix.relations import MatrixRelationHandler
@@ -95,7 +95,7 @@ def _is_transient_error(exc: BaseException) -> bool:
     return False
 
 
-class MatrixAdapter(BaseAdapter):
+class MatrixAdapter(AdapterContract):
     """Presentation adapter for Matrix chat rooms.
 
     Connects to a Matrix homeserver using ``mindroom-nio``, receives
@@ -107,7 +107,7 @@ class MatrixAdapter(BaseAdapter):
     Parameters
     ----------
     config:
-        Validated :class:`~medre.adapters.matrix.config.MatrixConfig`.
+        Validated :class:`~medre.config.adapters.matrix.MatrixConfig`.
     """
 
     __slots__ = (

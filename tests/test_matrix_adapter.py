@@ -13,10 +13,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from medre.adapters import AdapterRole, FakeMatrixAdapter
-from medre.adapters.base import AdapterContext, AdapterDeliveryResult
+from medre.adapters import FakeMatrixAdapter
+from medre.core.contracts.adapter import AdapterContext, AdapterDeliveryResult, AdapterRole
 from medre.adapters.matrix.adapter import MatrixAdapter
-from medre.adapters.matrix.config import MatrixConfig
+from medre.config.adapters.matrix import MatrixConfig
 from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
 from medre.core.events import CanonicalEvent, EventMetadata, EventRelation, NativeRef
 from medre.core.events.kinds import EventKind

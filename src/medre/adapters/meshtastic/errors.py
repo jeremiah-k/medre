@@ -9,7 +9,6 @@ Hierarchy::
     MeshtasticError
     ├── MeshtasticConnectionError — connection failures
     ├── MeshtasticSendError       — message send failures
-    ├── MeshtasticConfigError     — invalid configuration (also ValueError)
     ├── MeshtasticCodecError      — encode / decode failures
     └── MeshtasticPacketError     — malformed or unparseable packets
 """
@@ -40,15 +39,6 @@ class MeshtasticSendError(MeshtasticError):
     def __init__(self, *args: object, transient: bool = True) -> None:
         self.transient = transient
         super().__init__(*args)
-
-
-class MeshtasticConfigError(MeshtasticError, ValueError):
-    """Raised when the Meshtastic configuration is invalid.
-
-    Inherits from both :class:`MeshtasticError` and :class:`ValueError` so
-    that it is caught by either ``except MeshtasticError`` or
-    ``except ValueError``.
-    """
 
 
 class MeshtasticCodecError(MeshtasticError):

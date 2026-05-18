@@ -28,7 +28,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from medre.adapters.base import AdapterSendError
+from medre.core.contracts.adapter import AdapterSendError
 from medre.cli import main
 from medre.config.errors import ConfigValidationError
 from medre.config.loader import load_config

@@ -51,7 +51,7 @@ _ADAPTER_PREFIXES = (
     "medre.adapters.meshcore",
     "medre.adapters.lxmf",
 )
-"""Concrete adapter package prefixes (excludes medre.adapters.base and fake_*)."""
+"""Concrete adapter package prefixes (excludes medre.core.contracts.adapter and fake_*)."""
 
 _ADAPTER_COMPAT_MODULES = (
     "medre.adapters.matrix.compat",
@@ -307,7 +307,7 @@ class TestNoTransportSdkInRuntimeCore:
     def test_no_concrete_adapter_imports(self, module_name: str) -> None:
         """Module must not import concrete adapter packages.
 
-        Imports from ``medre.adapters.base`` (protocol types) and
+        Imports from ``medre.core.contracts.adapter`` (protocol types) and
         ``medre.adapters.fake_*`` are permitted.
         """
         try:

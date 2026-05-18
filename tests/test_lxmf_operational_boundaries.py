@@ -99,7 +99,7 @@ def _make_ctx(adapter_id: str = "test_op") -> Any:
     from asyncio import Event
     from datetime import datetime, timezone
 
-    from medre.adapters.base import AdapterContext
+    from medre.core.contracts.adapter import AdapterContext
 
     return AdapterContext(
         adapter_id=adapter_id,
@@ -287,7 +287,7 @@ class TestLxmfFakeAdapterOperability:
         for isolated testing.
         """
         from medre.adapters.fake_lxmf import FakeLxmfAdapter
-        from medre.adapters.lxmf.config import LxmfConfig
+        from medre.config.adapters.lxmf import LxmfConfig
 
         config = LxmfConfig(adapter_id="test_op_boundary")
         adapter = FakeLxmfAdapter(config)
@@ -302,7 +302,7 @@ class TestLxmfFakeAdapterOperability:
         it could not stand in for the real adapter in integration tests.
         """
         from medre.adapters.fake_lxmf import FakeLxmfAdapter
-        from medre.adapters.lxmf.config import LxmfConfig
+        from medre.config.adapters.lxmf import LxmfConfig
 
         config = LxmfConfig(adapter_id="test_op_lifecycle")
         adapter = FakeLxmfAdapter(config)
@@ -319,7 +319,7 @@ class TestLxmfFakeAdapterOperability:
         tests would fail in clean environments.
         """
         from medre.adapters.fake_lxmf import FakeLxmfAdapter
-        from medre.adapters.lxmf.config import LxmfConfig
+        from medre.config.adapters.lxmf import LxmfConfig
         from medre.core.rendering.renderer import RenderingResult
 
         config = LxmfConfig(adapter_id="test_op_deliver")
@@ -348,7 +348,7 @@ class TestLxmfFakeAdapterOperability:
         Reticulum connection.
         """
         from medre.adapters.fake_lxmf import FakeLxmfAdapter
-        from medre.adapters.lxmf.config import LxmfConfig
+        from medre.config.adapters.lxmf import LxmfConfig
 
         config = LxmfConfig(adapter_id="test_lifecycle_diag")
         adapter = FakeLxmfAdapter(config)
@@ -424,7 +424,7 @@ class TestLxmfDiagnosticSafety:
         custom encoders that might accidentally serialize RNS/LXMF internals.
         """
         from medre.adapters.fake_lxmf import FakeLxmfAdapter
-        from medre.adapters.lxmf.config import LxmfConfig
+        from medre.config.adapters.lxmf import LxmfConfig
 
         config = LxmfConfig(adapter_id="test_diag_safe")
         adapter = FakeLxmfAdapter(config)
@@ -445,7 +445,7 @@ class TestLxmfDiagnosticSafety:
         exposes them, any logging or API serialization could leak sensitive state.
         """
         from medre.adapters.fake_lxmf import FakeLxmfAdapter
-        from medre.adapters.lxmf.config import LxmfConfig
+        from medre.config.adapters.lxmf import LxmfConfig
 
         config = LxmfConfig(adapter_id="test_no_sdk_leak")
         adapter = FakeLxmfAdapter(config)
@@ -469,7 +469,7 @@ class TestLxmfDiagnosticSafety:
         import json
 
         from medre.adapters.fake_lxmf import FakeLxmfAdapter
-        from medre.adapters.lxmf.config import LxmfConfig
+        from medre.config.adapters.lxmf import LxmfConfig
 
         config = LxmfConfig(adapter_id="test_diag_str_safe")
         adapter = FakeLxmfAdapter(config)

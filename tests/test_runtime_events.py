@@ -646,7 +646,7 @@ class _FakeAdapter:
         *,
         health_check_side_effect: BaseException | None = None,
     ) -> None:
-        from medre.adapters.base import AdapterCapabilities, AdapterInfo, AdapterRole
+        from medre.core.contracts.adapter import AdapterCapabilities, AdapterInfo, AdapterRole
 
         self.adapter_id = adapter_id
         self.platform = "fake_platform"
@@ -655,7 +655,7 @@ class _FakeAdapter:
         self._side_effect = health_check_side_effect
 
     async def health_check(self):
-        from medre.adapters.base import AdapterCapabilities, AdapterInfo, AdapterRole
+        from medre.core.contracts.adapter import AdapterCapabilities, AdapterInfo, AdapterRole
 
         if self._side_effect is not None:
             raise self._side_effect

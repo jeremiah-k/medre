@@ -11,7 +11,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from medre.adapters.base import AdapterContext
+from medre.core.contracts.adapter import AdapterContext
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.events.bus import EventBus
 from medre.core.planning import FallbackResolver, RelationResolver

@@ -44,8 +44,8 @@ src/medre/
 
 | From | May import | Must not import |
 |------|-----------|-----------------|
-| `operator/` | `runtime.*`, `core.*`, `config.*`, `adapters.base` | Specific adapter SDK modules |
-| `runtime/` | `core.*`, `config.*`, `adapters.base` | `operator.*` |
+| `operator/` | `runtime.*`, `core.*`, `config.*`, `core.contracts.adapter` | Specific adapter SDK modules |
+| `runtime/` | `core.*`, `config.*`, `core.contracts.adapter` | `operator.*` |
 | `core/` | Other `core/*` sub-packages | `operator.*`, `runtime.*`, `adapters.*` |
 
 The critical rule: **`runtime/` and `core/` must never import from `operator/`.**

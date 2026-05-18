@@ -11,11 +11,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from medre.adapters import (
-    AdapterRole,
-    FakePresentationAdapter,
-    FakeTransportAdapter,
-)
+from medre.adapters import FakePresentationAdapter, FakeTransportAdapter
+from medre.core.contracts.adapter import AdapterRole
 from medre.core.events import (
     CanonicalEvent,
     DeliveryReceipt,
@@ -98,7 +95,7 @@ class TestFullPipeline:
             import logging
 
             transport_ctx = type(transport).start.__code__  # just for reference
-            from medre.adapters.base import AdapterContext
+            from medre.core.contracts.adapter import AdapterContext
             import asyncio
 
             t_ctx = AdapterContext(

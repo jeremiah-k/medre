@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, fields
 from typing import Any
 
-from medre.adapters.base import AdapterCapabilities
+from medre.core.contracts.adapter import AdapterCapabilities
 
 
 @dataclass(frozen=True)
@@ -53,7 +53,7 @@ def summarize_adapter_capabilities(
     The projection is deliberately conservative: relation strings only
     become boolean support when they are not ``"unsupported"``.  Newer
     operational capability fields are copied directly from
-    :class:`~medre.adapters.base.AdapterCapabilities`.
+    :class:`~medre.core.contracts.adapter.AdapterCapabilities`.
     """
     return TransportCapabilities(
         supports_direct_messages=capabilities.direct_messages,

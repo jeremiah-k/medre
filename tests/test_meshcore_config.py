@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import pytest
 
-from medre.adapters.meshcore.config import MeshCoreConfig
-from medre.adapters.meshcore.errors import MeshCoreConfigError
+from medre.config.adapters.meshcore import MeshCoreConfig
+from medre.config.adapters.errors import MeshCoreConfigError
 
 
 class TestMeshCoreConfigValid:
@@ -158,10 +158,9 @@ class TestMeshCoreConfigInvalid:
         with pytest.raises(ValueError):
             config.validate()
 
-    def test_config_error_is_meshcore_error(self) -> None:
-        from medre.adapters.meshcore.errors import MeshCoreError
+    def test_config_error_is_value_error(self) -> None:
         config = MeshCoreConfig(adapter_id="")
-        with pytest.raises(MeshCoreError):
+        with pytest.raises(ValueError):
             config.validate()
 
     def test_zero_sync_timeout_raises(self) -> None:

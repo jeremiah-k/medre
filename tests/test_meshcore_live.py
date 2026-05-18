@@ -162,7 +162,7 @@ require_live = pytest.mark.skipif(
 # ---------------------------------------------------------------------------
 def _make_config():
     """Build a MeshCoreConfig from the live environment variables."""
-    from medre.adapters.meshcore.config import MeshCoreConfig
+    from medre.config.adapters.meshcore import MeshCoreConfig
 
     ct = MESHCORE_CONNECTION_TYPE
     if ct == "tcp":
@@ -194,7 +194,7 @@ def _make_config():
 
 def _make_context():
     """Build an AdapterContext suitable for live smoke tests."""
-    from medre.adapters.base import AdapterContext
+    from medre.core.contracts.adapter import AdapterContext
 
     return AdapterContext(
         adapter_id="meshcore-live-smoke",

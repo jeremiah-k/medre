@@ -11,7 +11,7 @@ import pytest
 from datetime import datetime, timezone
 
 from medre.adapters.matrix.codec import MatrixCodec
-from medre.adapters.matrix.config import MatrixConfig
+from medre.config.adapters.matrix import MatrixConfig
 from medre.adapters.matrix.errors import MatrixCodecError
 from medre.core.events.kinds import EventKind
 
@@ -82,7 +82,7 @@ class TestMatrixCodec:
         )
 
     def test_decode_defaults_missing_msgtype_to_text(self) -> None:
-        """Malformed/legacy Matrix content should not produce schema-noisy payloads."""
+        """Malformed Matrix content should not produce schema-noisy payloads."""
         codec = MatrixCodec("matrix-1", _make_config())
         native = _make_native_event(body="hello", content={"body": "hello"})
 

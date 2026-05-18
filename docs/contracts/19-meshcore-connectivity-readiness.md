@@ -454,7 +454,7 @@ BLE supports optional PIN pairing. How this interacts with MeshCore's Ed25519 id
 | Component | File | Status |
 |-----------|------|--------|
 | Adapter | `adapters/meshcore/adapter.py` | Scaffold. `start()` raises `MeshCoreConnectionError` for non-fake types. `deliver()` returns `None`. |
-| Config | `adapters/meshcore/config.py` | Complete. Supports `fake`, `tcp`, `serial`, `ble` connection types. Has `host`, `port`, `serial_port`, `default_channel` fields. |
+| Config | `medre/config/adapters/meshcore.py` | Complete. Supports `fake`, `tcp`, `serial`, `ble` connection types. Has `host`, `port`, `serial_port`, `default_channel` fields. |
 | Codec | `adapters/meshcore/codec.py` | Scaffold. Converts MeshCore-shaped event dicts to `CanonicalEvent`. |
 | Classifier | `adapters/meshcore/packet_classifier.py` | Scaffold. Classifies by event type, detects ACKs. |
 | Renderer | `adapters/meshcore/renderer.py` | Scaffold. Builds payloads for outbound. |

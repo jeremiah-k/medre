@@ -30,7 +30,7 @@ This is a contract document. No runtime redesign, adapter abstraction, or new de
 
 ## 3. AdapterDeliveryResult Definition
 
-Location: `src/medre/adapters/base.py`
+Location: `src/medre/core/contracts/adapter.py`
 
 ```python
 @dataclass(frozen=True)

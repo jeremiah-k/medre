@@ -10,10 +10,10 @@ from datetime import datetime, timezone
 
 import pytest
 
-from medre.adapters import AdapterRole, FakeLxmfAdapter
-from medre.adapters.base import AdapterContext, AdapterDeliveryResult, AdapterPermanentError, AdapterSendError
+from medre.adapters import FakeLxmfAdapter
+from medre.core.contracts.adapter import AdapterContext, AdapterDeliveryResult, AdapterPermanentError, AdapterRole, AdapterSendError
 from medre.adapters.lxmf.adapter import LxmfAdapter
-from medre.adapters.lxmf.config import LxmfConfig
+from medre.config.adapters.lxmf import LxmfConfig
 from medre.adapters.lxmf.compat import HAS_LXMF
 from medre.adapters.lxmf.errors import LxmfConnectionError
 from medre.core.events import CanonicalEvent, EventMetadata

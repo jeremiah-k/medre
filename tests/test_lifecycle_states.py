@@ -26,7 +26,7 @@ from medre.core.runtime.supervision import (
     RuntimeHealth,
     classify_runtime_health,
 )
-from medre.adapters.base import (
+from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterInfo,
     AdapterRole,

@@ -37,14 +37,14 @@ from medre.core.events.canonical import (
 from medre.core.events.kinds import EventKind
 from medre.core.rendering.renderer import RenderingResult
 
-from medre.adapters.base import (
+from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
+    AdapterContract,
     AdapterDeliveryResult,
     AdapterInfo,
     AdapterPermanentError,
     AdapterRole,
-    BaseAdapter,
 )
 
 _logger = logging.getLogger(__name__)
@@ -82,7 +82,7 @@ _FAKE_MATRIX_CAPABILITIES = AdapterCapabilities(
 )
 
 
-class FakeMatrixAdapter(BaseAdapter):
+class FakeMatrixAdapter(AdapterContract):
     """Simulated Matrix presentation adapter for testing.
 
     **Rendering Boundary**: this adapter consumes :class:`RenderingResult`

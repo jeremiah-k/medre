@@ -207,8 +207,8 @@ class TestDuplicateAdapters:
 
     def test_duplicate_adapter_id_across_transports(self) -> None:
         """AdapterConfigSet.validate() rejects duplicate adapter IDs."""
-        from medre.adapters.matrix.config import MatrixConfig
-        from medre.adapters.meshtastic.config import MeshtasticConfig
+        from medre.config.adapters.matrix import MatrixConfig
+        from medre.config.adapters.meshtastic import MeshtasticConfig
 
         matrix_cfg = MatrixConfig(
             adapter_id="shared_id",
@@ -276,7 +276,7 @@ class TestStartupPartialFailure:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Enabled real adapter with missing SDK produces AdapterBuildFailure."""
-        from medre.adapters.matrix.config import MatrixConfig
+        from medre.config.adapters.matrix import MatrixConfig
 
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
         paths = resolve()

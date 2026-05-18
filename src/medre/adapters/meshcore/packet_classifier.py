@@ -30,7 +30,7 @@ class MeshCorePacketClassifier:
     Parameters
     ----------
     config:
-        Optional :class:`~medre.adapters.meshcore.config.MeshCoreConfig`
+        Optional :class:`~medre.config.adapters.meshcore.MeshCoreConfig`
         for channel mapping lookups (unused in tranche 1).
     """
 

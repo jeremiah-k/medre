@@ -10,8 +10,6 @@ Public symbols
   itself.
 * :class:`~medre.adapters.meshtastic.session.MeshtasticSession` — session
   lifecycle boundary owning raw transport.
-* :class:`~medre.adapters.meshtastic.config.MeshtasticConfig` — configuration
-  dataclass.
 * :class:`~medre.adapters.meshtastic.codec.MeshtasticCodec` — decode helper.
 * :class:`~medre.adapters.meshtastic.renderer.MeshtasticRenderer` — platform
   renderer for Meshtastic content payloads.
@@ -24,17 +22,14 @@ Public symbols
 * Exception hierarchy: :class:`~medre.adapters.meshtastic.errors.MeshtasticError`,
   :class:`~medre.adapters.meshtastic.errors.MeshtasticConnectionError`,
   :class:`~medre.adapters.meshtastic.errors.MeshtasticSendError`,
-  :class:`~medre.adapters.meshtastic.errors.MeshtasticConfigError`,
   :class:`~medre.adapters.meshtastic.errors.MeshtasticCodecError`,
   :class:`~medre.adapters.meshtastic.errors.MeshtasticPacketError`.
 """
 
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.adapters.meshtastic.codec import MeshtasticCodec
-from medre.adapters.meshtastic.config import MeshtasticConfig
 from medre.adapters.meshtastic.errors import (
     MeshtasticCodecError,
-    MeshtasticConfigError,
     MeshtasticConnectionError,
     MeshtasticError,
     MeshtasticPacketError,
@@ -54,8 +49,6 @@ __all__ = [
     "MeshtasticAdapter",
     "MeshtasticCodec",
     "MeshtasticCodecError",
-    "MeshtasticConfig",
-    "MeshtasticConfigError",
     "MeshtasticConnectionError",
     "MeshtasticError",
     "MeshtasticPacketClassifier",

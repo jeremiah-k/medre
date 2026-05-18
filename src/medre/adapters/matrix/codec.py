@@ -1,6 +1,6 @@
 """Matrix adapter codec for converting native events to canonical events.
 
-:class:`MatrixCodec` implements the :class:`~medre.adapters.base.AdapterCodec`
+:class:`MatrixCodec` implements the :class:`~medre.core.contracts.adapter.AdapterCodec`
 interface, converting nio-agnostic event objects into
 :class:`~medre.core.events.canonical.CanonicalEvent` instances.
 
@@ -19,7 +19,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from medre.adapters.base import AdapterCodec
+from medre.core.contracts.adapter import AdapterCodec
 from medre.adapters.matrix.errors import MatrixCodecError
 from medre.adapters.matrix.relations import extract_reply_target
 from medre.core.events.canonical import CanonicalEvent, EventRelation, NativeRef
@@ -35,7 +35,7 @@ class MatrixCodec(AdapterCodec):
     adapter_id:
         Identifier of the owning adapter (used for ``source_adapter``).
     config:
-        The :class:`~medre.adapters.matrix.config.MatrixConfig` instance.
+        The :class:`~medre.config.adapters.matrix.MatrixConfig` instance.
     """
 
     def __init__(self, adapter_id: str, config: Any) -> None:

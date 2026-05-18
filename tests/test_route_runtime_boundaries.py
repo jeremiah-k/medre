@@ -656,18 +656,18 @@ class TestAttributionLeakageBoundary:
     def test_adapter_base_does_not_reference_route_trace(
         self,
     ) -> None:
-        """medre.adapters.base must not reference route_trace attribution."""
-        mod = _load_module("medre.adapters.base")
+        """medre.core.contracts.adapter must not reference route_trace attribution."""
+        mod = _load_module("medre.core.contracts.adapter")
         if mod is None:
-            pytest.skip("medre.adapters.base not importable")
+            pytest.skip("medre.core.contracts.adapter not importable")
         source = _read_module_source(mod)
         # Only check import lines — the word may appear in docstrings.
         for line in _import_lines(source):
             assert "route_trace" not in line, (
-                f"adapters.base references route_trace in: {line!r}"
+                f"core.contracts.adapter references route_trace in: {line!r}"
             )
             assert "route_attribution" not in line, (
-                f"adapters.base references route_attribution in: {line!r}"
+                f"core.contracts.adapter references route_attribution in: {line!r}"
             )
 
     def test_adapter_delivery_result_does_not_carry_route_id(
@@ -678,11 +678,11 @@ class TestAttributionLeakageBoundary:
         Route attribution is added by the pipeline on DeliveryReceipt and
         DeliveryOutcome, not on AdapterDeliveryResult returned by adapters.
         """
-        mod = _load_module("medre.adapters.base")
+        mod = _load_module("medre.core.contracts.adapter")
         if mod is None:
-            pytest.skip("medre.adapters.base not importable")
+            pytest.skip("medre.core.contracts.adapter not importable")
         assert hasattr(mod, "AdapterDeliveryResult"), (
-            "medre.adapters.base has no AdapterDeliveryResult"
+            "medre.core.contracts.adapter has no AdapterDeliveryResult"
         )
         result = mod.AdapterDeliveryResult()
         assert not hasattr(result, "route_id"), (

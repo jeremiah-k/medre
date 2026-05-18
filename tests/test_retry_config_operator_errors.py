@@ -307,7 +307,7 @@ class TestMissingAdapterRetryClassification:
     def test_classify_missing_adapter_overrides_adapter_error(self) -> None:
         """AdapterSendError with transient=True is still ADAPTER_MISSING
         when adapter is not registered."""
-        from medre.adapters.base import AdapterSendError
+        from medre.core.contracts.adapter import AdapterSendError
         kind = RetryExecutor.classify_failure(
             AdapterSendError("gone", transient=True),
             adapter_registered=False,

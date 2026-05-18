@@ -29,18 +29,18 @@ import logging
 from types import MappingProxyType
 from typing import Any
 
-from medre.adapters.base import (
+from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
+    AdapterContract,
     AdapterDeliveryResult,
     AdapterInfo,
     AdapterPermanentError,
     AdapterRole,
     AdapterSendError,
-    BaseAdapter,
 )
 from medre.adapters.meshcore.codec import MeshCoreCodec
-from medre.adapters.meshcore.config import MeshCoreConfig
+from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.adapters.meshcore.packet_classifier import MeshCorePacketClassifier
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.rendering.renderer import RenderingResult
@@ -141,7 +141,7 @@ _FAKE_MESHCORE_CAPABILITIES = AdapterCapabilities(
 )
 
 
-class FakeMeshCoreAdapter(BaseAdapter):
+class FakeMeshCoreAdapter(AdapterContract):
     """Simulated MeshCore transport adapter for testing.
 
     **Rendering Boundary**: this adapter consumes :class:`RenderingResult`

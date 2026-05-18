@@ -724,7 +724,7 @@ class TestBuilderIntegration:
             monkeypatch.delenv(var, raising=False)
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
 
-        from medre.adapters.meshtastic.config import MeshtasticConfig
+        from medre.config.adapters.meshtastic import MeshtasticConfig
         from medre.config.model import (
             AdapterConfigSet,
             LoggingConfig,

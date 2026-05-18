@@ -33,7 +33,7 @@ class MeshtasticCodec:
     adapter_id:
         Identifier of the owning adapter (used for ``source_adapter``).
     config:
-        The :class:`~medre.adapters.meshtastic.config.MeshtasticConfig`.
+        The :class:`~medre.config.adapters.meshtastic.MeshtasticConfig`.
     """
 
     def __init__(self, adapter_id: str, config: Any) -> None:

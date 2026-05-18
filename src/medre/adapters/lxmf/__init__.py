@@ -8,8 +8,6 @@ Public symbols
 --------------
 * :class:`~medre.adapters.lxmf.adapter.LxmfAdapter` — the adapter
   itself.
-* :class:`~medre.adapters.lxmf.config.LxmfConfig` — configuration
-  dataclass.
 * :class:`~medre.adapters.lxmf.codec.LxmfCodec` — decode helper.
 * :class:`~medre.adapters.lxmf.renderer.LxmfRenderer` — platform
   renderer for LXMF content payloads.
@@ -20,7 +18,6 @@ Public symbols
 * Exception hierarchy: :class:`~medre.adapters.lxmf.errors.LxmfError`,
   :class:`~medre.adapters.lxmf.errors.LxmfConnectionError`,
   :class:`~medre.adapters.lxmf.errors.LxmfSendError`,
-  :class:`~medre.adapters.lxmf.errors.LxmfConfigError`,
   :class:`~medre.adapters.lxmf.errors.LxmfCodecError`,
   :class:`~medre.adapters.lxmf.errors.LxmfPacketError`.
 """
@@ -28,10 +25,8 @@ Public symbols
 from medre.adapters.lxmf.adapter import LxmfAdapter
 from medre.adapters.lxmf.codec import LxmfCodec
 from medre.adapters.lxmf.compat import HAS_LXMF
-from medre.adapters.lxmf.config import LxmfConfig
 from medre.adapters.lxmf.errors import (
     LxmfCodecError,
-    LxmfConfigError,
     LxmfConnectionError,
     LxmfError,
     LxmfPacketError,
@@ -52,8 +47,6 @@ __all__ = [
     "LxmfAdapter",
     "LxmfCodec",
     "LxmfCodecError",
-    "LxmfConfig",
-    "LxmfConfigError",
     "LxmfConnectionError",
     "LxmfDeliveryState",
     "LxmfError",

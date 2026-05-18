@@ -42,7 +42,7 @@ _ADAPTER_PREFIXES = (
     "medre.adapters.meshcore",
     "medre.adapters.lxmf",
 )
-"""Concrete adapter package prefixes (excludes medre.adapters.base and fake_*)."""
+"""Concrete adapter package prefixes (excludes medre.core.contracts.adapter and fake_*)."""
 
 _RUNTIME_PREFIXES = (
     "medre.runtime.app",
@@ -58,7 +58,7 @@ _RUNTIME_PREFIXES = (
 """Runtime module prefixes that storage should not depend on."""
 
 _ADAPTER_LIFECYCLE_PREFIXES = (
-    "medre.adapters.base",
+    "medre.core.contracts.adapter",
     "medre.core.lifecycle",
 )
 """Adapter lifecycle modules that replay should not own."""
@@ -159,7 +159,7 @@ class TestDiagnosticsNoTransportSdk:
 class TestSnapshotNoDirectAdapterImport:
     """runtime/snapshot.py must not directly import concrete adapter packages.
 
-    It may import from ``medre.adapters.base`` (protocol types) but must
+    It may import from ``medre.core.contracts.adapter`` (protocol types) but must
     not import from ``medre.adapters.matrix``, ``medre.adapters.meshtastic``,
     etc.
     """
@@ -262,7 +262,7 @@ class TestReplayNoAdapterLifecycleOwnership:
             "adapter.stop",
             ".start()",
             ".stop()",
-            "BaseAdapter",
+            "AdapterContract",
             "AdapterContext",
         ]
         violations: list[str] = []

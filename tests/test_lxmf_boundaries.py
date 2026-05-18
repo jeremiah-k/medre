@@ -25,9 +25,9 @@ from datetime import datetime, timezone
 
 import pytest
 
-from medre.adapters.base import AdapterPermanentError, AdapterSendError
+from medre.core.contracts.adapter import AdapterPermanentError, AdapterSendError
 from medre.adapters.fake_lxmf import FakeLxmfAdapter
-from medre.adapters.lxmf.config import LxmfConfig
+from medre.config.adapters.lxmf import LxmfConfig
 from medre.adapters.lxmf.codec import LxmfCodec
 from medre.adapters.lxmf.renderer import LxmfRenderer
 from medre.adapters.lxmf.adapter import LxmfAdapter
@@ -508,7 +508,7 @@ class TestLxmfFailedDelivery:
 
     async def test_fake_adapter_failure_raises_and_no_native_ref(self) -> None:
         """Fake adapter failure raises AdapterSendError, no native ref persisted."""
-        from medre.adapters.base import AdapterSendError
+        from medre.core.contracts.adapter import AdapterSendError
 
         adapter = FakeLxmfAdapter()
         adapter.set_deliver_failure(True)

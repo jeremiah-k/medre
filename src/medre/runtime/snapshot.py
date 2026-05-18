@@ -279,10 +279,10 @@ def _monotonic_now() -> float:
 
 
 def _snapshot_adapter(adapter: Any) -> dict[str, Any]:
-    """Extract JSON-safe adapter metadata from a :class:`BaseAdapter`.
+    """Extract JSON-safe adapter metadata from a :class:`AdapterContract`.
 
     Reads only static attributes; does **not** call
-    :meth:`~medre.adapters.base.BaseAdapter.health_check` (which is async).
+    :meth:`~medre.core.contracts.adapter.AdapterContract.health_check` (which is async).
 
     Each adapter entry includes a ``provenance`` field set to ``"startup"``,
     indicating that adapter metadata (including ``health``) is captured during

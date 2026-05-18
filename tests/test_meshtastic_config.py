@@ -6,8 +6,8 @@ from __future__ import annotations
 
 import pytest
 
-from medre.adapters.meshtastic.config import MeshtasticConfig
-from medre.adapters.meshtastic.errors import MeshtasticConfigError
+from medre.config.adapters.meshtastic import MeshtasticConfig
+from medre.config.adapters.errors import MeshtasticConfigError
 
 
 class TestMeshtasticConfigValid:
@@ -123,10 +123,9 @@ class TestMeshtasticConfigInvalid:
         with pytest.raises(ValueError):
             config.validate()
 
-    def test_config_error_is_meshtastic_error(self) -> None:
-        from medre.adapters.meshtastic.errors import MeshtasticError
+    def test_config_error_is_value_error(self) -> None:
         config = MeshtasticConfig(adapter_id="")
-        with pytest.raises(MeshtasticError):
+        with pytest.raises(ValueError):
             config.validate()
 
     def test_ble_without_address_raises(self) -> None:

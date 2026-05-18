@@ -27,7 +27,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, Self
 
-from medre.adapters.lxmf.errors import LxmfConfigError
+from medre.config.adapters.errors import LxmfConfigError
+
+__all__ = ["LxmfConfig"]
+
 
 # Allowed connection_type values.
 _ALLOWED_CONNECTION_TYPES: frozenset[str] = frozenset({"fake", "reticulum"})

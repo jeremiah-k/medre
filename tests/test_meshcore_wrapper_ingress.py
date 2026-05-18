@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from medre.adapters.fake_matrix import FakeMatrixAdapter
 from medre.adapters.meshcore.adapter import MeshCoreAdapter
-from medre.adapters.meshcore.config import MeshCoreConfig
+from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.rendering.renderer import RenderingPipeline, RenderingResult
 from medre.core.rendering.text import TextRenderer

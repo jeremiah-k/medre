@@ -89,7 +89,7 @@ require_meshtastic = pytest.mark.skipif(
 
 def _make_matrix_context():
     """Build an AdapterContext for the Matrix side of the live bridge."""
-    from medre.adapters.base import AdapterContext
+    from medre.core.contracts.adapter import AdapterContext
 
     return AdapterContext(
         adapter_id="matrix",
@@ -103,7 +103,7 @@ def _make_matrix_context():
 
 def _make_meshtastic_context():
     """Build an AdapterContext for the Meshtastic side of the live bridge."""
-    from medre.adapters.base import AdapterContext
+    from medre.core.contracts.adapter import AdapterContext
 
     return AdapterContext(
         adapter_id="radio",

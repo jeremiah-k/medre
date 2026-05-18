@@ -21,15 +21,15 @@ from typing import Any
 
 import pytest
 
-from medre.adapters.base import AdapterContext
+from medre.core.contracts.adapter import AdapterContext
 from medre.adapters.matrix.adapter import MatrixAdapter
-from medre.adapters.matrix.config import MatrixConfig
+from medre.config.adapters.matrix import MatrixConfig
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
-from medre.adapters.meshtastic.config import MeshtasticConfig
+from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.adapters.meshcore.adapter import MeshCoreAdapter
-from medre.adapters.meshcore.config import MeshCoreConfig
+from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.adapters.lxmf.adapter import LxmfAdapter
-from medre.adapters.lxmf.config import LxmfConfig
+from medre.config.adapters.lxmf import LxmfConfig
 
 from tests.helpers.bridge import make_meshcore_packet, make_text_packet
 from tests.helpers.matrix import make_matrix_config, make_nio_event, make_nio_room

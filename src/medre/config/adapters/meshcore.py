@@ -28,7 +28,10 @@ import re
 from dataclasses import dataclass, field
 from typing import Literal, Self
 
-from medre.adapters.meshcore.errors import MeshCoreConfigError
+from medre.config.adapters.errors import MeshCoreConfigError
+
+__all__ = ["MeshCoreConfig"]
+
 
 # Hex-like string: at least one hex character (used for pubkey validation).
 _HEX_RE = re.compile(r"^[0-9a-fA-F]+$")

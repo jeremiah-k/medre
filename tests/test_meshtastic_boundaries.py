@@ -23,9 +23,9 @@ from datetime import datetime, timezone
 
 import pytest
 
-from medre.adapters.base import AdapterPermanentError, AdapterSendError
+from medre.core.contracts.adapter import AdapterPermanentError, AdapterSendError
 from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
-from medre.adapters.meshtastic.config import MeshtasticConfig
+from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.adapters.meshtastic.codec import MeshtasticCodec
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
@@ -403,7 +403,7 @@ class TestMeshtasticFailedDelivery:
 
     async def test_fake_adapter_failure_raises_and_no_native_ref(self) -> None:
         """Fake adapter failure raises AdapterSendError, no native ref persisted."""
-        from medre.adapters.base import AdapterSendError
+        from medre.core.contracts.adapter import AdapterSendError
 
         adapter = FakeMeshtasticAdapter()
         adapter.set_deliver_failure(True)

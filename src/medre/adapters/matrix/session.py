@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Callable, Literal
 
 from medre.adapters.matrix import compat as _compat_mod
-from medre.adapters.matrix.config import MatrixConfig
+from medre.config.adapters.matrix import MatrixConfig
 from medre.adapters.matrix.errors import MatrixConnectionError
 
 _logger = logging.getLogger(__name__)
@@ -87,7 +87,7 @@ class MatrixSession:
     Parameters
     ----------
     config:
-        Validated :class:`~medre.adapters.matrix.config.MatrixConfig`.
+        Validated :class:`~medre.config.adapters.matrix.MatrixConfig`.
     message_callback:
         Callback for inbound decrypted text events.
     logger:

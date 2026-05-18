@@ -9,7 +9,6 @@ Hierarchy::
     LxmfError
     ├── LxmfConnectionError — connection failures
     ├── LxmfSendError       — message send failures
-    ├── LxmfConfigError     — invalid configuration (also ValueError)
     ├── LxmfCodecError      — encode / decode failures
     └── LxmfPacketError     — malformed or unparseable packets
 """
@@ -40,15 +39,6 @@ class LxmfSendError(LxmfError):
     def __init__(self, *args: object, transient: bool = True) -> None:
         self.transient = transient
         super().__init__(*args)
-
-
-class LxmfConfigError(LxmfError, ValueError):
-    """Raised when the LXMF configuration is invalid.
-
-    Inherits from both :class:`LxmfError` and :class:`ValueError` so
-    that it is caught by either ``except LxmfError`` or
-    ``except ValueError``.
-    """
 
 
 class LxmfCodecError(LxmfError):

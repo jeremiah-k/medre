@@ -49,7 +49,7 @@ You do not need Docker for basic alpha operation. Docker guidance is in section 
 Fake mode is the default development and testing path.
 
 ```python
-from medre.adapters.lxmf.config import LxmfConfig
+from medre.config.adapters.lxmf import LxmfConfig
 from medre.adapters.lxmf.adapter import LxmfAdapter
 
 config = LxmfConfig(

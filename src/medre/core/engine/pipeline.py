@@ -31,11 +31,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Callable, Awaitable, Literal
 
-from medre.adapters.base import (
+from medre.core.contracts.adapter import (
     AdapterCapabilities,
+    AdapterContract,
     AdapterDeliveryResult,
     AdapterSendError,
-    BaseAdapter,
 )
 from medre.core.events.canonical import (
     CanonicalEvent,
@@ -118,7 +118,7 @@ class PipelineConfig:
     router: Router
     fallback_resolver: FallbackResolver
     relation_resolver: RelationResolver
-    adapters: dict[str, BaseAdapter]
+    adapters: dict[str, AdapterContract]
     event_bus: EventBus
     rendering_pipeline: RenderingPipeline | None = None
     diagnostician: Diagnostician | None = None

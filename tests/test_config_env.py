@@ -23,7 +23,7 @@ from medre.config.model import (
     RuntimeOptions,
     StorageConfig,
 )
-from medre.adapters.matrix.config import MatrixConfig
+from medre.config.adapters.matrix import MatrixConfig
 
 
 # ---------------------------------------------------------------------------

@@ -203,9 +203,9 @@ The following boundaries are enforced by tests:
 
 | Module | Must NOT import | May import |
 |--------|----------------|------------|
-| `medre.core.runtime.supervision` | Transport SDKs (`nio`, `meshtastic`, `meshcore`, `RNS`, `lxmf`), concrete adapter packages | `medre.core.lifecycle.states`, `medre.adapters.base` (protocol types only) |
+| `medre.core.runtime.supervision` | Transport SDKs (`nio`, `meshtastic`, `meshcore`, `RNS`, `lxmf`), concrete adapter packages | `medre.core.lifecycle.states`, `medre.core.contracts.adapter` (protocol types only) |
 | `medre.core.runtime.diagnostics` | Transport SDKs, concrete adapter packages | `medre.core.runtime.health`, `medre.core.runtime.supervision` |
-| `medre.core.runtime.health` | Transport SDKs, concrete adapter packages | `medre.adapters.base` (protocol types), `medre.core.lifecycle.states` |
+| `medre.core.runtime.health` | Transport SDKs, concrete adapter packages | `medre.core.contracts.adapter` (protocol types), `medre.core.lifecycle.states` |
 | Snapshot code | Transport SDKs, concrete adapter packages | Runtime core modules only |
 | Accounting code | Transport SDKs, concrete adapter packages | Runtime core modules only |
 | Persistence contract | Transport SDKs, concrete adapter packages | Runtime core modules only |

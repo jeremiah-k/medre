@@ -45,7 +45,7 @@ namespace, stripping SDK-specific structures before emitting canonical events.
 Connection Modes
 ----------------
 The session supports four connection types via
-:class:`~medre.adapters.meshcore.config.MeshCoreConfig`:
+:class:`~medre.config.adapters.meshcore.MeshCoreConfig`:
 
 ``"fake"``
     No real SDK client.  Used for unit tests without hardware.
@@ -89,7 +89,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Coroutine, Protocol, cast
 
 from medre.adapters.meshcore.compat import HAS_MESHCORE
-from medre.adapters.meshcore.config import MeshCoreConfig
+from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.adapters.meshcore.errors import (
     MeshCoreConnectionError,
     MeshCoreSendError,
@@ -152,7 +152,7 @@ class MeshCoreSession:
     Parameters
     ----------
     config:
-        Validated :class:`~medre.adapters.meshcore.config.MeshCoreConfig`.
+        Validated :class:`~medre.config.adapters.meshcore.MeshCoreConfig`.
     adapter_id:
         Identifier of the owning adapter (for logging).
     platform:

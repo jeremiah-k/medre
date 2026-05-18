@@ -1,19 +1,15 @@
-"""Adapter framework for the medre.
+"""Concrete and fake adapter implementations.
 
-This package defines the adapter abstraction layer that bridges the
-framework's canonical event model with external transports and
-presentation platforms.
+This package contains concrete transport/presentation adapter implementations
+and simulated test doubles (fake adapters).  The adapter abstraction layer
+(contract types) lives in ``medre.core.contracts.adapter``.
 
 Quick-start imports::
 
-    from medre.adapters import BaseAdapter, AdapterRole
     from medre.adapters import FakeTransportAdapter, FakeMatrixAdapter
 
 Re-exported symbols
 -------------------
-* From :mod:`~medre.adapters.base`:
-  ``AdapterCapabilities``, ``AdapterCodec``, ``AdapterContext``,
-  ``AdapterInfo``, ``AdapterRole``, ``BaseAdapter``.
 * From :mod:`~medre.adapters.fake_transport`:
   ``FakeTransportAdapter``.
 * From :mod:`~medre.adapters.fake_presentation`:
@@ -28,17 +24,6 @@ Re-exported symbols
   ``FakeLxmfAdapter``.
 """
 
-from medre.adapters.base import (
-    AdapterCapabilities,
-    AdapterCodec,
-    AdapterContext,
-    AdapterDeliveryResult,
-    AdapterInfo,
-    AdapterPermanentError,
-    AdapterRole,
-    AdapterSendError,
-    BaseAdapter,
-)
 from medre.adapters.fake_lxmf import FakeLxmfAdapter
 from medre.adapters.fake_matrix import FakeMatrixAdapter
 from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
@@ -50,16 +35,6 @@ from medre.adapters.fake_presentation import (
 from medre.adapters.fake_transport import FakeTransportAdapter
 
 __all__ = [
-    # base
-    "AdapterCapabilities",
-    "AdapterCodec",
-    "AdapterContext",
-    "AdapterDeliveryResult",
-    "AdapterInfo",
-    "AdapterPermanentError",
-    "AdapterRole",
-    "AdapterSendError",
-    "BaseAdapter",
     # fake adapters
     "FakeLxmfAdapter",
     "FakeMatrixAdapter",

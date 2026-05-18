@@ -1,6 +1,6 @@
 """Protocol-neutral adapter health normalization.
 
-Provides a pure helper that projects :class:`~medre.adapters.base.AdapterInfo`
+Provides a pure helper that projects :class:`~medre.core.contracts.adapter.AdapterInfo`
 and optional :class:`~medre.core.lifecycle.states.AdapterState` into a
 JSON-safe diagnostic dictionary with a fixed health vocabulary.
 
@@ -30,7 +30,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from medre.adapters.base import AdapterInfo
+from medre.core.contracts.adapter import AdapterInfo
 from medre.core.lifecycle.states import AdapterState
 from medre.core.runtime.capabilities import serialize_adapter_capabilities
 
@@ -175,8 +175,8 @@ def normalize_adapter_health(
 ) -> dict[str, Any]:
     """Normalize adapter health into a JSON-safe diagnostic dictionary.
 
-    Accepts an :class:`~medre.adapters.base.AdapterInfo` (the canonical
-    output of :meth:`~medre.adapters.base.BaseAdapter.health_check`) and
+    Accepts an :class:`~medre.core.contracts.adapter.AdapterInfo` (the canonical
+    output of :meth:`~medre.core.contracts.adapter.AdapterContract.health_check`) and
     optional lifecycle state or adapter reference, and returns a flat
     dictionary suitable for structured logging.
 
@@ -184,7 +184,7 @@ def normalize_adapter_health(
     ----------
     info:
         Fresh health snapshot from
-        :meth:`~medre.adapters.base.BaseAdapter.health_check`.
+        :meth:`~medre.core.contracts.adapter.AdapterContract.health_check`.
     lifecycle_state:
         Optional lifecycle state from
         :class:`~medre.core.lifecycle.states.AdapterState`.  When the
@@ -209,7 +209,7 @@ def normalize_adapter_health(
         * ``health`` – one of :data:`VALID_HEALTH_STRINGS`.
         * ``fake_or_live`` – ``"fake"``, ``"live"``, or ``"unknown"``.
         * ``capabilities`` – deterministic, JSON-safe capability summary
-          projected from :class:`~medre.adapters.base.AdapterCapabilities`.
+          projected from :class:`~medre.core.contracts.adapter.AdapterCapabilities`.
           Contains only boolean, integer, and ``None`` values; no private
           state or transport objects.
         * ``details`` – dict with version, raw health strings, and any
@@ -263,7 +263,7 @@ class AdapterLiveHealth:
 
     Lightweight, JSON-safe, frozen dataclass.  No SDK objects, no secrets.
     Constructed by the runtime during ``refresh_live_health()`` by calling
-    :meth:`~medre.adapters.base.BaseAdapter.health_check` and normalizing
+    :meth:`~medre.core.contracts.adapter.AdapterContract.health_check` and normalizing
     through :func:`normalize_adapter_health`.
 
     Per-adapter failures during refresh are isolated — a failure on one

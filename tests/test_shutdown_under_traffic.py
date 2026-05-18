@@ -16,7 +16,7 @@ from typing import Any, AsyncGenerator, cast
 
 import pytest
 
-from medre.adapters.base import AdapterContext
+from medre.core.contracts.adapter import AdapterContext
 from medre.adapters.fake_presentation import FakePresentationAdapter
 from medre.adapters.fake_transport import FakeTransportAdapter
 from medre.config.model import RuntimeLimits

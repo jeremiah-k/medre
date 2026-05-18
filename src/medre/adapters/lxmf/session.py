@@ -128,7 +128,7 @@ from enum import Enum
 from typing import Any, Callable
 
 from medre.adapters.lxmf.compat import HAS_LXMF, _require_lxmf
-from medre.adapters.lxmf.config import LxmfConfig
+from medre.config.adapters.lxmf import LxmfConfig
 from medre.adapters.lxmf.errors import (
     LxmfConnectionError,
     LxmfSendError,
@@ -368,7 +368,7 @@ class LxmfSession:
     Parameters
     ----------
     config:
-        Validated :class:`~medre.adapters.lxmf.config.LxmfConfig`.
+        Validated :class:`~medre.config.adapters.lxmf.LxmfConfig`.
     adapter_id:
         Identifier of the owning adapter (for logging).
     platform:

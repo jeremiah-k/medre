@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 
 from medre.adapters.fake_matrix import FakeMatrixAdapter
 from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
-from medre.adapters.meshtastic.config import MeshtasticConfig
+from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.events.kinds import EventKind

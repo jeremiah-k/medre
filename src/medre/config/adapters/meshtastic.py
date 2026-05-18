@@ -10,7 +10,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal, Self
 
-from medre.adapters.meshtastic.errors import MeshtasticConfigError
+from medre.config.adapters.errors import MeshtasticConfigError
+
+__all__ = ["MeshtasticConfig"]
 
 
 @dataclass(frozen=True)

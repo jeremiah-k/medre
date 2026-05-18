@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 import pytest
 
 from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
-from medre.adapters.meshcore.config import MeshCoreConfig
+from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.adapters.meshcore.renderer import MeshCoreRenderer
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.events.bus import EventBus
@@ -107,7 +107,7 @@ def _make_adapter_context_for_pipeline(
     adapter_id: str, runner: PipelineRunner
 ) -> Any:
     """Create an AdapterContext wired to a PipelineRunner's ingress handler."""
-    from medre.adapters.base import AdapterContext
+    from medre.core.contracts.adapter import AdapterContext
     return AdapterContext(
         adapter_id=adapter_id,
         event_bus=None,

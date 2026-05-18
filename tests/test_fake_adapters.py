@@ -7,14 +7,8 @@ from __future__ import annotations
 
 import pytest
 
-from medre.adapters import (
-    AdapterCapabilities,
-    AdapterInfo,
-    AdapterRole,
-    FakePresentationAdapter,
-    FakeTransportAdapter,
-)
-from medre.adapters.base import AdapterContext, AdapterPermanentError
+from medre.adapters import FakePresentationAdapter, FakeTransportAdapter
+from medre.core.contracts.adapter import AdapterCapabilities, AdapterContext, AdapterInfo, AdapterPermanentError, AdapterRole
 from medre.core.events import CanonicalEvent, EventMetadata, EventRelation, NativeRef
 from medre.core.events.kinds import EventKind
 from medre.core.rendering.renderer import RenderingResult
@@ -378,16 +372,16 @@ class TestDeliveryContract:
     """Verify the explicit adapter delivery contract."""
 
     async def test_base_adapter_requires_deliver(self) -> None:
-        """BaseAdapter declares deliver as an abstract method."""
-        from medre.adapters.base import BaseAdapter
+        """AdapterContract declares deliver as an abstract method."""
+        from medre.core.contracts.adapter import AdapterContract
 
         # Verify deliver is abstract in the ABC sense.
-        assert hasattr(BaseAdapter, "deliver")
-        assert getattr(BaseAdapter.deliver, "__isabstractmethod__", False) is True
+        assert hasattr(AdapterContract, "deliver")
+        assert getattr(AdapterContract.deliver, "__isabstractmethod__", False) is True
 
     async def test_fake_transport_deliver_stores_rendering_result(self) -> None:
         """FakeTransportAdapter.deliver() stores RenderingResult and returns AdapterDeliveryResult."""
-        from medre.adapters.base import AdapterDeliveryResult
+        from medre.core.contracts.adapter import AdapterDeliveryResult
 
         adapter = FakeTransportAdapter("test_t")
         result = RenderingResult(
@@ -408,7 +402,7 @@ class TestDeliveryContract:
 
     async def test_fake_presentation_deliver_stores_rendering_result(self) -> None:
         """FakePresentationAdapter.deliver(RenderingResult) stores in delivered_payloads."""
-        from medre.adapters.base import AdapterDeliveryResult
+        from medre.core.contracts.adapter import AdapterDeliveryResult
 
         adapter = FakePresentationAdapter("test_p")
         result = RenderingResult(
@@ -452,13 +446,13 @@ class TestDeliveryContract:
 
     async def test_both_fake_adapters_share_delivery_contract(self) -> None:
         """Both fake adapters implement deliver() accepting RenderingResult."""
-        from medre.adapters.base import BaseAdapter
+        from medre.core.contracts.adapter import AdapterContract
 
         transport = FakeTransportAdapter("t")
         presentation = FakePresentationAdapter("p")
-        # Both are BaseAdapter instances with a deliver method
-        assert isinstance(transport, BaseAdapter)
-        assert isinstance(presentation, BaseAdapter)
+        # Both are AdapterContract instances with a deliver method
+        assert isinstance(transport, AdapterContract)
+        assert isinstance(presentation, AdapterContract)
         assert hasattr(transport, "deliver")
         assert hasattr(presentation, "deliver")
         assert callable(transport.deliver)
@@ -658,7 +652,7 @@ class TestFaultyPresentationAdapter:
     async def test_succeed_never_raises(self) -> None:
         """succeed mode never raises and stores payloads."""
         from medre.adapters.fake_presentation import FaultyPresentationAdapter
-        from medre.adapters.base import AdapterDeliveryResult
+        from medre.core.contracts.adapter import AdapterDeliveryResult
 
         adapter = FaultyPresentationAdapter(
             adapter_id="always-ok", failure_mode="succeed",
@@ -680,7 +674,7 @@ class TestFaultyPresentationAdapter:
     async def test_fail_n_then_succeed(self) -> None:
         """fail_n_then_succeed raises for first N calls then succeeds."""
         from medre.adapters.fake_presentation import FaultyPresentationAdapter
-        from medre.adapters.base import AdapterDeliveryResult
+        from medre.core.contracts.adapter import AdapterDeliveryResult
 
         adapter = FaultyPresentationAdapter(
             adapter_id="recover", failure_mode="fail_n_then_succeed", fail_count=3,

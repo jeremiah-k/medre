@@ -30,18 +30,18 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from medre.adapters.base import (
+from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
+    AdapterContract,
     AdapterDeliveryResult,
     AdapterInfo,
     AdapterPermanentError,
     AdapterRole,
     AdapterSendError,
-    BaseAdapter,
 )
 from medre.adapters.meshtastic.codec import MeshtasticCodec
-from medre.adapters.meshtastic.config import MeshtasticConfig
+from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.adapters.meshtastic.packet_classifier import MeshtasticPacketClassifier
 from medre.core.events.canonical import CanonicalEvent, EventMetadata
 from medre.core.events.kinds import EventKind
@@ -143,7 +143,7 @@ _FAKE_MESHTASTIC_CAPABILITIES = AdapterCapabilities(
 )
 
 
-class FakeMeshtasticAdapter(BaseAdapter):
+class FakeMeshtasticAdapter(AdapterContract):
     """Simulated Meshtastic transport adapter for testing.
 
     **Rendering Boundary**: this adapter consumes :class:`RenderingResult`
