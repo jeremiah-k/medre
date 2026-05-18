@@ -138,7 +138,7 @@ The 9 tests not executed in the clean venv are all attributable to missing optio
 1. `test_cli.py::TestDiagnostics` (2 tests) — `medre diagnostics` builds runtime with real adapters; NOT EXECUTED when matrix/meshtastic SDKs unavailable.
 2. `test_meshtastic_adapter.py::TestMeshtasticAdapterConnectionModes` (4 tests) + `TestMeshtasticAdapterQueueOwnership` (1 test) — require `mtjk` SDK; NOT EXECUTED.
 3. `test_packaging_and_install_contract.py::TestPackageMetadata::test_classifiers_include_alpha` — expects `"Development Status :: 3 - Alpha"` but classifiers now say `"4 - Beta"`; NOT EXECUTED (test assertion mismatch with current metadata).
-4. `test_runtime_builder.py::TestMatrixStorePathDerivation::test_store_path_derived_when_unset` — requires `mindroom-nio` SDK; NOT EXECUTED.
+4. `test_runtime_builder_paths.py::TestMatrixStorePathDerivation::test_store_path_derived_when_unset` — requires `mindroom-nio` SDK; NOT EXECUTED.
 
 These exclusions do not indicate bugs in MEDRE core. They are expected exclusions when optional transport SDKs are not installed.
 

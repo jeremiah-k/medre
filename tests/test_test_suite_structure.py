@@ -20,19 +20,8 @@ import pytest
 
 TESTS_DIR = Path(__file__).resolve().parent
 
-# Legacy files that are allowed to exceed 1 500 lines until they are split.
-# Each carries a TODO comment inside.
-OVERSIZED_TEST_ALLOWLIST: dict[str, int] = {
-    "test_canonical_events.py": 1_981,
-    "test_fake_runtime_smoke.py": 1_506,
-    "test_matrix_session.py": 2_243,
-    "test_meshtastic_adapter.py": 1_510,
-    "test_meshtastic_fake_bridge.py": 1_518,
-    "test_runtime_builder.py": 1_517,
-    # Pre-existing files that exceed the limit — allowlisted until split.
-    "test_replay_routing.py": 1_584,
-    "test_storage.py": 2_294,
-}
+# All test files must be <= MAX_LINES. No exemptions.
+OVERSIZED_TEST_ALLOWLIST: dict[str, int] = {}
 
 MAX_LINES = 1_500
 
@@ -52,8 +41,12 @@ DELETED_MONOLITHS = (
 NEW_BRIDGE_OPERATOR_FILES = [
     "test_fake_adapter_ingress_equivalence.py",
     "test_bidirectional_bridge_safety.py",
+    "test_fake_runtime_soak.py",
+    "test_fake_runtime_startup_snapshot.py",
     "test_fanout_source_exclusion.py",
     "test_matrix_wrapper_ingress.py",
+    "test_meshtastic_fake_bridge_errors.py",
+    "test_meshtastic_fake_bridge_session.py",
     "test_meshtastic_wrapper_ingress.py",
     "test_meshcore_wrapper_ingress.py",
     "test_longrun_bidirectional_bridge.py",
@@ -89,14 +82,22 @@ NEW_BRIDGE_OPERATOR_FILES = [
 
 # New helper modules — must not contain broad type: ignore / pyright: ignore.
 HELPER_FILES = [
-    "helpers/bridge.py",
-    "helpers/matrix.py",
+    "helpers/alpha_cli.py",
     "helpers/async_utils.py",
     "helpers/assertions.py",
-    "helpers/replay.py",
+    "helpers/bridge.py",
     "helpers/cli.py",
-    "helpers/alpha_cli.py",
     "helpers/docker_artifacts.py",
+    "helpers/fake_runtime.py",
+    "helpers/matrix.py",
+    "helpers/matrix_session.py",
+    "helpers/meshtastic.py",
+    "helpers/meshtastic_bridge.py",
+    "helpers/replay.py",
+    "helpers/replay_routing.py",
+    "helpers/runtime_builder.py",
+    "helpers/soak.py",
+    "helpers/storage.py",
 ]
 
 
@@ -151,47 +152,17 @@ def _has_fixed_sleep(source: str) -> bool:
 
 
 def test_no_file_exceeds_1500_lines() -> None:
-    """Every test file is ≤ 1 500 lines unless allowlisted."""
+    """Every test file is ≤ 1 500 lines."""
     failures: list[str] = []
     for path in sorted(TESTS_DIR.glob("test_*.py")):
         name = path.name
         lines = _count_lines(path)
-        if name in OVERSIZED_TEST_ALLOWLIST:
-            # Legacy file — just confirm it's roughly where we expect.
-            expected = OVERSIZED_TEST_ALLOWLIST[name]
-            assert lines <= expected + 200, (
-                f"Legacy file {name} grew beyond its allowlisted budget "
-                f"(~{expected} lines, now {lines}). Update the allowlist or split it."
-            )
-            continue
         if lines > MAX_LINES:
             failures.append(f"  {name}: {lines} lines (limit {MAX_LINES})")
 
     assert (
         not failures
-    ), "Non-allowlisted test files exceed the 1 500-line limit:\n" + "\n".join(failures)
-
-
-# ===================================================================
-# Check 1b — every allowlisted file exists on disk
-# ===================================================================
-
-
-def test_all_allowlisted_files_exist() -> None:
-    """Every file in OVERSIZED_TEST_ALLOWLIST must exist on disk.
-
-    Catches stale entries that refer to deleted files.
-    """
-    missing: list[str] = []
-    for name in OVERSIZED_TEST_ALLOWLIST:
-        path = TESTS_DIR / name
-        if not path.exists():
-            missing.append(name)
-    assert (
-        not missing
-    ), "Allowlisted file(s) do not exist — remove stale entry:\n  " + "\n  ".join(
-        missing
-    )
+    ), "Test files exceed the 1 500-line limit:\n" + "\n".join(failures)
 
 
 # ===================================================================
@@ -319,3 +290,49 @@ def test_integration_test_files_exist_and_use_docker_gate() -> None:
     assert integration_dir.is_dir(), "tests/integration/ directory is missing"
     test_files = list(integration_dir.glob("test_*.py"))
     assert len(test_files) > 0, "No integration test files found in tests/integration/"
+
+
+# ===================================================================
+# Check 6 — no test module imports another test module
+# ===================================================================
+
+
+def test_no_test_imports_other_test_modules() -> None:
+    """No ``tests/`` .py file may import from another ``test_*.py`` module.
+
+    This prevents tight coupling between test modules and keeps the suite
+    maintainable. Imports from ``tests.helpers`` are allowed.
+    """
+    meta_test_file = Path(__file__).name  # skip this file itself
+    bad: list[tuple[str, int, str]] = []
+
+    for path in sorted(TESTS_DIR.rglob("*.py")):
+        rel = str(path.relative_to(TESTS_DIR))
+        if path.name == meta_test_file or "__pycache__" in rel:
+            continue
+
+        text = path.read_text(encoding="utf-8")
+        for i, line in enumerate(text.splitlines(), 1):
+            s = line.strip()
+            if not s or s.startswith("#"):
+                continue
+            # Catch: from tests.test_X import Y
+            if s.startswith("from tests.test_"):
+                bad.append((rel, i, s))
+            # Catch: import tests.test_X
+            elif s.startswith("import tests.test_"):
+                bad.append((rel, i, s))
+            # Catch: from .test_X import Y  (relative import inside tests/)
+            elif s.startswith("from .test_"):
+                bad.append((rel, i, s))
+            # Catch: from tests import test_X  (uncommon but possible)
+            elif s.startswith("from tests import test_"):
+                bad.append((rel, i, s))
+            # Allow from tests.helpers and from tests.conftest
+            elif s.startswith("from tests.helpers") or s.startswith("import tests.helpers"):
+                continue
+
+    assert not bad, (
+        "Test modules must not import from other test modules:\n"
+        + "\n".join(f"  {f}:{ln}: {l}" for f, ln, l in bad)
+    )

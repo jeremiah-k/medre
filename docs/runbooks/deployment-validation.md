@@ -446,7 +446,7 @@ The 9 tests NOT EXECUTED in the clean venv require optional transport SDKs not i
 - 2 `test_cli.py::TestDiagnostics` — need matrix/meshtastic SDKs
 - 5 `test_meshtastic_adapter.py` — need mtjk SDK
 - 1 `test_packaging_and_install_contract.py` — classifier mismatch (alpha vs beta)
-- 1 `test_runtime_builder.py::TestMatrixStorePathDerivation` — needs matrix SDK
+- 1 `test_runtime_builder_paths.py::TestMatrixStorePathDerivation` — needs matrix SDK
 
 ## 12. Runtime Duration and Deployment Observation Fields
 

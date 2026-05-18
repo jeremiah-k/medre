@@ -1,18 +1,17 @@
 """Unit tests for soak config builder infrastructure.
 
-These tests verify the **actual** functions in ``tests.test_soak`` —
+These tests verify the **actual** functions in ``tests.helpers.soak`` —
 ``_validate_meshtastic_soak_env`` and ``_make_meshtastic_config`` —
 by patching ``os.environ`` and the module-level
 ``_MESHTASTIC_CONNECTION_TYPE`` attribute so no real hardware or env
 is needed.  They run in the default pytest suite (no ``live`` mark).
 
 Import strategy
----------------
-``tests.test_soak`` sets ``_MESHTASTIC_CONNECTION_TYPE`` and the
-``pytestmark`` lists at import time from ``os.environ``.  We import the
-module once (at session scope) and then, per test, monkeypatch both
-``os.environ`` *and* the module attribute so the functions under test
-see consistent values without ``importlib.reload``.
+1. ``tests.helpers.soak`` sets ``_MESHTASTIC_CONNECTION_TYPE`` and
+   module-level state at import time from ``os.environ``.  We import the
+   module once and then, per test, monkeypatch both ``os.environ``
+   *and* the module attribute so the functions under test see consistent
+   values without ``importlib.reload``.
 """
 
 from __future__ import annotations
@@ -20,7 +19,7 @@ from __future__ import annotations
 import os
 from unittest.mock import patch
 
-import tests.test_soak as _soak_mod
+import tests.helpers.soak as _soak_mod
 
 # Convenience aliases to the *real* functions under test.
 _validate = _soak_mod._validate_meshtastic_soak_env

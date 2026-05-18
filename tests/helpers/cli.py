@@ -266,6 +266,80 @@ name = "test-inspect-memory"
 backend = "memory"
 """
 
+CONFIG_FAKE_MULTI = """\
+[runtime]
+name = "workflow-test"
+shutdown_timeout_seconds = 5
+
+[runtime.limits]
+max_inflight_deliveries = 50
+max_inflight_replay_events = 25
+shutdown_drain_timeout_seconds = 3
+delivery_acquire_timeout_seconds = 0.5
+
+[logging]
+level = "INFO"
+format = "text"
+
+[storage]
+backend = "memory"
+
+[adapters.matrix.fake_matrix]
+enabled = true
+adapter_kind = "fake"
+homeserver = "https://fake.local"
+user_id = "@bot:fake.local"
+access_token = "fake_tok"
+room_allowlist = ["!room:fake.local"]
+encryption_mode = "plaintext"
+
+[adapters.meshtastic.fake_mesh]
+enabled = true
+adapter_kind = "fake"
+connection_type = "fake"
+meshnet_name = "TestMesh"
+
+[routes.matrix_to_mesh]
+source_adapters = ["fake_matrix"]
+dest_adapters = ["fake_mesh"]
+directionality = "source_to_dest"
+enabled = true
+source_room = "!room:fake.local"
+dest_channel = "1"
+
+[routes.mesh_to_matrix]
+source_adapters = ["fake_mesh"]
+dest_adapters = ["fake_matrix"]
+directionality = "source_to_dest"
+enabled = false
+
+[routes.bidirectional_bridge]
+source_adapters = ["fake_matrix"]
+dest_adapters = ["fake_mesh"]
+directionality = "bidirectional"
+enabled = true
+
+[routes.bidirectional_bridge.policy]
+allowed_event_types = ["message"]
+"""
+
+CONFIG_SINGLE_ADAPTER = """\
+[runtime]
+name = "single-adapter"
+
+[storage]
+backend = "memory"
+
+[adapters.matrix.solo]
+enabled = true
+adapter_kind = "fake"
+homeserver = "https://fake.local"
+user_id = "@bot:fake.local"
+access_token = "tok_single"
+room_allowlist = ["!room:fake.local"]
+encryption_mode = "plaintext"
+"""
+
 
 # ---------------------------------------------------------------------------
 # Runner helpers
@@ -296,3 +370,16 @@ def _run_cli_both(*args: str) -> tuple[str, str]:
     except SystemExit:
         pass
     return stdout.getvalue(), stderr.getvalue()
+
+
+def _run_cli_raw(*args: str) -> tuple[str, str, int | None]:
+    """Run CLI and return (stdout, stderr, exit_code)."""
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    code: int | None = 0
+    try:
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            main(list(args))
+    except SystemExit as e:
+        code = 1 if isinstance(e.code, str) else e.code
+    return stdout.getvalue(), stderr.getvalue(), code

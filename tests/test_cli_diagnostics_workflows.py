@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from tests.test_cli_config_workflows import (
+from tests.helpers.cli import (
     _run_cli,
     _run_cli_raw,
 )
