@@ -467,9 +467,6 @@ class FaultyPresentationAdapter(AdapterContract):
         TypeError
             If *result* is not a :class:`RenderingResult`.
         """
-        from medre.core.contracts.adapter import AdapterDeliveryResult
-        from medre.core.rendering.renderer import RenderingResult
-
         if not isinstance(result, RenderingResult):
             raise TypeError(
                 f"FaultyPresentationAdapter.deliver() accepts RenderingResult only, "

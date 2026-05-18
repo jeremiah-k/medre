@@ -1,6 +1,6 @@
 """Matrix adapter codec for converting native events to canonical events.
 
-:class:`MatrixCodec` implements the :class:`~medre.adapters.base.AdapterCodec`
+:class:`MatrixCodec` implements the :class:`~medre.core.contracts.adapter.AdapterCodec`
 interface, converting nio-agnostic event objects into
 :class:`~medre.core.events.canonical.CanonicalEvent` instances.
 

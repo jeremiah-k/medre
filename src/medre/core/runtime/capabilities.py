@@ -53,7 +53,7 @@ def summarize_adapter_capabilities(
     The projection is deliberately conservative: relation strings only
     become boolean support when they are not ``"unsupported"``.  Newer
     operational capability fields are copied directly from
-    :class:`~medre.core.ports.AdapterCapabilities`.
+    :class:`~medre.core.contracts.adapter.AdapterCapabilities`.
     """
     return TransportCapabilities(
         supports_direct_messages=capabilities.direct_messages,

@@ -61,7 +61,7 @@ class _AdapterHealthInput:
     Attributes
     ----------
     info:
-        An :class:`~medre.adapters.base.AdapterInfo` instance.
+        An :class:`~medre.core.contracts.adapter.AdapterInfo` instance.
     lifecycle_state:
         Optional :class:`~medre.core.lifecycle.states.AdapterState`.
     adapter:

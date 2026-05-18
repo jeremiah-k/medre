@@ -1,6 +1,6 @@
 """Protocol-neutral adapter health normalization.
 
-Provides a pure helper that projects :class:`~medre.core.ports.AdapterInfo`
+Provides a pure helper that projects :class:`~medre.core.contracts.adapter.AdapterInfo`
 and optional :class:`~medre.core.lifecycle.states.AdapterState` into a
 JSON-safe diagnostic dictionary with a fixed health vocabulary.
 
@@ -175,7 +175,7 @@ def normalize_adapter_health(
 ) -> dict[str, Any]:
     """Normalize adapter health into a JSON-safe diagnostic dictionary.
 
-    Accepts an :class:`~medre.core.ports.AdapterInfo` (the canonical
+    Accepts an :class:`~medre.core.contracts.adapter.AdapterInfo` (the canonical
     output of :meth:`~medre.core.contracts.adapter.AdapterContract.health_check`) and
     optional lifecycle state or adapter reference, and returns a flat
     dictionary suitable for structured logging.
@@ -209,7 +209,7 @@ def normalize_adapter_health(
         * ``health`` – one of :data:`VALID_HEALTH_STRINGS`.
         * ``fake_or_live`` – ``"fake"``, ``"live"``, or ``"unknown"``.
         * ``capabilities`` – deterministic, JSON-safe capability summary
-          projected from :class:`~medre.core.ports.AdapterCapabilities`.
+          projected from :class:`~medre.core.contracts.adapter.AdapterCapabilities`.
           Contains only boolean, integer, and ``None`` values; no private
           state or transport objects.
         * ``details`` – dict with version, raw health strings, and any

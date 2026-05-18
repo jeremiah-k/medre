@@ -6,7 +6,7 @@
 
 ---
 
-## 0. Canonical Architecture (Current — Tranche 3 Applied)
+## 0. Canonical Architecture (Current)
 
 > **This section supersedes any earlier sections that reference old module
 > paths.**  The project is pre-release and old imports were intentionally
@@ -316,12 +316,12 @@ medre/
 │   │   ├── backend.py
 │   │   ├── replay.py
 │   │   └── sqlite.py
-│   ├── supervision/                     # RENAMED from core/runtime/
+│   ├── runtime/                           # domain types (a.k.a. supervision)
 │   │   ├── accounting.py
-│   │   ├── capabilities.py              # imports core.ports (not adapters.base)
+│   │   ├── capabilities.py              # imports core.contracts.adapter (not adapters.base)
 │   │   ├── diagnostic_contract.py
 │   │   ├── diagnostics.py
-│   │   ├── health.py                    # imports core.ports (not adapters.base)
+│   │   ├── health.py                    # imports core.contracts.adapter (not adapters.base)
 │   │   └── supervision.py
 │   └── diagnostics/                     # MERGED into core/observability/diagnostics.py
 │       (deleted)                         # in Tranche 2 if PC approves
