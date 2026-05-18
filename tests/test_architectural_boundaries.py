@@ -825,14 +825,17 @@ class TestConfigErrorCanonicalImports:
                 stripped = line.strip()
                 if not stripped or stripped.startswith("#"):
                     continue
-                if any(stripped.startswith(p) for p in self._FORBIDDEN_ERROR_IMPORTS):
+                if any(p in stripped for p in self._FORBIDDEN_ERROR_IMPORTS):
                     violations.append(f"{py_file.relative_to(repo_root)}:{i}: {stripped}")
         for py_file in sorted((repo_root / "tests").rglob("*.py")):
+            # Exclude this test file — it defines the forbidden patterns as literals.
+            if py_file.name == "test_architectural_boundaries.py":
+                continue
             for i, line in enumerate(py_file.read_text().splitlines(), 1):
                 stripped = line.strip()
                 if not stripped or stripped.startswith("#"):
                     continue
-                if any(stripped.startswith(p) for p in self._FORBIDDEN_ERROR_IMPORTS):
+                if any(p in stripped for p in self._FORBIDDEN_ERROR_IMPORTS):
                     violations.append(f"{py_file.relative_to(repo_root)}:{i}: {stripped}")
 
         assert violations == [], (
