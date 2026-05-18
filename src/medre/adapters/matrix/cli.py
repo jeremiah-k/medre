@@ -178,26 +178,29 @@ async def _adapter_matrix_auth_login(args: object) -> None:
     print(f"Credentials: {creds_path}")
 
 
-async def _adapter_matrix_auth_status() -> None:
+async def _adapter_matrix_auth_status(credentials_path: Path | None = None) -> None:
     """Handle ``medre adapter matrix auth status``.
 
     Shows whether a credentials sidecar JSON exists, which fields are present,
     and reports missing required keys.  Never prints the access token value.
-    """
-    from medre.adapters.matrix.auth import (
-        check_credentials_completeness,
-        get_credentials_path,
-        load_credentials_json,
-    )
 
-    path = get_credentials_path()
+    Parameters
+    ----------
+    credentials_path:
+        Optional explicit path to the credentials file.  When omitted
+        the default sidecar path is used.
+    """
+    from medre.config.adapters import matrix_credentials
+    from medre.adapters.matrix.auth import check_credentials_completeness
+
+    path = credentials_path if credentials_path is not None else matrix_credentials.get_credentials_path()
 
     if not path.exists():
         print(f"No credentials file at: {path}")
         print("Run 'medre adapter matrix auth login' to authenticate.")
         return
 
-    creds = load_credentials_json()
+    creds = matrix_credentials.load_credentials_json(path=path)
     if creds is None:
         print(f"Credentials file malformed: {path}")
         return

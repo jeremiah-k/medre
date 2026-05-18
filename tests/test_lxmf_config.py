@@ -8,7 +8,7 @@ from __future__ import annotations
 import pytest
 
 from medre.config.adapters.lxmf import LxmfConfig
-from medre.config.adapters.lxmf import LxmfConfigError
+from medre.config.adapters.errors import LxmfConfigError
 
 
 class TestLxmfConfigValid:

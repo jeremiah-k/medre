@@ -15,10 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from medre.adapters.matrix.errors import MatrixConnectionError
-from medre.config.adapters.matrix_credentials import (
-    get_credentials_path,
-    load_credentials_json,
-)
+from medre.config.adapters import matrix_credentials
 
 
 def _normalize_homeserver(homeserver: str) -> str:
@@ -456,22 +453,23 @@ def discover_well_known(domain: str) -> str | None:
         return None
 
 
-def save_credentials_json(result: MatrixLoginResult) -> Path:
+def save_credentials_json(result: MatrixLoginResult, path: Path | None = None) -> Path:
     """Persist login credentials to disk with restrictive permissions (0o600).
+
+    If *path* is provided, write to that *path*; otherwise use the
+    default credentials path.
 
     Returns the :class:`Path` that was written.
     """
-    path = get_credentials_path()
-    os.makedirs(path.parent, exist_ok=True)
-    payload = {
-        "homeserver": result.homeserver,
-        "access_token": result.access_token,
-        "user_id": result.user_id,
-        "device_id": result.device_id,
-    }
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)  # 0o600
-    return path
+    return matrix_credentials.write_credentials_json(
+        {
+            "homeserver": result.homeserver,
+            "access_token": result.access_token,
+            "user_id": result.user_id,
+            "device_id": result.device_id,
+        },
+        path=path,
+    )
 
 
 def check_credentials_completeness(creds: dict) -> list[str]:

@@ -8,7 +8,7 @@ from __future__ import annotations
 import pytest
 
 from medre.config.adapters.meshcore import MeshCoreConfig
-from medre.config.adapters.meshcore import MeshCoreConfigError
+from medre.config.adapters.errors import MeshCoreConfigError
 
 
 class TestMeshCoreConfigValid:

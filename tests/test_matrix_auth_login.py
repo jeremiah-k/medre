@@ -24,8 +24,6 @@ from medre.adapters.matrix.auth import (
     check_credentials_completeness,
     discover_well_known,
     extract_domain_from_mxid,
-    get_credentials_path,
-    load_credentials_json,
     matrix_login,
     matrix_whoami,
     save_credentials_json,
@@ -33,6 +31,10 @@ from medre.adapters.matrix.auth import (
     _update_toml_field,
 )
 from medre.adapters.matrix.errors import MatrixConnectionError
+from medre.config.adapters.matrix_credentials import (
+    get_credentials_path,
+    load_credentials_json,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -878,20 +880,15 @@ class TestGetCredentialsPath:
 class TestSaveCredentialsJson:
     """Tests for ``save_credentials_json``."""
 
-    def test_writes_correct_json(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_writes_correct_json(self, tmp_path: Path) -> None:
         dest = tmp_path / "matrix.json"
-        monkeypatch.setattr(
-            "medre.config.adapters.matrix_credentials.get_credentials_path",
-            lambda: dest,
-        )
-
         result = MatrixLoginResult(
             homeserver="https://matrix.org",
             user_id="@alice:matrix.org",
             device_id="DEV123",
             access_token="syt_secret",
         )
-        saved = save_credentials_json(result)
+        saved = save_credentials_json(result, path=dest)
 
         assert saved == dest
         assert dest.exists()
@@ -901,22 +898,18 @@ class TestSaveCredentialsJson:
         assert data["device_id"] == "DEV123"
         assert data["access_token"] == "syt_secret"
 
-    def test_creates_directory(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_creates_directory(self, tmp_path: Path) -> None:
         dest = tmp_path / "subdir" / "credentials" / "matrix.json"
-        monkeypatch.setattr(
-            "medre.config.adapters.matrix_credentials.get_credentials_path",
-            lambda: dest,
-        )
-
         result = MatrixLoginResult(
             homeserver="https://matrix.org",
             user_id="@alice:matrix.org",
             device_id="D",
             access_token="tok",
         )
-        save_credentials_json(result)
+        save_credentials_json(result, path=dest)
 
         assert dest.parent.exists()
+        assert dest.exists()
 
 
 # ---------------------------------------------------------------------------
@@ -926,16 +919,11 @@ class TestSaveCredentialsJson:
 class TestLoadCredentialsJson:
     """Tests for ``load_credentials_json``."""
 
-    def test_missing_file_returns_none(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        dest = tmp_path / "missing.json"
-        monkeypatch.setattr(
-            "medre.config.adapters.matrix_credentials.get_credentials_path",
-            lambda: dest,
-        )
+    def test_missing_file_returns_none(self, tmp_path: Path) -> None:
+        missing = tmp_path / "nonexistent.json"
+        assert load_credentials_json(path=missing) is None
 
-        assert load_credentials_json() is None
-
-    def test_valid_file_returns_dict(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_valid_file_returns_dict(self, tmp_path: Path) -> None:
         dest = tmp_path / "exists.json"
         dest.write_text(json.dumps({
             "homeserver": "https://matrix.org",
@@ -943,25 +931,17 @@ class TestLoadCredentialsJson:
             "user_id": "@u:m.org",
             "device_id": "D",
         }), encoding="utf-8")
-        monkeypatch.setattr(
-            "medre.config.adapters.matrix_credentials.get_credentials_path",
-            lambda: dest,
-        )
 
-        result = load_credentials_json()
+        result = load_credentials_json(path=dest)
         assert result is not None
         assert result["homeserver"] == "https://matrix.org"
         assert result["access_token"] == "tok"
 
-    def test_malformed_json_returns_none(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_malformed_json_returns_none(self, tmp_path: Path) -> None:
         dest = tmp_path / "bad.json"
         dest.write_text("not json", encoding="utf-8")
-        monkeypatch.setattr(
-            "medre.config.adapters.matrix_credentials.get_credentials_path",
-            lambda: dest,
-        )
 
-        assert load_credentials_json() is None
+        assert load_credentials_json(path=dest) is None
 
 
 # ---------------------------------------------------------------------------

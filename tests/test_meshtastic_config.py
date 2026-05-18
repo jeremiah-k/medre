@@ -7,7 +7,7 @@ from __future__ import annotations
 import pytest
 
 from medre.config.adapters.meshtastic import MeshtasticConfig
-from medre.config.adapters.meshtastic import MeshtasticConfigError
+from medre.config.adapters.errors import MeshtasticConfigError
 
 
 class TestMeshtasticConfigValid:

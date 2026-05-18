@@ -499,11 +499,8 @@ class TestAdapterMatrixAuthStatus:
 
         missing = tmp_path / "missing.json"
         stdout_buf = io.StringIO()
-        with (
-            patch("medre.config.adapters.matrix_credentials.get_credentials_path", return_value=missing),
-            patch("sys.stdout", stdout_buf),
-        ):
-            await _adapter_matrix_auth_status()
+        with patch("sys.stdout", stdout_buf):
+            await _adapter_matrix_auth_status(credentials_path=missing)
 
         output = stdout_buf.getvalue()
         assert "No credentials file at:" in output or "No credentials" in output
@@ -522,11 +519,8 @@ class TestAdapterMatrixAuthStatus:
         }), encoding="utf-8")
 
         stdout_buf = io.StringIO()
-        with (
-            patch("medre.config.adapters.matrix_credentials.get_credentials_path", return_value=cred_file),
-            patch("sys.stdout", stdout_buf),
-        ):
-            await _adapter_matrix_auth_status()
+        with patch("sys.stdout", stdout_buf):
+            await _adapter_matrix_auth_status(credentials_path=cred_file)
 
         output = stdout_buf.getvalue()
         assert "Homeserver" in output
@@ -547,11 +541,8 @@ class TestAdapterMatrixAuthStatus:
         }), encoding="utf-8")
 
         stdout_buf = io.StringIO()
-        with (
-            patch("medre.config.adapters.matrix_credentials.get_credentials_path", return_value=cred_file),
-            patch("sys.stdout", stdout_buf),
-        ):
-            await _adapter_matrix_auth_status()
+        with patch("sys.stdout", stdout_buf):
+            await _adapter_matrix_auth_status(credentials_path=cred_file)
 
         output = stdout_buf.getvalue()
         assert "access_token" in output
@@ -566,11 +557,8 @@ class TestAdapterMatrixAuthStatus:
         cred_file.write_text("not json", encoding="utf-8")
 
         stdout_buf = io.StringIO()
-        with (
-            patch("medre.config.adapters.matrix_credentials.get_credentials_path", return_value=cred_file),
-            patch("sys.stdout", stdout_buf),
-        ):
-            await _adapter_matrix_auth_status()
+        with patch("sys.stdout", stdout_buf):
+            await _adapter_matrix_auth_status(credentials_path=cred_file)
 
         output = stdout_buf.getvalue()
         assert "malformed" in output.lower() or "parse" in output.lower() or "invalid" in output.lower()

@@ -5,11 +5,19 @@ from __future__ import annotations
 import pytest
 
 from medre.config.adapters.matrix import MatrixConfig
-from medre.config.adapters.matrix import MatrixConfigError
+from medre.config.adapters.errors import MatrixConfigError
 
 
 class TestMatrixConfig:
     """MatrixConfig validation logic."""
+
+    @pytest.fixture(autouse=True)
+    def _no_sidecar(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Prevent sidecar credential file from interfering with validation tests."""
+        monkeypatch.setattr(
+            "medre.config.adapters.matrix_credentials.load_credentials_json",
+            lambda: None,
+        )
 
     def test_valid_config(self) -> None:
         config = MatrixConfig(

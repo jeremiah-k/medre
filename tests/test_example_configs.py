@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from medre.config.adapters.matrix import MatrixConfigError
+from medre.config.adapters.errors import MatrixConfigError
 from medre.config.errors import ConfigFileError
 from medre.config.loader import load_config
 from medre.runtime.builder import RuntimeBuilder
