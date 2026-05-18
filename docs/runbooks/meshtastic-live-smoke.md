@@ -198,7 +198,7 @@ pytest -m ""
 
 ### Expected Output (successful run)
 
-```
+```text
 tests/test_meshtastic_live.py::TestMeshtasticLiveSmoke::test_tcp_interface_connects PASSED
 tests/test_meshtastic_live.py::TestMeshtasticLiveSmoke::test_adapter_starts_and_reports_healthy PASSED
 tests/test_meshtastic_live.py::TestMeshtasticLiveSmoke::test_send_text_via_raw_interface PASSED
@@ -211,7 +211,7 @@ tests/test_meshtastic_live.py::TestMeshtasticLiveSmoke::test_sendtext_returns_pa
 
 ### Expected Output (missing env vars — skip behavior)
 
-```
+```text
 tests/test_meshtastic_live.py::TestMeshtasticLiveSmoke::test_tcp_interface_connects SKIPPED
 tests/test_meshtastic_live.py::TestMeshtasticLiveSmoke::test_adapter_starts_and_reports_healthy SKIPPED
 ...

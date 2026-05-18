@@ -59,7 +59,7 @@ print(f"Run directory: {summary['run_directory']}")
 
 Artifacts are written to:
 
-```
+```text
 .ci-artifacts/docker-bridge-runs/<ISO-timestamp>/
 ├── summary.json           # Structured evidence summary (always written)
 ├── run-metadata.json      # Run parameters, images, timestamps (always written)
@@ -447,7 +447,7 @@ docker info
 
 If prerequisites are missing, the script prints an error like:
 
-```
+```yaml
 ERROR: Matrix SDK (mindroom-nio exposes 'nio') is not installed.
 
 Install the required extras:

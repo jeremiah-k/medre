@@ -314,7 +314,7 @@ pytest tests/test_matrix_live.py::TestMatrixLiveSmoke::test_inbound_message_rece
 
 #### 2.0.1 Commands Run (no secrets)
 
-```
+```bash
 # Device discovery
 ls -la /dev/ttyACM0 /dev/ttyUSB* /dev/serial/by-id/*
 test -w /dev/ttyACM0

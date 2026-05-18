@@ -188,7 +188,7 @@ The MeshCore adapter tracks its connection lifecycle through defined states. Eac
 
 ### 4.1 State Diagram
 
-```
+```text
 DISCONNECTED --> CONNECTING --> AUTHENTICATING --> SYNCING --> READY
      ^              |              |                 |          |
      |              v              v                 v          v

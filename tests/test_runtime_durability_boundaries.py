@@ -227,7 +227,7 @@ class TestStorageNoRuntimeInternals:
         # Allow only medre.runtime.capacity.
         runtime_imports = _banned_imports(lines, _RUNTIME_PREFIXES)
         allowed = ["from medre.runtime.capacity import CapacityController"]
-        disallowed = [l for l in runtime_imports if l not in allowed]
+        disallowed = [line for line in runtime_imports if line not in allowed]
         assert (
             disallowed == []
         ), f"replay.py imports disallowed runtime modules: {disallowed}"

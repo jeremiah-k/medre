@@ -196,7 +196,7 @@ This applies to all diagnostic paths: adapter `diagnostics()`, session diagnosti
 
 All adapters expose `diagnostics() -> dict[str, Any]` defined on `AdapterContract`:
 
-```
+```text
 AdapterContract.diagnostics() -> dict[str, Any]   # abstract
 ```
 
@@ -215,7 +215,7 @@ All four sessions expose `diagnostics()` returning either a frozen dataclass or 
 
 ### 8.3 Runtime Snapshot
 
-```
+```yaml
 capture_runtime_snapshot(
     adapter_healths: Sequence[_AdapterHealthInput] | None = None,
     renderer_pipeline: Any | None = None,
@@ -229,7 +229,7 @@ Pure function. Does not start polls, trigger health checks, or modify supplied o
 
 ### 8.4 Health Normalization
 
-```
+```yaml
 normalize_adapter_health(
     info: AdapterInfo,
     lifecycle_state: AdapterState | None = None,

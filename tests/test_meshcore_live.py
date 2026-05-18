@@ -85,6 +85,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from medre.adapters.meshcore.compat import HAS_MESHCORE
+
 # ---------------------------------------------------------------------------
 # Module-level marker — entire file is tagged "live" so it is excluded by the
 # default ``addopts = "-m 'not live'"`` in pyproject.toml.
@@ -143,9 +145,6 @@ def _validate_env() -> tuple[str, str]:
 
 _LIVE_SKIP_REASON, _CONNECTION_TYPE = _validate_env()
 _LIVE_ENV_SET = _CONNECTION_TYPE != ""
-
-# Also check for SDK availability.
-from medre.adapters.meshcore.compat import HAS_MESHCORE
 
 require_live = pytest.mark.skipif(
     not (_LIVE_ENV_SET and HAS_MESHCORE),

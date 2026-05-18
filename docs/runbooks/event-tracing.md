@@ -60,7 +60,7 @@ receipts, and any native message refs associated with `<event_id>`.
 
 Without `--json`, the command prints a compact timeline summary to stdout:
 
-```
+```yaml
 Event timeline: evt_abc123
   Kind:    message.text
   Source:  bot
@@ -197,7 +197,7 @@ reconstructs the replay timeline.
 
 Without `--json`, the command prints a compact replay summary:
 
-```
+```yaml
 Replay timeline: replay_xyz789
   Status:  complete
   Receipts: 3
@@ -266,8 +266,6 @@ The RetryWorker handles transient delivery failures automatically when enabled (
 Runtime events are process-local — if the process crashed during replay,
 completed deliveries are preserved (receipts in SQLite) but remaining events
 must be re-replayed manually.
-
-````
 
 ### 1.4 Exit Codes
 
@@ -673,7 +671,7 @@ event `p1-0` three times produces three distinct sets of receipts, each grouped
 by a different `replay_run_id`. The trace for the event shows one live receipt
 per target plus one replay receipt per target per run:
 
-```
+```yaml
 Event: p1-0 (message.created) from mx
   Live deliveries:    2  (mesh, mc)
   Replay run 001:     2  (mesh, mc)
@@ -689,7 +687,7 @@ reflects the true insertion order. Receipts are not grouped by source; they are
 interleaved in sequence order. Use the `source` and `replay_run_id` fields to
 distinguish origin:
 
-```
+```text
 seq 1-160:    original live receipts
 seq 161-170:  phase-A live receipts (5 new events * 2 targets)
 seq 171-176:  replay receipts (3 events * 2 targets, run_id=interleave-001)

@@ -24,7 +24,7 @@ identifies resolved findings, and tracks remaining deferred items.
 
 ## 2. pyproject.toml Metadata Detail
 
-```
+```json
 [project]
 name = "medre"
 version = "0.1.0"
@@ -78,7 +78,7 @@ No source files contain any of:
 - `# Copyright (c) ...`
 - `# Licensed under ...`
 
-### Assessment
+### Assessment (Source Headers)
 
 For GPL-3.0-or-later: headers are strongly recommended for copyleft enforcement.
 The SPDX identifier `SPDX-License-Identifier: GPL-3.0-or-later` in each file

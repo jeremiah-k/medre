@@ -75,7 +75,7 @@ X25519 for encryption, both derived from a single 64-byte private key.
 
 A destination hash binds an application aspect to an identity:
 
-```
+```text
 destination_hash = SHA-256(SHA-256("app.aspect")[:10] + identity_hash)[:16]
 ```
 
@@ -102,7 +102,7 @@ LXMF uses two aspects:
 
 LXMessage is the fundamental message unit on the wire:
 
-```
+```yaml
 Wire: [dest_hash:16][src_hash:16][sig:64][msgpack_payload]
 msgpack_payload = [timestamp, title, content, fields, stamp?]
 Message ID = SHA-256(dest_hash + src_hash + msgpack_payload) = 32 bytes

@@ -620,7 +620,7 @@ The replay interface works against the `StorageBackend.query` method and remains
 
 Package location: `core/storage/`
 
-```
+```text
 core/storage/
     __init__.py
     backend.py     # StorageBackend protocol definition

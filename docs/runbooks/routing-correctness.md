@@ -67,7 +67,7 @@ For each matched route's targets:
 
 The full lifecycle for a single event through routing:
 
-```
+```text
 Event arrives → store → route_event() → match routes → populate route_trace
   → execute_route_deliveries() → per target:
     → self-loop check → adapter.deliver() → record receipt → record outcome
@@ -107,7 +107,7 @@ MEDRE provides three layers of loop prevention, operating at different stages.
 
 **Example:**
 
-```
+```text
 Route X: bot1 → longfast
 Route Y: longfast → bot1
 ```
@@ -124,7 +124,7 @@ This produces: `"Direct routing loop detected between adapters 'bot1' and 'longf
 
 **Example:**
 
-```
+```text
 Route A: alpha → beta
 Route B: beta → gamma
 Route C: gamma → alpha

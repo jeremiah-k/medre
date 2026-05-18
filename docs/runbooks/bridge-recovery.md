@@ -148,7 +148,7 @@ health. Attach this to incident reports or bug filings.
 
 ### Workflow Summary
 
-```
+```bash
 medre smoke --storage-path <db>
   → verifies pipeline, persists evidence
   ↓
@@ -175,7 +175,7 @@ report shape.
 
 ## 1. Recovery Decision Tree
 
-```
+```text
 What happened?
 │
 ├── Runtime crashed (kill -9, OOM, power loss)

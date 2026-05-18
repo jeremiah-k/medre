@@ -41,7 +41,7 @@ and what import boundaries must hold.
 
 ### 3.1 Console Script Entry Point
 
-```
+```bash
 medre = "medre.cli:main"
 ```
 

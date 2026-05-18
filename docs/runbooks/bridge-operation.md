@@ -76,7 +76,7 @@ LXMF is the only transport where `sent` means "accepted for eventual delivery" w
 
 The pipeline records a `DeliveryReceipt` for each outbound delivery attempt. Receipts progress through these states:
 
-```
+```text
 accepted → queued → sent → confirmed
                   ↘ failed → dead_lettered
 ```

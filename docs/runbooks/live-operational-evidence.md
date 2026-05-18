@@ -39,7 +39,7 @@ This runbook provides detailed live operational procedures for Matrix and Meshta
 **Command:** `pytest tests/test_matrix_live.py -m live -v`
 **Expected duration:** 10–30 seconds
 
-#### Observations to Record
+#### §1.2 Observations to Record
 
 | Field                 | What to observe                                                        | Where to find it                                |
 | --------------------- | ---------------------------------------------------------------------- | ----------------------------------------------- |
@@ -51,7 +51,7 @@ This runbook provides detailed live operational procedures for Matrix and Meshta
 | Stop → clean teardown | `stop()` completes, no leaked tasks                                    | Test output: `test_stop_clean_teardown`         |
 | Restart idempotency   | Stop → start cycle re-establishes sync                                 | Test output: `test_restart_idempotent`          |
 
-#### NOT EXECUTED (current machine)
+#### §1.2 NOT EXECUTED (current machine)
 
 | Field              | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -82,7 +82,7 @@ Matrix sync is a long-poll operation. The adapter's `_sync_forever` loop maintai
 - Degraded → Healthy: when sync recovers
 - Degraded → Failed: when reconnect budget exhausted
 
-#### NOT EXECUTED (current machine)
+#### §1.3 NOT EXECUTED (current machine)
 
 | Field                        | Value                                            |
 | ---------------------------- | ------------------------------------------------ |
@@ -114,12 +114,9 @@ Matrix adapter restart tests validate state preservation across stop/start cycle
 **Command:** `pytest tests/test_matrix_e2ee_live.py -m live -v`
 **Expected duration:** 5–15 seconds
 
-#### NOT EXECUTED (current machine)
+#### §1.4 NOT EXECUTED (current machine)
 
-| Field              | Value                                                                                                                      |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------- |
-| **Execution date** | NOT EXECUTED                                                                                                               |
-| **Reason**         | E2EE-specific environment variables (`MATRIX_DEVICE_ID`, `MATRIX_STORE_PATH`) not configured. No encrypted room available. |
+| Field              | Value                                                                                                                      | (`MATRIX_DEVICE_ID`, `MATRIX_STORE_PATH`) not configured. No encrypted room available. |
 | **Resolution**     | Install `pip install -e ".[matrix-e2e]"`, set E2EE env vars, run E2EE live tests.                                          |
 
 **Historical E2EE evidence (H-tier, 2026-05-10):**
@@ -160,7 +157,7 @@ pytest tests/test_matrix_live.py::TestMatrixLiveSmoke::test_inbound_message_rece
 #    If no message received, test xfails (acceptable).
 ```
 
-#### NOT EXECUTED (current machine)
+#### §1.5 NOT EXECUTED (current machine)
 
 | Field                   | Value                                                                                                                                     |
 | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
@@ -174,7 +171,7 @@ pytest tests/test_matrix_live.py::TestMatrixLiveSmoke::test_inbound_message_rece
 
 When a Matrix adapter is running, `diagnostics()` returns these fields:
 
-```
+```text
 connected, logged_in, sync_task_running, last_sync_error,
 store_path_configured, device_id_configured, encryption_mode,
 crypto_enabled, last_crypto_error, encrypted_room_seen,
@@ -226,7 +223,7 @@ pytest tests/test_matrix_e2ee_live.py::TestLiveE2EEStartStopCycles -m live -v
 
 **Expected duration:** 15–45 seconds (3 cycles × ~5–15s each)
 
-#### Observations to Record
+#### §1.7 Observations to Record
 
 | Field                          | What to observe                                                                  | Source                     |
 | ------------------------------ | -------------------------------------------------------------------------------- | -------------------------- |
@@ -237,7 +234,7 @@ pytest tests/test_matrix_e2ee_live.py::TestLiveE2EEStartStopCycles -m live -v
 | No task leaks                  | No orphaned asyncio tasks after final stop                                       | `asyncio.all_tasks()`      |
 | E2EE crypto state preservation | `crypto_enabled` and `crypto_store_loaded` stable across cycles (E2EE mode only) | `diagnostics()`            |
 
-#### NOT EXECUTED (current machine)
+#### §1.7 NOT EXECUTED (current machine)
 
 | Field              | Value                                                                                                                                     |
 | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
@@ -282,7 +279,7 @@ Validates that the Matrix adapter correctly handles the sync replay that occurs 
 
 **Expected duration:** 2–5 minutes (including 30s offline wait)
 
-#### Observations to Record
+#### §1.8 Observations to Record
 
 | Field                               | What to observe                                                   | Source                                       |
 | ----------------------------------- | ----------------------------------------------------------------- | -------------------------------------------- |
@@ -295,7 +292,7 @@ Validates that the Matrix adapter correctly handles the sync replay that occurs 
 | E2EE crypto store reuse             | `crypto_store_loaded == True` on restart                          | `diagnostics()` (E2EE mode)                  |
 | Undecryptable events during replay  | Count of events that fail decryption                              | `diagnostics()["undecryptable_event_count"]` |
 
-#### NOT EXECUTED (current machine)
+#### §1.8 NOT EXECUTED (current machine)
 
 | Field                    | Value                                                                                                      |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------- |
@@ -338,7 +335,7 @@ SOAK_DURATION_SECONDS=120 pytest tests/test_soak.py::TestMatrixSoak -m live -v -
 
 **Expected duration:** User-configured via `SOAK_DURATION_SECONDS` (30–300s). Recommended: 120s for initial observation.
 
-#### Observations to Record
+#### §1.9 Observations to Record
 
 | Field                              | What to observe                         | Source                                |
 | ---------------------------------- | --------------------------------------- | ------------------------------------- |
@@ -355,7 +352,7 @@ SOAK_DURATION_SECONDS=120 pytest tests/test_soak.py::TestMatrixSoak -m live -v -
 | `last_successful_sync` progression | Timestamp advances throughout           | `diagnostics()`                       |
 | Memory usage                       | Process RSS at start and end            | `psutil.Process().memory_info().rss`  |
 
-#### NOT EXECUTED (current machine)
+#### §1.9 NOT EXECUTED (current machine)
 
 | Field              | Value                                                                                                                                   |
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
@@ -432,7 +429,7 @@ snapshot = adapter.diagnostics()
 }
 ```
 
-#### NOT EXECUTED (current machine)
+#### §1.10 NOT EXECUTED (current machine)
 
 | Field             | Value                                                                                 |
 | ----------------- | ------------------------------------------------------------------------------------- |
@@ -469,7 +466,7 @@ Validates that the Matrix adapter's internal room-state tracking does not grow u
 #    - Eviction logged at INFO level
 ```
 
-#### NOT EXECUTED (current machine)
+#### §1.11 NOT EXECUTED (current machine)
 
 | Field                                       | Value                                                                                                            |
 | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
@@ -512,7 +509,7 @@ pytest tests/test_matrix_e2ee_live.py::TestLiveE2EERestart -m live -v
 #    - undecryptable_event_count == 0 (or explain why non-zero)
 ```
 
-#### Observations to Record
+#### §1.12 Observations to Record
 
 | Field                            | What to observe                              | Source             |
 | -------------------------------- | -------------------------------------------- | ------------------ |
@@ -523,7 +520,7 @@ pytest tests/test_matrix_e2ee_live.py::TestLiveE2EERestart -m live -v
 | Encrypted send post-restart      | Delivery returns `event_id`                  | `deliver()` result |
 | undecryptable_event_count        | 0 or explain non-zero                        | `diagnostics()`    |
 
-#### NOT EXECUTED (current machine)
+#### §1.12 NOT EXECUTED (current machine)
 
 | Field                                 | Value                                                                                                                                     |
 | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
@@ -554,7 +551,7 @@ pytest tests/test_matrix_e2ee_live.py::TestLiveE2EERestart -m live -v
 **Command:** `pytest tests/test_meshtastic_live.py -m live -v`
 **Expected duration:** 20–60 seconds (includes serial/TCP connection establishment)
 
-#### Observations to Record
+#### §2.2 Observations to Record
 
 | Field                      | What to observe                         | Where to find it                           |
 | -------------------------- | --------------------------------------- | ------------------------------------------ |
@@ -648,7 +645,7 @@ The MEDRE adapter's `send_one()` method is the primary outbound delivery path. I
 
 **Important:** The existing live smoke harness exercises raw `mtjk` `sendText` (Category A) and adapter lifecycle (Category B), but does **not** exercise the full MEDRE `send_one` path against real hardware. The `send_one` path is unit-tested with monkeypatched clients.
 
-#### NOT EXECUTED (current session)
+#### §2.4 NOT EXECUTED (current session)
 
 > **Note:** CLI-level `sendText` on channel 0 was confirmed working (see §2.2). The MEDRE adapter `send_one` path via the queued delivery pipeline remains untested.
 
@@ -664,7 +661,7 @@ When a Meshtastic adapter is running, `diagnostics()` returns:
 
 **Adapter-level:**
 
-```
+```text
 adapter_id, platform, started, connection_type,
 queue_pending, queue_total_sent, queue_total_failed, queue_total_dropped,
 background_tasks
@@ -672,7 +669,7 @@ background_tasks
 
 **Session-level (nested under `session`):**
 
-```
+```text
 connected, reconnecting, reconnect_attempts, last_packet_time,
 node_id, channel_count, transient_delivery_failures,
 permanent_delivery_failures, last_error
@@ -722,7 +719,7 @@ pytest tests/test_meshtastic_live.py::TestMeshtasticLiveSmoke::test_repeated_sta
 
 **Expected duration:** 30–90 seconds (3 cycles × ~10–30s each, depending on connection type)
 
-#### Observations to Record
+#### §2.7 Observations to Record
 
 | Field                            | What to observe                                      | Source                     |
 | -------------------------------- | ---------------------------------------------------- | -------------------------- |
@@ -732,7 +729,7 @@ pytest tests/test_meshtastic_live.py::TestMeshtasticLiveSmoke::test_repeated_sta
 | Resource cleanup                 | No leaked serial/TCP interfaces after each stop      | Process inspection         |
 | Connection re-establishment time | Time from `start()` to `connected == True` per cycle | Wall clock                 |
 
-#### NOT EXECUTED (current session)
+#### §2.7 NOT EXECUTED (current session)
 
 | Field              | Value                                                                                                                                                                                                            |
 | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -806,7 +803,7 @@ pytest tests/test_meshtastic_live.py -m live -v -s
 #    health → degraded during retries
 ```
 
-#### Observations to Record
+#### §2.8 Observations to Record
 
 | Field                                | What to observe                                                     | Source           |
 | ------------------------------------ | ------------------------------------------------------------------- | ---------------- |
@@ -820,7 +817,7 @@ pytest tests/test_meshtastic_live.py -m live -v -s
 | Outbound failure count               | `transient_delivery_failures`, `permanent_delivery_failures`        | `diagnostics()`  |
 | Send retry count                     | Up to 3 transient retries observed                                  | `diagnostics()`  |
 
-#### NOT EXECUTED (current session)
+#### §2.8 NOT EXECUTED (current session)
 
 | Field                             | Value                                                                                                                                                                        |
 | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -861,7 +858,7 @@ SOAK_DURATION_SECONDS=120 pytest tests/test_soak.py::TestMeshtasticSoak -m live 
 
 **Expected duration:** User-configured via `SOAK_DURATION_SECONDS` (30–300s). Recommended: 120s for initial observation.
 
-#### Observations to Record
+#### §2.9 Observations to Record
 
 | Field                                                             | What to observe                       | Source                    |
 | ----------------------------------------------------------------- | ------------------------------------- | ------------------------- |
@@ -880,7 +877,7 @@ SOAK_DURATION_SECONDS=120 pytest tests/test_soak.py::TestMeshtasticSoak -m live 
 | Diagnostics snapshot at start                                     | All session fields at t=0             | `diagnostics()`           |
 | Diagnostics snapshot at end                                       | All session fields at t=duration      | `diagnostics()`           |
 
-#### NOT EXECUTED (current machine)
+#### §2.9 NOT EXECUTED (current machine)
 
 | Field              | Value                                                                                                                                                      |
 | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -894,7 +891,7 @@ Defines the procedure for capturing a full `diagnostics()` snapshot from a runni
 
 **Adapter-level snapshot fields:**
 
-```
+```text
 adapter_id, platform, started, connection_type,
 queue_pending, queue_total_sent, queue_total_failed, queue_total_dropped,
 background_tasks
@@ -902,7 +899,7 @@ background_tasks
 
 **Session-level snapshot fields (nested under `session`):**
 
-```
+```text
 connected, reconnecting, reconnect_attempts, last_packet_time,
 node_id, channel_count, transient_delivery_failures,
 permanent_delivery_failures, last_error
@@ -922,7 +919,7 @@ snapshot = adapter.diagnostics()
 #    t=post-stop (after stop — should show started=False, connected=False)
 ```
 
-#### NOT EXECUTED (current machine)
+#### §2.10 NOT EXECUTED (current machine)
 
 | Field             | Value                                                                        |
 | ----------------- | ---------------------------------------------------------------------------- |
@@ -961,7 +958,7 @@ When recording live evidence, capture these hardware and firmware fields. These 
 - Connection: serial, `/dev/ttyACM0`
 - mtjk: 2.7.8.post2+
 
-#### NOT EXECUTED (current machine)
+#### §2.11 NOT EXECUTED (current machine)
 
 No current hardware connected. When hardware is available, run:
 
@@ -1006,7 +1003,7 @@ The Meshtastic adapter tracks `started` in diagnostics. To record actual runtime
 - Queue state reset: tested in `tests/test_meshtastic_adapter.py`.
 - Session state reset: `connected`, `reconnect_attempts`, `reconnecting` reset on `start()`.
 
-#### NOT EXECUTED (current machine)
+#### §2.12 NOT EXECUTED (current machine)
 
 | Field                                | Value                                                         |
 | ------------------------------------ | ------------------------------------------------------------- |
@@ -1055,7 +1052,7 @@ The Meshtastic adapter tracks `started` in diagnostics. To record actual runtime
 **Test file:** `tests/test_meshcore_live.py`
 **Required env vars:** `MESHCORE_CONNECTION_TYPE`, `MESHCORE_HOST` or `MESHCORE_SERIAL_PORT`
 
-#### NOT EXECUTED
+#### §2.14 NOT EXECUTED
 
 | Field                     | Value                                                                                                                                                                                                                                                                            |
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -1064,7 +1061,7 @@ The Meshtastic adapter tracks `started` in diagnostics. To record actual runtime
 | **Next validation steps** | (1) Run `esptool chip_id` on `/dev/ttyUSB0` to confirm chip type. (2) Build/obtain MeshCore firmware binary from local source repo. (3) Flash firmware via `esptool`. (4) Verify serial chatter. (5) Run `pytest tests/test_meshcore_live.py -m live -v`.                        |
 | **Resolution**            | Execute follow-up hardware operations, then record R-tier evidence here.                                                                                                                                                                                                         |
 
-#### Observations to Record
+#### §2.14 Observations to Record
 
 | Field                   | What to observe                                | Source      |
 | ----------------------- | ---------------------------------------------- | ----------- |
@@ -1082,7 +1079,7 @@ The Meshtastic adapter tracks `started` in diagnostics. To record actual runtime
 **Test file:** `tests/test_lxmf_live.py`
 **Required env vars:** `LXMF_CONNECTION_TYPE`, `LXMF_IDENTITY_PATH`
 
-#### NOT EXECUTED
+#### §2.15 NOT EXECUTED
 
 | Field                     | Value                                                                                                                                                                                                                                                                                                                                                                                                     |
 | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -1091,7 +1088,7 @@ The Meshtastic adapter tracks `started` in diagnostics. To record actual runtime
 | **Next validation steps** | (1) Install Reticulum from local source: `pip install -e /home/jeremiah/dev/rns` (or equivalent). (2) Install LXMF from local source: `pip install -e /home/jeremiah/dev/lxmf` (or equivalent). (3) Configure Reticulum transport (local TCP or serial). (4) Generate/create identity file. (5) Set `LXMF_CONNECTION_TYPE` and `LXMF_IDENTITY_PATH`. (6) Run `pytest tests/test_lxmf_live.py -m live -v`. |
 | **Resolution**            | Execute follow-up Reticulum setup, then record R-tier evidence here.                                                                                                                                                                                                                                                                                                                                      |
 
-#### Observations to Record
+#### §2.15 Observations to Record
 
 | Field                      | What to observe                                        | Source      |
 | -------------------------- | ------------------------------------------------------ | ----------- |

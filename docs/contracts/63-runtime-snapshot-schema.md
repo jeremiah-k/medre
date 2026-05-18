@@ -85,7 +85,7 @@ Stability labels:
 
 Shape before first `refresh_live_health()` call:
 
-```
+```json
 {
   "live_health": null,
   "live_refresh": false,
@@ -95,7 +95,7 @@ Shape before first `refresh_live_health()` call:
 
 Shape after first successful `refresh_live_health()` call:
 
-```
+```json
 {
   "live_health": {
     "runtime_health": str,                    # RuntimeHealth enum value
@@ -139,7 +139,7 @@ Shape after first successful `refresh_live_health()` call:
 
 One-time boot classification and build failures.
 
-```
+```json
 {
   "boot_summary": {...} | null,
   "build_failures": [...],
@@ -159,7 +159,7 @@ One-time boot classification and build failures.
 
 Runtime state transitions, per-adapter lifecycle states, and timing.
 
-```
+```json
 {
   "adapters": {adapter_id: str, ...},
   "live_refresh": false,
@@ -181,7 +181,7 @@ Runtime state transitions, per-adapter lifecycle states, and timing.
 
 Route delivery statistics, eligibility, per-route build readiness, and startup-derived readiness. Each sub-section carries explicit `scope` and `live_refresh` metadata so operators can distinguish build-time facts from startup-time facts from (future) live state.
 
-```
+```json
 {
   "build_readiness": {...} | null,
   "eligibility": {...} | null,
@@ -209,7 +209,7 @@ Operators **must not** assume that data with `live_refresh=false` reflects curre
 
 Exposes the outcome of route eligibility analysis performed during startup. Scope: `build`.
 
-```
+```json
 {
   "configured":   [str],
   "disabled":     [str],
@@ -255,7 +255,7 @@ Semantics:
 
 Per-route operational state mapping from build time. Scope: `build`.
 
-```
+```json
 {
   "live_refresh": false,
   "scope":        "build",
@@ -287,7 +287,7 @@ Expanded route IDs are mapped back to config route IDs using explicit provenance
 
 Startup-derived route readiness based on adapter lifecycle states. This is computed **after** `MedreApp.start()` completes and reflects adapters that built successfully but failed to start. Scope: `startup`.
 
-```
+```json
 {
   "degraded": [
     {
@@ -337,7 +337,7 @@ Per-route delivery counters from `RouteStats.snapshot()`, bounded at `_MAX_ROUTE
 
 Per-adapter static metadata from `_snapshot_adapter()`. Each entry is a sorted dict with:
 
-```
+```json
 {
   "adapter_id":  str,
   "capabilities": {...},
@@ -363,7 +363,7 @@ These two values can diverge after startup if the adapter's lifecycle state chan
 
 Internal debug/diagnostic surfaces. Shape may change without a schema version bump.
 
-```
+```json
 {
   "live_refresh": false,
   "runtime_events": {...} | null,
@@ -375,7 +375,7 @@ Internal debug/diagnostic surfaces. Shape may change without a schema version bu
 - `runtime_events` exposes the bounded, in-memory event buffer:
 - `scope`: Always `"process_local"`. Events are in-memory only and not persisted across restarts.
 
-```
+```json
 {
   "count":   int,
   "maxlen":  int,
@@ -418,7 +418,7 @@ The shape will be documented when the persistence subsystem is implemented. Unti
 
 Bounded runtime event counters.
 
-```
+```json
 {
   "counters": {...} | null,
   "live_refresh": false,
@@ -434,7 +434,7 @@ Bounded runtime event counters.
 
 In-flight delivery and replay capacity state.
 
-```
+```json
 {
   "live_refresh": false,
   "scope": "process_local",

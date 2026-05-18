@@ -28,8 +28,8 @@ services:
     healthcheck:
       test:
         [
-          "CMD-SHELL",
-          "curl -sf http://localhost:8008/_matrix/client/versions || exit 1",
+          CMD-SHELL,
+          curl -sf http://localhost:8008/_matrix/client/versions || exit 1,
         ]
       interval: 5s
       timeout: 3s

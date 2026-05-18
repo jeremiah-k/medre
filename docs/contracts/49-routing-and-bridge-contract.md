@@ -24,7 +24,7 @@ Adapter IDs are plain strings. Routes are **transport-agnostic**: they reference
 
 ### 1.3 Directionality
 
-```
+```text
 RouteDirectionality enum:
   SOURCE_TO_DEST   — events flow from source → dest only
   DEST_TO_SOURCE   — events flow from dest → source only
@@ -60,7 +60,7 @@ An empty tuple = "allow all" for that dimension.
 
 ### 3.1 Matrix ↔ Meshtastic Unidirectional Bridge
 
-```
+```json
 [routes.matrix_to_radio]
 source_adapters = ["bot1"]
 dest_adapters = ["longfast"]
@@ -76,7 +76,7 @@ Meshtastic responses do **not** flow back via this route.
 
 ### 3.2 Matrix ↔ Meshtastic Bidirectional Bridge
 
-```
+```json
 [routes.matrix_radio_bidir]
 source_adapters = ["bot1"]
 dest_adapters = ["longfast"]
@@ -88,7 +88,7 @@ The engine internally creates two routes.
 
 ### 3.3 Dual-Radio Bridge (Meshtastic → Meshtastic)
 
-```
+```json
 [routes.longfast_to_shortturbo]
 source_adapters = ["longfast"]
 dest_adapters = ["shortturbo"]
@@ -99,7 +99,7 @@ Flow: events arriving on `longfast` are forwarded to `shortturbo`. This allows c
 
 ### 3.4 Matrix Hub Topology (Fan-Out)
 
-```
+```json
 [routes.hub_to_radio_a]
 source_adapters = ["bot1"]
 dest_adapters = ["radio_alpha"]
@@ -115,7 +115,7 @@ One Matrix bot fans out to multiple radios. Each route is independent; a failure
 
 ### 3.5 Isolated Route Groups
 
-```
+```json
 [routes.team_a_bridge]
 source_adapters = ["bot_a"]
 dest_adapters = ["radio_a"]

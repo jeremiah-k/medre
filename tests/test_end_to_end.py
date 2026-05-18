@@ -89,7 +89,7 @@ class TestFullPipeline:
             # Create adapter contexts.
             import logging
 
-            type(transport).start.__code__  # just for reference
+            _ = type(transport).start.__code__  # just for reference
             import asyncio
 
             from medre.core.contracts.adapter import AdapterContext

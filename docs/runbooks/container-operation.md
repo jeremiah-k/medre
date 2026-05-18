@@ -91,7 +91,7 @@ docker run \
 
 This captures all persistent state in one mount:
 
-```
+```text
 /host/medre-data/           →  /opt/medre/
   config.toml               →  /opt/medre/config.toml
   state/                    →  /opt/medre/state/
@@ -194,7 +194,7 @@ If `MEDRE_HOME` is not set in the container, MEDRE falls back to XDG mode, which
 
 Each enabled adapter gets its own state root. Two adapters with IDs `matrix_main` and `mesh_radio`:
 
-```
+```text
 /opt/medre/state/adapters/
   matrix_main/
     matrix/

@@ -128,7 +128,7 @@ Transports with asynchronous delivery models report initial states that are not 
 
 LXMF is the only transport with a formal asynchronous delivery state progression. The eight states, tracked by `LxmfSession`:
 
-```
+```text
 generating -> outbound -> sending -> sent -> delivered
                                            -> failed
                                            -> rejected

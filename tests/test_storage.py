@@ -1983,7 +1983,7 @@ class TestOpenReadonly:
 
             # Open read-only and attempt to write.
             ro = await SQLiteStorage.open_readonly(db_path)
-            with pytest.raises(Exception):
+            with pytest.raises(Exception):  # noqa: B017
                 # SQLite will reject the INSERT in mode=ro.
                 duplicate = _make_event(event_id="should-fail")
                 await ro.append(duplicate)

@@ -423,7 +423,7 @@ These policies directly affect routing and delivery:
 
 The full routing and delivery pipeline flow:
 
-```
+```text
 derived event
     |
     v
@@ -740,7 +740,7 @@ parent_receipt_id TEXT,
 
 When retries are exhausted, the receipt chain ends with a `dead_lettered` receipt:
 
-```
+```text
 rcpt-1 (attempt=1, parent=None, status=failed)
   └→ rcpt-2 (attempt=2, parent=rcpt-1, status=dead_lettered)
 ```

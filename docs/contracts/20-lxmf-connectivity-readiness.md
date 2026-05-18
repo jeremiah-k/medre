@@ -325,7 +325,7 @@ include_ticket)`. Confirmed via `inspect.getsource(LXMF.LXMessage.__init__)`.
 
 Message state transitions:
 
-```
+```text
 GENERATING (0x00) -> OUTBOUND (0x01) -> SENDING (0x02) -> SENT (0x04) -> DELIVERED (0x08)
                                                             \
                                                              -> FAILED (0xFF)

@@ -60,14 +60,14 @@ class ReplayMode(Enum):
 
 ### 3.2 Per-Mode Guarantees
 
-**STRICT**
+#### STRICT
 
 - Verifies event existence and integrity (event_id non-empty, event_kind registered).
 - No pipeline stages invoked. No side effects.
 - Re-raises unexpected exceptions.
 - Use for: integrity checks, migration validation, audit verification.
 
-**RE_RENDER**
+#### RE_RENDER
 
 - Re-runs transforms and rendering pipeline. Captures rendering output in `ReplayResult.output`.
 - Does **not** invoke routing, planning, or delivery.
@@ -75,7 +75,7 @@ class ReplayMode(Enum):
 - Re-raises unexpected exceptions.
 - Use for: testing new renderers, metadata evolution, rendering preview.
 
-**RE_ROUTE**
+#### RE_ROUTE
 
 - Re-runs routing and planning with current route configuration.
 - Does **not** invoke rendering or delivery.
@@ -83,7 +83,7 @@ class ReplayMode(Enum):
 - Re-raises unexpected exceptions.
 - Use for: testing route changes, planning changes, route coverage analysis.
 
-**BEST_EFFORT**
+#### BEST_EFFORT
 
 - Full re-processing including adapter delivery. Only mode with side effects.
 - Individual event failures are captured as `"error"` results without crashing the replay.
@@ -91,7 +91,7 @@ class ReplayMode(Enum):
 - Results are yielded in storage query order for deterministic iteration.
 - Use for: migration, adapter testing with real data, retry of failed deliveries.
 
-**DRY_RUN**
+#### DRY_RUN
 
 - Executes all pipeline stages through rendering but **skips delivery**.
 - Delivery stage result is always `"skipped"` with reason `"dry_run: delivery suppressed"`.

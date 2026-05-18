@@ -96,7 +96,7 @@ The canonical event log in storage is the single source of truth. Metadata embed
 
 ### 4.1 Pipeline Overview
 
-```
+```json
 [Adapters] --> ingress policy --> store source event --> enrichment
                                     |
                               semantic transforms
@@ -976,7 +976,7 @@ The `metadata.native` namespace serves as a temporary holding area for fields th
 
 MeshCore is a separate mesh transport adapter with a complex connection lifecycle that must be modeled explicitly. The adapter tracks its state through these stages:
 
-```
+```text
 DISCONNECTED --> CONNECTING --> AUTHENTICATING --> SYNCING --> READY
      ^              |              |                 |          |
      |              v              v                 v          v
@@ -1256,7 +1256,7 @@ Delivery planning for LXMF targets must account for:
 
 The adapter is organized as follows:
 
-```
+```text
 adapters/lxmf/
 ├── __init__.py          # Adapter registration
 ├── adapter.py           # Adapter protocol implementation, lifecycle
@@ -1285,7 +1285,7 @@ The following test cases must pass for LXMF integration to be considered complet
 
 The adapter is organized as follows:
 
-```
+```text
 adapters/lxmf/
 ├── __init__.py          # Adapter registration
 ├── adapter.py           # Adapter protocol implementation, lifecycle
@@ -1511,7 +1511,7 @@ Events carry a trace context through the pipeline. Each stage creates a span. Di
 > **Note:** The tree below reflects the **implemented** source layout under `src/medre/`.
 > Sections not yet populated (e.g. `core/transforms/`, `core/policies/`) contain only `__init__.py`.
 
-```
+```text
 src/medre/
 ├── __init__.py
 ├── cli.py                        # CLI: medre run, config check, config sample, paths, version
@@ -1992,7 +1992,7 @@ Each adapter type has a runtime wrapper (`MatrixRuntimeConfig`, `MeshtasticRunti
 
 ### CLI
 
-```
+```bash
 medre run [--config PATH]         # Start the MEDRE runtime
 medre config check [--config PATH] # Validate config file
 medre config sample                # Print a sample TOML config
@@ -2023,7 +2023,7 @@ At the TOML config level, Matrix encryption is controlled by `encryption_mode: "
 
 ### Configuration Error Hierarchy
 
-```
+```text
 ConfigError                          # Base
 ├── ConfigNotFoundError              # File not found
 ├── ConfigValidationError            # Validation failure

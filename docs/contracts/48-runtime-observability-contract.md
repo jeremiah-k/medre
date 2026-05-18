@@ -49,7 +49,7 @@ At INFO level, the runtime emits:
 
 ### 2.2 Startup Log Sequence Example
 
-```
+```console
 INFO  medre.runtime: Starting 3 adapters
 INFO  medre.adapters.matrix.bot1: adapter_starting transport=matrix adapter_id=bot1
 INFO  medre.adapters.matrix.bot1: adapter_started transport=matrix adapter_id=bot1 duration_ms=234
@@ -66,7 +66,7 @@ INFO  medre.runtime: Assembly complete: 3/3 adapters started in 525ms
 
 At INFO level, the runtime emits per-adapter stop entries in reverse start order:
 
-```
+```console
 INFO  medre.runtime: Shutting down 3 adapters
 INFO  medre.adapters.meshtastic.radio: adapter_stopping transport=meshtastic adapter_id=radio
 INFO  medre.adapters.meshtastic.radio: adapter_stopped transport=meshtastic adapter_id=radio duration_ms=45
@@ -81,7 +81,7 @@ INFO  medre.runtime: Shutdown complete in 103ms
 
 If an adapter does not stop within the global shutdown timeout, a WARNING is logged:
 
-```
+```console
 WARNING  medre.runtime: adapter_id=radio did not stop within shutdown_timeout_seconds=10
 ```
 
@@ -135,7 +135,7 @@ Each adapter exposes a health state via `health_check()`. The possible states:
 
 Health state transitions are logged at INFO level:
 
-```
+```console
 INFO  medre.adapters.matrix.bot1: health_change transport=matrix adapter_id=bot1 old=starting new=healthy
 INFO  medre.adapters.meshtastic.radio: health_change transport=meshtastic adapter_id=radio old=healthy new=degraded
 ```
@@ -204,7 +204,7 @@ Logger names follow a hierarchical dotted convention:
 
 ### 9.2 Examples
 
-```
+```text
 medre.adapters.matrix.bot1
 medre.adapters.matrix.bot2
 medre.adapters.meshtastic.longfast
@@ -230,7 +230,7 @@ Structured logger names enable:
 
 All log output is written to a single global log file:
 
-```
+```json
 {state}/logs/medre.log
 ```
 

@@ -194,7 +194,7 @@ The old manual wiring approach (constructing `MatrixConfig` and `AdapterContext`
 
 **Startup.** On a successful start, you should see log lines like this (timestamps omitted):
 
-```
+```console
 INFO  medre  Matrix Operation Alpha: config loaded for @bot:localhost
 INFO  medre  PipelineRunner started
 INFO  medre  MatrixAdapter matrix-alpha started
@@ -212,7 +212,7 @@ If you see the "running" line, the runner has:
 
 **Shutdown.** Press Ctrl+C (or send SIGTERM) to trigger a graceful shutdown:
 
-```
+```console
 INFO  medre  Shutdown requested — stopping
 INFO  medre  MatrixAdapter stopped
 INFO  medre  PipelineRunner stopped
@@ -239,13 +239,13 @@ The Matrix adapter manages device identity and crypto store paths internally. Op
 
 Plaintext alpha Docker deployments install `mindroom-nio` (no E2EE extras):
 
-```
+```bash
 pip install -e ".[matrix]"
 ```
 
 E2EE text alpha Docker deployments install the E2EE-enabled dependency:
 
-```
+```bash
 pip install -e ".[matrix-e2e]"
 ```
 
@@ -278,7 +278,7 @@ The E2EE text alpha includes a live harness for testing encrypted room operation
 
 The runner logs a startup sequence. The key line from the adapter is:
 
-```
+```text
 MatrixAdapter matrix-alpha started
 ```
 
@@ -288,7 +288,7 @@ Before that, you will see the runner's own startup lines (config loaded, Pipelin
 
 When someone sends a message in an allowlisted room, the `_on_room_message` callback fires. On success, you will see nothing in the logs (the event is published to the context silently). On failure, you will see an exception traceback:
 
-```
+```text
 MatrixAdapter matrix-alpha: error processing inbound event
 Traceback (most recent call last):
   ...
@@ -300,7 +300,7 @@ In E2EE text alpha, encrypted messages that are successfully decrypted also fire
 
 When the bot itself sends a message (including echoes of its own outbound messages via the sync loop), the adapter suppresses them. You will see:
 
-```
+```text
 MatrixAdapter matrix-alpha: suppressing self-message from @bot:localhost
 ```
 
@@ -310,7 +310,7 @@ This is logged at DEBUG level. If your logger is configured for INFO or higher, 
 
 If a sync iteration fails due to a transient error (network blip, homeserver restart, temporary server error), the adapter automatically attempts reconnection with bounded exponential backoff. The error is logged:
 
-```
+```text
 MatrixAdapter matrix-alpha: sync error, attempting reconnect (attempt N): <exception details>
 ```
 

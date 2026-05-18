@@ -423,7 +423,7 @@ Both use the same acquire-timeout (`delivery_acquire_timeout_seconds`) for timed
 
 **Acquire/release flow:**
 
-```
+```text
 acquire_delivery() / acquire_replay()
   ├── accepting_work == False  →  increment rejection counter; return False
   ├── await semaphore (timeout)

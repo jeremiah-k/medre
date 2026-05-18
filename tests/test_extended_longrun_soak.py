@@ -1161,7 +1161,7 @@ class TestBoundedRouteStatsUnderDelivery:
             )
 
             # All counters must be non-negative.
-            for rid, entry in snap.items():
+            for _rid, entry in snap.items():
                 assert entry["delivered"] >= 0
                 assert entry["failed"] >= 0
 

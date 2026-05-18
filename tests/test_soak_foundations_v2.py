@@ -472,7 +472,7 @@ class TestStartupFailureRecovery:
 
         builder1 = RuntimeBuilder(config_empty, paths)
         app1 = builder1.build()
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017
             # Empty adapters → RuntimeStartupError on start.
             await app1.start()
 

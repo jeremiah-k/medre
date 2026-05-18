@@ -583,7 +583,7 @@ class TestLoopDetection:
         loops = check_route_loops(routes)
         # Both fast-path direct loop and slow-path DFS cycle are reported
         assert len(loops) >= 1
-        assert any("a" in l and "b" in l for l in loops)
+        assert any("a" in line and "b" in line for line in loops)
 
     def test_bidirectional_loop_detected(self) -> None:
         """Bidirectional route creates a loop warning."""
@@ -660,7 +660,7 @@ class TestDFSCycleDetection:
         loops = check_route_loops(routes)
         # Should detect at least one cycle containing main -> radio -> lxmf_local -> main
         assert len(loops) >= 1
-        cycle_msgs = [l for l in loops if "cycle detected" in l.lower()]
+        cycle_msgs = [line for line in loops if "cycle detected" in line.lower()]
         assert len(cycle_msgs) >= 1
         assert "main" in cycle_msgs[0]
         assert "radio" in cycle_msgs[0]

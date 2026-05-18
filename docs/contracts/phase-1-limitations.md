@@ -46,7 +46,7 @@ This document explicitly records what Phase 1 does **not** implement, what is re
 
 ## 0. Replay Determinism (Track 1)
 
-### What Phase 1 Implements
+### Replay Determinism: What Phase 1 Implements
 
 Five replay modes with explicit, testable guarantees:
 

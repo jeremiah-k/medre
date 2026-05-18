@@ -1066,7 +1066,7 @@ class TestPartialAdapterStopFailure:
         # Monkey-patch the second adapter to raise on stop.
         failing_id = adapter_ids[1]
         clean_id = adapter_ids[0]
-        app.adapters[failing_id].stop
+        app.adapters[failing_id].stop  # noqa: B018 — attribute access for reference
 
         async def _raising_stop(timeout: float = 10.0) -> None:
             raise RuntimeError(f"Adapter {failing_id} stop failed")

@@ -27,7 +27,7 @@ called during normal `medre run` operation.
 
 Operator tools should move to `medre/operator/` when the import graph allows:
 
-```
+```text
 src/medre/
   operator/       smoke, drill, evidence, trace, recover, run_session
   runtime/        builder, app, route engine, capacity, snapshot

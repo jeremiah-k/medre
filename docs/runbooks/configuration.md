@@ -384,7 +384,7 @@ max_attempts = 3
 When `MEDRE_HOME` is **not** set, MEDRE follows the XDG Base Directory
 Specification. Each path category is resolved independently:
 
-```
+```text
 Config:    $XDG_CONFIG_HOME/medre/    or  ~/.config/medre/
 State:     $XDG_STATE_HOME/medre/     or  ~/.local/state/medre/
 Data:      $XDG_DATA_HOME/medre/      or  ~/.local/share/medre/
@@ -417,7 +417,7 @@ Use `medre paths` to print the resolved paths for your environment.
 Setting the `MEDRE_HOME` environment variable switches MEDRE into
 single-directory mode. All paths are resolved under one root:
 
-```
+```text
 MEDRE_HOME=/opt/medre
 Config:    /opt/medre/config.toml
 State:     /opt/medre/state/
@@ -722,7 +722,7 @@ for developers and CI, not a daily operator command. `medre replay` is a
 lower-level supported command for recovery scenarios. See the
 [Alpha Walkthrough](alpha-walkthrough.md) for the full product path.
 
-```
+```yaml
 medre run [--config PATH]
     Start the MEDRE runtime. Loads config, resolves paths, starts adapters.
 

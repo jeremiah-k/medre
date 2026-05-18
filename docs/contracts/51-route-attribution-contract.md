@@ -28,7 +28,7 @@ Route attribution is stored in three locations, each serving a different lifecyc
 
 After route matching, the pipeline populates `RoutingMetadata` on the event with both matched route IDs and a bounded historical route trace:
 
-```
+```text
 RoutingMetadata(
     matched_routes=("route_a", "route_b"),   # routes matched during this pass
     route_trace=("route_a", "route_b"),      # bounded historical traversal
@@ -46,7 +46,7 @@ This is the live-routing attribution path. The pipeline uses `msgspec.structs.re
 
 Every `DeliveryReceipt` carries a `route_id` field. This persists the route attribution into storage via SQLite alongside the delivery outcome:
 
-```
+```text
 DeliveryReceipt(
     event_id="evt_001",
     target_adapter="longfast",
@@ -64,7 +64,7 @@ Receipts form the durable audit trail. The `route_id` on a receipt is the author
 
 During replay, route attribution is captured in `ReplayRouteAttribution` and stored on `ReplayResult.route_attribution`. This preserves replay-specific metadata (replay mode, loop warnings) without altering the canonical event schema:
 
-```
+```text
 ReplayRouteAttribution(
     route_ids=("matrix_to_radio",),
     source_adapter="bot1",
@@ -102,7 +102,7 @@ Determinism is ensured by:
 
 ### 5.1 Simple Route (One-to-One)
 
-```
+```json
 [routes.matrix_to_radio]
 source_adapters = ["bot1"]
 dest_adapters = ["longfast"]
@@ -118,7 +118,7 @@ Event from `bot1` matches `matrix_to_radio`:
 
 ### 5.2 One-to-Many Route (Fan-Out)
 
-```
+```json
 [routes.hub]
 source_adapters = ["bot1"]
 dest_adapters = ["radio_a", "radio_b"]

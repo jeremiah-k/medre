@@ -53,7 +53,7 @@ This mode is intended for Docker, Kubernetes, and any environment where a unifie
 
 The canonical container layout when `MEDRE_HOME=/opt/medre`:
 
-```
+```text
 /opt/medre/
   config.toml                          # Main configuration file
   state/
@@ -172,7 +172,7 @@ The global database must be the only `.sqlite` file in the state tree.
 
 The Matrix E2EE crypto store path is derived automatically by `RuntimeBuilder` when `MatrixConfig.store_path` is `None`:
 
-```
+```json
 {state}/adapters/{adapter_id}/matrix/store/
 ```
 
@@ -182,7 +182,7 @@ This derivation happens during `builder.build()`, before the adapter is construc
 
 Each Matrix adapter gets its own store directory. Two Matrix adapters with IDs `alpha` and `beta` get separate stores:
 
-```
+```json
 {state}/adapters/alpha/matrix/store/
 {state}/adapters/beta/matrix/store/
 ```
@@ -237,7 +237,7 @@ find / -newer /opt/medre/config.toml -not -path "/opt/medre/*" -not -path "/proc
 
 The Meshtastic serial adapter expects the configured serial device to exist and be accessible:
 
-```
+```text
 MEDRE_MESHTASTIC_SERIAL_PORT=/dev/ttyACM0
 ```
 
@@ -275,7 +275,7 @@ If the device is not available, the Meshtastic adapter will fail to start. This 
 
 Each enabled adapter gets an isolated state root at:
 
-```
+```json
 {state}/adapters/{adapter_id}/
 ```
 
@@ -285,7 +285,7 @@ Two adapters never share the same state root. The isolation guarantee is enforce
 
 Within each adapter root, transport-specific state lives in:
 
-```
+```json
 {state}/adapters/{adapter_id}/{transport}/
 ```
 
@@ -309,7 +309,7 @@ find /opt/medre/state/adapters/ -name "medre.sqlite"
 
 When no environment variables are set, MEDRE uses these XDG spec fallbacks:
 
-```
+```text
 ~/.config/medre/config.toml
 ~/.local/state/medre/medre.sqlite
 ~/.local/state/medre/logs/

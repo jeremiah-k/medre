@@ -365,7 +365,7 @@ As of 2026-05-12:
 
 | #   | Issue                                           | Scope      | Resolution Target                                                                                                                                                                                                                                              | Notes |
 | --- | ----------------------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- |
-| NB1 | ~~`test_runner.py` coroutine `RuntimeWarning`~~ | RC cleanup | [ARCHIVED: runner.py deleted 2026-05-14]. Originally: ✅ RESOLVED (2026-05-12). Root cause: `fake_asyncio_run` captured but never closed the coroutine. Fix: added `coro.close()` in mock. Regression test added (`test_main_no_unawaited_coroutine_warning`). |
+| NB1 | ~~`test_runner.py` coroutine `RuntimeWarning`~~ | RC cleanup | [ARCHIVED: runner.py deleted 2026-05-14]. Originally: ✅ RESOLVED (2026-05-12). Root cause: `fake_asyncio_run` captured but never closed the coroutine. Fix: added `coro.close()` in mock. Regression test added (`test_main_no_unawaited_coroutine_warning`). | N/A   |
 
 ## 10. Next Recommended Tranche
 

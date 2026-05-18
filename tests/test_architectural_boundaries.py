@@ -942,7 +942,7 @@ class TestNoActiveStaleDocsReferences:
         assert (
             not violations
         ), "Active stale architecture references found in docs:\n" + "\n".join(
-            f"{f}:{l}: {s}" for f, l, s in violations
+            f"{f}:{line}: {s}" for f, line, s in violations
         )
 
 
@@ -1038,5 +1038,5 @@ class TestNoStaleWordingInDocs:
         assert (
             not violations
         ), "Stale transitional wording found in docs:\n" + "\n".join(
-            f"{f}:{l}: {s}" for f, l, s in violations
+            f"{f}:{line}: {s}" for f, line, s in violations
         )

@@ -298,7 +298,7 @@ When shutdown begins (SIGTERM, SIGINT, or programmatic):
 
 The overall shutdown budget is `shutdown_timeout_seconds` from `RuntimeConfig`. Individual subsystem timeouts share this budget:
 
-```
+```text
 Total budget: shutdown_timeout_seconds
 ├── Adapter stops (reverse order, each uses the full timeout)
 ├── Pipeline runner stop (drain timeout = shutdown_drain_timeout_seconds)
@@ -358,7 +358,7 @@ docker run -d \
 
 Inside the container, `MEDRE_HOME=/opt/medre`. All paths resolve under this root:
 
-```
+```text
 /opt/medre/
 ├── config.toml
 ├── state/
@@ -418,7 +418,7 @@ Path resolution is pure computation — no filesystem I/O occurs during config l
 
 When running in a container, set `MEDRE_HOME=/opt/medre` (or any absolute path) and mount a single volume at that path. The runtime creates all subdirectories on startup via `_ensure_dirs()`.
 
-```
+```bash
 docker run -d \
   --env MEDRE_HOME=/opt/medre \
   -v medre-data:/opt/medre \
@@ -454,7 +454,7 @@ MEDRE uses a single SQLite database at `{state_dir}/medre.sqlite`. This is the a
 
 When a Matrix adapter uses non-plaintext `encryption_mode`, the runtime derives a crypto store path:
 
-```
+```json
 {state_dir}/adapters/{adapter_id}/matrix/store/
 ```
 
@@ -466,7 +466,7 @@ The store contains Olm/Megolm session keys and device keys managed by the nio li
 
 For Meshtastic adapters using serial connections, pass the host device into the container:
 
-```
+```bash
 docker run -d \
   --device /dev/ttyACM0 \
   -v medre-data:/opt/medre \
@@ -517,7 +517,7 @@ Each adapter receives an isolated state root at `{state_dir}/adapters/{adapter_i
 
 A successful startup with the mixed runtime (Example 4) produces output similar to:
 
-```
+```console
 INFO  medre.cli: Loading config from /opt/medre/config.toml
 INFO  medre.runtime: Starting 2 adapters
 INFO  medre.adapters.matrix.bridge: adapter_starting transport=matrix adapter_id=bridge
@@ -534,7 +534,7 @@ Adapters start in deterministic order: sorted by `(transport, adapter_id)`. Reso
 
 On SIGTERM or SIGINT, the runtime shuts down in reverse start order:
 
-```
+```console
 INFO  medre.runtime: Shutting down 2 adapters (timeout=10s drain=5.0s)
 INFO  medre.adapters.meshtastic.radio: adapter_stopping transport=meshtastic adapter_id=radio
 INFO  medre.adapters.meshtastic.radio: adapter_stopped transport=meshtastic adapter_id=radio duration_ms=42
@@ -557,7 +557,7 @@ When `medre run` starts, the console prints a structured summary of the runtime 
 
 **What you see on a successful startup:**
 
-```
+```yaml
 Runtime starting with 2 adapter(s): bridge, radio
   Routes: 1 enabled, 0 disabled (1 total)
   Storage: sqlite
@@ -588,7 +588,7 @@ Runtime started — 2 adapter(s) in 457ms
 
 **Degraded startup indicators:**
 
-```
+```yaml
 Runtime starting with 3 adapter(s): bot1, bot2, radio
   Build failures (1):
     ✗ matrix.bot2: authentication failed
@@ -612,7 +612,7 @@ On shutdown (triggered by Ctrl-C, SIGTERM, or programmatic stop), the runtime pr
 
 **What you see on a clean shutdown:**
 
-```
+```console
 Runtime shutting down
 INFO  medre.runtime: Shutting down 2 adapters (timeout=10s drain=5.0s)
 INFO  medre.adapters.meshtastic.radio: adapter_stopping transport=meshtastic adapter_id=radio
@@ -875,7 +875,7 @@ If one adapter fails to start, the runtime:
 
 Example output with a partial failure:
 
-```
+```console
 INFO  medre.runtime: Starting 3 adapters
 INFO  medre.adapters.matrix.bot1: adapter_starting transport=matrix adapter_id=bot1
 INFO  medre.adapters.matrix.bot1: adapter_started transport=matrix adapter_id=bot1 duration_ms=210
@@ -904,7 +904,7 @@ If the entire runtime process crashes (OOM, kill -9, power loss):
 3. Restart with the same config to resume operation.
 4. Adapters may replay or suppress stale messages based on their `startup_backlog_suppress_seconds` setting.
 
-## Diagnostics
+## Runtime Diagnostics
 
 ### Inspecting Build-Time Runtime State
 
@@ -1187,7 +1187,7 @@ When reading `health.live_health.runtime_health` from `--refresh-health` output:
 
 ## Log File Location
 
-```
+```json
 {log_dir}/medre.log
 ```
 

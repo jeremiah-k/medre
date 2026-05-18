@@ -203,7 +203,7 @@ for the split criteria and import invariants.
 
 **Product surface (5 command families):**
 
-```
+```bash
 medre run              Start the runtime
 medre config check     Config validation (sample, [paths], [adapters] are utility)
 medre routes           Route management (validate, topology, list)
@@ -215,7 +215,7 @@ medre replay           Recovery action (re-deliver historical events)
 
 **Utility commands (supporting, documented but not core product surface):**
 
-```
+```bash
 medre version          Version and platform info
 medre paths            Resolved MEDRE paths (utility; may be revisited after alpha)
 medre adapters         Adapter inventory (utility; may be revisited after alpha)
@@ -224,13 +224,13 @@ medre config sample    Starter TOML generation
 
 **Credential setup (1 command):**
 
-```
+```bash
 medre adapter matrix auth login  Matrix credential setup — obtains and stores access token, homeserver, user_id
 ```
 
 **Specialized commands (3 commands, available but not primary daily path):**
 
-```
+```bash
 medre trace            Specialized timeline (usually inspect event --timeline)
 medre evidence         Specialized support bundle (usually inspect event --evidence)
 medre recover          Specialized recovery classification (usually inspect event --recovery)
@@ -238,7 +238,7 @@ medre recover          Specialized recovery classification (usually inspect even
 
 **Developer tooling (1 command):**
 
-```
+```bash
 medre smoke            Local validation tooling (developers/CI, not a daily operator command)
 ```
 

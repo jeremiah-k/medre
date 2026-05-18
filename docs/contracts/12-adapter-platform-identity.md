@@ -206,7 +206,7 @@ The important distinction: `adapter_id` is meaningful only within a single MEDRE
 
 Before the platform registry, renderer selection had this dependency chain:
 
-```
+```text
 adapter_id (config) → prefix match in can_render() → renderer selected
 ```
 
@@ -214,7 +214,7 @@ If adapter_id was `"meshtastic_radio"`, the prefix `"meshtastic"` matched and th
 
 With the platform registry, the dependency chain is:
 
-```
+```text
 adapter_id (config) → RenderingPipeline._adapter_platforms lookup → platform string → renderer selected
 ```
 

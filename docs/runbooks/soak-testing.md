@@ -60,7 +60,7 @@ SOAK_HARNESS_ITERATIONS=100 pytest tests/test_soak_harness.py -v
 
 Record in `docs/runbooks/operational-evidence.md` under a new subsection:
 
-```
+```text
 ### Soak Harness Evidence
 | Field | Value |
 |-------|-------|
@@ -160,7 +160,7 @@ available:
 
 For each transport soak, record in `docs/runbooks/operational-evidence.md`:
 
-```
+```text
 ### N.M Soak Test Evidence
 | Field | Value |
 |-------|-------|

@@ -522,7 +522,7 @@ class TestDockerEnvExample:
 
     def test_file_is_commented_template(self) -> None:
         lines = _read(DOCKER_ENV).splitlines()
-        non_empty = [l for l in lines if l.strip() and not l.strip().startswith("#")]
+        non_empty = [line for line in lines if line.strip() and not line.strip().startswith("#")]
         assert len(non_empty) > 0, "env file should have at least one variable"
 
     def test_matrix_vars_present(self) -> None:

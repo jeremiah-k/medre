@@ -274,7 +274,7 @@ When `start(ctx)` is called on a non-fake adapter:
 
 ### 6.2 Expected startup output
 
-```
+```console
 INFO  MeshtasticAdapter mesh-alpha started (mode=tcp)
 ```
 

@@ -433,7 +433,7 @@ class TestStartupFailureRecovery:
             # Step 1: Empty config → startup failure.
             config_empty = _build_empty_config(name=f"fail-{cycle}")
             app_fail = _build_app(config_empty, paths)
-            with pytest.raises(Exception):
+            with pytest.raises(Exception):  # noqa: B017
                 await app_fail.start()
             assert app_fail.state is RuntimeState.FAILED
 

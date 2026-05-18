@@ -129,7 +129,7 @@ LXMF is built on Reticulum, a self-configuring mesh networking stack. The relati
 
 ## Dependency
 
-```
+```bash
 pip install medre[lxmf]
 ```
 

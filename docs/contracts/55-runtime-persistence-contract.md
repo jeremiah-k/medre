@@ -106,7 +106,7 @@ Which events are currently being processed by the pipeline runner (routing, plan
 
 The pipeline proceeds through these stages for each event:
 
-```
+```text
 ingest → normalize → store → route → plan → deliver → receipt
 ```
 
@@ -238,7 +238,7 @@ If a transport disconnects (radio unplugged, Matrix homeserver unreachable):
 
 ### 12.1 Clean Restart After Clean Shutdown
 
-```
+```console
 INFO  medre.runtime: Loading config from /opt/medre/config.toml
 INFO  medre.runtime: Storage opened: /opt/medre/state/medre.sqlite (12345 events, 6789 receipts)
 INFO  medre.runtime: Starting 2 adapters
@@ -254,7 +254,7 @@ All counters at zero. All persisted state available. No recovery needed.
 
 ### 12.2 Restart After Hard Crash
 
-```
+```console
 INFO  medre.runtime: Loading config from /opt/medre/config.toml
 INFO  medre.runtime: Storage opened: /opt/medre/state/medre.sqlite (12345 events, 6772 receipts)
 INFO  medre.runtime: Starting 2 adapters
@@ -283,7 +283,7 @@ This identifies orphaned events. The operator can then decide whether to replay 
 
 ### 12.3 Restart After Crash with Database Integrity Issue
 
-```
+```console
 INFO  medre.runtime: Loading config from /opt/medre/config.toml
 ERROR medre.runtime: Storage integrity check failed: database disk image is malformed
 ERROR medre.runtime: Cannot open storage. Manual intervention required.

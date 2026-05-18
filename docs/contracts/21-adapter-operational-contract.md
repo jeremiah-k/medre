@@ -166,7 +166,7 @@ Specifically:
 
 The adapter owns its health state machine. The runtime observes it through `health_check()`. Valid transitions:
 
-```
+```text
 unknown -> healthy
 unknown -> degraded
 unknown -> unhealthy

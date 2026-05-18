@@ -589,8 +589,8 @@ class TestDockerEnvExampleStructure:
         """File should be mostly comments (template style)."""
         text = _DOCKER_ENV.read_text()
         lines = text.splitlines()
-        non_empty = [l for l in lines if l.strip()]
-        comment_lines = [l for l in non_empty if l.strip().startswith("#")]
+        non_empty = [line for line in lines if line.strip()]
+        comment_lines = [line for line in non_empty if line.strip().startswith("#")]
         # Most lines should be comments
         assert (
             len(comment_lines) > len(non_empty) // 2

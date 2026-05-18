@@ -96,7 +96,7 @@ ls -la /path/to/identity.key
 
 Ensure the following patterns are in `.gitignore`:
 
-```
+```text
 # Credential files
 *.key
 *.pem

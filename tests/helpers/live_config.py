@@ -41,6 +41,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from medre.config.model import RuntimeConfig
+
 __all__ = [
     "all_live_env_set",
     "matrix_env_set",

@@ -37,6 +37,10 @@ from medre.core.observability.logging import (
     _JsonFormatter,
     diagnostic_event,
     get_logger,
+    log_route_delivered,
+    log_route_failed,
+    log_route_loop_prevented,
+    log_route_matched,
     setup_logging,
 )
 from medre.observability.sanitization import sanitize_for_log

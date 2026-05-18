@@ -528,8 +528,8 @@ class TestFirstRunSourceCheckout:
         output = stdout_buf.getvalue()
         lines = output.strip().splitlines()
         assert lines[0].startswith("medre ")
-        assert any("Python" in l for l in lines)
-        assert any("Platform" in l for l in lines)
+        assert any("Python" in line for line in lines)
+        assert any("Platform" in line for line in lines)
 
     def test_step2_paths(
         self,

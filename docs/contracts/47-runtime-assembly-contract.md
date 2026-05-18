@@ -187,7 +187,7 @@ The runtime creates directories for adapter-local state but does not manage the 
 
 The complete path model is defined in **Contract 46**. This contract references it without reproducing it. Key paths:
 
-```
+```json
 {state}/medre.sqlite                                    — Global database (one)
 {state}/logs/medre.log                                  — Global log file
 {state}/adapters/{adapter_id}/                          — Per-adapter state root
@@ -209,7 +209,7 @@ See Contract 46 § 7 for the full list.
 
 The complete assembly sequence, from config to running runtime:
 
-```
+```text
 1. Load and parse config (config loader, not RuntimeBuilder)
 2. Validate config (duplicates, conflicts, required fields)
    → On failure: exit with error, no side effects
@@ -228,7 +228,7 @@ The complete assembly sequence, from config to running runtime:
 
 Shutdown sequence:
 
-```
+```text
 1. Signal received (SIGTERM, SIGINT, or programmatic stop)
 2. For each started adapter, in reverse start order:
    a. Call adapter.stop()

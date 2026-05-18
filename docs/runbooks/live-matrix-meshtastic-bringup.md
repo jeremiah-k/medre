@@ -216,7 +216,7 @@ medre run --config /tmp/medre-live.toml
 
 Look for these log lines:
 
-```
+```text
 Adapter matrix started
 Adapter radio started
 ```
@@ -328,7 +328,7 @@ Record:
 
 In the terminal running medre:
 
-```
+```text
 Ctrl+C
 ```
 

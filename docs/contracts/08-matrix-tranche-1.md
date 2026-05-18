@@ -290,9 +290,9 @@ The pipeline owns all receipt and persistence logic. Adapters transport messages
 
 ## Dependency
 
-```
-pip install medre[matrix]
-```
+.. code-block:: bash
+
+    pip install medre[matrix]
 
 This installs `mindroom-nio>=0.25`. The core install (`pip install medre`) does not include it. All core tests pass without `mindroom-nio` present.
 

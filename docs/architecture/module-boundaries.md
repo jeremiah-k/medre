@@ -4,7 +4,7 @@ Package structure and import rules after the runtime refactor.
 
 ## Package layout
 
-```
+```text
 src/medre/
   cli/            argparse, command dispatch, I/O formatting
   runtime/        builder, app, route engine, smoke/drill/trace

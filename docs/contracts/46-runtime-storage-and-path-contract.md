@@ -60,7 +60,7 @@ Per-adapter log files are a future capability; they do not exist today.
 
 Every adapter receives a state root:
 
-```
+```json
 {state}/adapters/{adapter_id}/
 ```
 
@@ -70,13 +70,13 @@ This directory is created at runtime startup by `MedreApp._ensure_dirs()` for ev
 
 Each transport owns a subdirectory within its adapter's state root. The pattern is:
 
-```
+```json
 {state}/adapters/{adapter_id}/{transport}/
 ```
 
 ### 5.1 Matrix
 
-```
+```json
 {state}/adapters/{adapter_id}/matrix/store/
 ```
 
@@ -88,7 +88,7 @@ The `RuntimeBuilder` derives this path from `adapter_transport_state_dir(adapter
 
 ### 5.2 Meshtastic (future)
 
-```
+```json
 {state}/adapters/{adapter_id}/meshtastic/
 ```
 
@@ -96,7 +96,7 @@ Not yet created at runtime. Reserved for Meshtastic transport state.
 
 ### 5.3 MeshCore (future)
 
-```
+```json
 {state}/adapters/{adapter_id}/meshcore/
 ```
 
@@ -104,7 +104,7 @@ Not yet created at runtime. Reserved for MeshCore transport state.
 
 ### 5.4 LXMF (future)
 
-```
+```json
 {state}/adapters/{adapter_id}/lxmf/
 ```
 
@@ -161,7 +161,7 @@ Environment variables like `MEDRE_MATRIX_STORE_PATH` and `MEDRE_MATRIX_DEVICE_ID
 
 ## 10. Summary Table
 
-```
+```json
 {state}/medre.sqlite                                   — Global database (one backend)
 {log_dir}/medre.log                                    — Global log file
 {state}/adapters/{adapter_id}/                         — Per-adapter state root

@@ -207,6 +207,8 @@ import logging
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Callable
 
+from medre.observability.sanitization import sanitize_error as _sanitize_error
+
 if TYPE_CHECKING:
     pass
 
@@ -380,9 +382,6 @@ def _snapshot_limits(limits: Any) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Build-failure snapshot
 # ---------------------------------------------------------------------------
-
-
-from medre.observability.sanitization import sanitize_error as _sanitize_error
 
 
 def _snapshot_build_failures(failures: list[Any]) -> list[dict[str, Any]]:

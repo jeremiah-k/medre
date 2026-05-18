@@ -332,13 +332,13 @@ When `start(ctx)` is called:
 
 **Fake mode:**
 
-```
+```console
 INFO  MeshCoreAdapter meshcore-alpha started (mode=fake)
 ```
 
 **Real mode (TCP/serial):**
 
-```
+```console
 INFO  MeshCoreAdapter meshcore-alpha started (mode=tcp)
 ```
 

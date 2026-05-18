@@ -29,6 +29,7 @@ the ``lxmf`` and ``RNS`` packages are not installed.
 
 from __future__ import annotations
 
+import importlib
 import re
 
 # Capture SDK presence in sys.modules at module-load time, BEFORE any

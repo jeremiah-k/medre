@@ -436,7 +436,7 @@ Reticulum uses a master-client model on the same machine (`Reticulum.py` lines 2
 
 rnsd warns when started as a client to another shared instance (`rnsd.py` line 51):
 
-```
+```text
 "Started rnsd version {version} connected to another shared local instance,
 this is probably NOT what you want!"
 ```
@@ -670,7 +670,7 @@ The session also provides `delivery_state_counts()` returning a `dict[str, int]`
 
 The session tracks outbound delivery states via the `LxmfDeliveryState` enum:
 
-```
+```text
 GENERATING → OUTBOUND → SENDING → SENT → DELIVERED
                                        ↘ FAILED
                                        ↘ REJECTED

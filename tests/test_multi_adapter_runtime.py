@@ -26,6 +26,7 @@ from medre.config.model import (
 from medre.config.paths import MedrePaths, resolve
 from medre.runtime.app import MedreApp
 from medre.runtime.builder import RuntimeBuilder
+from medre.runtime.errors import RuntimeStartupError
 
 # ---------------------------------------------------------------------------
 # Fixtures

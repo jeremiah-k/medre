@@ -112,6 +112,11 @@ meshtastic_to_matrix | bidirectional)
 meshtastic_to_matrix)
 	check_import "Matrix SDK (mindroom-nio exposes 'nio')" "import nio"
 	;;
+*)
+	echo "Unknown scenario: ${SCENARIO}" >&2
+	echo "Valid scenarios: matrix_to_meshtastic, meshtastic_to_matrix, bidirectional" >&2
+	exit 1
+	;;
 esac
 
 echo "All prerequisites satisfied."

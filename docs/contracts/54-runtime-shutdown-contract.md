@@ -140,7 +140,7 @@ This is not implemented in the current tranche. The current runtime only support
 
 The `MedreApp` uses the `RuntimeState` enum (see Contract 47). Shutdown involves a single state transition:
 
-```
+```text
 RUNNING → STOPPING → STOPPED
                    ↘ FAILED  (if errors during shutdown)
 ```
@@ -223,7 +223,7 @@ When `MedreApp.stop()` is called:
 
 The drain loop (step 2 of shutdown) observes **both** delivery and replay in-flight counts via `capacity_controller.snapshot()`:
 
-```
+```python
 drain_deadline = now + shutdown_drain_timeout_seconds
 while now < drain_deadline:
     snap = capacity_controller.snapshot()

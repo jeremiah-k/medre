@@ -112,12 +112,9 @@ SOAK_DURATION_SECONDS=120 pytest tests/test_soak.py::TestMatrixSoak -m live -v -
 4. **Memory trend:** Monitor RSS or process memory. Should stabilize, not grow indefinitely.
 5. **Background task count:** Should remain constant (no task leaks).
 
-#### NOT EXECUTED (current machine)
+#### §4.1 NOT EXECUTED (current machine)
 
 | Field              | Value                                                   |
-| ------------------ | ------------------------------------------------------- |
-| **Execution date** | NOT EXECUTED                                            |
-| **Reason**         | No Matrix homeserver credentials configured.            |
 | **Resolution**     | Set Matrix env vars, run soak command, record evidence. |
 
 **Historical soak evidence status:** NOT EXECUTED for all transports. See `operational-evidence.md` §1.4, §2.2.
@@ -132,12 +129,9 @@ SOAK_DURATION_SECONDS=120 pytest tests/test_soak.py::TestMatrixSoak -m live -v -
 2. **Undecryptable events:** Count should not grow unboundedly. Some undecryptable events are expected from devices that left the room or whose keys are unavailable.
 3. **E2EE operation count:** Track encrypted sends and decryptions to confirm the crypto path is exercised.
 
-#### NOT EXECUTED (current machine)
+#### §4.2 NOT EXECUTED (current machine)
 
 | Field              | Value                                                        |
-| ------------------ | ------------------------------------------------------------ |
-| **Execution date** | NOT EXECUTED                                                 |
-| **Reason**         | No E2EE environment configured. No encrypted room available. |
 
 ### 4.3 Meshtastic Longrun Procedure
 

@@ -9,6 +9,7 @@ import asyncio
 import logging
 import tempfile
 from datetime import datetime, timezone
+from typing import Any
 
 from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer

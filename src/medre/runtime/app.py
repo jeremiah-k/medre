@@ -65,7 +65,7 @@ if TYPE_CHECKING:
     from medre.core.storage.sqlite import SQLiteStorage
     from medre.runtime.builder import AdapterBuildFailure
     from medre.runtime.capacity import CapacityController
-    from medre.runtime.retry import RetryWorker
+    from medre.runtime.retry import RetryWorker, RetryWorkerState
     from medre.runtime.route_engine import RouteEligibility, RouteStartupReadiness
 
 __all__ = ["MedreApp", "RuntimeState"]
@@ -235,8 +235,6 @@ class MedreApp:
     @property
     def retry_state(self) -> RetryWorkerState:
         """Return the retry worker state, or a default disabled state."""
-        from medre.runtime.retry import RetryWorkerState
-
         if self._retry_worker is not None:
             return self._retry_worker.state
         return RetryWorkerState()

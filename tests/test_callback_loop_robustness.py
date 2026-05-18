@@ -203,7 +203,7 @@ class TestMeshtasticCallbackIsolation:
 
         try:
             # --- BAD: non-dict packet → MeshtasticCodecError ---
-            with pytest.raises(Exception):
+            with pytest.raises(Exception):  # noqa: B017
                 await adapter.simulate_inbound("not a dict")  # type: ignore[arg-type]
 
             assert len(collector.events) == 0
@@ -309,7 +309,7 @@ class TestMeshCoreCallbackIsolation:
 
         try:
             # --- BAD: non-dict → codec raises MeshCoreCodecError ---
-            with pytest.raises(Exception):
+            with pytest.raises(Exception):  # noqa: B017
                 await adapter.simulate_inbound(42)  # type: ignore[arg-type]
 
             assert len(collector.events) == 0
@@ -415,7 +415,7 @@ class TestLxmfCallbackIsolation:
 
         try:
             # --- BAD: non-dict → codec raises LxmfCodecError ---
-            with pytest.raises(Exception):
+            with pytest.raises(Exception):  # noqa: B017
                 await adapter.simulate_inbound("not a dict")  # type: ignore[arg-type]
 
             assert len(collector.events) == 0
@@ -909,7 +909,7 @@ class TestRapidFireBadGood:
 
         try:
             # bad (not a dict)
-            with pytest.raises(Exception):
+            with pytest.raises(Exception):  # noqa: B017
                 await adapter.simulate_inbound(None)  # type: ignore[arg-type]
 
             # good
@@ -942,7 +942,7 @@ class TestRapidFireBadGood:
 
         try:
             # bad (not a dict)
-            with pytest.raises(Exception):
+            with pytest.raises(Exception):  # noqa: B017
                 await adapter.simulate_inbound(12345)  # type: ignore[arg-type]
 
             # good
@@ -973,7 +973,7 @@ class TestRapidFireBadGood:
 
         try:
             # bad (not a dict)
-            with pytest.raises(Exception):
+            with pytest.raises(Exception):  # noqa: B017
                 await adapter.simulate_inbound(b"bytes-not-dict")  # type: ignore[arg-type]
 
             # good
@@ -1048,7 +1048,7 @@ class TestNativeIdIsolation:
 
         try:
             # Bad: triggers exception in classify/decode
-            with pytest.raises(Exception):
+            with pytest.raises(Exception):  # noqa: B017
                 await adapter.simulate_inbound(None)  # type: ignore[arg-type]
 
             # Good: distinct packet_id
@@ -1074,7 +1074,7 @@ class TestNativeIdIsolation:
         await adapter.start(_make_ctx("mc-native", collector))
 
         try:
-            with pytest.raises(Exception):
+            with pytest.raises(Exception):  # noqa: B017
                 await adapter.simulate_inbound(None)  # type: ignore[arg-type]
 
             valid = make_meshcore_packet(text="mc clean", sender="cln", packet_id=7777)
@@ -1096,7 +1096,7 @@ class TestNativeIdIsolation:
         await adapter.start(_make_ctx("lx-native", collector))
 
         try:
-            with pytest.raises(Exception):
+            with pytest.raises(Exception):  # noqa: B017
                 await adapter.simulate_inbound(None)  # type: ignore[arg-type]
 
             valid = _make_lxmf_packet(content="lx clean", msg_id="ff" * 32)

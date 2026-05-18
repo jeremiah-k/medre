@@ -37,7 +37,7 @@ This is an analysis document. No packaging redesign, package splitting, adapter 
 
 medre ships as one Python package. Everything lives under `src/medre/`:
 
-```
+```text
 src/medre/
     __init__.py          (empty)
     cli.py               (CLI entry point: medre run, config check, config sample)

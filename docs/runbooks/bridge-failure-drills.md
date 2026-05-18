@@ -60,7 +60,7 @@ Pass `--storage-path <path>` to persist evidence to a SQLite database that
 `medre inspect` subcommands are read-only and require a persistent SQLite
 database. They exit with code 2 if the config uses `backend = "memory"`:
 
-```
+```yaml
 Error: storage backend is 'memory' — no persistent data to inspect.
 ```
 
@@ -607,8 +607,7 @@ In-flight deliveries when shutdown begins are rejected, not drained.
 3.  If these deliveries are important, replay the corresponding events after
     restart.
 
-        **Caveat:** In-flight deliveries cancelled on shutdown are lost. There is no
-
+    **Caveat:** In-flight deliveries cancelled on shutdown are lost. There is no
     persistent in-flight recovery. See
     [Runtime Operation > Shutdown](runtime-operation.md#shutdown-behavior)
     and [Bridge Recovery](bridge-recovery.md) for crash recovery procedures.

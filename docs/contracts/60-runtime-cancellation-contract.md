@@ -25,7 +25,7 @@ This contract specifies how the MEDRE runtime cancels work. It covers:
 
 The `RuntimeState` enum has six states:
 
-```
+```text
 INITIALIZED → STARTING → RUNNING → STOPPING → STOPPED
                                  ↘ FAILED
 ```
@@ -52,7 +52,7 @@ When `CapacityController.stop_accepting()` is called (during `MedreApp.stop()`):
 
 The `acquire_delivery()` and `acquire_replay()` methods follow this flow:
 
-```
+```python
 acquire():
   if not accepting_work:
     increment rejection counter
@@ -87,14 +87,14 @@ When `MedreApp.stop()` is called, cancellation proceeds through these ordered st
 
 ### Step 1: Stop Accepting New Work
 
-```
+```yaml
 RuntimeState: RUNNING → STOPPING
 capacity_controller.stop_accepting()   # No new deliveries or replay admitted
 ```
 
 ### Step 2: Drain In-Flight Work
 
-```
+```python
 drain_deadline = now + shutdown_drain_timeout_seconds
 while now < drain_deadline:
     snap = capacity_controller.snapshot()
@@ -113,7 +113,7 @@ During the drain phase:
 
 ### Step 3: Signal Shutdown
 
-```
+```text
 shutdown_event.set()                   # Notifies adapters and waiters
 ```
 
@@ -139,7 +139,7 @@ Adapter receive loops and sync loops respond to task cancellation (asyncio `Canc
 
 Each per-target delivery acquires a `CapacityController` slot in a `try/finally` block:
 
-```
+```python
 async def _deliver_to_target(...):
     if not await capacity_controller.acquire_delivery():
         return DeliveryOutcome(status="permanent_failure", error="delivery_capacity_exceeded", failure_kind=CAPACITY_REJECTION)
@@ -166,7 +166,7 @@ If a delivery completes (success or failure) before the drain timeout expires, i
 
 Replay deliveries acquire a replay slot via `acquire_replay()`:
 
-```
+```python
 async def _stage_deliver(...):
     if not await capacity_controller.acquire_replay():
         return ReplayResult(status="error", error="replay_capacity_exceeded")

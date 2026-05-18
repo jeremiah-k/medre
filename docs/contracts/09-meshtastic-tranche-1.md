@@ -138,7 +138,7 @@ In tranche 1, the queue is scaffolding. `enqueue()` appends payloads to an inter
 
 ## Dependency
 
-```
+```bash
 pip install medre[meshtastic]
 ```
 

@@ -399,7 +399,7 @@ class RouteConfig:
                 f"Route {route_id!r}: invalid directionality {raw_dir!r} "
                 f"(valid: {valid})",
                 section_path=section_path,
-            )
+            ) from None
 
         # --- enabled ---
         enabled: bool = data.pop("enabled", True)

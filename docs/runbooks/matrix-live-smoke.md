@@ -188,7 +188,7 @@ pytest -m ""
 
 ### Expected Output (successful run)
 
-```
+```text
 tests/test_matrix_live.py::TestMatrixLiveSmoke::test_adapter_starts_and_reports_healthy PASSED
 tests/test_matrix_live.py::TestMatrixLiveSmoke::test_adapter_health_unknown_after_stop PASSED
 tests/test_matrix_live.py::TestMatrixLiveSmoke::test_adapter_health_unknown_before_start PASSED
@@ -206,7 +206,7 @@ tests/test_matrix_live.py::TestMatrixLiveSmoke::test_inbound_message_received PA
 
 ### Expected Output (missing env vars — skip behavior)
 
-```
+```text
 tests/test_matrix_live.py::TestMatrixLiveSmoke::test_adapter_starts_and_reports_healthy SKIPPED
 tests/test_matrix_live.py::TestMatrixLiveSmoke::test_adapter_health_unknown_after_stop SKIPPED
 ...
@@ -335,7 +335,7 @@ See the alpha operation runbook (`docs/runbooks/matrix-alpha-operation.md`, sect
 
 ## E2EE Live Harness
 
-### Prerequisites
+### E2EE Live Harness Prerequisites
 
 - `pip install -e ".[matrix-e2e]"` (installs `mindroom-nio[e2e]` with crypto libs).
 - An encrypted Matrix room (created via Element, encryption enabled in room settings).

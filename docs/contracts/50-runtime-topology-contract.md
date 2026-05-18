@@ -11,7 +11,7 @@ Every agent or document that references MEDRE runtime topology, layer boundaries
 
 The MEDRE runtime is composed of the following layers, from top to bottom:
 
-```
+```python
 ┌─────────────────────────────────────────┐
 │  CLI (medre.cli, medre run)               │
 ├─────────────────────────────────────────┤
@@ -124,7 +124,7 @@ Routes are registered **after** adapters are built, so `validate_route_adapter_r
 
 ### 3.2 Startup Lifecycle
 
-```
+```text
 MedreApp.start():
   1. Start storage (if enabled)
   2. Start event bus
@@ -136,7 +136,7 @@ MedreApp.start():
 
 ### 3.3 Shutdown Lifecycle
 
-```
+```text
 MedreApp.stop():
   1. Signal shutdown event
   2. Stop adapters in reverse startup order
@@ -149,7 +149,7 @@ MedreApp.stop():
 
 ### 4.1 Inbound (Transport → Pipeline)
 
-```
+```text
 Transport SDK
   → Session (callback, normalizes to raw data)
     → Adapter (converts to CanonicalEvent via codec)
@@ -159,7 +159,7 @@ Transport SDK
 
 ### 4.2 Outbound (Pipeline → Transport)
 
-```
+```text
 PipelineRunner
   → Router (matches event to routes, resolves targets)
     → RenderingPipeline (renders event to adapter payload)
@@ -169,7 +169,7 @@ PipelineRunner
 
 ### 4.3 Cross-Transport Bridge
 
-```
+```text
 Matrix Session → Matrix Adapter → EventBus → PipelineRunner
   → Router (matches route "matrix_to_radio")
     → RenderingPipeline (renders text)
@@ -195,7 +195,7 @@ The runtime does not interpret transport-specific identifiers; it passes them th
 
 ### 6.1 Single-Transport, Multi-Adapter
 
-```
+```json
 [adapters.matrix.bot1]
 [adapters.matrix.bot2]
 ```
@@ -204,7 +204,7 @@ Two Matrix bots in the same runtime. Each has its own session, codec, and adapte
 
 ### 6.2 Multi-Transport Hub
 
-```
+```json
 [adapters.matrix.hub_bot]
 [adapters.meshtastic.radio_a]
 [adapters.meshtastic.radio_b]
@@ -220,7 +220,7 @@ Matrix hub fans out to three different transports. Each destination adapter hand
 
 ### 6.3 Full Mesh (Bidirectional)
 
-```
+```json
 [adapters.matrix.bot]
 [adapters.meshtastic.radio]
 

@@ -36,7 +36,7 @@ target. None proves live network behavior.
 A fake bridge test exercises the **full runtime pipeline** without network or
 hardware dependencies:
 
-```
+```text
 FakeAdapter.simulate_inbound(event)
   -> PipelineRunner.handle_ingress
     -> validate -> resolve_relations -> store -> route -> plan -> deliver
@@ -380,7 +380,7 @@ after the process exits.
 `medre inspect` against a config with `[storage] backend = "memory"`
 produces:
 
-```
+```yaml
 Error: storage backend is 'memory' — no persistent data to inspect.
 ```
 

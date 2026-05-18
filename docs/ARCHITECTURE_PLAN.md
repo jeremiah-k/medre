@@ -102,7 +102,7 @@ Both exceptions import the same pure-function module (`observability/sanitizatio
 
 ## 2. Package Tree
 
-```
+```text
 medre/
 ├── __init__.py              # empty
 ├── __main__.py              # delegates to cli:main

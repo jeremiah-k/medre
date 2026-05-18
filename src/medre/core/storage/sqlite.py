@@ -644,7 +644,7 @@ class SQLiteStorage:
                 f"Storage schema version is not an integer: {stored_version!r}. "
                 f"Expected {_EXPECTED_SCHEMA_VERSION}. "
                 f"Resolve the mismatch manually — no auto-migration is performed."
-            )
+            ) from None
 
         if stored_int != _EXPECTED_SCHEMA_VERSION:
             raise StorageInitializationError(
@@ -793,7 +793,7 @@ class SQLiteStorage:
                 f"Storage schema version is not an integer: {stored_version!r}. "
                 f"Expected {_EXPECTED_SCHEMA_VERSION}. "
                 f"Resolve the mismatch manually — no auto-migration is performed."
-            )
+            ) from None
 
         if stored_int != _EXPECTED_SCHEMA_VERSION:
             raise StorageInitializationError(

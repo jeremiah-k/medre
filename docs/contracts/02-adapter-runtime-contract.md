@@ -404,7 +404,7 @@ class AdapterLifecycleState(str, Enum):
 
 ### 7.2 State Transitions
 
-```
+```text
 INITIALIZING --> RUNNING
 RUNNING       --> DEGRADED
 DEGRADED      --> RUNNING           (recovered)
@@ -445,7 +445,7 @@ Every state change emits a `system.lifecycle` canonical event:
 
 Some adapters require more granular lifecycle states than the generic five-state model. For example, a transport adapter with a complex connection handshake (authentication, syncing) may define internal substates:
 
-```
+```text
 DISCONNECTED --> CONNECTING --> AUTHENTICATING --> SYNCING --> READY
      ^              |              |                 |          |
      |              v              v                 v          v
@@ -684,7 +684,7 @@ To build an adapter, provide:
 
 ### 12.3 Data Flow Summary
 
-```
+```yaml
 Inbound:
   Transport --> raw data
              --> adapter listener loop

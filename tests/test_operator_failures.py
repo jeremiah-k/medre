@@ -627,8 +627,8 @@ class TestRouteLoopWarnings:
         ]
         loops = check_route_loops(routes)
         assert len(loops) >= 1
-        assert any("Direct routing loop" in l for l in loops)
-        direct_loop = [l for l in loops if "Direct routing loop" in l][0]
+        assert any("Direct routing loop" in line for line in loops)
+        direct_loop = [line for line in loops if "Direct routing loop" in line][0]
         assert "'A'" in direct_loop
         assert "'B'" in direct_loop
 
@@ -655,7 +655,7 @@ class TestRouteLoopWarnings:
         ]
         loops = check_route_loops(routes)
         assert len(loops) >= 1
-        assert any("Route cycle detected" in l for l in loops)
+        assert any("Route cycle detected" in line for line in loops)
 
     def test_no_false_positive_linear_chain(self) -> None:
         """A→B→C linear chain produces no loop warnings."""

@@ -37,7 +37,7 @@ The routing layer adds attribution (`route_id`, `source_adapter`, `dest_adapter`
 
 ### 2.2 Flow Through Routing
 
-```
+```text
 1. PipelineRunner.route_event(event)
    → matches routes, populates route_trace on event metadata
    → produces list of (Route, DeliveryPlan) pairs
@@ -97,7 +97,7 @@ These are independent. The self-loop guard catches runtime self-loops. `check_ro
 
 Every failed delivery is attributed to a specific route and destination:
 
-```
+```text
 DeliveryOutcome(
     event_id="evt_001",
     target_adapter="longfast",
@@ -120,7 +120,7 @@ The `route_id` and `target_adapter` fields are always populated on failure outco
 
 When a single event matches a route with multiple destinations, each destination produces an independent `DeliveryOutcome`:
 
-```
+```text
 Route "hub": source=[bot1], dest=[radio_a, radio_b]
 
 Outcome 1: target_adapter=radio_a, status=success
@@ -137,7 +137,7 @@ These outcomes are independent:
 
 When an event matches multiple routes, each route produces independent outcomes:
 
-```
+```text
 Route "to_alpha": source=[bot1], dest=[radio_alpha]
 Route "to_beta":  source=[bot1], dest=[radio_beta]
 
@@ -221,7 +221,7 @@ When a single event routes to multiple targets (fan-out), each target gets an in
 
 Each `DeliveryOutcome` is scoped to exactly one route and one adapter target. When a single event matches multiple routes (fan-out), or a single route targets multiple adapters (one-to-many), each (route, adapter) pair produces an independent outcome:
 
-```
+```text
 Route "hub": source=[bot1], dest=[radio_a, radio_b]
 Route "aux": source=[bot1], dest=[radio_c]
 
@@ -248,7 +248,7 @@ No outcome is shared, aggregated, or coalesced.
 
 Every `DeliveryOutcome` carries `route_id` and `target_adapter` fields, regardless of status. This ensures that even failed and skipped deliveries are attributable to a specific routing decision.
 
-```
+```text
 DeliveryOutcome(
     route_id="matrix_to_radio",
     target_adapter="longfast",
