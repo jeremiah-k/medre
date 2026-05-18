@@ -121,7 +121,7 @@ class TestRouteEngineBoundary:
 class TestPipelineRunnerBoundary:
     """PipelineRunner (src/medre/core/engine/pipeline.py) must not import
     any concrete transport SDK or concrete adapter package.
-    Imports from medre.adapters.base (protocol/base types) are permitted."""
+    After Tranche 1, adapter contract types live in core/ports.py and core/adapter_base.py — core must not import medre.adapters.base at runtime."""
 
     def test_pipeline_runner_does_not_import_concrete_sdks(self) -> None:
         source = _source_of("medre.core.engine.pipeline")
@@ -312,16 +312,20 @@ class TestCoreDoesNotImportAdapters:
 
     def test_no_runtime_core_to_adapters_imports(self) -> None:
         """Scan all core .py files for medre.adapters imports."""
-        tests_dir = Path(__file__).parent
-        core_dir = (tests_dir / ".." / ".." / "src" / "medre" / "core").resolve()
+        repo_root = Path(__file__).resolve().parents[1]
+        core_dir = repo_root / "src" / "medre" / "core"
+        assert core_dir.exists(), f"core directory not found: {core_dir}"
 
         violations: list[str] = []
         for py_file in sorted(core_dir.rglob("*.py")):
             text = py_file.read_text()
             for i, line in enumerate(text.splitlines(), 1):
                 stripped = line.strip()
+                if not stripped or stripped.startswith("#"):
+                    continue
                 if stripped.startswith("from medre.adapters") or stripped.startswith("import medre.adapters"):
-                    violations.append(f"{py_file.relative_to(tests_dir.parent.parent)}:{i}: {stripped}")
+                    rel = py_file.relative_to(repo_root)
+                    violations.append(f"{rel}:{i}: {stripped}")
 
         assert violations == [], (
             f"Core modules must not import from medre.adapters:\n"

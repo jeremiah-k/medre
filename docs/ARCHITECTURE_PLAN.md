@@ -380,7 +380,7 @@ Tranches are ordered by risk (lowest first) and impact (highest first within ris
 |---|---|---|
 | 0.1 | Delete `core/policies/` (empty `__init__.py` only) | Removes noise |
 | 0.2 | Delete `core/transforms/` (empty `__init__.py` only) | Removes noise |
-| 0.3 | Move `adapters/fake_*.py` (7 files) to `adapters/fakes/` | Organizes test doubles |
+| 0.3 | Move `adapters/fake_*.py` (6 files) + `FaultyPresentationAdapter` to `adapters/fakes/` | Organizes test doubles |
 | 0.4 | Update `adapters/__init__.py` to re-export from `adapters.fakes.*` | Preserves `from medre.adapters import FakeMatrixAdapter` |
 | 0.5 | Update test imports referencing `medre.adapters.fake_*` | Direct path change in test files |
 
@@ -408,7 +408,7 @@ grep -r "from medre\.adapters\.fake_" tests/ | grep -v fakes
 
 **Estimated effort**: ~2 hours. This is the single most important change.
 
-**Status: IMPLEMENTED in PR (branch maint-517-2).**
+**Status**: IMPLEMENTED (branch `maint-517-2`).
 
 **Background**: The current dependency is bidirectional. `adapters/base.py` imports `CanonicalEvent` from `core.events.canonical` and `RenderingResult` from `core.rendering.renderer` (line 32-33), while four core files import types from `adapters.base`. The split extraction (Decision 6) breaks both directions of the coupling.
 
@@ -660,7 +660,7 @@ Options: `core/supervision/`, `core/oversight/`, `core/contracts/`, `core/domain
 
 T0 is zero-risk and independent of T1. T1 is the highest-impact change. Doing T0 first gives a clean workspace for T1, but T0 touches `adapters/__init__.py`, which T1 also touches. Order matters.
 
-**Recommendation**: T0 first, T1 second. The `adapters/__init__.py` changes are in different areas (fake re-exports vs. base re-exports) and won't conflict.
+**Historical note**: T1 was implemented first on branch `maint-517-2`. The port extraction (T1) is the critical dependency-inversion fix and can safely precede the fake-adapter move (T0). T0 remains valuable as a follow-up cleanliness improvement but does not block any architectural work.
 
 ### Decision 6: Split port extraction into two files or keep as one?
 

@@ -12,9 +12,13 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from datetime import datetime
 
-from medre.core.events.canonical import CanonicalEvent
+from typing import TYPE_CHECKING
+
 from medre.core.ports import AdapterCodec, AdapterContext, AdapterDeliveryResult, AdapterInfo, AdapterRole
-from medre.core.rendering.renderer import RenderingResult
+
+if TYPE_CHECKING:
+    from medre.core.events.canonical import CanonicalEvent
+    from medre.core.rendering.renderer import RenderingResult
 
 
 # ---------------------------------------------------------------------------
