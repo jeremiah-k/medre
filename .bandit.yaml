@@ -2,6 +2,9 @@
 # Keep Bandit's assert rule in production code, but allow pytest-style asserts in tests.
 assert_used:
   skips:
+    - "tests/*.py"
+    - "tests/*/*.py"
+    - "tests/*/*/*.py"
     - "*_test.py"
     - "*test_*.py"
     - test_*.py
