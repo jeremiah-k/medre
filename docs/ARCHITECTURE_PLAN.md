@@ -1,7 +1,8 @@
-# MEDRE Target Architecture Plan
+# MEDRE Architecture Refactor Plan
 
-> **Status**: Proposed — not yet implemented.
-> **Audience**: Coordinator synthesising a final plan from multiple analysis tracks.
+> **Status**: Review-ready synthesis of four research tracks.
+> **Audience**: Project coordinator deciding the next implementation tranche.
+> **Constraint**: medre is unreleased. Prefer clean moves over compatibility facades.
 
 ---
 
@@ -15,49 +16,69 @@ medre/
 ├── __main__.py              # delegates to cli:main
 ├── py.typed
 ├── adapters/                # adapter framework + 4 transport implementations
-│   ├── base.py              # AdapterRole, BaseAdapter, AdapterCodec, AdapterContext …
-│   ├── fake_*.py            # 7 fake adapters (loose files)
-│   ├── matrix/              # 12 modules (adapter, auth, codec, config, renderer, session …)
+│   ├── __init__.py          # re-exports base types + all fakes
+│   ├── base.py              # AdapterRole, BaseAdapter, AdapterCodec, AdapterContext,
+│   │                        # AdapterCapabilities, AdapterInfo, AdapterSendError,
+│   │                        # AdapterDeliveryResult
+│   ├── fake_lxmf.py
+│   ├── fake_matrix.py
+│   ├── fake_meshcore.py
+│   ├── fake_meshtastic.py
+│   ├── fake_presentation.py
+│   ├── fake_transport.py
+│   ├── matrix/              # 12 modules (adapter, auth, cli, codec, compat, config,
+│   │                        #            errors, metadata, relations, renderer, session)
 │   ├── meshtastic/          # 10 modules
 │   ├── lxmf/                # 10 modules
 │   └── meshcore/            # 9 modules
-├── cli/                     # 18 command modules + main
-├── config/                  # 7 modules (loader, model, env, paths, errors, sample)
+├── cli/                     # 18 command modules + main + __main__
+├── config/
+│   ├── __init__.py          # PEP 562 deferred-import dict (_DEFERRED)
+│   ├── env.py
+│   ├── errors.py
+│   ├── loader.py
+│   ├── model.py             # imports adapter config dataclasses
+│   ├── paths.py
+│   └── sample.py
 ├── core/
 │   ├── diagnostics/         # replay_metrics, snapshot
-│   ├── engine/              # pipeline.py (orchestration)
+│   ├── engine/              # pipeline.py (orchestration, ~1300 lines)
 │   ├── events/              # bus, canonical, kinds, metadata, schema
 │   ├── identity/            # actor, resolver
-│   ├── lifecycle/           # states
-│   ├── observability/       # logging, metrics (Diagnostician)
+│   ├── lifecycle/           # states, manager
+│   ├── observability/       # logging (uses observability/sanitization), metrics (Diagnostician)
 │   ├── planning/            # delivery_plan, fallback_resolution, relation_resolution
-│   ├── policies/            # EMPTY
+│   ├── policies/            # empty
 │   ├── rendering/           # renderer, text
 │   ├── routing/             # models, router, stats
-│   ├── runtime/             # accounting, capabilities, diagnostic_contract, diagnostics, health, supervision
+│   ├── runtime/             # accounting, capabilities, diagnostic_contract,
+│   │                        # diagnostics, health, supervision
 │   ├── storage/             # backend, replay, sqlite
-│   └── transforms/          # EMPTY
+│   └── transforms/          # empty
 ├── interop/                 # mmrelay wire-format constants
 ├── observability/           # classification, logging, sanitization, summaries
-├── plugins/                 # EMPTY
-└── runtime/                 # app, builder, capacity, retry, routes, route_engine, evidence/ …
+├── plugins/                 # scaffolding only: Plugin protocol, PluginCapability enum,
+│   │                        # validate_plugin_payload (in __init__.py)
+│   └── __init__.py
+└── runtime/                 # app, builder, capacity, retry, routes, route_engine,
+                             # boot_summary, drill, smoke, snapshot, timeline, trace,
+                             # errors, events, observability, docker_bridge_artifacts,
+                             # evidence/, run_session/
 ```
 
-### 1.2 What medre Already Does Better Than mmrelay
-
-These strengths are **preserved** — not flattened:
+### 1.2 Strengths to Preserve
 
 | Capability | medre | mmrelay |
 |---|---|---|
 | Adapter abstraction | `BaseAdapter` protocol + `AdapterCodec` | Inline utility classes |
-| Event model | `CanonicalEvent` msgspec struct, immutable | Dict-based payloads |
-| Rendering boundary | `RenderingPipeline` protocol, adapters never render | Formatting mixed into relay logic |
-| Routing engine | `Router` with `RouteSource`/`RouteTarget` models | Hardcoded room ↔ channel map |
+| Event model | `CanonicalEvent` msgspec struct, frozen | Dict-based payloads |
+| Rendering boundary | `RenderingPipeline` protocol; adapters never render | Formatting mixed into relay logic |
+| Routing engine | `Router` with `RouteSource`/`RouteTarget` models | Hardcoded room/channel map |
 | Event bus | Async pub/sub with middleware chain | Direct callback invocation |
 | Planning layer | `DeliveryPlan`, `FallbackResolver`, `RelationResolver` | None |
-| Storage | `StorageBackend` protocol + SQLite impl + replay engine | SQLite for node info only |
+| Storage | `StorageBackend` protocol + SQLite + replay engine | SQLite for node info only |
 | Identity | `CanonicalActor` + `NativeIdentity` + verification levels | None |
-| Lifecycle | State machine (`INITIALIZED → STARTING → RUNNING → …`) | None formalized |
+| Lifecycle | State machine (`INITIALIZED -> STARTING -> RUNNING -> ...`) | None formalized |
 | Retry | Exponential backoff + lineage + dead-letter + `RetryWorker` | None |
 | Schema versioning | `SchemaRegistry` + migration registry | None |
 | Diagnostics | `Diagnostician`, `RouteStats`, `ReplayMetrics`, evidence bundles | None |
@@ -67,51 +88,49 @@ These strengths are **preserved** — not flattened:
 
 ## 2. Problems Identified
 
-### 2.1 Critical: Dependency Inversion Violation
+### 2.1 Dependency Inversion Violation (Critical)
 
-**`core/engine/pipeline.py` imports from `adapters/base.py`.**
+Four `core/` files import from `adapters/base.py`, creating a `core -> adapters` dependency that violates the innermost-layer rule:
 
-This creates a `core → adapters` dependency that inverts the layering. The core should be the innermost layer with no knowledge of infrastructure.
+| Source file | Imports |
+|---|---|
+| `core/engine/pipeline.py` | `AdapterRole`, `BaseAdapter`, `AdapterCodec`, `AdapterContext`, `AdapterCapabilities`, `AdapterSendError`, `AdapterDeliveryResult`, `AdapterInfo` |
+| `core/runtime/capabilities.py` | `AdapterCapabilities` |
+| `core/runtime/health.py` | `AdapterInfo` |
+| `core/planning/delivery_plan.py` | `AdapterSendError` |
 
-Current cycle:
-```
-core/engine/pipeline.py → adapters/base.py → core/events/canonical.py
-```
-
-This works at runtime (Python resolves it) but is architecturally impure and blocks future extraction of core as a standalone package.
+This works at runtime (Python resolves it) but blocks future extraction of core as a standalone package and complicates testing.
 
 ### 2.2 Dual Observability
 
 Two `logging.py` files with different responsibilities:
-- `core/observability/logging.py` — structured logging setup, route-aware logging, diagnostic events (imports from top-level `observability/sanitization.py`)
-- `observability/logging.py` — adapter-scoped logger factory (53 lines)
+- `core/observability/logging.py` (structured logging, diagnostic events, imports `sanitize_for_log` from `observability/sanitization.py`)
+- `observability/logging.py` (adapter-scoped logger factory, 53 lines)
 
-The `core/observability/` → `observability/` dependency is backwards. The core logging module depends on the top-level sanitization module.
+The dependency `core/observability/ -> observability/` goes from core outward, which is backwards. The test `TestCoreLoggingImportsCanonicalSanitizer` (in `test_operational_boundaries.py`) enforces that core logging uses the canonical sanitizer rather than defining its own.
 
 ### 2.3 Fragmented Diagnostics
 
 Three locations for observability-adjacent code:
-- `core/observability/` — Diagnostician, logging
-- `core/diagnostics/` — ReplayMetrics, diagnostics snapshot
-- `observability/` — classification, logging, sanitization, summaries
+- `core/observability/` (Diagnostician, logging)
+- `core/diagnostics/` (ReplayMetrics, snapshot builder)
+- `observability/` (classification, logging, sanitization, summaries)
 
 ### 2.4 Naming Collision: `core/runtime/` vs `runtime/`
 
-`core/runtime/` contains pure domain types (accounting counters, health enums, supervision classifiers).
-`runtime/` contains the actual orchestration implementation.
-The collision is confusing for contributors.
+`core/runtime/` contains pure domain types (accounting counters, health enums, supervision classifiers). `runtime/` contains the actual orchestration implementation. The collision confuses contributors.
 
 ### 2.5 Empty Packages
 
-`core/policies/`, `core/transforms/`, `plugins/` — empty packages that add noise and suggest incomplete design.
+`core/policies/` and `core/transforms/` are empty packages that add noise.
 
 ### 2.6 Fake Adapters in Production Package
 
-7 `fake_*.py` files live alongside real adapters in `adapters/`. They are test doubles used by `runtime/drill.py` and `runtime/smoke.py`. Having them loose in the adapter package clutters the import surface.
+7 `fake_*.py` files live alongside real adapters in `adapters/`. They are test doubles used by `runtime/drill.py` and `runtime/smoke.py`. Having them loose in the adapter package clutters the import surface. `adapters/__init__.py` re-exports all of them (lines 274-289 of `test_packaging_and_install_contract.py` test this directly).
 
-### 2.7 Config → Adapter Config Dependency
+### 2.7 Config to Adapter Config Dependency
 
-`config/model.py` imports from all four `adapters/*/config.py` modules. This is a **config-time** dependency on value types only — acceptable but worth documenting as a deliberate tradeoff.
+`config/model.py` imports from all four `adapters/*/config.py` modules. This is a config-time dependency on value types only (no I/O, no SDK imports). `config/__init__.py` uses PEP 562 deferred imports (`_DEFERRED` dict) to keep lightweight CLI paths SDK-free. Any module path changes must be reflected in this dict.
 
 ---
 
@@ -120,34 +139,34 @@ The collision is confusing for contributors.
 ### 3.1 Layer Model
 
 ```
-                    ┌─────────────────────────┐
-                    │         cli/             │  Presentation
-                    │   (commands, entry)      │
-                    └─────────┬───────────────┘
-                              │
-                    ┌─────────▼───────────────┐
-                    │       runtime/           │  Construction + Orchestration
-                    │  (builder, app, retry,   │
-                    │   routes, evidence)      │
-                    └─────────┬───────────────┘
-                              │
-              ┌───────────────┼───────────────────┐
-              │               │                   │
-    ┌─────────▼──────┐ ┌─────▼──────┐  ┌─────────▼──────┐
-    │   adapters/     │ │  config/   │  │  observability/ │
-    │  (implementations)│ │ (models)   │  │  (logging,     │
-    │                 │ │            │  │   summaries)   │
-    └─────────┬──────┘ └─────┬──────┘  └─────────┬──────┘
-              │               │                   │
-              └───────────────┼───────────────────┘
-                              │
-                    ┌─────────▼───────────────┐
-                    │        core/             │  Domain Layer
-                    │  (events, routing,       │  ZERO external deps
-                    │   planning, rendering,   │
-                    │   identity, storage,     │
-                    │   ports, supervision)    │
-                    └─────────────────────────┘
+                    +---------------------------+
+                    |         cli/              |  Presentation
+                    |   (commands, entry)       |
+                    +------------+--------------+
+                                 |
+                    +------------v--------------+
+                    |       runtime/             |  Construction + Orchestration
+                    |  (builder, app, retry,     |
+                    |   routes, evidence)        |
+                    +------------+--------------+
+                                 |
+              +------------------+------------------+
+              |                  |                  |
+    +---------v--------+ +------v-------+ +--------v--------+
+    |   adapters/       | |   config/    | |  observability/  |
+    |  (implementations)| |  (models)    | |  (logging,       |
+    |                   | |              | |   summaries)      |
+    +---------+---------+ +------+-------+ +--------+---------+
+              |                  |                  |
+              +------------------+------------------+
+                                 |
+                    +------------v--------------+
+                    |        core/              |  Domain Layer
+                    |  (events, routing,        |  ZERO external deps
+                    |   planning, rendering,    |  (after port extraction)
+                    |   identity, storage,      |
+                    |   ports, supervision)     |
+                    +---------------------------+
 ```
 
 ### 3.2 Target Package Tree
@@ -158,12 +177,14 @@ medre/
 ├── __main__.py
 ├── py.typed
 │
-├── core/                                # INNERMOST — zero external deps
+├── core/                                # INNERMOST -- zero external deps
 │   ├── __init__.py
-│   ├── ports.py                         # ★ NEW: adapter interface types
+│   ├── ports.py                         # NEW: adapter interface types extracted
+│   │                                    #   from adapters/base.py
 │   │                                    #   (AdapterRole, BaseAdapter, AdapterCodec,
 │   │                                    #    AdapterContext, AdapterCapabilities,
-│   │                                    #    AdapterSendError, AdapterDeliveryResult, AdapterInfo)
+│   │                                    #    AdapterSendError, AdapterDeliveryResult,
+│   │                                    #    AdapterInfo)
 │   ├── engine/
 │   │   └── pipeline.py                  # imports core.ports (not adapters.base)
 │   ├── events/
@@ -176,13 +197,13 @@ medre/
 │   │   ├── actor.py
 │   │   └── resolver.py
 │   ├── lifecycle/
+│   │   ├── manager.py
 │   │   └── states.py
-│   ├── observability/                   # ★ CONSOLIDATED interfaces
-│   │   ├── metrics.py                   # Diagnostician (kept)
-│   │   ├── diagnostics.py               # ★ MERGED from core/diagnostics/
-│   │   └── health.py                    # ★ MOVED from core/runtime/health.py
+│   ├── observability/                   # domain observability interfaces
+│   │   ├── metrics.py                   # Diagnostician (unchanged)
+│   │   └── logging.py                   # structured logging (unchanged position)
 │   ├── planning/
-│   │   ├── delivery_plan.py
+│   │   ├── delivery_plan.py             # imports core.ports (not adapters.base)
 │   │   ├── fallback_resolution.py
 │   │   └── relation_resolution.py
 │   ├── rendering/
@@ -196,16 +217,20 @@ medre/
 │   │   ├── backend.py
 │   │   ├── replay.py
 │   │   └── sqlite.py
-│   └── supervision/                     # ★ RENAMED from core/runtime/
-│       ├── accounting.py
-│       ├── capabilities.py
-│       ├── diagnostic_contract.py
-│       └── supervision.py
+│   ├── supervision/                     # RENAMED from core/runtime/
+│   │   ├── accounting.py
+│   │   ├── capabilities.py              # imports core.ports (not adapters.base)
+│   │   ├── diagnostic_contract.py
+│   │   ├── diagnostics.py
+│   │   ├── health.py                    # imports core.ports (not adapters.base)
+│   │   └── supervision.py
+│   └── diagnostics/                     # MERGED into core/observability/diagnostics.py
+│       (deleted)                         # in Tranche 2 if PC approves
 │
 ├── adapters/                            # depends on core only
-│   ├── __init__.py                      # re-exports from core.ports
-│   ├── base.py                          # thin shim: re-exports core.ports
-│   ├── fakes/                           # ★ NEW DIR: consolidated test doubles
+│   ├── __init__.py                      # re-exports from core.ports + fakes
+│   ├── base.py                          # thin re-export shim: from core.ports import *
+│   ├── fakes/                           # NEW DIR: consolidated test doubles
 │   │   ├── __init__.py
 │   │   ├── fake_lxmf.py
 │   │   ├── fake_matrix.py
@@ -213,50 +238,13 @@ medre/
 │   │   ├── fake_meshtastic.py
 │   │   ├── fake_presentation.py
 │   │   └── fake_transport.py
-│   ├── matrix/
-│   │   ├── adapter.py
-│   │   ├── auth.py
-│   │   ├── cli.py
-│   │   ├── codec.py
-│   │   ├── compat.py
-│   │   ├── config.py
-│   │   ├── errors.py
-│   │   ├── metadata.py
-│   │   ├── relations.py
-│   │   ├── renderer.py
-│   │   └── session.py
-│   ├── meshtastic/
-│   │   ├── adapter.py
-│   │   ├── codec.py
-│   │   ├── compat.py
-│   │   ├── config.py
-│   │   ├── errors.py
-│   │   ├── packet_classifier.py
-│   │   ├── queue.py
-│   │   ├── renderer.py
-│   │   └── session.py
-│   ├── lxmf/
-│   │   ├── adapter.py
-│   │   ├── codec.py
-│   │   ├── compat.py
-│   │   ├── config.py
-│   │   ├── errors.py
-│   │   ├── fields.py
-│   │   ├── packet_classifier.py
-│   │   ├── renderer.py
-│   │   └── session.py
-│   └── meshcore/
-│       ├── adapter.py
-│       ├── codec.py
-│       ├── compat.py
-│       ├── config.py
-│       ├── errors.py
-│       ├── packet_classifier.py
-│       ├── renderer.py
-│       └── session.py
+│   ├── matrix/                          # (unchanged)
+│   ├── meshtastic/                      # (unchanged)
+│   ├── lxmf/                            # (unchanged)
+│   └── meshcore/                        # (unchanged)
 │
 ├── config/                              # depends on adapter config value types
-│   ├── __init__.py
+│   ├── __init__.py                      # _DEFERRED dict updated for any path changes
 │   ├── env.py
 │   ├── errors.py
 │   ├── loader.py
@@ -264,300 +252,406 @@ medre/
 │   ├── paths.py
 │   └── sample.py
 │
-├── observability/                       # ★ CONSOLIDATED — unified observability
+├── observability/                       # infrastructure observability
 │   ├── __init__.py
-│   ├── classification.py               # failure-kind inference
-│   ├── logging.py                       # ★ MERGED: structured logging + adapter logger factory
-│   ├── sanitization.py                  # PII stripping
-│   └── summaries.py                     # human-readable summaries
+│   ├── classification.py
+│   ├── logging.py                       # adapter-scoped logger factory (unchanged)
+│   ├── sanitization.py                  # PII stripping (canonical source)
+│   └── summaries.py
 │
 ├── interop/                             # external wire-format constants
-│   ├── __init__.py
 │   └── mmrelay.py
 │
-├── plugins/                             # ★ STUB with base protocol
-│   ├── __init__.py
-│   └── base.py                          # PluginProtocol ABC
+├── plugins/                             # scaffolding only (unchanged)
+│   └── __init__.py                      # Plugin protocol, PluginCapability, validate_plugin_payload
 │
-├── runtime/                             # construction + orchestration
-│   ├── __init__.py
-│   ├── app.py
-│   ├── boot_summary.py
-│   ├── builder.py
-│   ├── capacity.py
-│   ├── docker_bridge_artifacts.py
-│   ├── drill.py
-│   ├── errors.py
-│   ├── events.py
-│   ├── evidence/
-│   │   ├── __init__.py
-│   │   ├── _bundle.py
-│   │   ├── _config_sections.py
-│   │   ├── _diagnostics_sections.py
-│   │   ├── _helpers.py
-│   │   └── _storage_sections.py
-│   ├── observability.py
-│   ├── retry.py
-│   ├── route_engine.py
-│   ├── routes.py
-│   ├── run_session/
-│   │   ├── __init__.py
-│   │   ├── evidence.py
-│   │   ├── orchestration.py
-│   │   ├── report.py
-│   │   └── scenario.py
-│   ├── smoke.py
-│   ├── snapshot.py
-│   ├── timeline.py
-│   └── trace.py
-│
-└── cli/                                 # presentation layer
-    ├── __init__.py
-    ├── __main__.py
-    ├── main.py
-    ├── config_commands.py
-    ├── contrib.py
-    ├── diagnostics_commands.py
-    ├── evidence_commands.py
-    ├── exit_codes.py
-    ├── inspect_commands.py
-    ├── json.py
-    ├── recover_commands.py
-    ├── replay_commands.py
-    ├── route_commands.py
-    ├── run_commands.py
-    ├── smoke_commands.py
-    ├── storage_helpers.py
-    ├── trace_commands.py
-    ├── transport_constants.py
-    └── transports.py
+└── runtime/                             # construction + orchestration
+    ├── app.py
+    ├── boot_summary.py
+    ├── builder.py
+    ├── capacity.py
+    ├── docker_bridge_artifacts.py
+    ├── drill.py
+    ├── errors.py
+    ├── events.py
+    ├── evidence/
+    ├── observability.py
+    ├── retry.py
+    ├── route_engine.py
+    ├── routes.py
+    ├── run_session/
+    ├── smoke.py
+    ├── snapshot.py
+    ├── timeline.py
+    └── trace.py
 ```
 
-### 3.3 Changes Summary
+### 3.3 Import Direction Rules
 
-| Change | From | To | Type |
-|--------|------|----|------|
-| Extract port types | `adapters/base.py` | `core/ports.py` | **Structural** |
-| Shim base.py | full module | re-export from `core.ports` | **Compatibility** |
-| Consolidate observability | `core/observability/logging.py` + `observability/logging.py` | `observability/logging.py` | **Merge** |
-| Merge diagnostics | `core/diagnostics/` (2 files) | `core/observability/diagnostics.py` | **Merge** |
-| Relocate health | `core/runtime/health.py` | `core/observability/health.py` | **Move** |
-| Rename core/runtime/ | `core/runtime/` | `core/supervision/` | **Rename** |
-| Consolidate fakes | `adapters/fake_*.py` (7 loose files) | `adapters/fakes/` | **Reorganize** |
-| Delete empty packages | `core/policies/`, `core/transforms/` | gone | **Delete** |
-| Stub plugins | empty `plugins/` | `plugins/base.py` | **Add** |
+```
+cli/           ->  runtime/, config/, core/, observability/
+runtime/       ->  core/, adapters/, config/, observability/
+adapters/      ->  core/ (ports + domain types), observability/
+config/        ->  adapters/*/config (value types only)
+observability/ ->  core/ (types only)
+plugins/       ->  core/ (types only)
+interop/       ->  NOTHING (pure constants)
+core/          ->  core/ ONLY (zero external imports after port extraction)
+```
 
----
+**Hard rule**: `core/` MUST NOT import from `adapters/`, `config/`, `runtime/`, `cli/`, or top-level `observability/`.
 
-## 4. Ownership Rules
+**Exception**: `core/observability/logging.py` currently imports `sanitize_for_log` from `observability/sanitization.py`. This is a known deviation that should be resolved in T2 or flagged as an acceptable documented tradeoff. See Decision Point 3.
 
-### 4.1 Package Ownership Matrix
+### 3.4 Package Ownership Matrix
 
 | Package | Owns | Depends On |
-|---------|------|------------|
-| `core/` | Domain types, protocols, pure logic | **Nothing outside core/** |
-| `core/ports.py` | Adapter interface definitions (protocols, ABCs, value types) | `core/events/`, `core/rendering/` |
+|---|---|---|
+| `core/` | Domain types, protocols, pure logic | **Nothing outside core/** (after T1) |
+| `core/ports.py` | Adapter interface definitions | `core/events/`, `core/rendering/` |
 | `core/engine/` | Pipeline orchestration | `core/ports`, `core/events`, `core/routing`, `core/planning`, `core/rendering`, `core/storage`, `core/observability` |
 | `adapters/*` | Transport/platform implementations | `core/ports`, `core/events`, `core/rendering`, `observability/` |
 | `adapters/fakes/` | Test doubles for smoke/drill | Same as adapters |
 | `config/` | Configuration loading and validation | `adapters/*/config` (value types only) |
 | `observability/` | Logging, sanitization, classification, summaries | `core/` (types only) |
 | `interop/` | External wire-format constants | **Nothing** |
-| `plugins/` | Plugin protocol and loader | `core/events/` (for event types) |
+| `plugins/` | Plugin protocol scaffolding | `core/events/` (for event types) |
 | `runtime/` | Construction, orchestration, lifecycle | `core/`, `adapters/`, `config/`, `observability/` |
 | `cli/` | User-facing commands | `runtime/`, `config/`, `core/` (types), `observability/` |
 
-### 4.2 Import Direction Rules
+---
 
-```
-cli/           →  runtime/, config/, core/, observability/
-runtime/       →  core/, adapters/, config/, observability/
-adapters/      →  core/, observability/
-config/        →  adapters/*/config (value types only)
-observability/ →  core/ (types only)
-plugins/       →  core/ (types only)
-interop/       →  NOTHING (pure constants)
-core/          →  core/ ONLY (zero external imports)
-```
+## 4. What We Are Deliberately NOT Copying from mmrelay
 
-**Hard rule**: `core/` MUST NOT import from `adapters/`, `config/`, `runtime/`, `cli/`, or top-level `observability/`.
+mmrelay is a useful reference project, but its architecture is flat and optimized for a single-transport relay with plugins. medre is a multi-transport routing engine with adapters. Copying mmrelay's patterns wholesale would be a step backward.
 
-### 4.3 Module Size Guidelines
-
-| Package | Max modules per subpackage | Max lines per module |
-|---------|---------------------------|---------------------|
-| `core/` | 8 | 500 (pipeline.py is an exception at ~1300) |
-| `adapters/*/` | 12 | 400 |
-| `cli/` | No limit | 300 |
-| `runtime/` | No limit | 500 |
+| mmrelay Pattern | Why We Reject It |
+|---|---|
+| **Facade re-export globals** (`_config`, `_relay`) | mmrelay uses module-level singletons mutated by `set_config()`. medre uses explicit dependency injection through `RuntimeBuilder`. Global mutable state is a testing hazard. |
+| **`set_config()` global mutation** | Configuration is passed through constructors, not set on globals. This makes the system testable without monkeypatching module state. |
+| **Cross-facade coupling** (relay imports config, config imports relay) | mmrelay's circular dependencies between config and relay are tolerable in a single-file relay but would be catastrophic in medre's layered architecture. |
+| **Mechanical flattening** (all modules at root level) | mmrelay has ~40 files at root. medre has 9 top-level packages with clear layering. Flattening would destroy the dependency boundaries that the boundary tests enforce. |
+| **`constants/` package as junk drawer** | mmrelay's `constants/` has 14 files mixing domain, adapter, and UI constants. medre places event kinds in `core/events/kinds.py`, adapter constants in their adapter packages, and CLI constants in `cli/transport_constants.py`. Each constant lives in the layer that owns it. |
+| **`tools/` catch-all package** | mmrelay's `tools/` mixes sample configs, validation scripts, and utility functions. medre places operator tooling in `cli/`, sample configs in `config/sample.py` and `examples/`, and docker artifacts in `runtime/docker_bridge_artifacts.py`. These are contextually placed. |
+| **`validation/` package** | Validation is context-specific: config validation in `config/errors.py`, route validation in `runtime/routes.py`, event schema validation in `core/events/schema.py`. A shared validation package would add abstraction without value and become a junk drawer. |
+| **Dict-based event payloads** | mmrelay passes dicts everywhere. medre has `CanonicalEvent` (frozen msgspec struct) with schema versioning. This is a fundamental design advantage, not a candidate for change. |
+| **Inline adapter construction** | mmrelay constructs adapters inline in the relay. medre uses `RuntimeBuilder` with `adapter_kind` dispatch, supporting both real and fake adapters without SDK imports. |
 
 ---
 
 ## 5. Refactor Tranche Sequencing
 
-Tranches are ordered by **risk** (lowest first) and **impact** (highest first within risk tier).
+Tranches are ordered by risk (lowest first) and impact (highest first within risk tier). Each tranche is independently shippable.
 
-### Tranche 0 — Cleanups (Zero Risk, Zero Behavioral Change)
+### Tranche 0: Cleanups (Zero Behavioral Change)
 
-Estimated effort: ~30 minutes.
+**Objective**: Remove dead weight, organize test doubles. No logic changes.
 
-| # | Action | Rationale |
-|---|--------|-----------|
-| 0.1 | Delete `core/policies/` (empty) | Removes noise |
-| 0.2 | Delete `core/transforms/` (empty) | Removes noise |
-| 0.3 | Move `adapters/fake_*.py` → `adapters/fakes/` | Organizes test doubles |
-| 0.4 | Update `adapters/__init__.py` fake imports | Follows from 0.3 |
-| 0.5 | Update all test imports of fake adapters | Follows from 0.3 |
-
-**Verification**: All tests pass. No behavioral change.
-
-### Tranche 1 — Port Extraction (High Impact, Medium Risk)
-
-Estimated effort: ~2 hours. This is the single most important change.
+**Estimated effort**: ~30 minutes.
 
 | # | Action | Rationale |
-|---|--------|-----------|
-| 1.1 | Create `core/ports.py` with all interface types from `adapters/base.py` | Fixes dependency inversion |
-| 1.2 | Make `adapters/base.py` a thin re-export shim importing from `core/ports` | Preserves compatibility during migration |
-| 1.3 | Update `core/engine/pipeline.py` to import from `core.ports` | Core no longer depends on adapters |
-| 1.4 | Audit all `core/` imports — remove any remaining `adapters.` references | Enforces layer rule |
-| 1.5 | Update `adapters/__init__.py` re-exports to reference `core.ports` | Clean re-export chain |
-| 1.6 | Update adapter implementations to import from `core.ports` | Optional but preferred |
+|---|---|---|
+| 0.1 | Delete `core/policies/` (empty `__init__.py` only) | Removes noise |
+| 0.2 | Delete `core/transforms/` (empty `__init__.py` only) | Removes noise |
+| 0.3 | Move `adapters/fake_*.py` (7 files) to `adapters/fakes/` | Organizes test doubles |
+| 0.4 | Update `adapters/__init__.py` to re-export from `adapters.fakes.*` | Preserves `from medre.adapters import FakeMatrixAdapter` |
+| 0.5 | Update test imports referencing `medre.adapters.fake_*` | Direct path change in test files |
 
-**Verification**: `grep -r "from medre\.adapters" src/medre/core/` returns zero hits. All tests pass.
+**Tests to update**:
+- `test_packaging_and_install_contract.py` (imports FakeMatrixAdapter etc. from `medre.adapters` -- works if adapters/__init__.py re-exports)
+- `test_architectural_boundaries.py` (imports `medre.adapters.fake_matrix`, `medre.adapters.fake_meshtastic` -- update import paths)
+- `test_packaging_and_install_contract.py::TestFakeAdaptersNoTransitiveSDKImports` (imports `medre.adapters.fake_*` -- update paths)
 
-### Tranche 2 — Observability Consolidation (Medium Risk)
+**Verification**:
+```bash
+python -m pytest tests/ -x --timeout=60
+grep -r "from medre\.adapters\.fake_" tests/ | grep -v fakes
+# Should return zero (no imports of old fake paths)
+```
 
-Estimated effort: ~1.5 hours.
+**Risks**:
+- `adapters/__init__.py` re-export list must be complete. If a fake is missed, downstream tests fail at import time.
+- `test_packaging_and_install_contract.py::test_all_fakes_importable_from_adapters_init` specifically validates the re-exports.
+
+**Rollback**: `git revert` the commit. Fake files are self-contained; no other code depends on their internal structure.
+
+### Tranche 1: Port Extraction (High Impact, Medium Risk)
+
+**Objective**: Break the `core -> adapters` dependency inversion. Extract adapter interface types into `core/ports.py`.
+
+**Estimated effort**: ~2 hours. This is the single most important change.
 
 | # | Action | Rationale |
-|---|--------|-----------|
+|---|---|---|
+| 1.1 | Create `core/ports.py` with all interface types from `adapters/base.py` | Types: `AdapterRole`, `BaseAdapter`, `AdapterCodec`, `AdapterContext`, `AdapterCapabilities`, `AdapterSendError`, `AdapterDeliveryResult`, `AdapterInfo` |
+| 1.2 | Make `adapters/base.py` a thin re-export shim: `from medre.core.ports import *` | Preserves all existing import paths during migration |
+| 1.3 | Update `core/engine/pipeline.py` to import from `core.ports` | Breaks core->adapters dependency for pipeline |
+| 1.4 | Update `core/runtime/capabilities.py` to import `AdapterCapabilities` from `core.ports` | Breaks core->adapters dependency for capabilities |
+| 1.5 | Update `core/runtime/health.py` to import `AdapterInfo` from `core.ports` | Breaks core->adapters dependency for health |
+| 1.6 | Update `core/planning/delivery_plan.py` to import `AdapterSendError` from `core.ports` | Breaks core->adapters dependency for delivery plan |
+| 1.7 | Audit all `core/` imports: `grep -r "from medre\.adapters" src/medre/core/` | Must return zero hits |
+| 1.8 | Update `adapters/__init__.py` re-exports to reference `core.ports` (optional) | Cleaner re-export chain |
+| 1.9 | Update adapter implementations to import from `core.ports` (optional) | Preferred for consistency |
+
+**Tests to update**:
+- `test_cross_transport_boundaries.py::TestDeliveryContractBoundary` -- verifies `AdapterDeliveryResult` is in `adapters.base`. After T1, the re-export shim satisfies this. If PC wants the canonical location to move, this test needs updating.
+- `test_cross_transport_boundaries.py::TestCodecBoundary` -- checks `medre.adapters.base` in codec import lines. Re-export shim keeps this passing.
+- `test_beta_scope_boundaries.py::TestNoTransportSdkInRuntimeCore` -- `_CORE_MODULES` list does not include `core.ports` yet. Add `"medre.core.ports"` to the parametrize list.
+- `test_operational_boundaries.py::TestDiagnosticsNoTransportCoupling` -- `_DIAGNOSTICS_SOURCE_MODULES` includes `medre.core.runtime.capabilities` and `medre.core.runtime.health`, which no longer import from adapters. No test change needed (they already pass with the current imports).
+
+**Verification**:
+```bash
+grep -r "from medre\.adapters" src/medre/core/ | grep -v __pycache__
+# Must return ZERO hits
+
+python -m pytest tests/test_architectural_boundaries.py tests/test_cross_transport_boundaries.py \
+    tests/test_beta_scope_boundaries.py tests/test_operational_boundaries.py -x --timeout=60
+```
+
+**Risks**:
+- `adapters/base.py` may contain more than just type definitions (helper functions, constants). These must stay in `adapters/base.py`, not be blindly copied to `core/ports.py`. Only protocol/ABC/value-type symbols move.
+- Circular import risk: if `core/ports.py` imports from `core/events/canonical.py` and `canonical.py` imports from `core/ports.py`, we get a cycle. Audit carefully.
+- The `test_cross_transport_boundaries.py::TestAdapterRuntimeContainment` checks that adapters do not import `medre.core.runtime.diagnostics/health/capabilities`. After T1, these modules import from `core.ports` (not adapters), so the check still passes.
+
+**Rollback**: Delete `core/ports.py`, restore `adapters/base.py` from git, revert the 4 core file import changes.
+
+### Tranche 2: Observability and Diagnostics Consolidation (Medium Risk)
+
+**Objective**: Consolidate fragmented diagnostics. Resolve or document the `core/observability -> observability/` dependency.
+
+**Estimated effort**: ~1.5 hours.
+
+This tranche has a decision point (see Section 7, Decision Point 3). The two sub-options are:
+
+**Option A: Merge diagnostics, keep core/observability/ logging separate**
+
+| # | Action | Rationale |
+|---|---|---|
+| 2.1 | Merge `core/diagnostics/replay_metrics.py` + `snapshot.py` into `core/observability/diagnostics.py` | Single diagnostics location within core |
+| 2.2 | Delete `core/diagnostics/` directory | Follows from 2.1 |
+| 2.3 | Keep `core/observability/logging.py` where it is | It depends on `observability/sanitization.py`, which is outside core. Accept the documented exception. |
+| 2.4 | Keep `observability/logging.py` where it is | Adapter-scoped logger factory; different responsibility. |
+
+**Option B: Merge everything (aggressive)**
+
+| # | Action | Rationale |
+|---|---|---|
 | 2.1 | Merge `core/observability/logging.py` into `observability/logging.py` | Single logging module |
-| 2.2 | Merge `core/diagnostics/replay_metrics.py` + `snapshot.py` → `core/observability/diagnostics.py` | Single diagnostics location |
-| 2.3 | Move `core/runtime/health.py` → `core/observability/health.py` | Health is observability |
-| 2.4 | Delete `core/diagnostics/` directory | Follows from 2.2 |
-| 2.5 | Update all imports referencing moved modules | Follows from 2.1–2.4 |
-| 2.6 | Remove `core/observability/logging.py` (now empty after merge) | Cleanup |
+| 2.2 | Merge `core/diagnostics/` into `core/observability/diagnostics.py` | Single diagnostics location |
+| 2.3 | Delete `core/diagnostics/` and empty `core/observability/logging.py` | Cleanup |
+| 2.4 | Move `core/runtime/health.py` to `core/observability/health.py` | Health is observability |
 
-**Verification**: No `core/observability/logging.py` exists. All diagnostics types in `core/observability/diagnostics.py`. All tests pass.
+**Recommended**: Option A. It avoids creating a core->observability dependency and respects the existing boundary test that enforces the canonical sanitizer import pattern. Option B requires either moving `sanitize_for_log` into core (breaking the separation) or accepting a core->external dependency that violates the layer model.
 
-### Tranche 3 — Rename core/runtime/ → core/supervision/ (Low Risk, High Clarity)
+**Tests to update (either option)**:
+- `test_snapshot_schema_stability.py` -- imports from `medre.core.diagnostics.replay_metrics`, `medre.core.diagnostics.snapshot`. Update to `medre.core.observability.diagnostics`.
+- `test_operational_boundaries.py` -- `_EVIDENCE_SOURCE_MODULES` includes `medre.core.diagnostics`, `medre.core.diagnostics.replay_metrics`, `medre.core.diagnostics.snapshot`. Update paths.
+- `test_beta_scope_boundaries.py` -- `_CORE_MODULES` includes `medre.core.diagnostics`, `medre.core.diagnostics.replay_metrics`, `medre.core.diagnostics.snapshot`. Update paths.
+- `test_beta_scope_boundaries.py` -- `_CORE_MODULES` includes `medre.core.observability.logging`, `medre.core.observability.metrics`. If Option B merges logging, remove the logging entry.
 
-Estimated effort: ~1 hour.
+**Verification**:
+```bash
+test -d src/medre/core/diagnostics && echo "FAIL: core/diagnostics still exists" || echo "OK"
+python -m pytest tests/test_snapshot_schema_stability.py tests/test_operational_boundaries.py \
+    tests/test_beta_scope_boundaries.py -x --timeout=60
+```
+
+**Risks**:
+- `test_snapshot_schema_stability.py` imports `build_diagnostics_snapshot` from `core.diagnostics.snapshot`. The function name and signature must not change, only the import path.
+- If Option B is chosen, `test_operational_boundaries.py::TestCoreLoggingImportsCanonicalSanitizer` needs rewriting because the module it tests (`core.observability.logging`) no longer exists.
+
+**Rollback**: Restore `core/diagnostics/` from git. Revert test import path changes.
+
+### Tranche 3: Rename core/runtime/ to core/supervision/ (Low Risk, High Clarity)
+
+**Objective**: Eliminate the naming collision between `core/runtime/` (domain types) and `runtime/` (orchestration).
+
+**Estimated effort**: ~1 hour.
 
 | # | Action | Rationale |
-|---|--------|-----------|
-| 3.1 | Rename `core/runtime/` → `core/supervision/` | Eliminates naming collision |
-| 3.2 | Update all imports (many are `TYPE_CHECKING` only) | Follows from 3.1 |
-| 3.3 | Update runtime/app.py references to supervision types | Follows from 3.1 |
+|---|---|---|
+| 3.1 | Rename `core/runtime/` directory to `core/supervision/` | Clear semantic separation |
+| 3.2 | Update all imports of `medre.core.runtime.*` to `medre.core.supervision.*` | Includes `TYPE_CHECKING` imports |
+| 3.3 | Update `runtime/app.py`, `runtime/builder.py`, `runtime/snapshot.py` | Major consumers of supervision types |
 
-**Verification**: `grep -r "core\.runtime\." src/medre/` returns zero hits (except legitimate `medre.runtime.` top-level references). All tests pass.
+**Tests to update**:
+- `test_beta_scope_boundaries.py` -- `_CORE_MODULES` has 7 entries for `medre.core.runtime.*`: `medre.core.runtime`, `.accounting`, `.capabilities`, `.diagnostic_contract`, `.diagnostics`, `.health`, `.supervision`. All change to `medre.core.supervision.*`.
+- `test_operational_boundaries.py` -- `_EVIDENCE_SOURCE_MODULES` includes `medre.core.runtime.diagnostics`, `.diagnostic_contract`, `.health`. Also `_DIAGNOSTICS_SOURCE_MODULES` includes `.diagnostics`, `.health`, `.capabilities`, `.supervision`, `.accounting`, `.diagnostic_contract`.
+- `test_cross_transport_boundaries.py` -- `_CORE_MODULES` includes `medre.core.runtime`, `.diagnostics`, `.health`, `.capabilities`. Also `_RUNTIME_MODULES` includes `medre.core.runtime.diagnostics`, `.health`, `.capabilities`. Also `_DIAGNOSTIC_CONTRACT_MODULES` includes 3 `medre.core.runtime.*` entries. Also `_SESSION_RUNTIME_FORBIDDEN_PREFIXES` references `medre.core.runtime.diagnostics` and `medre.core.runtime.health`. Also `TestAdapterRuntimeContainment` checks for `medre.core.runtime.diagnostics`, `.health`, `.capabilities`.
+- `test_snapshot_schema_stability.py` -- imports from `medre.core.runtime.accounting`, `medre.core.runtime.diagnostic_contract`.
+- `test_architectural_boundaries.py` -- no direct `core.runtime` references (it checks SDK/adapter imports, not module paths).
+- `test_evidence_package_boundary.py` -- references `medre.runtime.evidence` (top-level runtime, not core.runtime). No change needed.
 
-### Tranche 4 — Plugin Foundation (Low Risk, Additive)
+**Verification**:
+```bash
+grep -r "core\.runtime\." src/medre/ | grep -v __pycache__ | grep -v "medre\.runtime\."
+# Must return ZERO hits (medre.runtime.* top-level is legitimate)
 
-Estimated effort: ~30 minutes.
+python -m pytest tests/ -x --timeout=60
+```
+
+**Risks**:
+- Many test files use string literals for module paths (e.g., `_CORE_MODULES = ["medre.core.runtime.diagnostics", ...]`). A simple find-and-replace works but must be exhaustive.
+- `test_cross_transport_boundaries.py` has both forbidden-prefix tuples and parametrize lists referencing `medre.core.runtime.*`. Missing any entry causes false-positive test failures.
+
+**Rollback**: Rename `core/supervision/` back to `core/runtime/`. Revert import changes.
+
+### Tranche 4: Plugin Foundation Audit (Low Risk, Additive)
+
+**Objective**: Verify and document the existing plugin scaffolding. No new code needed.
+
+**Estimated effort**: ~15 minutes.
+
+The plugins package already contains scaffolding (verified by `test_beta_scope_boundaries.py::TestNoPluginRuntime`):
+- `Plugin` protocol
+- `PluginCapability` enum
+- `validate_plugin_payload` function
+
+These live in `plugins/__init__.py`. The previous plan proposed creating `plugins/base.py`, but the scaffolding already exists and the beta scope boundary tests enforce that no loader/manager/registry is added.
 
 | # | Action | Rationale |
-|---|--------|-----------|
-| 4.1 | Create `plugins/base.py` with `PluginProtocol` ABC | Foundation for future plugin system |
-| 4.2 | Update `plugins/__init__.py` to export `PluginProtocol` | Public API |
+|---|---|---|
+| 4.1 | Document the plugin scaffolding in this plan | Already exists, no code change |
+| 4.2 | Mark T4 as informational only | Nothing to implement |
 
-**Verification**: All tests pass. New module is importable.
+**Verification**: Existing tests already cover this (`TestNoPluginRuntime`).
 
 ---
 
-## 6. Explicit Tradeoffs
+## 6. Test Impact Matrix
 
-### 6.1 Decisions Made
+Each test file with hardcoded module paths that must be updated during refactoring:
+
+| Test File | Affected Tranches | Module Lists to Update |
+|---|---|---|
+| `test_beta_scope_boundaries.py` | T0, T1, T2, T3 | `_RUNTIME_MODULES` (10 entries), `_CORE_MODULES` (44 entries including `core.diagnostics.*`, `core.runtime.*`, `core.policies`, `core.transforms`) |
+| `test_architectural_boundaries.py` | T0 | Fake adapter imports |
+| `test_operational_boundaries.py` | T2, T3 | `_EVIDENCE_SOURCE_MODULES` (8 entries), `_DIAGNOSTICS_SOURCE_MODULES` (8 entries) |
+| `test_cross_transport_boundaries.py` | T1, T3 | `_CORE_MODULES` (23 entries), `_RUNTIME_MODULES` (3 entries), `_DIAGNOSTIC_CONTRACT_MODULES` (3 entries), `_SESSION_RUNTIME_FORBIDDEN_PREFIXES`, forbidden import checks in `TestAdapterRuntimeContainment` |
+| `test_packaging_and_install_contract.py` | T0 | Fake adapter imports (7 entries in `TestFakeAdaptersWithoutSDKs`, `TestFakeAdaptersNoTransitiveSDKImports`) |
+| `test_evidence_package_boundary.py` | None | References `medre.runtime.evidence` (top-level runtime, unaffected) |
+| `test_snapshot_schema_stability.py` | T2, T3 | Imports from `core.diagnostics.*`, `core.runtime.*`, `runtime.snapshot` |
+| `test_runtime_durability_boundaries.py` | T3 | Likely has `core.runtime.*` references (check before T3) |
+| `test_supervision_boundaries.py` | T3 | Likely has `core.runtime.*` references (check before T3) |
+| `test_resource_boundaries.py` | T3 | Likely has `core.runtime.*` references (check before T3) |
+| `test_route_runtime_boundaries.py` | T3 | Likely has `core.runtime.*` references (check before T3) |
+| `test_queue_boundaries.py` | T3 | Check for `core.runtime.*` references |
+| `test_deployment_boundaries.py` | T3 | Check for `core.runtime.*` references |
+| `test_runtime_deployment_boundaries.py` | T3 | Check for `core.runtime.*` references |
+
+**Additional files with module path references**:
+- `medre/config/__init__.py` -- `_DEFERRED` dict maps symbol names to `(module_path, attr_name)` tuples. Currently references `medre.config.model`, `medre.runtime.routes`, `medre.config.loader`, `medre.config.env`. No `core.*` paths, so T1-T3 do not affect it. But if `runtime/routes.py` is ever moved, this dict needs updating.
+- `scripts/ci/` -- CI scripts likely reference test file names, not module paths. Verify before each tranche.
+- `docs/` -- Architecture docs, runbooks, and contracts may reference module paths. Update after implementation.
+
+---
+
+## 7. Decision Points for PC
+
+These choices require coordinator approval before implementation begins.
+
+### Decision 1: Should adapters/base.py remain a re-export shim or be deleted?
+
+The old plan proposes making `adapters/base.py` a thin re-export shim (`from medre.core.ports import *`). This preserves backward compatibility but creates an indirection layer.
+
+Since medre is unreleased, the cleaner option is to update all imports directly to `core.ports` and delete `adapters/base.py` entirely. However, `test_cross_transport_boundaries.py::TestDeliveryContractBoundary` explicitly verifies that `AdapterDeliveryResult` exists in `medre.adapters.base`. Deleting `base.py` requires updating that test.
+
+**Recommendation**: Keep the re-export shim for now. It costs nothing, keeps boundary tests passing, and can be removed in a later cleanup pass.
+
+### Decision 2: Should core/diagnostics/ be merged into core/observability/ or kept separate?
+
+`core/diagnostics/` (ReplayMetrics, snapshot builder) serves a different purpose than `core/observability/` (Diagnostician, structured logging). ReplayMetrics is a storage-layer artifact; the Diagnostician is a runtime diagnostic aggregator. Merging them into a single `core/observability/diagnostics.py` is coherent (both are about inspecting system state) but mixes storage-layer metrics with runtime-layer diagnostics.
+
+**Recommendation**: Merge. Both are domain-level observability types with no external dependencies. The separation adds navigation cost without semantic benefit.
+
+### Decision 3: What to do about core/observability/logging.py importing from observability/sanitization.py?
+
+This is the most sensitive dependency. Three options:
+
+1. **Accept the deviation and document it**: `core/observability/logging.py` imports a pure function (`sanitize_for_log`) from `observability/sanitization.py`. This is a value-type dependency with no I/O or SDK coupling. The existing boundary test (`TestCoreLoggingImportsCanonicalSanitizer`) enforces that core logging uses the canonical sanitizer rather than defining its own. Document this as a deliberate tradeoff.
+
+2. **Move `sanitize_for_log` into core**: Make sanitization a domain utility. This is cleaner architecturally but moves PII-awareness logic into the domain layer, which may not be appropriate.
+
+3. **Move `core/observability/logging.py` out of core entirely**: The structured logging setup is more of an infrastructure concern than a domain concern. Move it to `observability/logging.py` and merge with the existing adapter logger factory.
+
+**Recommendation**: Option 1 (accept and document). It preserves the existing test contract, avoids moving PII logic into the domain layer, and keeps the change surface small. The dependency is on a pure function, not a service or SDK.
+
+### Decision 4: Naming for the renamed core/runtime/ package
+
+Options: `core/supervision/`, `core/oversight/`, `core/contracts/`, `core/domain_runtime/`.
+
+**Recommendation**: `core/supervision/`. It accurately describes the contents (accounting, capabilities, health checks, diagnostic contracts, supervision classifier) and is distinct from `runtime/` (orchestration).
+
+### Decision 5: Should the fake adapter move (T0) happen before the port extraction (T1)?
+
+T0 is zero-risk and independent of T1. T1 is the highest-impact change. Doing T0 first gives a clean workspace for T1, but T0 touches `adapters/__init__.py`, which T1 also touches. Order matters.
+
+**Recommendation**: T0 first, T1 second. The `adapters/__init__.py` changes are in different areas (fake re-exports vs. base re-exports) and won't conflict.
+
+---
+
+## 8. Recommended Next Tranche
+
+**Start with Tranche 0** (cleanups).
+
+Rationale:
+- Zero behavioral change means zero risk of regressions.
+- Removes dead packages that would otherwise need to be accounted for in T1's `_CORE_MODULES` audit.
+- Organizes fake adapters, which cleans up the `adapters/` directory before the port extraction touches `adapters/base.py`.
+- Fast (~30 minutes) and gives confidence in the test-update workflow before tackling the higher-risk T1.
+- After T0, the `adapters/` directory is clean: `base.py` (types), `fakes/` (test doubles), and four transport packages.
+
+After T0 lands, **T1 (port extraction)** is the next priority. It is the only change that fixes a real architectural defect (the core->adapters dependency inversion). All other tranches are naming/organization improvements.
+
+---
+
+## 9. Explicit Tradeoffs
+
+### 9.1 Decisions Made
 
 | Decision | Rationale |
-|----------|-----------|
-| **No `constants/` package** | Event kinds are domain types that belong in `core/events/kinds.py`. Adapter-specific constants belong in their adapter packages. A root `constants/` becomes a junk drawer. mmrelay's `constants/` works for their flat architecture but would be a step backward for medre's layered design. |
-| **No `validation/` package** | Validation is context-specific: config validation in `config/errors.py`, route validation in `runtime/routes.py`, event schema validation in `core/events/schema.py`. Extracting a shared package would add abstraction without value. |
-| **No `tools/` package** | Operator tooling lives in `cli/`. Sample configs live in `config/sample.py` and `examples/`. Docker artifacts live in `runtime/docker_bridge_artifacts.py`. These are contextually placed; a `tools/` package would be a catch-all. |
-| **`config/model.py` → adapter config imports kept** | Each adapter declares its own frozen-dataclass config. The runtime config model wraps these. This is a config-time dependency on value types only — no I/O, no SDK imports. Acceptable. |
-| **Port extraction over full hexagonal architecture** | `core/ports.py` is a single module rather than a full `ports/` package. For a single-process Python application, a single ports module is sufficient. A full ports/ package would add directory depth without proportional value. |
-| **`interop/` kept separate from adapters/** | Wire-format compatibility constants define a cross-adapter contract (e.g., mmrelay's Matrix message schema is consumed by both matrix and meshtastic adapters). Placing them in any single adapter would create adapter↔adapter coupling. |
-| **Fake adapters kept in production package** | `runtime/drill.py` and `runtime/smoke.py` use fake adapters for operational testing. They ship as part of the runtime. Moving to `tests/` would break the smoke/drill pipeline. Consolidating into `adapters/fakes/` is the right balance. |
-| **NOT flattening to match mmrelay** | medre's layered architecture (core → adapters → runtime → cli) is objectively superior for maintainability. mmrelay's flat structure works for a single-transport relay but does not scale to a multi-transport routing engine. |
+|---|---|
+| **No `constants/` package** | Event kinds are domain types in `core/events/kinds.py`. Adapter constants live in their adapter packages. A root `constants/` becomes a junk drawer. |
+| **No `validation/` package** | Validation is context-specific: config in `config/errors.py`, routes in `runtime/routes.py`, schemas in `core/events/schema.py`. Shared validation adds abstraction without value. |
+| **No `tools/` package** | Operator tooling lives in `cli/`. Sample configs in `config/sample.py` and `examples/`. Docker artifacts in `runtime/docker_bridge_artifacts.py`. Contextually placed. |
+| **`config/model.py` adapter config imports kept** | Each adapter declares its own frozen-dataclass config. The runtime config model wraps these. Config-time dependency on value types only. Acceptable. |
+| **Port extraction as single module** | `core/ports.py` rather than `core/ports/`. For a single-process Python application, one module is sufficient. A ports package would add directory depth without proportional value. |
+| **`interop/` kept separate from adapters/** | Wire-format constants define a cross-adapter contract. Placing them in any single adapter creates adapter-to-adapter coupling. |
+| **Fake adapters kept in production package** | `runtime/drill.py` and `runtime/smoke.py` use fakes for operational testing. They ship as part of the runtime. Consolidating into `adapters/fakes/` is the right balance. |
+| **NOT flattening to match mmrelay** | medre's layered architecture is objectively superior for a multi-transport routing engine. Flattening would destroy the boundary tests that enforce layer separation. |
 
-### 6.2 Decisions Deferred
+### 9.2 Decisions Deferred
 
 | Decision | Why Deferred |
-|----------|-------------|
-| Plugin system implementation | `plugins/` gets a protocol stub only. Full implementation is a separate workstream. |
+|---|---|
+| Plugin system implementation | Scaffolding exists. Full implementation is a separate workstream. |
 | Adapter hot-reload | Architecture supports it (ports are protocols) but no implementation planned. |
-| Core as standalone package | Port extraction enables this but extraction is not planned pre-release. |
+| Core as standalone package | Port extraction enables this, but extraction is not planned pre-release. |
 | Event schema migrations | `SchemaRegistry` + `MIGRATION_REGISTRY` exist. No migrations needed pre-release. |
+| `adapters/base.py` shim removal | Keep the re-export shim for now. Remove in a later cleanup pass post-T1. |
 
 ---
 
-## 7. Comparison: mmrelay vs medre Target
-
-```
-mmrelay/                            medre/ (target)
-├── config.py (flat)                ├── config/ (7 modules, typed models)
-├── constants/ (14 files)           ├── core/events/kinds.py (domain-typed)
-├── matrix/ (12 files)              ├── adapters/matrix/ (12 modules, protocol-based)
-├── meshtastic/ (14 files)          ├── adapters/meshtastic/ (10 modules)
-├── plugins/ (12 plugins)           ├── plugins/ (stub → future)
-├── tools/ (samples)                ├── cli/ (18 commands, structured)
-├── cli_utils.py (flat)             ├── core/ports.py (interface types)
-├── db_runtime.py (flat)            ├── core/storage/ (protocol + SQLite + replay)
-├── log_utils.py (flat)             ├── observability/ (4 modules, consolidated)
-└── ...                             └── core/ (domain layer, zero ext deps)
-```
-
-**Key difference**: mmrelay is a relay with plugins. medre is a routing engine with adapters. The architecture reflects this — medre has a formal core domain layer, port/adapter separation, and a pipeline engine. These are not features to copy from mmrelay; they are features that make medre a fundamentally different (and more maintainable) system.
-
----
-
-## 8. Dependency Graph (Target)
-
-```
-                    cli
-                     │
-            ┌────────┼──────────┐
-            │        │          │
-         runtime  config   observability
-            │        │          │
-     ┌──────┼────┐   │          │
-     │      │    │   │          │
- adapters  ...  ... │          │
-     │              │          │
-     └──────┬───────┘          │
-            │                  │
-          core ◄───────────────┘
-         (ports, events,
-          routing, planning,
-          rendering, storage,
-          supervision)
-```
-
-**`core/` is the innermost layer. Nothing inside core imports from outside core.**
-
----
-
-## 9. File-Level Change Impact
+## 10. File-Level Change Impact
 
 | File | Change | Tranche |
-|------|--------|---------|
-| `core/ports.py` | **NEW** — extract from `adapters/base.py` | T1 |
-| `adapters/base.py` | **SHIM** — re-export from `core.ports` | T1 |
-| `core/engine/pipeline.py` | **MODIFY** — imports from `core.ports` | T1 |
-| `adapters/__init__.py` | **MODIFY** — update re-exports | T1 |
-| `core/observability/diagnostics.py` | **NEW** — merge from `core/diagnostics/` | T2 |
-| `core/observability/health.py` | **NEW** — move from `core/runtime/health.py` | T2 |
-| `core/observability/metrics.py` | Keep (Diagnostician) | — |
-| `core/observability/logging.py` | **DELETE** — merge into `observability/logging.py` | T2 |
-| `observability/logging.py` | **MERGE** — absorb `core/observability/logging.py` | T2 |
-| `core/diagnostics/` | **DELETE** directory | T2 |
-| `core/runtime/` → `core/supervision/` | **RENAME** | T3 |
-| `adapters/fake_*.py` → `adapters/fakes/` | **MOVE** | T0 |
+|---|---|---|
+| `core/ports.py` | **NEW** -- extract from `adapters/base.py` | T1 |
+| `adapters/base.py` | **SHIM** -- re-export from `core.ports` | T1 |
+| `core/engine/pipeline.py` | **MODIFY** -- imports from `core.ports` | T1 |
+| `core/runtime/capabilities.py` | **MODIFY** -- imports from `core.ports` | T1 |
+| `core/runtime/health.py` | **MODIFY** -- imports from `core.ports` | T1 |
+| `core/planning/delivery_plan.py` | **MODIFY** -- imports from `core.ports` | T1 |
+| `adapters/__init__.py` | **MODIFY** -- update re-exports (fake paths + ports) | T0, T1 |
+| `adapters/fakes/` | **NEW DIR** -- consolidated test doubles | T0 |
+| `adapters/fake_*.py` | **MOVE** to `adapters/fakes/` | T0 |
 | `core/policies/` | **DELETE** | T0 |
 | `core/transforms/` | **DELETE** | T0 |
-| `plugins/base.py` | **NEW** | T4 |
-| ~50 test files | **UPDATE** imports | T0–T3 |
+| `core/observability/diagnostics.py` | **NEW** -- merge from `core/diagnostics/` | T2 |
+| `core/diagnostics/` | **DELETE** directory | T2 |
+| `core/runtime/` | **RENAME** to `core/supervision/` | T3 |
+| ~12 test files | **UPDATE** hardcoded module path strings | T0-T3 |
+| `config/__init__.py` | **NO CHANGE** (no `core.*` paths in `_DEFERRED`) | -- |
 
 ---
 
