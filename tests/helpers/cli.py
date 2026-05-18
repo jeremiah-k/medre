@@ -381,5 +381,5 @@ def _run_cli_raw(*args: str) -> tuple[str, str, int | None]:
         with redirect_stdout(stdout), redirect_stderr(stderr):
             main(list(args))
     except SystemExit as e:
-        code = 1 if isinstance(e.code, str) else e.code
+        code = e.code if isinstance(e.code, int) else (0 if e.code is None else 1)
     return stdout.getvalue(), stderr.getvalue(), code

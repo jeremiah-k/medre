@@ -225,8 +225,8 @@ class SoakRuntime:
                         delivered += 1
                     except Exception:
                         # Soak harness should not crash on individual
-                        # delivery failures.
-                        pass
+                        # delivery failures, but we should log them.
+                        ctx.logger.exception("Soak delivery iteration failed")
             results.append({"iteration": i, "delivered": delivered})
 
         return results

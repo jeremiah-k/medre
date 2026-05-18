@@ -337,7 +337,7 @@ class TestSchemaMigrationBehavior:
         reg = MIGRATION_REGISTRY
         # The registry may have migrations from other tests, but the
         # lookup for a specific key should return None.
-        assert reg.get("message.text", 1, 2) is None or True
+        assert reg.get("message.text", 1, 2) is None
 
     def test_migration_registry_register_and_get(self) -> None:
         """A migration can be registered and retrieved."""
