@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from medre.adapters.matrix.config import MatrixConfig
-from medre.adapters.matrix.errors import MatrixConfigError
+from medre.config.adapters.matrix import MatrixConfigError
 
 
 class TestMatrixConfig:

@@ -9,7 +9,6 @@ Hierarchy::
     MatrixError
     ├── MatrixConnectionError   — connection / authentication failures
     ├── MatrixSendError         — message send failures
-    ├── MatrixConfigError       — invalid configuration (also ValueError)
     └── MatrixCodecError        — decode failures
 """
 from __future__ import annotations
@@ -40,15 +39,6 @@ class MatrixSendError(MatrixError):
     def __init__(self, *args: object, transient: bool = True) -> None:
         self.transient = transient
         super().__init__(*args)
-
-
-class MatrixConfigError(MatrixError, ValueError):
-    """Raised when the Matrix configuration is invalid.
-
-    Inherits from both :class:`MatrixError` and :class:`ValueError` so
-    that it is caught by either ``except MatrixError`` or
-    ``except ValueError``.
-    """
 
 
 class MatrixCodecError(MatrixError):

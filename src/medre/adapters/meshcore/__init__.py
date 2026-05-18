@@ -30,9 +30,9 @@ from medre.adapters.meshcore.adapter import MeshCoreAdapter
 from medre.adapters.meshcore.codec import MeshCoreCodec
 from medre.adapters.meshcore.compat import HAS_MESHCORE
 from medre.adapters.meshcore.config import MeshCoreConfig
+from medre.adapters.meshcore.config import MeshCoreConfigError
 from medre.adapters.meshcore.errors import (
     MeshCoreCodecError,
-    MeshCoreConfigError,
     MeshCoreConnectionError,
     MeshCoreError,
     MeshCorePacketError,

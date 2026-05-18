@@ -29,9 +29,9 @@ from medre.adapters.lxmf.adapter import LxmfAdapter
 from medre.adapters.lxmf.codec import LxmfCodec
 from medre.adapters.lxmf.compat import HAS_LXMF
 from medre.adapters.lxmf.config import LxmfConfig
+from medre.adapters.lxmf.config import LxmfConfigError
 from medre.adapters.lxmf.errors import (
     LxmfCodecError,
-    LxmfConfigError,
     LxmfConnectionError,
     LxmfError,
     LxmfPacketError,

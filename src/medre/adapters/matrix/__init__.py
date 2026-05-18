@@ -30,9 +30,9 @@ Public symbols
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.codec import MatrixCodec
 from medre.adapters.matrix.config import MatrixConfig
+from medre.adapters.matrix.config import MatrixConfigError
 from medre.adapters.matrix.errors import (
     MatrixCodecError,
-    MatrixConfigError,
     MatrixConnectionError,
     MatrixError,
     MatrixSendError,

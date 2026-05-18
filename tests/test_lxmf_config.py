@@ -8,7 +8,7 @@ from __future__ import annotations
 import pytest
 
 from medre.adapters.lxmf.config import LxmfConfig
-from medre.adapters.lxmf.errors import LxmfConfigError
+from medre.config.adapters.lxmf import LxmfConfigError
 
 
 class TestLxmfConfigValid:
@@ -168,10 +168,9 @@ class TestLxmfConfigInvalid:
         with pytest.raises(ValueError):
             config.validate()
 
-    def test_config_error_is_lxmf_error(self) -> None:
-        from medre.adapters.lxmf.errors import LxmfError
+    def test_config_error_is_value_error(self) -> None:
         config = LxmfConfig(adapter_id="")
-        with pytest.raises(LxmfError):
+        with pytest.raises(ValueError):
             config.validate()
 
 

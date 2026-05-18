@@ -32,9 +32,9 @@ Public symbols
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.adapters.meshtastic.codec import MeshtasticCodec
 from medre.adapters.meshtastic.config import MeshtasticConfig
+from medre.adapters.meshtastic.config import MeshtasticConfigError
 from medre.adapters.meshtastic.errors import (
     MeshtasticCodecError,
-    MeshtasticConfigError,
     MeshtasticConnectionError,
     MeshtasticError,
     MeshtasticPacketError,
