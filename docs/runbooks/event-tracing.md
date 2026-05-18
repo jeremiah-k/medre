@@ -269,12 +269,11 @@ must be re-replayed manually.
 
 ### 1.4 Exit Codes
 
-| Code | Meaning |
-|------|---------|
-| 0 | Event/run found, report printed |
-| 2 | Config error, no SQLite backend, or database not found |
-| 1 | Event/run ID not found in the database |
-
+| Code | Meaning                                                |
+| ---- | ------------------------------------------------------ |
+| 0    | Event/run found, report printed                        |
+| 2    | Config error, no SQLite backend, or database not found |
+| 1    | Event/run ID not found in the database                 |
 
 ### 1.5 Classification Vocabulary
 
@@ -285,26 +284,26 @@ incident summaries within evidence bundles.
 
 **Failure-kind values:**
 
-| Value | Category | Meaning |
-|-------|----------|---------|
-| `adapter_transient` | retryable | Temporary failure (timeout, connection reset); eligible for retry |
-| `adapter_permanent` | permanent | Non-recoverable adapter error; no retry |
-| `adapter_missing` | permanent | Target adapter not registered at delivery time |
-| `renderer_failure` | permanent | No renderer handled the event kind |
-| `planner_failure` | permanent | Delivery planning error |
-| `capacity_rejection` | operational | Delivery rejected due to capacity limits |
-| `shutdown_rejection` | operational | Delivery rejected during runtime shutdown |
-| `deadline_exceeded` | operational | Delivery plan deadline passed |
-| `unknown` | unknown | Unclassifiable failure |
+| Value                | Category    | Meaning                                                           |
+| -------------------- | ----------- | ----------------------------------------------------------------- |
+| `adapter_transient`  | retryable   | Temporary failure (timeout, connection reset); eligible for retry |
+| `adapter_permanent`  | permanent   | Non-recoverable adapter error; no retry                           |
+| `adapter_missing`    | permanent   | Target adapter not registered at delivery time                    |
+| `renderer_failure`   | permanent   | No renderer handled the event kind                                |
+| `planner_failure`    | permanent   | Delivery planning error                                           |
+| `capacity_rejection` | operational | Delivery rejected due to capacity limits                          |
+| `shutdown_rejection` | operational | Delivery rejected during runtime shutdown                         |
+| `deadline_exceeded`  | operational | Delivery plan deadline passed                                     |
+| `unknown`            | unknown     | Unclassifiable failure                                            |
 
 **Recovery categories** (used by `medre recover --event`):
 
-| Category | Includes | Recommended next step |
-|----------|----------|----------------------|
-| `retryable` | `adapter_transient` | `medre replay --mode DRY_RUN`, then `BEST_EFFORT` |
-| `permanent` | `adapter_permanent`, `adapter_missing`, `renderer_failure`, `planner_failure` | `medre trace event` and `medre inspect receipts` for diagnosis |
-| `operational` | `capacity_rejection`, `shutdown_rejection`, `deadline_exceeded` | `medre diagnostics`, `medre config check` |
-| `unknown` | `unknown` | `medre trace event` for manual investigation |
+| Category      | Includes                                                                      | Recommended next step                                          |
+| ------------- | ----------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `retryable`   | `adapter_transient`                                                           | `medre replay --mode DRY_RUN`, then `BEST_EFFORT`              |
+| `permanent`   | `adapter_permanent`, `adapter_missing`, `renderer_failure`, `planner_failure` | `medre trace event` and `medre inspect receipts` for diagnosis |
+| `operational` | `capacity_rejection`, `shutdown_rejection`, `deadline_exceeded`               | `medre diagnostics`, `medre config check`                      |
+| `unknown`     | `unknown`                                                                     | `medre trace event` for manual investigation                   |
 
 This vocabulary is the same across `medre trace event` (receipt display),
 `medre recover --event` (runbook classification and recommended commands),
@@ -313,20 +312,19 @@ section). See [Bridge Recovery](bridge-recovery.md) for the recovery workflow
 and [Bridge Evidence Bundle](bridge-evidence-bundle.md) for the incident
 summary shape.
 
-
 ## 2. Timeline Report Interpretation
 
 ### 2.1 Timeline Phases
 
 The timeline report reconstructs these phases from stored evidence:
 
-| Phase | Source | Description |
-|-------|--------|-------------|
-| `ingestion` | `canonical_events` table | Event stored from a source adapter |
-| `routing` | Inferred from receipt `route_id` | Route matched, delivery planned |
-| `delivery` | `delivery_receipts` table | Adapter delivery attempted; status recorded |
-| `retry` | `parent_receipt_id` chain | Transient failure triggered a retry (opt-in — requires `RetryPolicy`). Retry receipts linked by `parent_receipt_id`. Each retry attempt increments `attempt_number`. Retry receipts are distinguishable by `source="retry"`. If the RetryWorker cannot acquire delivery capacity, no new receipt is created; the original failed receipt is rescheduled for the next cycle. |
-| `replay` | `source='replay'` receipts | Event re-delivered via replay engine. Replay receipts are identifiable by `source="replay"` and `replay_run_id`. Trace for a replayed event shows the original delivery path plus the replay delivery path. If replay delivery fails transiently on a route with retry enabled, the replay receipt will have `next_retry_at` set — the RetryWorker will process it on next runtime start (producing a `source="retry"` receipt linked via `parent_receipt_id`). |
+| Phase       | Source                           | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ----------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ingestion` | `canonical_events` table         | Event stored from a source adapter                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `routing`   | Inferred from receipt `route_id` | Route matched, delivery planned                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `delivery`  | `delivery_receipts` table        | Adapter delivery attempted; status recorded                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `retry`     | `parent_receipt_id` chain        | Transient failure triggered a retry (opt-in — requires `RetryPolicy`). Retry receipts linked by `parent_receipt_id`. Each retry attempt increments `attempt_number`. Retry receipts are distinguishable by `source="retry"`. If the RetryWorker cannot acquire delivery capacity, no new receipt is created; the original failed receipt is rescheduled for the next cycle.                                                                                     |
+| `replay`    | `source='replay'` receipts       | Event re-delivered via replay engine. Replay receipts are identifiable by `source="replay"` and `replay_run_id`. Trace for a replayed event shows the original delivery path plus the replay delivery path. If replay delivery fails transiently on a route with retry enabled, the replay receipt will have `next_retry_at` set — the RetryWorker will process it on next runtime start (producing a `source="retry"` receipt linked via `parent_receipt_id`). |
 
 ### 2.2 Interpreting Timeline Gaps
 
@@ -355,12 +353,12 @@ The evidence bundle includes timeline evidence for specific failure scenarios
 when `--event` or `--replay-run` is provided. Available drill timeline evidence
 types:
 
-| Evidence type | When it appears | What it tells you |
-|--------------|----------------|-------------------|
-| `replay_duplicate_risk` | BEST_EFFORT replay produces receipts for events that already have live receipts | Multiple outbound deliveries for the same event. Use `source` field to distinguish live from replay. |
-| `adapter_transient_failure` | Transient adapter failure triggers retry chain | Check `attempt_number` progression and `parent_receipt_id` lineage. Each retry is a separate receipt. |
-| `shutdown_rejection` | In-flight delivery cancelled during runtime shutdown | No receipt is written for rejected deliveries. Check `outbound_failed` counter (process-local, lost on restart). |
-| `degraded_live_health` | Adapter reports degraded/failed health after startup | Event may have been delivered to a degraded adapter. Check the adapter's `.error` field in live health output. |
+| Evidence type               | When it appears                                                                 | What it tells you                                                                                                |
+| --------------------------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `replay_duplicate_risk`     | BEST_EFFORT replay produces receipts for events that already have live receipts | Multiple outbound deliveries for the same event. Use `source` field to distinguish live from replay.             |
+| `adapter_transient_failure` | Transient adapter failure triggers retry chain                                  | Check `attempt_number` progression and `parent_receipt_id` lineage. Each retry is a separate receipt.            |
+| `shutdown_rejection`        | In-flight delivery cancelled during runtime shutdown                            | No receipt is written for rejected deliveries. Check `outbound_failed` counter (process-local, lost on restart). |
+| `degraded_live_health`      | Adapter reports degraded/failed health after startup                            | Event may have been delivered to a degraded adapter. Check the adapter's `.error` field in live health output.   |
 
 To drill into these scenarios:
 
@@ -373,7 +371,7 @@ PYTHONPATH=src medre smoke --drill replay_duplicate_risk \
 medre inspect event <event_id> --timeline --storage-path /tmp/medre-trace.db
 # Or inspect receipts directly:
 medre inspect receipts --event <event_id> --storage-path /tmp/medre-trace.db
-````
+```
 
 ## 3. SQL Queries for Deep Tracing
 

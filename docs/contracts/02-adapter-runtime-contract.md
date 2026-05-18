@@ -685,25 +685,23 @@ To build an adapter, provide:
 ### 12.3 Data Flow Summary
 
 ```yaml
-Inbound:
-  Transport --> raw data
-             --> adapter listener loop
-             --> codec.decode(NativeEvent)
-             --> CanonicalEvent
-             --> ctx.publish_inbound(event)
-             --> ingress policy
-             --> storage
-             --> enrichment
-             --> transforms
-             --> event policy
-             --> routing
-             --> route policy
-             --> delivery planning
-             --> delivery policy / rendering
-             --> adapter.deliver(DeliveryPlan)
+Inbound: Transport --> raw data
+  --> adapter listener loop
+  --> codec.decode(NativeEvent)
+  --> CanonicalEvent
+  --> ctx.publish_inbound(event)
+  --> ingress policy
+  --> storage
+  --> enrichment
+  --> transforms
+  --> event policy
+  --> routing
+  --> route policy
+  --> delivery planning
+  --> delivery policy / rendering
+  --> adapter.deliver(DeliveryPlan)
 
-Outbound:
-  DeliveryPlan
+Outbound: DeliveryPlan
   --> adapter.deliver(plan)
   --> codec.encode(event, plan)
   --> NativeOutbound

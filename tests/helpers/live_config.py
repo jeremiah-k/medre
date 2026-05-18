@@ -140,7 +140,6 @@ def build_live_bridge_runtime_config(tmp_path: Path) -> "RuntimeConfig":
         LoggingConfig,
         MatrixRuntimeConfig,
         MeshtasticRuntimeConfig,
-        RuntimeConfig,
         RuntimeOptions,
         StorageConfig,
     )

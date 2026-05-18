@@ -114,8 +114,8 @@ SOAK_DURATION_SECONDS=120 pytest tests/test_soak.py::TestMatrixSoak -m live -v -
 
 #### §4.1 NOT EXECUTED (current machine)
 
-| Field              | Value                                                   |
-| **Resolution**     | Set Matrix env vars, run soak command, record evidence. |
+| Field | Value |
+| **Resolution** | Set Matrix env vars, run soak command, record evidence. |
 
 **Historical soak evidence status:** NOT EXECUTED for all transports. See `operational-evidence.md` §1.4, §2.2.
 
@@ -131,7 +131,7 @@ SOAK_DURATION_SECONDS=120 pytest tests/test_soak.py::TestMatrixSoak -m live -v -
 
 #### §4.2 NOT EXECUTED (current machine)
 
-| Field              | Value                                                        |
+| Field | Value |
 
 ### 4.3 Meshtastic Longrun Procedure
 

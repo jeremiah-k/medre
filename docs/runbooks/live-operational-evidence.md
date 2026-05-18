@@ -116,8 +116,8 @@ Matrix adapter restart tests validate state preservation across stop/start cycle
 
 #### §1.4 NOT EXECUTED (current machine)
 
-| Field              | Value                                                                                                                      | (`MATRIX_DEVICE_ID`, `MATRIX_STORE_PATH`) not configured. No encrypted room available. |
-| **Resolution**     | Install `pip install -e ".[matrix-e2e]"`, set E2EE env vars, run E2EE live tests.                                          |
+| Field | Value | (`MATRIX_DEVICE_ID`, `MATRIX_STORE_PATH`) not configured. No encrypted room available. |
+| **Resolution** | Install `pip install -e ".[matrix-e2e]"`, set E2EE env vars, run E2EE live tests. |
 
 **Historical E2EE evidence (H-tier, 2026-05-10):**
 
