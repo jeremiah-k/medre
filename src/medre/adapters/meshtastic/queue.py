@@ -37,6 +37,7 @@ import asyncio
 import logging
 import time
 from collections import deque
+from types import MappingProxyType
 from typing import Any, Awaitable, Callable
 
 from medre.core.contracts.adapter import AdapterDeliveryResult
@@ -197,9 +198,14 @@ class MeshtasticOutboundQueue:
         native_id = _extract_packet_id(send_result)
         channel_index = item.get("channel_index", 0)
 
+        # Build packet snapshot metadata when result is packet-like.
+        snapshot = _packet_snapshot(send_result)
+        metadata = MappingProxyType(snapshot) if snapshot else MappingProxyType({})
+
         return AdapterDeliveryResult(
             native_message_id=native_id,
             native_channel_id=str(channel_index),
+            metadata=metadata,
         )
 
     @property
@@ -262,3 +268,37 @@ def _extract_packet_id(result: Any) -> str | None:
     # Object with .id attribute (real meshtastic client pattern).
     pid = getattr(result, "id", None)
     return str(pid) if pid is not None else None
+
+
+def _packet_snapshot(result: Any) -> dict[str, object]:
+    """Extract a safe metadata snapshot from a packet-like send result.
+
+    Returns a dict with available keys (``id``, ``packet_id``,
+    ``channel``, ``reply_id``, ``to``) when the result looks like a
+    packet.  Returns an empty dict for ``None`` or non-packet results.
+
+    Parameters
+    ----------
+    result:
+        The value returned by the send function.
+
+    Returns
+    -------
+    dict
+        Safe key-value pairs suitable for
+        :class:`AdapterDeliveryResult` metadata.
+    """
+    if result is None:
+        return {}
+    snapshot: dict[str, object] = {}
+    if isinstance(result, dict):
+        for key in ("id", "packet_id", "channel", "reply_id", "to"):
+            val = result.get(key)
+            if val is not None:
+                snapshot[key] = val
+    else:
+        for attr in ("id", "channel", "reply_id", "to"):
+            val = getattr(result, attr, None)
+            if val is not None:
+                snapshot[attr] = val
+    return snapshot

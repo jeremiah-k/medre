@@ -11,6 +11,9 @@ KEY_SHORTNAME = "meshtastic_shortname"
 KEY_MESHNET = "meshtastic_meshnet"
 KEY_PORTNUM = "meshtastic_portnum"
 KEY_TEXT = "meshtastic_text"
+KEY_REPLY_ID = "meshtastic_replyId"
+KEY_EMOJI = "meshtastic_emoji"
 
 # Protocol values
 PORTNUM_TEXT = "TEXT_MESSAGE_APP"
+EMOJI_FLAG_VALUE: int = 1

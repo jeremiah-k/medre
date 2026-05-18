@@ -183,10 +183,18 @@ class MeshtasticRenderer:
         * ``channel_index``: parsed from *target_channel* or ``0``.
         * ``meshnet_name``: the configured mesh network name.
 
-        **Relation fallback rendering** — when the event carries relations:
+        **Relation rendering** — when the event carries relations:
 
-        * *reply* with ``fallback_text`` — prepends
-          ``"[replying to: {fallback_text}] "`` to the text.
+        * *reply* with a numeric ``target_native_ref.native_message_id`` —
+          sets ``reply_id`` (int) and emits plain text without fallback
+          prefix.
+        * *reply* without numeric native ref — falls back to
+          ``"[replying to: {fallback_text}] "`` prefix.
+        * *reaction* with a numeric ``target_native_ref.native_message_id`` —
+          sets ``reply_id`` (int) and ``emoji`` (1); text is the emoji
+          string from ``relation.key`` or payload ``key``/``body``.
+        * *reaction* without numeric native ref — emits readable fallback
+          text ``"[reacted: {emoji}]"`` with no ``emoji`` field.
 
         No truncation is applied — the full message text is passed
         through unchanged.
@@ -205,13 +213,6 @@ class MeshtasticRenderer:
         RenderingResult
             The rendered Meshtastic content dict wrapped in a result.
         """
-        text = self._extract_text(event)
-
-        # Prepend relay prefix when configured
-        prefix = self._format_prefix(event)
-        if prefix:
-            text = f"{prefix}{text}"
-
         # Parse channel index from target_channel
         channel_index = 0
         if target_channel is not None:
@@ -221,14 +222,49 @@ class MeshtasticRenderer:
                 channel_index = 0
 
         content: dict[str, object] = {
-            "text": text,
             "channel_index": channel_index,
             "meshnet_name": self._meshnet_name,
         }
 
+        # -- Structured reply / reaction rendering ----------------------------
+        is_structured_reaction = False
+        if event.relations:
+            rel = event.relations[0]
+            reply_id = self._native_reply_id_from_relation(rel)
+
+            if rel.relation_type == "reply" and reply_id is not None:
+                # Native structured reply — plain text, numeric reply_id
+                content["text"] = self._plain_text(event)
+                content["reply_id"] = reply_id
+            elif rel.relation_type == "reaction":
+                emoji_text = rel.key or str(
+                    event.payload.get("key", event.payload.get("body", ""))
+                )
+                if reply_id is not None:
+                    # Native structured reaction — emoji text, reply_id, emoji=1
+                    content["text"] = emoji_text
+                    content["reply_id"] = reply_id
+                    content["emoji"] = 1
+                    is_structured_reaction = True
+                else:
+                    # Fallback readable reaction text, no emoji field
+                    content["text"] = f"[reacted: {emoji_text}]"
+            else:
+                # Other relation types or reply without native ref — fallback
+                content["text"] = self._extract_text(event)
+        else:
+            content["text"] = self._extract_text(event)
+
+        # Prepend relay prefix when configured (skip for emoji-only reactions)
+        prefix = ""
+        if not is_structured_reaction:
+            prefix = self._format_prefix(event)
+            if prefix:
+                content["text"] = f"{prefix}{content['text']}"
+
         metadata: dict[str, object] = {
             "renderer": self.name,
-            "original_length": len(text),
+            "original_length": len(str(content.get("text", ""))),
         }
         if prefix:
             metadata["radio_relay_prefix"] = prefix
@@ -262,4 +298,29 @@ class MeshtasticRenderer:
                 )
                 return f"[replying to: {rel.fallback_text}] {payload_text}"
 
+        return str(event.payload.get("body", event.payload.get("text", "")))
+
+    @staticmethod
+    def _native_reply_id_from_relation(relation: object) -> int | None:
+        """Extract a numeric reply ID from a relation's target native ref.
+
+        Returns the ``native_message_id`` parsed as ``int`` when the
+        relation carries a :class:`~medre.core.events.canonical.NativeRef`
+        whose ``native_message_id`` is a numeric string, otherwise
+        ``None``.
+        """
+        ref = getattr(relation, "target_native_ref", None)
+        if ref is None:
+            return None
+        mid = getattr(ref, "native_message_id", None)
+        if mid is None:
+            return None
+        try:
+            return int(mid)
+        except (ValueError, TypeError):
+            return None
+
+    @staticmethod
+    def _plain_text(event: CanonicalEvent) -> str:
+        """Extract plain text without relation fallback formatting."""
         return str(event.payload.get("body", event.payload.get("text", "")))

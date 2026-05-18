@@ -384,8 +384,9 @@ class TestFakeMeshtasticCapabilities:
 
         caps = _FAKE_MESHTASTIC_CAPABILITIES
         assert caps.text is True
-        assert caps.replies == "unsupported"
-        assert caps.reactions == "unsupported"
+        assert caps.replies == "native"
+        assert caps.reactions == "native"
+        assert caps.metadata_fields is True
         assert caps.direct_messages is False
         assert caps.channels is True
         assert caps.mesh_routing is True
@@ -400,7 +401,7 @@ class TestFakeMeshtasticCapabilities:
         assert result["supports_direct_messages"] is False
         assert result["supports_channels"] is True
         assert result["supports_mesh_routing"] is True
-        assert result["supports_reactions"] is False
+        assert result["supports_reactions"] is True
         assert result["max_text_bytes"] == 512
 
     @pytest.mark.asyncio

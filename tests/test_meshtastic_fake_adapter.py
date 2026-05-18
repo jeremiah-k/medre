@@ -49,15 +49,15 @@ class TestMeshtasticAdapterCapabilities:
 
         assert _FAKE_MESHTASTIC_CAPABILITIES.text is True
 
-    def test_capabilities_replies_unsupported(self) -> None:
+    def test_capabilities_replies_native(self) -> None:
         from medre.adapters.fake_meshtastic import _FAKE_MESHTASTIC_CAPABILITIES
 
-        assert _FAKE_MESHTASTIC_CAPABILITIES.replies == "unsupported"
+        assert _FAKE_MESHTASTIC_CAPABILITIES.replies == "native"
 
-    def test_capabilities_reactions_unsupported(self) -> None:
+    def test_capabilities_reactions_native(self) -> None:
         from medre.adapters.fake_meshtastic import _FAKE_MESHTASTIC_CAPABILITIES
 
-        assert _FAKE_MESHTASTIC_CAPABILITIES.reactions == "unsupported"
+        assert _FAKE_MESHTASTIC_CAPABILITIES.reactions == "native"
 
     def test_capabilities_edits_unsupported(self) -> None:
         from medre.adapters.fake_meshtastic import _FAKE_MESHTASTIC_CAPABILITIES

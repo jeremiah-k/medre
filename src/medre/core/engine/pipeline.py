@@ -28,7 +28,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Callable, Literal
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Literal, cast
 
 import msgspec
 
@@ -41,7 +41,9 @@ from medre.core.events.bus import EventBus
 from medre.core.events.canonical import (
     CanonicalEvent,
     DeliveryReceipt,
+    EventRelation,
     NativeMessageRef,
+    NativeRef,
 )
 from medre.core.observability.metrics import Diagnostician
 from medre.core.planning.delivery_plan import (
@@ -191,6 +193,19 @@ def _default_rendering_pipeline() -> RenderingPipeline:
     pipeline = RenderingPipeline()
     pipeline.register(TextRenderer(), priority=100)
     return pipeline
+
+
+def _native_metadata_for_ref(event: CanonicalEvent) -> dict[str, object]:
+    """Extract native metadata dict from *event* without mutation.
+
+    Returns ``dict(event.metadata.native.data)`` when native metadata is
+    present, otherwise an empty dict.  The returned dict is a plain
+    mutable copy suitable for passing to :class:`NativeMessageRef`.
+    """
+    native = event.metadata.native
+    if native is not None and native.data:
+        return dict(native.data)
+    return {}
 
 
 # ---------------------------------------------------------------------------
@@ -470,6 +485,94 @@ class PipelineRunner:
         """
         return await self._config.relation_resolver.resolve_event_relations(event)
 
+    async def _enrich_relations_for_target(
+        self,
+        event: CanonicalEvent,
+        target_adapter: str,
+    ) -> CanonicalEvent:
+        """Enrich relations with target-adapter native refs for rendering.
+
+        For each relation that has a ``target_event_id`` but whose
+        ``target_native_ref`` is either missing or not for *target_adapter*,
+        look up stored native refs for the target event and attach the
+        first matching one.  This enables structured replies / reactions
+        in target-adapter native ID space.
+
+        Returns a new event when any relation is enriched; returns the
+        original event unchanged otherwise.  **Never mutates** the stored
+        original event.
+        """
+        if not event.relations:
+            return event
+
+        storage = self._config.storage
+        list_fn = getattr(storage, "list_native_refs_for_event", None)
+        if not callable(list_fn):
+            return event
+
+        changed = False
+        new_relations: list[EventRelation] = []
+
+        for rel in event.relations:
+            if not rel.target_event_id:
+                new_relations.append(rel)
+                continue
+
+            # Check if already has a native ref for the target adapter.
+            if (
+                rel.target_native_ref is not None
+                and rel.target_native_ref.adapter == target_adapter
+            ):
+                new_relations.append(rel)
+                continue
+
+            # Look up stored native refs for the target event.
+            try:
+                list_native_refs = cast(
+                    Callable[[str], Awaitable[list[NativeMessageRef]]],
+                    list_fn,
+                )
+                refs = await list_native_refs(rel.target_event_id)
+            except Exception:
+                new_relations.append(rel)
+                continue
+
+            # Find first ref matching the target adapter.
+            matching: NativeMessageRef | None = None
+            for nref in refs:
+                if nref.adapter == target_adapter:
+                    matching = nref
+                    break
+
+            if matching is None:
+                new_relations.append(rel)
+                continue
+
+            # Build enriched native ref.
+            enriched_native_ref = NativeRef(
+                adapter=matching.adapter,
+                native_channel_id=matching.native_channel_id,
+                native_message_id=matching.native_message_id,
+                native_thread_id=matching.native_thread_id,
+            )
+
+            # Build enriched relation preserving original fields.
+            enriched_rel = EventRelation(
+                relation_type=rel.relation_type,
+                target_event_id=rel.target_event_id,
+                target_native_ref=enriched_native_ref,
+                key=rel.key,
+                fallback_text=rel.fallback_text,
+                metadata=dict(rel.metadata) if rel.metadata else {},
+            )
+            new_relations.append(enriched_rel)
+            changed = True
+
+        if not changed:
+            return event
+
+        return msgspec.structs.replace(event, relations=tuple(new_relations))
+
     # -- Stage 4: Inbound native ref persistence -------------------------
 
     async def _persist_inbound_native_ref(self, event: CanonicalEvent) -> None:
@@ -495,6 +598,7 @@ class PipelineRunner:
             native_thread_id=snr.native_thread_id,
             native_relation_id=None,
             direction="inbound",
+            metadata=_native_metadata_for_ref(event),
             created_at=now,
         )
         await self._config.storage.store_native_ref(inbound_ref)
@@ -1053,6 +1157,11 @@ class PipelineRunner:
         # Render the event into a RenderingResult before adapter delivery.
         # Pass the adapter's platform so renderers can match on platform
         # identity instead of adapter-name heuristics.
+        # Enrich relations with target-adapter native refs so that the
+        # renderer (and downstream adapter) receive native IDs for
+        # structured replies / reactions.  This enrichment is per-target
+        # and does not mutate the stored original event.
+        render_event = await self._enrich_relations_for_target(event, adapter_id or "")
         target_platform = getattr(adapter, "platform", None)
         if isinstance(target_platform, str):
             platform_param: str | None = target_platform
@@ -1060,7 +1169,7 @@ class PipelineRunner:
             platform_param = None
         try:
             rendering_result = await self._rendering_pipeline.render(
-                event,
+                render_event,
                 adapter_id or "",
                 target.channel,
                 target_platform=platform_param,
@@ -1261,6 +1370,11 @@ class PipelineRunner:
             and adapter_result is not None
             and adapter_result.native_message_id is not None
         ):
+            # Extract metadata from adapter result, converting
+            # MappingProxyType to a plain dict for storage.
+            outbound_meta: dict[str, object] = (
+                dict(adapter_result.metadata) if adapter_result.metadata else {}
+            )
             native_ref = NativeMessageRef(
                 id=f"nref-{uuid.uuid4()}",
                 event_id=event.event_id,
@@ -1270,6 +1384,7 @@ class PipelineRunner:
                 native_thread_id=adapter_result.native_thread_id,
                 native_relation_id=adapter_result.native_relation_id,
                 direction="outbound",
+                metadata=outbound_meta,
                 created_at=now,
             )
             await self._config.storage.store_native_ref(native_ref)

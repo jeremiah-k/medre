@@ -11,6 +11,7 @@ The session owns raw transport; the adapter owns semantic conversion.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import random
 import time
@@ -293,10 +294,21 @@ class MeshtasticSession:
     ) -> dict[str, Any] | None:
         """Send a text packet via the Meshtastic client with bounded retry.
 
+        When *packet_dict* contains a ``reply_id`` key, the method uses
+        the protobuf ``_sendPacket`` path to build a structured
+        ``MeshPacket`` with ``reply_id`` and optional ``emoji`` fields.
+        Missing protobuf modules or ``_sendPacket`` raise
+        :class:`MeshtasticSendError` with ``transient=False``.
+
+        When no ``reply_id`` is present the existing ``sendText`` path is
+        used with bounded transient retry.
+
         Parameters
         ----------
         packet_dict:
             Dict with at least ``text`` and ``channel_index`` keys.
+            May include ``reply_id`` (int) and ``emoji`` (int) for
+            structured reply / reaction sends.
 
         Returns
         -------
@@ -314,18 +326,44 @@ class MeshtasticSession:
 
         text = str(packet_dict.get("text", ""))
         channel_index = packet_dict.get("channel_index", 0)
+        reply_id = packet_dict.get("reply_id")
+        emoji = packet_dict.get("emoji")
 
         last_exc: Exception | None = None
         for attempt in range(1, _MAX_SEND_RETRIES + 1):
             try:
-                result = await asyncio.to_thread(
-                    self._client.sendText,
-                    text,
-                    channelIndex=channel_index,
-                )
+                if reply_id is not None:
+                    result = await self._send_structured(
+                        text, channel_index, reply_id, emoji
+                    )
+                else:
+                    result = await asyncio.to_thread(
+                        self._client.sendText,
+                        text,
+                        channelIndex=channel_index,
+                    )
                 return result
             except asyncio.CancelledError:
                 raise
+            except MeshtasticSendError as exc:
+                if not exc.transient:
+                    self._permanent_delivery_failures += 1
+                    self._last_error = f"Permanent send failure: {exc}"
+                    raise
+                # Transient MeshtasticSendError — retry
+                last_exc = exc
+                self._transient_delivery_failures += 1
+                self._last_error = f"Transient send failure (attempt {attempt}): {exc}"
+                self._logger.warning(
+                    "MeshtasticSession %s send failure "
+                    "(attempt %d/%d): %s",
+                    self._adapter_id,
+                    attempt,
+                    _MAX_SEND_RETRIES,
+                    exc,
+                )
+                if attempt < _MAX_SEND_RETRIES:
+                    await asyncio.sleep(0.1 * attempt)
             except ConnectionError as exc:
                 last_exc = exc
                 self._transient_delivery_failures += 1
@@ -382,6 +420,110 @@ class MeshtasticSession:
         raise MeshtasticSendError(
             f"Send failed after {_MAX_SEND_RETRIES} attempts: {last_exc}"
         ) from last_exc
+
+    async def _send_structured(
+        self,
+        text: str,
+        channel_index: int,
+        reply_id: int,
+        emoji: int | None,
+    ) -> Any:
+        """Send a structured message via protobuf ``_sendPacket``.
+
+        Builds a ``MeshPacket`` with ``Data`` payload containing
+        ``TEXT_MESSAGE_APP``, the text payload, ``reply_id``, and
+        optional ``emoji=1``.
+
+        Raises
+        ------
+        MeshtasticSendError
+            With ``transient=False`` when protobuf modules or
+            ``_sendPacket`` are unavailable.
+        """
+        try:
+            from meshtastic.protobuf import mesh_pb2
+            from meshtastic.protobuf import portnums_pb2
+        except ImportError as exc:
+            raise MeshtasticSendError(
+                f"meshtastic protobuf modules not available: {exc}",
+                transient=False,
+            ) from exc
+
+        _send_packet = getattr(self._client, "_sendPacket", None)
+        if _send_packet is None:
+            raise MeshtasticSendError(
+                "client does not expose _sendPacket for structured send",
+                transient=False,
+            )
+
+        text_portnum = getattr(portnums_pb2, "TEXT_MESSAGE_APP", None)
+        if text_portnum is None:
+            portnum_enum = getattr(portnums_pb2, "PortNum", None)
+            text_portnum = getattr(portnum_enum, "TEXT_MESSAGE_APP", None)
+        if text_portnum is None:
+            raise MeshtasticSendError(
+                "meshtastic TEXT_MESSAGE_APP protobuf enum is unavailable",
+                transient=False,
+            )
+
+        try:
+            reply_id_int = int(reply_id)
+        except (TypeError, ValueError) as exc:
+            raise MeshtasticSendError(
+                f"invalid Meshtastic reply_id for structured send: {reply_id!r}",
+                transient=False,
+            ) from exc
+
+        data = mesh_pb2.Data()
+        data.portnum = text_portnum
+        data.payload = text.encode("utf-8")
+        try:
+            data.reply_id = reply_id_int
+        except AttributeError:
+            pass
+        if emoji:
+            try:
+                data.emoji = 1
+            except AttributeError:
+                pass
+
+        mesh_packet = mesh_pb2.MeshPacket()
+        mesh_packet.decoded.CopyFrom(data)
+        mesh_packet.channel = channel_index
+        try:
+            setattr(mesh_packet, "reply_id", reply_id_int)
+        except AttributeError:
+            pass
+        generate_packet_id = getattr(self._client, "_generatePacketId", None)
+        if callable(generate_packet_id):
+            try:
+                setattr(mesh_packet, "id", generate_packet_id())
+            except Exception:
+                pass
+
+        send_kwargs: dict[str, Any] = {"wantAck": False}
+        try:
+            import meshtastic
+
+            broadcast_addr = getattr(meshtastic, "BROADCAST_ADDR", None)
+            signature = inspect.signature(_send_packet)
+            accepts_destination = (
+                "destinationId" in signature.parameters
+                or any(
+                    param.kind is inspect.Parameter.VAR_KEYWORD
+                    for param in signature.parameters.values()
+                )
+            )
+            if broadcast_addr is not None and accepts_destination:
+                send_kwargs["destinationId"] = broadcast_addr
+        except Exception:
+            pass
+
+        return await asyncio.to_thread(
+            _send_packet,
+            mesh_packet,
+            **send_kwargs,
+        )
 
     # -- Diagnostics ----------------------------------------------------------
 

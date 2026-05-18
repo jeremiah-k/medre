@@ -105,8 +105,8 @@ class TestMatrixRenderer:
         assert "m.in_reply_to" in relates
         assert relates["m.in_reply_to"]["event_id"] == "$orig-native"
 
-    async def test_render_with_reaction_relation_deferred(self) -> None:
-        """Reaction relations are deferred for tranche 1 — rendered as plain text."""
+    async def test_render_with_reaction_relation(self) -> None:
+        """Reaction relations render as native Matrix m.reaction payloads."""
         renderer = MatrixRenderer()
         relation = EventRelation(
             relation_type="reaction",
@@ -124,9 +124,12 @@ class TestMatrixRenderer:
             relations=(relation,),
         )
         result = await renderer.render(event, "matrix_instance")
-        # No m.relates_to for reactions in tranche 1.
-        assert "m.relates_to" not in result.payload
-        # Body is rendered as plain text.
+        assert result.payload["_matrix_event_type"] == "m.reaction"
+        assert result.payload["m.relates_to"] == {
+            "rel_type": "m.annotation",
+            "event_id": "$orig-native",
+            "key": "👍",
+        }
         assert result.payload["body"] == "👍"
 
     async def test_render_with_envelope(self) -> None:

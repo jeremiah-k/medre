@@ -11,23 +11,28 @@ Selection is via the rendering pipeline's platform registry: when the
 pipeline populates the adapter's platform as ``"matrix"``, the renderer
 matches on that platform string directly.
 
-**Tranche 1 scope**: text messages and native replies are supported.
-Reactions are deferred to a later tranche.
+**Supported relation types**: text messages, native replies, and
+reactions (true ``m.reaction`` or MMRelay emote fallback).
 """
 
 from __future__ import annotations
+
+from typing import Any
 
 from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
 from medre.adapters.matrix.relations import build_reply_body
 from medre.core.events import CanonicalEvent
 from medre.core.rendering.renderer import RenderingResult
 from medre.interop.mmrelay import (
+    KEY_EMOJI,
     KEY_ID,
     KEY_LONGNAME,
     KEY_MESHNET,
     KEY_PORTNUM,
+    KEY_REPLY_ID,
     KEY_SHORTNAME,
     KEY_TEXT,
+    EMOJI_FLAG_VALUE,
     PORTNUM_TEXT,
 )
 
@@ -101,11 +106,20 @@ class MatrixRenderer:
 
         The rendered payload includes:
 
-        * ``msgtype``: ``"m.text"``
+        * ``msgtype``: ``"m.text"`` (or ``"m.emote"`` for reaction fallback)
         * ``body``: extracted text from the event payload
         * ``medre.envelope``: provenance metadata
-        * ``m.relates_to``: added when the event carries a reply relation.
-          Reaction relations are deferred to a later tranche.
+        * ``m.relates_to``: added for replies and reactions
+
+        **Replies** preserve ``m.in_reply_to`` and inject ``KEY_REPLY_ID``
+        from native/relation metadata when available.
+
+        **Reactions** render as true ``m.reaction`` (with internal
+        ``_matrix_event_type='m.reaction'``) when a target event/native
+        Matrix id is available and mmrelay_compat is false.  When
+        mmrelay_compat is true or the target is missing, an ``m.emote``
+        fallback is rendered with ``KEY_REPLY_ID``, ``KEY_TEXT``,
+        ``KEY_EMOJI=1`` and existing fields.
 
         Parameters
         ----------
@@ -131,7 +145,7 @@ class MatrixRenderer:
             "body": body,
         }
 
-        # Handle relations — reply only for tranche 1
+        # Handle relations — reply and reaction
         if event.relations:
             rel = event.relations[0]
 
@@ -142,6 +156,15 @@ class MatrixRenderer:
                     if native_ref
                     else (rel.target_event_id or "")
                 )
+                # Inject KEY_REPLY_ID from native metadata when available
+                reply_id = target_event_id
+                native_data: dict[str, object] = {}
+                if event.metadata and event.metadata.native:
+                    native_data = dict(event.metadata.native.data)
+                # Prefer relation metadata meshtastic_reply_id or native ref
+                mx_reply_id = (
+                    native_data.get(KEY_REPLY_ID) or target_event_id
+                )
                 # Build reply body with fallback quote
                 original_text = rel.fallback_text or ""
                 sender = native_ref.adapter if native_ref else ""
@@ -151,11 +174,11 @@ class MatrixRenderer:
                         "event_id": target_event_id,
                     }
                 }
+                if mx_reply_id:
+                    content[KEY_REPLY_ID] = str(mx_reply_id)
 
             elif rel.relation_type == "reaction":
-                # Reaction rendering is deferred to a later tranche.
-                # The event body text is still rendered as m.text.
-                pass
+                self._render_reaction(event, rel, body, content)
 
         # Embed metadata envelope
         envelope = MatrixMetadataEnvelope(
@@ -181,6 +204,56 @@ class MatrixRenderer:
             payload=content,
             metadata=metadata,
         )
+
+    # ------------------------------------------------------------------
+    # Reaction rendering
+    # ------------------------------------------------------------------
+
+    def _render_reaction(
+        self,
+        event: CanonicalEvent,
+        rel: Any,
+        body: str,
+        content: dict[str, object],
+    ) -> None:
+        """Render a reaction relation into the Matrix content dict.
+
+        When a target event/native Matrix ID is available and mmrelay_compat
+        is false, produces a true ``m.reaction`` via an internal
+        ``_matrix_event_type`` key (consumed by the adapter).
+
+        When mmrelay_compat is true or the target is missing, falls back to
+        an ``m.emote`` with MMRelay fields.
+        """
+        native_ref = rel.target_native_ref
+        target_event_id = (
+            native_ref.native_message_id
+            if native_ref
+            else (rel.target_event_id or "")
+        )
+        emoji = rel.key or body
+
+        # Determine if we can emit a true m.reaction
+        has_target = bool(target_event_id)
+
+        if has_target and not self._mmrelay_compat:
+            # True Matrix reaction — adapter will use _matrix_event_type
+            content["msgtype"] = "m.text"
+            content["body"] = emoji
+            content["m.relates_to"] = {
+                "rel_type": "m.annotation",
+                "event_id": target_event_id,
+                "key": emoji,
+            }
+            # Internal key consumed by adapter; never leaks to homeserver
+            content["_matrix_event_type"] = "m.reaction"
+        else:
+            # mmrelay_compat or missing target → m.emote fallback
+            content["msgtype"] = "m.emote"
+            content["body"] = body
+            content[KEY_REPLY_ID] = target_event_id
+            content[KEY_TEXT] = body
+            content[KEY_EMOJI] = EMOJI_FLAG_VALUE
 
     # ------------------------------------------------------------------
     # Relay prefix

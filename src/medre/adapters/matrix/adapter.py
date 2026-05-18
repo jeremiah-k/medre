@@ -42,7 +42,7 @@ _MATRIX_CAPABILITIES = AdapterCapabilities(
     text=True,
     title=False,
     replies="native",
-    reactions="unsupported",
+    reactions="native",
     edits="unsupported",
     deletes="unsupported",
     attachments=False,
@@ -414,13 +414,18 @@ class MatrixAdapter(AdapterContract):
         content = dict(result.payload)
         content.pop("room_id", None)
 
+        # Pop the internal _matrix_event_type key that the renderer uses
+        # to signal non-default event types (e.g. m.reaction).  The key
+        # must never leak into the homeserver content.
+        message_type = content.pop("_matrix_event_type", "m.room.message")
+
         # Track 5 — bounded retry for transient errors
         last_exc: BaseException | None = None
         for attempt in range(_MAX_DELIVERY_RETRIES):
             try:
                 response = await client.room_send(
                     room_id=room_id,
-                    message_type="m.room.message",
+                    message_type=message_type,
                     content=content,
                     ignore_unverified_devices=self._should_ignore_unverified_devices(),
                 )

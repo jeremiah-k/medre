@@ -81,12 +81,12 @@ from medre.core.rendering.renderer import RenderingResult
 _MESHTASTIC_CAPABILITIES = AdapterCapabilities(
     text=True,
     title=False,
-    replies="unsupported",
-    reactions="unsupported",
+    replies="native",
+    reactions="native",
     edits="unsupported",
     deletes="unsupported",
     attachments=False,
-    metadata_fields=False,
+    metadata_fields=True,
     delivery_receipts=False,
     store_and_forward=False,
     direct_messages=False,
@@ -566,14 +566,15 @@ class MeshtasticAdapter(AdapterContract):
 
         async def _send_fn(item: dict[str, Any]) -> Any:
             payload = item.get("payload", {})
-            channel_index = item.get("channel_index", 0)
-            text = str(payload.get("text", ""))
-            return await session.send(
-                {
-                    "text": text,
-                    "channel_index": channel_index,
-                }
-            )
+            send_dict: dict[str, Any] = {
+                "text": str(payload.get("text", "")),
+                "channel_index": item.get("channel_index", 0),
+            }
+            if "reply_id" in payload:
+                send_dict["reply_id"] = payload["reply_id"]
+            if "emoji" in payload:
+                send_dict["emoji"] = payload["emoji"]
+            return await session.send(send_dict)
 
         return await self._queue.process_one(send_fn=_send_fn)
 
