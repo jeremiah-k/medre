@@ -402,7 +402,9 @@ def _wait_for_http_200(url: str, timeout: int = _READY_TIMEOUT) -> bool:
             import urllib.request
 
             req = urllib.request.Request(url)
-            with urllib.request.urlopen(req, timeout=5) as resp:
+            with urllib.request.urlopen(
+                req, timeout=5
+            ) as resp:  # nosec: localhost test container only
                 if resp.status == 200:
                     return True
         except Exception:
@@ -661,7 +663,9 @@ def synapse_env() -> Generator[SynapseEnvironment, None, None]:
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=10) as resp:
+    with urllib.request.urlopen(
+        req, timeout=10
+    ) as resp:  # nosec: localhost test container
         login_body = json.loads(resp.read())
 
     bot_access_token = login_body["access_token"]
@@ -684,7 +688,9 @@ def synapse_env() -> Generator[SynapseEnvironment, None, None]:
         },
         method="POST",
     )
-    with urllib.request.urlopen(room_req, timeout=10) as resp:
+    with urllib.request.urlopen(
+        room_req, timeout=10
+    ) as resp:  # nosec: localhost test container
         room_body = json.loads(resp.read())
 
     test_room_id = room_body["room_id"]
@@ -703,7 +709,9 @@ def synapse_env() -> Generator[SynapseEnvironment, None, None]:
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(test_login_req, timeout=10) as resp:
+    with urllib.request.urlopen(
+        test_login_req, timeout=10
+    ) as resp:  # nosec: localhost test container
         test_login_body = json.loads(resp.read())
 
     test_user_id = test_login_body["user_id"]
@@ -722,7 +730,9 @@ def synapse_env() -> Generator[SynapseEnvironment, None, None]:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(join_req, timeout=10) as resp:
+        with urllib.request.urlopen(
+            join_req, timeout=10
+        ) as resp:  # nosec: localhost test container
             json.loads(resp.read())  # consume response body
     except urllib.error.HTTPError as exc:
         raise RuntimeError(

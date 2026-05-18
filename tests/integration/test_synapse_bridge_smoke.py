@@ -397,7 +397,9 @@ def _send_message_as_test_user(
         },
         method="PUT",
     )
-    with urllib.request.urlopen(req, timeout=10) as resp:
+    with urllib.request.urlopen(
+        req, timeout=10
+    ) as resp:  # nosec: localhost test container
         resp_body = json.loads(resp.read())
     return resp_body["event_id"]
 

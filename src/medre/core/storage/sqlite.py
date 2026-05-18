@@ -532,7 +532,7 @@ def _build_query_sql(filt: EventFilter) -> tuple[str, tuple[Any, ...]]:
         params.append(filt.time_end.isoformat())
 
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
-    sql = f"SELECT * FROM canonical_events{where} ORDER BY timestamp ASC, event_id ASC LIMIT ?"
+    sql = f"SELECT * FROM canonical_events{where} ORDER BY timestamp ASC, event_id ASC LIMIT ?"  # nosec: clauses are hardcoded field names, values via ? parameters
     params.append(filt.limit)
     return sql, tuple(params)
 
@@ -1047,7 +1047,10 @@ class SQLiteStorage:
         # Fetch relations for all matched events in one round-trip.
         event_ids = [r["event_id"] for r in rows]
         placeholders = ",".join("?" for _ in event_ids)
-        rel_sql = "SELECT * FROM event_relations WHERE event_id " f"IN ({placeholders})"
+        rel_sql = (
+            "SELECT * FROM event_relations WHERE event_id "
+            f"IN ({placeholders})"  # nosec: placeholders are only ? markers, values passed as params
+        )
         rel_rows = await self._read_all(rel_sql, tuple(event_ids))
 
         rel_map: dict[str, list[EventRelation]] = {}

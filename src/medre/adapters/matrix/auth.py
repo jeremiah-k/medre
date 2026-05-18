@@ -135,7 +135,9 @@ def matrix_login(homeserver: str, user_id: str, password: str) -> MatrixLoginRes
     )
 
     try:
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(
+            req
+        ) as resp:  # nosec: homeserver URL validated by _normalize_homeserver()
             body = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         detail = ""
@@ -206,7 +208,9 @@ def matrix_whoami(homeserver: str, access_token: str) -> str:
     )
 
     try:
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(
+            req
+        ) as resp:  # nosec: homeserver validated by _normalize_homeserver()
             body = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         detail = ""
@@ -428,7 +432,9 @@ def discover_well_known(domain: str) -> str | None:
     """
     url = f"https://{domain}/.well-known/matrix/client"
     try:
-        with urllib.request.urlopen(url, timeout=5) as resp:
+        with urllib.request.urlopen(
+            url, timeout=5
+        ) as resp:  # nosec: URL scheme is hardcoded to https://
             data = json.loads(resp.read())
         return data["m.homeserver"]["base_url"]  # type: ignore[index]
     except Exception:

@@ -1,0 +1,31 @@
+# Bandit configuration for MEDRE.
+#
+# Suppressed tests (all false-positives / intentional patterns in this codebase):
+#
+#   B101  assert used — intentional in test assertions and runtime guards
+#   B107  hardcoded password — sentinel empty-string defaults in test fixtures
+#   B108  temp file usage — pytest tmp_path fixtures (not insecure)
+#   B110  try/except/pass — expected failures in adapter session code
+#   B112  try/except/continue — expected failures in runtime iteration
+#   B311  pseudo-random — non-crypto usage for IDs, timings (acceptable)
+#   B404  subprocess — intentional in test infrastructure scripts
+#   B603  subprocess call — intentional in test infrastructure scripts
+#   B607  partial executable path — intentional in test conftest environment
+#
+# These are overridden by trunk's --exit-zero flag so findings never fail CI.
+# The skips below simply reduce noise for known-intentional patterns.
+#
+# B310 (urlopen) and B608 (SQL injection) are NOT skipped here — those
+# occurrences in src/medre/ carry explicit # nosec annotations with
+# rationale so they remain visible during code review.
+
+skips:
+  - B101
+  - B107
+  - B108
+  - B110
+  - B112
+  - B311
+  - B404
+  - B603
+  - B607
