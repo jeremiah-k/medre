@@ -331,3 +331,47 @@ class TestCoreDoesNotImportAdapters:
             f"Core modules must not import from medre.adapters:\n"
             + "\n".join(violations)
         )
+
+
+# ===================================================================
+# H) Config → adapters import boundary
+# ===================================================================
+
+
+class TestConfigDoesNotImportAdapters:
+    """Config modules must not import concrete adapter packages.
+
+    Added in Tranche 2 — enforces the config decoupling:
+    adapter config models live in medre.config.adapters.*, not in
+    medre.adapters.*.config.
+    """
+
+    def test_no_config_to_adapters_imports(self) -> None:
+        """Scan all config .py files for medre.adapters imports.
+
+        Excludes ``config/adapters/`` which owns adapter config models
+        and may reference adapter packages for sidecar credential loading.
+        """
+        repo_root = Path(__file__).resolve().parents[1]
+        config_dir = repo_root / "src" / "medre" / "config"
+        assert config_dir.exists(), f"config directory not found: {config_dir}"
+
+        violations: list[str] = []
+        for py_file in sorted(config_dir.rglob("*.py")):
+            # The config/adapters/ subpackage owns adapter config models
+            # and may reference adapter packages (e.g. sidecar auth).
+            if "adapters" in py_file.relative_to(config_dir).parts:
+                continue
+            text = py_file.read_text()
+            for i, line in enumerate(text.splitlines(), 1):
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#"):
+                    continue
+                if stripped.startswith("from medre.adapters") or stripped.startswith("import medre.adapters"):
+                    rel = py_file.relative_to(repo_root)
+                    violations.append(f"{rel}:{i}: {stripped}")
+
+        assert violations == [], (
+            f"Config modules must not import from medre.adapters:\n"
+            + "\n".join(violations)
+        )

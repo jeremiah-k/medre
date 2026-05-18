@@ -302,7 +302,7 @@ medre/
 cli/           ->  runtime/, config/, core/, observability/
 runtime/       ->  core/, adapters/, config/, observability/
 adapters/      ->  core/ (ports + adapter_base + domain types), observability/
-config/        ->  adapters/*/config (value types only)
+config/        ->  config/adapters/ (owned adapter config value types, Tranche 2)
 observability/ ->  core/ (types only)
 plugins/       ->  core/ (types only)
 interop/       ->  NOTHING (pure constants)
@@ -339,7 +339,7 @@ These `TYPE_CHECKING` imports do not create runtime dependencies. They exist bec
 | `core/engine/` | Pipeline orchestration | `core/ports`, `core/adapter_base`, `core/events`, `core/routing`, `core/planning`, `core/rendering`, `core/storage`, `core/observability`; TYPE_CHECKING import of `runtime.capacity.CapacityController` (type-only coupling) |
 | `adapters/*` | Transport/platform implementations | `core/ports`, `core/adapter_base`, `core/events`, `core/rendering`, `observability/` |
 | `adapters/fakes/` | Test doubles for smoke/drill | Same as adapters |
-| `config/` | Configuration loading and validation | `adapters/*/config` (value types only) |
+| `config/` | Configuration loading and validation | `config/adapters/` (owned adapter config value types, Tranche 2); no direct imports from `adapters/*` |
 | `observability/` | Logging, sanitization, classification, summaries | `core/` (types only) |
 | `interop/` | External wire-format constants | **Nothing** |
 | `plugins/` | Plugin protocol scaffolding | `core/events/` (for event types) |
@@ -409,6 +409,8 @@ grep -r "from medre\.adapters\.fake_" tests/ | grep -v fakes
 **Estimated effort**: ~2 hours. This is the single most important change.
 
 **Status**: IMPLEMENTED (branch `maint-517-2`).
+
+**Tranche 2 status**: IMPLEMENTED (branch `maint-517-2`). Config decoupling — adapter config dataclasses moved from ``medre.adapters.*.config`` to ``medre.config.adapters.*`` so the global config layer no longer imports concrete adapter packages at module level.
 
 **Background**: The current dependency is bidirectional. `adapters/base.py` imports `CanonicalEvent` from `core.events.canonical` and `RenderingResult` from `core.rendering.renderer` (line 32-33), while four core files import types from `adapters.base`. The split extraction (Decision 6) breaks both directions of the coupling.
 
