@@ -16,16 +16,11 @@ Reactions are deferred to a later tranche.
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
-
 from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
 from medre.adapters.matrix.relations import build_reply_body
 from medre.core.events import CanonicalEvent
 from medre.core.rendering.renderer import RenderingResult
-
-if TYPE_CHECKING:
-    from medre.adapters.meshtastic.config import MeshtasticConfig
-
+from medre.interop.mmrelay import KEY_ID, KEY_LONGNAME, KEY_SHORTNAME, KEY_MESHNET, KEY_PORTNUM, KEY_TEXT, PORTNUM_TEXT
 
 class MatrixRenderer:
     """Renderer for Matrix presentation targets.
@@ -42,16 +37,16 @@ class MatrixRenderer:
     _PLATFORM: str = "matrix"
     """Internal platform identifier for matching via ``target_platform``."""
 
-    def __init__(self, meshtastic_config: MeshtasticConfig | None = None) -> None:
-        self._mmrelay_compat = (
-            meshtastic_config.mmrelay_compatibility if meshtastic_config else False
-        )
-        self._meshnet_name = (
-            meshtastic_config.meshnet_name if meshtastic_config else ""
-        )
-        self._matrix_relay_prefix: str = (
-            (meshtastic_config.matrix_relay_prefix or "") if meshtastic_config else ""
-        )
+    def __init__(
+        self,
+        *,
+        mmrelay_compat: bool = False,
+        meshnet_name: str = "",
+        matrix_relay_prefix: str = "",
+    ) -> None:
+        self._mmrelay_compat = mmrelay_compat
+        self._meshnet_name = meshnet_name
+        self._matrix_relay_prefix = matrix_relay_prefix or ""
 
     # ------------------------------------------------------------------
     # Capability check
@@ -118,7 +113,7 @@ class MatrixRenderer:
         """
         body = str(event.payload.get("body", event.payload.get("text", "")))
 
-        # Apply relay prefix for Meshtastic→Matrix direction
+        # Apply relay prefix for mesh→Matrix direction
         body = self._apply_matrix_relay_prefix(event, body)
 
         content: dict[str, object] = {
@@ -220,21 +215,22 @@ class MatrixRenderer:
         event: CanonicalEvent,
         content: dict[str, object],
     ) -> None:
-        """Embed mmrelay-compatible Meshtastic metadata into *content*.
+        """Embed mmrelay-compatible mesh metadata into *content*.
 
         When mmrelay compatibility is enabled, the Matrix content payload
-        is augmented with ``meshtastic_*`` keys that mirror the fields
-        mmrelay consumers expect.  Fields are extracted from the event's
-        native metadata and payload.
+        is augmented with wire-format keys that mirror the fields mmrelay
+        consumers expect.  The key names come from
+        :mod:`medre.interop.mmrelay` so that the wire contract lives
+        outside any single adapter.
 
-        Injected keys:
+        Injected keys (see :mod:`medre.interop.mmrelay` for names):
 
-        * ``meshtastic_id`` — packet ID from native metadata.
-        * ``meshtastic_longname`` — sender long name from native metadata.
-        * ``meshtastic_shortname`` — sender short name from native metadata.
-        * ``meshtastic_meshnet`` — mesh network name from config.
-        * ``meshtastic_portnum`` — hardcoded ``"TEXT_MESSAGE_APP"``.
-        * ``meshtastic_text`` — message body/text from the event payload.
+        * packet ID from native metadata.
+        * sender long name from native metadata.
+        * sender short name from native metadata.
+        * mesh network name from config.
+        * hardcoded ``"TEXT_MESSAGE_APP"`` port number.
+        * message body/text from the event payload.
         """
         native_data: dict[str, object] = {}
         if event.metadata and event.metadata.native:
@@ -242,9 +238,9 @@ class MatrixRenderer:
 
         text = str(event.payload.get("body", event.payload.get("text", "")))
 
-        content["meshtastic_id"] = str(native_data.get("packet_id", ""))
-        content["meshtastic_longname"] = str(native_data.get("longname", ""))
-        content["meshtastic_shortname"] = str(native_data.get("shortname", ""))
-        content["meshtastic_meshnet"] = self._meshnet_name
-        content["meshtastic_portnum"] = "TEXT_MESSAGE_APP"
-        content["meshtastic_text"] = text
+        content[KEY_ID] = str(native_data.get("packet_id", ""))
+        content[KEY_LONGNAME] = str(native_data.get("longname", ""))
+        content[KEY_SHORTNAME] = str(native_data.get("shortname", ""))
+        content[KEY_MESHNET] = self._meshnet_name
+        content[KEY_PORTNUM] = PORTNUM_TEXT
+        content[KEY_TEXT] = text
