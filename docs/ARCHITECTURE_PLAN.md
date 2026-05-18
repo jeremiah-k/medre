@@ -163,47 +163,24 @@ medre/
                              # evidence/, run_session/
 ```
 
-## 3. Implemented Decisions
+## 3. Architectural Decisions
 
-- MEDRE is pre-release; removed imports were not preserved with shims
-- `BaseAdapter` → `AdapterContract`
-- `medre.core.ports` merged into `medre.core.contracts.adapter`
-- `medre.core.adapter_base` merged into `medre.core.contracts.adapter`
-- `medre.adapters.base` deleted
-- All `medre.adapters.*.config` modules deleted (configs moved to `medre.config.adapters.*`)
-- Config validation errors are `ValueError` subclasses, not adapter runtime error subclasses
-- Matrix credential sidecar helpers owned by config layer for testability
-- `core/runtime/` NOT renamed (Tranche 3 deferred — the rename would eliminate naming collision with `runtime/`)
+- Config validation errors are `ValueError` subclasses, not adapter runtime error subclasses.
+- Matrix credential sidecar helpers are owned by the config layer for testability.
+- `medre.core.runtime/` is distinct from top-level `medre.runtime/`.
+
+The following modules do not exist and must not be imported:
+
+- `medre.adapters.base` does not exist.
+- `medre.core.ports` does not exist.
+- `medre.core.adapter_base` does not exist.
+- `medre.adapters.*.config` modules do not exist.
 
 ## 4. Remaining Follow-Up Work
 
 - Rename `core/runtime/` → `core/supervision/` to eliminate naming collision with top-level `runtime/`
 - Move fake adapters to `medre.adapters.fakes/` subdirectory
-- Decide disposition of remaining contract/docs documents (audit records vs current specifications)
+- Decide disposition of remaining contract/doc documents (audit records vs current specifications)
 - Evaluate merging `core/diagnostics/` into `core/observability/`
 - Deduplicate `_SECRET_KEY_PATTERNS` between `core/runtime/diagnostic_contract.py` and `observability/sanitization.py`
 - Delete empty packages `core/policies/` and `core/transforms/`
-
-## 5. Architectural History
-
-### Tranche 1 (Port Extraction)
-
-Extracted adapter interface types from `adapters/base.py` into core, splitting pure value types into `core/ports.py` and the behavioral `BaseAdapter` ABC into `core/adapter_base.py`. This introduced the core→adapters dependency inversion (later resolved by Tranche 3).
-
-### Tranche 2 (Config Decoupling)
-
-Moved adapter config dataclasses from `medre.adapters.*.config` to `medre.config.adapters.*` so the global config layer no longer imports concrete adapter packages at module level.
-
-### Tranche 3 (Canonicalization)
-
-Merged `core/ports.py` and `core/adapter_base.py` into a single canonical module `core/contracts/adapter.py`. Renamed `BaseAdapter` to `AdapterContract`. Deleted removed files (`core/ports.py`, `core/adapter_base.py`, `adapters/base.py`, `adapters/*/config.py`). Centralized config validation errors in `config/adapters/errors.py`. Moved Matrix credential sidecar helpers to `config/adapters/matrix_credentials.py`. All source and test imports updated to use canonical paths. No shims retained because the project is pre-release.
-
-### Tranche 4 (Plugin Foundation Audit)
-
-Informational only. Verified existing plugin scaffolding (`Plugin` protocol, `PluginCapability` enum, `validate_plugin_payload`). No code changes needed.
-
-### Deferred Work
-
-- Tranche 3 also proposed renaming `core/runtime/` → `core/supervision/` but this was deferred to a follow-up.
-- Consolidation of `core/diagnostics/` into `core/observability/` was proposed but deferred.
-- Fake adapter reorganization (move to `adapters/fakes/` subdirectory) was proposed but deferred.

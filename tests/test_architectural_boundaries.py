@@ -866,10 +866,8 @@ class TestConfigErrorCanonicalImports:
 class TestNoActiveStaleDocsReferences:
     """No active documentation should reference removed modules as if current.
 
-    Audit documents that describe findings from before the current architecture
-    was finalized are exempt when they contain explicit framing statements.
     docs/ARCHITECTURE_PLAN.md may mention removed modules only in
-    "removed/merged" factual context.
+    "does not exist" / "must not be imported" factual context.
     """
 
     _STALE_PATTERNS = (
@@ -894,19 +892,14 @@ class TestNoActiveStaleDocsReferences:
         "medre.adapters.lxmf.errors.LxmfConfigError",
     )
 
-    _HISTORICAL_CONTEXT_WORDS = (
+    _ALLOWED_CONTEXT_WORDS = (
         "removed",
         "merged",
         "replaced",
         "deleted",
         "superseded",
-        "do not exist",
+        "does not exist",
         "must not be imported",
-        "pre-refactor",
-        "historical",
-        "tranche",
-        "adaptercontract",
-        "renamed",
     )
 
     def test_no_active_stale_references_in_docs(self) -> None:
@@ -919,13 +912,6 @@ class TestNoActiveStaleDocsReferences:
         for md_file in sorted(docs_dir.rglob("*.md")):
             text = md_file.read_text(encoding="utf-8")
 
-            # Exempt audit documents with explicit framing statements
-            if (
-                md_file.name == "66-release-hygiene-audit.md"
-                and "before the current architecture was finalized" in text
-            ):
-                continue
-
             for i, line in enumerate(text.splitlines(), 1):
                 stripped = line.strip()
                 if not any(pattern in stripped for pattern in self._STALE_PATTERNS):
@@ -934,7 +920,7 @@ class TestNoActiveStaleDocsReferences:
                 # Allow lines with factual-context markers (e.g. "removed",
                 # "merged", "replaced", "historical", "tranche", etc.)
                 lowered = stripped.lower()
-                if any(word in lowered for word in self._HISTORICAL_CONTEXT_WORDS):
+                if any(word in lowered for word in self._ALLOWED_CONTEXT_WORDS):
                     continue
 
                 violations.append((str(md_file.relative_to(repo_root)), i, stripped))
@@ -961,10 +947,6 @@ class TestNoStaleWordingInDocs:
     Allowed exceptions:
     - Lines containing precise removal statements (e.g. "was replaced by",
       "was removed", "does not exist").
-    - The file ``66-release-hygiene-audit.md`` which is explicitly an audit
-      document with framing about pre-finalization findings.
-    - The file ``ARCHITECTURE_PLAN.md`` section 5 which records factual
-      architectural history with neutral labels.
     """
 
     _FORBIDDEN_PHRASES = (
@@ -1003,11 +985,7 @@ class TestNoStaleWordingInDocs:
     )
 
     # These files are fully exempt from the wording check.
-    _EXEMPT_FILES = frozenset(
-        {
-            "66-release-hygiene-audit.md",  # audit document with explicit framing
-        }
-    )
+    _EXEMPT_FILES: frozenset[str] = frozenset()
 
     def test_no_stale_wording_in_docs(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]

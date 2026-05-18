@@ -4,8 +4,6 @@
 > Track: Beta Release Hygiene (Track 7)
 > Status: Audit report with findings and actions taken. Updated with packaging/reproducibility audit findings.
 
-> **Note**: This audit captured issues identified before the current architecture was finalized. References to `BaseAdapter`, `medre.adapters.base`, `medre.core.ports`, and `medre.core.adapter_base` refer to code that has since been renamed or removed. The canonical layout is documented in `docs/ARCHITECTURE_PLAN.md`.
-
 This document records the release hygiene audit performed on MEDRE at head
 `7046ecc` (2026-05-10). It covers pyproject metadata, README accuracy, stale
 artifacts, contradictory operational claims, SDK leakage in public APIs,
@@ -148,14 +146,14 @@ floor pin strategy and link to contract 34, section 7 for full rationale.
 
 ### 5.1 Core Module Imports
 
-**Finding:** `medre.core` imports only from `medre.adapters.base`:
+**Finding:** `medre.core` imports only from `medre.core.contracts.adapter`:
 
-- `medre.core.runtime.health` → `AdapterInfo` from `medre.adapters.base`
-- `medre.core.runtime.capabilities` → `AdapterCapabilities` from `medre.adapters.base`
-- `medre.core.engine.pipeline` → `AdapterCapabilities`, `AdapterDeliveryResult`, `BaseAdapter` from `medre.adapters.base`
+- `medre.core.runtime.health` → `AdapterInfo` from `medre.core.contracts.adapter`
+- `medre.core.runtime.capabilities` → `AdapterCapabilities` from `medre.core.contracts.adapter`
+- `medre.core.engine.pipeline` → `AdapterCapabilities`, `AdapterDeliveryResult`, `AdapterContract` from `medre.core.contracts.adapter`
 
-These are MEDRE-defined types in the adapter base module. **No third-party SDK
-types leak through.** The `BaseAdapter` import in the pipeline is expected —
+These are MEDRE-defined types in the core contracts module. **No third-party SDK
+types leak through.** The `AdapterContract` import in the pipeline is expected —
 the pipeline drives adapters.
 
 ### 5.2 Adapter Boundary
@@ -167,7 +165,7 @@ MEDRE-defined types (`AdapterDeliveryResult`, `AdapterInfo`, etc.).
 
 ### 5.3 `shutdown_event: Any`
 
-**Finding:** `BaseAdapter.shutdown_event` is typed as `Any` with a comment
+**Finding:** `AdapterContract.shutdown_event` is typed as `Any` with a comment
 "asyncio.Event – avoided import to prevent hard dep." This is correct —
 `asyncio` is a stdlib module, so this is not a third-party dep concern, but
 the `Any` typing is a minor type-safety gap.
@@ -252,7 +250,7 @@ Total live tests: ~57 (matches the "57 deselected" count from unit suite runs).
 | #   | Check                                             | Result                                                                                        |
 | --- | ------------------------------------------------- | --------------------------------------------------------------------------------------------- |
 | C1  | No SDK types in public API surface                | Clean. All public types are MEDRE-defined.                                                    |
-| C2  | No SDK imports in `medre.core`                    | Clean. Only imports from `medre.adapters.base` (MEDRE types).                                 |
+| C2  | No SDK imports in `medre.core`                    | Clean. Only imports from `medre.core.contracts.adapter` (MEDRE types). |
 | C3  | No SDK imports in `medre.__init__` or `medre.cli` | Clean. No third-party imports.                                                                |
 | C4  | Live test exclusion guaranteed                    | Clean. `addopts = "-m 'not live'"` in pyproject.toml. Module-level markers on all live files. |
 | C5  | Extras definitions complete and correct           | Clean. 6 extras: dev, matrix, matrix-e2e, meshtastic (includes PyPubSub), meshcore, lxmf.     |

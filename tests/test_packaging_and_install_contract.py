@@ -206,7 +206,7 @@ class TestBaseImportBoundary:
         assert RuntimeError is not None
         assert RuntimeBuilder is not None
 
-    def test_import_medre_adapters_base(self) -> None:
+    def test_import_medre_core_adapter_contracts(self) -> None:
         from medre.core.contracts.adapter import (
             AdapterContract,
             AdapterRole,
