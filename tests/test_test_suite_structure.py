@@ -22,7 +22,7 @@ TESTS_DIR = Path(__file__).resolve().parent
 
 # Legacy files that are allowed to exceed 1 500 lines until they are split.
 # Each carries a TODO comment inside.
-LEGACY_ALLOWLIST: dict[str, int] = {
+OVERSIZED_TEST_ALLOWLIST: dict[str, int] = {
     "test_canonical_events.py": 1_981,
     "test_fake_runtime_smoke.py": 1_506,
     "test_matrix_session.py": 2_243,
@@ -156,9 +156,9 @@ def test_no_file_exceeds_1500_lines() -> None:
     for path in sorted(TESTS_DIR.glob("test_*.py")):
         name = path.name
         lines = _count_lines(path)
-        if name in LEGACY_ALLOWLIST:
+        if name in OVERSIZED_TEST_ALLOWLIST:
             # Legacy file — just confirm it's roughly where we expect.
-            expected = LEGACY_ALLOWLIST[name]
+            expected = OVERSIZED_TEST_ALLOWLIST[name]
             assert lines <= expected + 200, (
                 f"Legacy file {name} grew beyond its allowlisted budget "
                 f"(~{expected} lines, now {lines}). Update the allowlist or split it."
@@ -178,12 +178,12 @@ def test_no_file_exceeds_1500_lines() -> None:
 
 
 def test_all_allowlisted_files_exist() -> None:
-    """Every file in LEGACY_ALLOWLIST must exist on disk.
+    """Every file in OVERSIZED_TEST_ALLOWLIST must exist on disk.
 
     Catches stale entries that refer to deleted files.
     """
     missing: list[str] = []
-    for name in LEGACY_ALLOWLIST:
+    for name in OVERSIZED_TEST_ALLOWLIST:
         path = TESTS_DIR / name
         if not path.exists():
             missing.append(name)

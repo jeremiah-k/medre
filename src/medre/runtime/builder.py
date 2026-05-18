@@ -30,7 +30,6 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 from medre.config.model import (
-    MatrixRuntimeConfig,
     RuntimeConfig,
     StorageConfig,
 )
