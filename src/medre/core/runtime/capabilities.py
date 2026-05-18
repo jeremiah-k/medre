@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, fields
 from typing import Any
 
-from medre.core.ports import AdapterCapabilities
+from medre.core.contracts.adapter import AdapterCapabilities
 
 
 @dataclass(frozen=True)

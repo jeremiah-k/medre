@@ -45,19 +45,19 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from medre.core.events.canonical import CanonicalEvent
 
-from medre.adapters.base import (
+from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
+    AdapterContract,
     AdapterDeliveryResult,
     AdapterInfo,
     AdapterPermanentError,
     AdapterRole,
     AdapterSendError,
-    BaseAdapter,
 )
 from medre.adapters.lxmf.codec import LxmfCodec
 from medre.adapters.lxmf.compat import HAS_LXMF
-from medre.adapters.lxmf.config import LxmfConfig
+from medre.config.adapters.lxmf import LxmfConfig
 from medre.adapters.lxmf.errors import (
     LxmfConnectionError,
     LxmfSendError,
@@ -88,7 +88,7 @@ _LXMF_CAPABILITIES = AdapterCapabilities(
 )
 
 
-class LxmfAdapter(BaseAdapter):
+class LxmfAdapter(AdapterContract):
     """Transport adapter for LXMF routers/nodes.
 
     Connects to an LXMF router, receives message payloads, and publishes

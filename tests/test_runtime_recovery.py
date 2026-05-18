@@ -28,13 +28,13 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from medre.adapters.base import (
+from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
     AdapterDeliveryResult,
     AdapterInfo,
     AdapterRole,
-    BaseAdapter,
+    AdapterContract,
 )
 from medre.config.model import (
     AdapterConfigSet,
@@ -73,7 +73,7 @@ from medre.runtime.app import MedreApp, RuntimeState
 # ---------------------------------------------------------------------------
 
 
-class _FailingAdapter(BaseAdapter):
+class _FailingAdapter(AdapterContract):
     """Adapter that raises on start() for partial-startup testing."""
 
     adapter_id: str = "failing_adapter"

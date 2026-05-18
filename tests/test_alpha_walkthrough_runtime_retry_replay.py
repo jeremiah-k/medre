@@ -29,7 +29,7 @@ class TestAlphaRetryScenario:
 
     @pytest.mark.asyncio
     async def test_retry_walkthrough(self, tmp_path: Path) -> None:
-        from medre.adapters.base import AdapterDeliveryResult
+        from medre.core.contracts.adapter import AdapterDeliveryResult
         from medre.adapters.fake_matrix import FakeMatrixAdapter
         from medre.config.model import (
             AdapterConfigSet,

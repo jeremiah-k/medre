@@ -26,7 +26,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from medre.adapters.base import (
+from medre.core.contracts.adapter import (
     AdapterContext,
     AdapterDeliveryResult,
     AdapterInfo,
@@ -38,9 +38,9 @@ from medre.adapters.fake_lxmf import FakeLxmfAdapter
 from medre.adapters.fake_matrix import FakeMatrixAdapter
 from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
 from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
-from medre.adapters.lxmf.config import LxmfConfig
-from medre.adapters.meshcore.config import MeshCoreConfig
-from medre.adapters.meshtastic.config import MeshtasticConfig
+from medre.config.adapters.lxmf import LxmfConfig
+from medre.config.adapters.meshcore import MeshCoreConfig
+from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.rendering.renderer import RenderingResult
 
 

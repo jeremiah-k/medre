@@ -31,18 +31,18 @@ import logging
 from types import MappingProxyType
 from typing import Any
 
-from medre.adapters.base import (
+from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
+    AdapterContract,
     AdapterDeliveryResult,
     AdapterInfo,
     AdapterPermanentError,
     AdapterRole,
     AdapterSendError,
-    BaseAdapter,
 )
 from medre.adapters.lxmf.codec import LxmfCodec
-from medre.adapters.lxmf.config import LxmfConfig
+from medre.config.adapters.lxmf import LxmfConfig
 from medre.adapters.lxmf.packet_classifier import LxmfPacketClassifier
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.rendering.renderer import RenderingResult
@@ -152,7 +152,7 @@ _FAKE_LXMF_CAPABILITIES = AdapterCapabilities(
 )
 
 
-class FakeLxmfAdapter(BaseAdapter):
+class FakeLxmfAdapter(AdapterContract):
     """Simulated LXMF transport adapter for testing.
 
     **Rendering Boundary**: this adapter consumes :class:`RenderingResult`

@@ -11,9 +11,9 @@ from datetime import datetime, timezone
 import pytest
 
 from medre.adapters import AdapterRole, FakeMeshCoreAdapter
-from medre.adapters.base import AdapterContext, AdapterDeliveryResult, AdapterPermanentError, AdapterSendError
+from medre.core.contracts.adapter import AdapterContext, AdapterDeliveryResult, AdapterPermanentError, AdapterSendError
 from medre.adapters.meshcore.adapter import MeshCoreAdapter
-from medre.adapters.meshcore.config import MeshCoreConfig
+from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.adapters.meshcore.errors import MeshCoreConnectionError, MeshCoreSendError
 from medre.adapters.meshcore.session import MeshCoreSession
 from medre.core.events import CanonicalEvent, EventMetadata

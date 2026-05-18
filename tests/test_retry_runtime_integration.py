@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from medre.adapters.base import (
+from medre.core.contracts.adapter import (
     AdapterContext,
     AdapterDeliveryResult,
     AdapterInfo,

@@ -30,13 +30,13 @@ from medre.core.events.canonical import CanonicalEvent
 from medre.core.events.kinds import EventKind
 from medre.core.rendering.renderer import RenderingResult
 
-from medre.adapters.base import (
+from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
+    AdapterContract,
     AdapterDeliveryResult,
     AdapterInfo,
     AdapterRole,
-    BaseAdapter,
 )
 
 _logger = logging.getLogger(__name__)
@@ -76,7 +76,7 @@ _FAKE_TRANSPORT_CAPABILITIES = AdapterCapabilities(
 )
 
 
-class FakeTransportAdapter(BaseAdapter):
+class FakeTransportAdapter(AdapterContract):
     """Simulated transport adapter for testing.
 
     **Canonical Event Immutability**: this adapter must **not** mutate

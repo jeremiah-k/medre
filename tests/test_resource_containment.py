@@ -21,17 +21,17 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from medre.adapters.lxmf.config import LxmfConfig
+from medre.config.adapters.lxmf import LxmfConfig
 from medre.adapters.lxmf.session import (
     LxmfDeliveryState,
     LxmfSession,
     _OutboundDelivery,
 )
-from medre.adapters.matrix.config import MatrixConfig
+from medre.config.adapters.matrix import MatrixConfig
 from medre.adapters.matrix.session import MatrixSession
-from medre.adapters.meshtastic.config import MeshtasticConfig
+from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.adapters.meshtastic.session import MeshtasticSession
-from medre.adapters.meshcore.config import MeshCoreConfig
+from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.adapters.meshcore.session import MeshCoreSession
 
 

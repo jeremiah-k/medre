@@ -37,13 +37,13 @@ from medre.core.events.canonical import (
 from medre.core.events.kinds import EventKind
 from medre.core.rendering.renderer import RenderingResult
 
-from medre.adapters.base import (
+from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
+    AdapterContract,
     AdapterDeliveryResult,
     AdapterInfo,
     AdapterRole,
-    BaseAdapter,
 )
 
 # Default capabilities for the fake presentation adapter.
@@ -81,7 +81,7 @@ def _trim(lst: list[Any], maxsize: int = _MAX_FAKE_HISTORY) -> None:
         )
 
 
-class FakePresentationAdapter(BaseAdapter):
+class FakePresentationAdapter(AdapterContract):
     """Simulated presentation-layer adapter for testing.
 
     **Rendering Boundary**: this adapter consumes :class:`RenderingResult`
@@ -389,7 +389,7 @@ class FakePresentationAdapter(BaseAdapter):
 # ---------------------------------------------------------------------------
 
 
-class FaultyPresentationAdapter(BaseAdapter):
+class FaultyPresentationAdapter(AdapterContract):
     """Deterministic failure-injecting presentation adapter for hardening tests.
 
     Configurable delivery behaviour:
@@ -467,7 +467,7 @@ class FaultyPresentationAdapter(BaseAdapter):
         TypeError
             If *result* is not a :class:`RenderingResult`.
         """
-        from medre.adapters.base import AdapterDeliveryResult
+        from medre.core.contracts.adapter import AdapterDeliveryResult
         from medre.core.rendering.renderer import RenderingResult
 
         if not isinstance(result, RenderingResult):

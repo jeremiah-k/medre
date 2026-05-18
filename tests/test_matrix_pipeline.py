@@ -14,7 +14,7 @@ from typing import cast
 import pytest
 
 from medre.adapters import FakeMatrixAdapter, FakePresentationAdapter
-from medre.adapters.base import AdapterContext, BaseAdapter
+from medre.core.contracts.adapter import AdapterContext, AdapterContract
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.events import CanonicalEvent, EventMetadata, NativeMessageRef, NativeRef
 from medre.core.events.bus import EventBus

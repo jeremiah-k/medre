@@ -505,12 +505,12 @@ class TestStorageCloseOnStartupFailure:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """When pipeline_runner.start() fails, storage is closed."""
-        from medre.adapters.base import (
+        from medre.core.contracts.adapter import (
             AdapterCapabilities,
             AdapterContext,
             AdapterInfo,
             AdapterRole,
-            BaseAdapter,
+            AdapterContract,
         )
         from medre.config.model import (
             AdapterConfigSet,

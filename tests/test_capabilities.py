@@ -19,7 +19,7 @@ from dataclasses import fields
 
 import pytest
 
-from medre.adapters.base import AdapterCapabilities, AdapterInfo, AdapterRole
+from medre.core.contracts.adapter import AdapterCapabilities, AdapterInfo, AdapterRole
 from medre.core.runtime.capabilities import (
     TransportCapabilities,
     is_capability_summary,

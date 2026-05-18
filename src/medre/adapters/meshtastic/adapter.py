@@ -56,19 +56,19 @@ import msgspec
 if TYPE_CHECKING:
     from medre.core.events.canonical import CanonicalEvent
 
-from medre.adapters.base import (
+from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
+    AdapterContract,
     AdapterDeliveryResult,
     AdapterInfo,
     AdapterPermanentError,
     AdapterRole,
     AdapterSendError,
-    BaseAdapter,
 )
 from medre.adapters.meshtastic.codec import MeshtasticCodec
 from medre.adapters.meshtastic.compat import HAS_MESHTASTIC
-from medre.adapters.meshtastic.config import MeshtasticConfig
+from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.adapters.meshtastic.errors import (
     MeshtasticConnectionError,
     MeshtasticSendError,
@@ -99,7 +99,7 @@ _MESHTASTIC_CAPABILITIES = AdapterCapabilities(
 )
 
 
-class MeshtasticAdapter(BaseAdapter):
+class MeshtasticAdapter(AdapterContract):
     """Transport adapter for Meshtastic radio nodes.
 
     Connects to a Meshtastic node, receives radio packets, and publishes

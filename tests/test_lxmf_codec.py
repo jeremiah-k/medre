@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 
 from medre.adapters.lxmf.codec import LxmfCodec
-from medre.adapters.lxmf.config import LxmfConfig
+from medre.config.adapters.lxmf import LxmfConfig
 from medre.adapters.lxmf.errors import LxmfCodecError
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.events.kinds import EventKind

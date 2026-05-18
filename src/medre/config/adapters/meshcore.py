@@ -28,13 +28,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Literal, Self
 
-
-class MeshCoreConfigError(ValueError):
-    """Raised when the MeshCore configuration is invalid.
-
-    Inherits from :class:`ValueError` so that it is caught by
-    ``except ValueError``.
-    """
+from medre.config.adapters.errors import MeshCoreConfigError
 
 
 # Hex-like string: at least one hex character (used for pubkey validation).

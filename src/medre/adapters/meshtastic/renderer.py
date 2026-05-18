@@ -34,7 +34,7 @@ from medre.core.events import CanonicalEvent, EventKind
 from medre.core.rendering.renderer import RenderingResult
 
 if TYPE_CHECKING:
-    from medre.adapters.meshtastic.config import MeshtasticConfig
+    from medre.config.adapters.meshtastic import MeshtasticConfig
 
 
 class MeshtasticRenderer:

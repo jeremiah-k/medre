@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 from medre.adapters.meshcore.codec import MeshCoreCodec
-from medre.adapters.meshcore.config import MeshCoreConfig
+from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.adapters.meshcore.errors import MeshCoreCodecError
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.events.kinds import EventKind

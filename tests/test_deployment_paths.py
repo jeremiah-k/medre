@@ -33,8 +33,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from medre.adapters.matrix.config import MatrixConfig
-from medre.adapters.meshtastic.config import MeshtasticConfig
+from medre.config.adapters.matrix import MatrixConfig
+from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.config.model import (
     AdapterConfigSet,
     LoggingConfig,

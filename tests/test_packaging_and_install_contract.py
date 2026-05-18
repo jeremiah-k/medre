@@ -211,8 +211,8 @@ class TestBaseImportBoundary:
         assert RuntimeBuilder is not None
 
     def test_import_medre_adapters_base(self) -> None:
-        from medre.adapters import BaseAdapter, AdapterRole, AdapterCapabilities
-        assert BaseAdapter is not None
+        from medre.core.contracts.adapter import AdapterContract, AdapterRole, AdapterCapabilities
+        assert AdapterContract is not None
         assert AdapterRole is not None
 
     def test_import_medre_cli(self) -> None:
@@ -241,21 +241,21 @@ class TestFakeAdaptersWithoutSDKs:
 
     def test_fake_meshtastic_instantiation(self) -> None:
         from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
-        from medre.adapters.meshtastic.config import MeshtasticConfig
+        from medre.config.adapters.meshtastic import MeshtasticConfig
         config = MeshtasticConfig(adapter_id="test_mesh")
         adapter = FakeMeshtasticAdapter(config)
         assert adapter is not None
 
     def test_fake_meshcore_instantiation(self) -> None:
         from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
-        from medre.adapters.meshcore.config import MeshCoreConfig
+        from medre.config.adapters.meshcore import MeshCoreConfig
         config = MeshCoreConfig(adapter_id="test_meshcore")
         adapter = FakeMeshCoreAdapter(config)
         assert adapter is not None
 
     def test_fake_lxmf_instantiation(self) -> None:
         from medre.adapters.fake_lxmf import FakeLxmfAdapter
-        from medre.adapters.lxmf.config import LxmfConfig
+        from medre.config.adapters.lxmf import LxmfConfig
         config = LxmfConfig(adapter_id="test_lxmf")
         adapter = FakeLxmfAdapter(config)
         assert adapter is not None

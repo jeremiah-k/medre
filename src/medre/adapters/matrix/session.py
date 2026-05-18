@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Callable, Literal
 
 from medre.adapters.matrix import compat as _compat_mod
-from medre.adapters.matrix.config import MatrixConfig
+from medre.config.adapters.matrix import MatrixConfig
 from medre.adapters.matrix.errors import MatrixConnectionError
 
 _logger = logging.getLogger(__name__)

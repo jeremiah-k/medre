@@ -24,9 +24,9 @@ from datetime import datetime, timezone
 
 import pytest
 
-from medre.adapters.base import AdapterPermanentError, AdapterSendError
+from medre.core.contracts.adapter import AdapterPermanentError, AdapterSendError
 from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
-from medre.adapters.meshcore.config import MeshCoreConfig
+from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.adapters.meshcore.codec import MeshCoreCodec
 from medre.adapters.meshcore.compat import HAS_MESHCORE
 from medre.adapters.meshcore.renderer import MeshCoreRenderer
@@ -127,7 +127,7 @@ class TestMeshCoreMatrixIsolation:
             )
 
     def test_meshcore_config_does_not_import_matrix(self) -> None:
-        import medre.adapters.meshcore.config as mod
+        import medre.config.adapters.meshcore as mod
         source = _read_module_source(mod)
         import_lines = [
             line.strip() for line in source.splitlines()
@@ -220,7 +220,7 @@ class TestMeshCoreMeshtasticIsolation:
             )
 
     def test_meshcore_config_does_not_import_meshtastic(self) -> None:
-        import medre.adapters.meshcore.config as mod
+        import medre.config.adapters.meshcore as mod
         source = _read_module_source(mod)
         import_lines = [
             line.strip() for line in source.splitlines()
@@ -560,7 +560,7 @@ class TestMeshCoreFailedDelivery:
 
     async def test_fake_adapter_failure_raises_and_no_native_ref(self) -> None:
         """Fake adapter failure raises AdapterSendError, no native ref persisted."""
-        from medre.adapters.base import AdapterSendError
+        from medre.core.contracts.adapter import AdapterSendError
 
         adapter = FakeMeshCoreAdapter()
         adapter.set_deliver_failure(True)
@@ -592,7 +592,7 @@ class TestMeshCoreCompatIsolation:
         meshcore_modules = [
             "medre.adapters.meshcore.adapter",
             "medre.adapters.meshcore.codec",
-            "medre.adapters.meshcore.config",
+            "medre.config.adapters.meshcore",
             "medre.adapters.meshcore.errors",
             "medre.adapters.meshcore.packet_classifier",
             "medre.adapters.meshcore.renderer",
@@ -625,7 +625,7 @@ class TestMeshCoreCompatIsolation:
 
     def test_config_does_not_import_compat_or_sdk(self) -> None:
         """config.py must not import compat or SDK — it is pure validation."""
-        import medre.adapters.meshcore.config as mod
+        import medre.config.adapters.meshcore as mod
         source = _read_module_source(mod)
         import_lines = [
             line.strip() for line in source.splitlines()

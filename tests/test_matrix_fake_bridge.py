@@ -30,7 +30,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from medre.adapters.base import (
+from medre.core.contracts.adapter import (
     AdapterContext,
     AdapterDeliveryResult,
     AdapterPermanentError,
@@ -39,7 +39,7 @@ from medre.adapters.base import (
 from medre.adapters.fake_matrix import FakeMatrixAdapter
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.codec import MatrixCodec
-from medre.adapters.matrix.config import MatrixConfig
+from medre.config.adapters.matrix import MatrixConfig
 from medre.adapters.matrix.errors import MatrixSendError
 from medre.adapters.matrix.renderer import MatrixRenderer
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner

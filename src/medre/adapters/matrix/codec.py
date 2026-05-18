@@ -19,7 +19,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from medre.adapters.base import AdapterCodec
+from medre.core.contracts.adapter import AdapterCodec
 from medre.adapters.matrix.errors import MatrixCodecError
 from medre.adapters.matrix.relations import extract_reply_target
 from medre.core.events.canonical import CanonicalEvent, EventRelation, NativeRef

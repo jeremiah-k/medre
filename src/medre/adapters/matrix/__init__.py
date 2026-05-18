@@ -8,8 +8,6 @@ Public symbols
 --------------
 * :class:`~medre.adapters.matrix.adapter.MatrixAdapter` — the adapter
   itself.
-* :class:`~medre.adapters.matrix.config.MatrixConfig` — configuration
-  dataclass.
 * :class:`~medre.adapters.matrix.session.MatrixSession` — session
   lifecycle boundary owning the nio client.
 * :class:`~medre.adapters.matrix.codec.MatrixCodec` — decode
@@ -29,8 +27,6 @@ Public symbols
 
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.codec import MatrixCodec
-from medre.adapters.matrix.config import MatrixConfig
-from medre.adapters.matrix.config import MatrixConfigError
 from medre.adapters.matrix.errors import (
     MatrixCodecError,
     MatrixConnectionError,
@@ -46,8 +42,6 @@ __all__ = [
     "MatrixAdapter",
     "MatrixCodec",
     "MatrixCodecError",
-    "MatrixConfig",
-    "MatrixConfigError",
     "MatrixConnectionError",
     "MatrixError",
     "MatrixMetadataEnvelope",

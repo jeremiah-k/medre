@@ -36,13 +36,13 @@ import time as _time
 
 import pytest
 
-from medre.adapters.base import (
+from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
     AdapterDeliveryResult,
     AdapterInfo,
     AdapterRole,
-    BaseAdapter,
+    AdapterContract,
 )
 from medre.config.model import (
     AdapterConfigSet,
@@ -89,7 +89,7 @@ def tmp_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> MedrePaths:
 # ---------------------------------------------------------------------------
 
 
-class _FailingAdapter(BaseAdapter):
+class _FailingAdapter(AdapterContract):
     """Adapter that raises on start()."""
 
     adapter_id: str = "failing_adapter"
@@ -119,7 +119,7 @@ class _FailingAdapter(BaseAdapter):
         return None
 
 
-class _RecordingAdapter(BaseAdapter):
+class _RecordingAdapter(AdapterContract):
     """Adapter that records stop() calls."""
 
     adapter_id: str = "recording_adapter"
@@ -714,7 +714,7 @@ class TestCatastrophicLoopFailureCleanup:
 # ===================================================================
 
 
-class _StartFailsButTracksStop(BaseAdapter):
+class _StartFailsButTracksStop(AdapterContract):
     """Adapter that raises on start() and records whether stop() was called."""
 
     adapter_id: str = "track_stop"
@@ -745,7 +745,7 @@ class _StartFailsButTracksStop(BaseAdapter):
         return None
 
 
-class _StopAlsoFailsAdapter(BaseAdapter):
+class _StopAlsoFailsAdapter(AdapterContract):
     """Adapter whose start() and stop() both raise."""
 
     adapter_id: str = "double_fail"
@@ -960,7 +960,7 @@ class TestTotalFailureCleansNeverStartedAdapters:
 # ===================================================================
 
 
-class _OrderRecordingAdapter(BaseAdapter):
+class _OrderRecordingAdapter(AdapterContract):
     """Adapter that records the order in which start() is called."""
 
     adapter_id: str = "order_recorder"

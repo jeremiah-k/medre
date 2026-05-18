@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from medre.adapters.meshtastic.compat import HAS_MESHTASTIC
-from medre.adapters.meshtastic.config import MeshtasticConfig
+from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.adapters.meshtastic.errors import (
     MeshtasticConnectionError,
     MeshtasticSendError,

@@ -48,19 +48,19 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from medre.core.events.canonical import CanonicalEvent
 
-from medre.adapters.base import (
+from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
+    AdapterContract,
     AdapterDeliveryResult,
     AdapterInfo,
     AdapterPermanentError,
     AdapterRole,
     AdapterSendError,
-    BaseAdapter,
 )
 from medre.adapters.meshcore.codec import MeshCoreCodec
 from medre.adapters.meshcore.compat import HAS_MESHCORE
-from medre.adapters.meshcore.config import MeshCoreConfig
+from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.adapters.meshcore.errors import (
     MeshCoreConnectionError,
     MeshCoreSendError,
@@ -91,7 +91,7 @@ _MESHCORE_CAPABILITIES = AdapterCapabilities(
 )
 
 
-class MeshCoreAdapter(BaseAdapter):
+class MeshCoreAdapter(AdapterContract):
     """Transport adapter for MeshCore nodes.
 
     Connects to a MeshCore node, receives event payloads, and publishes

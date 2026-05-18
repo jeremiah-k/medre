@@ -30,7 +30,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from medre.core.ports import AdapterInfo
+from medre.core.contracts.adapter import AdapterInfo
 from medre.core.lifecycle.states import AdapterState
 from medre.core.runtime.capabilities import serialize_adapter_capabilities
 
@@ -176,7 +176,7 @@ def normalize_adapter_health(
     """Normalize adapter health into a JSON-safe diagnostic dictionary.
 
     Accepts an :class:`~medre.core.ports.AdapterInfo` (the canonical
-    output of :meth:`~medre.core.adapter_base.BaseAdapter.health_check`) and
+    output of :meth:`~medre.core.contracts.adapter.AdapterContract.health_check`) and
     optional lifecycle state or adapter reference, and returns a flat
     dictionary suitable for structured logging.
 
@@ -184,7 +184,7 @@ def normalize_adapter_health(
     ----------
     info:
         Fresh health snapshot from
-        :meth:`~medre.core.adapter_base.BaseAdapter.health_check`.
+        :meth:`~medre.core.contracts.adapter.AdapterContract.health_check`.
     lifecycle_state:
         Optional lifecycle state from
         :class:`~medre.core.lifecycle.states.AdapterState`.  When the
@@ -263,7 +263,7 @@ class AdapterLiveHealth:
 
     Lightweight, JSON-safe, frozen dataclass.  No SDK objects, no secrets.
     Constructed by the runtime during ``refresh_live_health()`` by calling
-    :meth:`~medre.core.adapter_base.BaseAdapter.health_check` and normalizing
+    :meth:`~medre.core.contracts.adapter.AdapterContract.health_check` and normalizing
     through :func:`normalize_adapter_health`.
 
     Per-adapter failures during refresh are isolated — a failure on one

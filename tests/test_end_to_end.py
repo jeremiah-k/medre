@@ -98,7 +98,7 @@ class TestFullPipeline:
             import logging
 
             transport_ctx = type(transport).start.__code__  # just for reference
-            from medre.adapters.base import AdapterContext
+            from medre.core.contracts.adapter import AdapterContext
             import asyncio
 
             t_ctx = AdapterContext(

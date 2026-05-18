@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 import pytest
 
 from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
-from medre.adapters.meshtastic.config import MeshtasticConfig
+from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.adapters.meshtastic.errors import MeshtasticSendError
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
 from medre.core.events import CanonicalEvent, EventMetadata, NativeMessageRef
@@ -100,7 +100,7 @@ def _make_adapter_context_for_pipeline(
     adapter_id: str, runner: PipelineRunner
 ) -> Any:
     """Create an AdapterContext wired to a PipelineRunner's ingress handler."""
-    from medre.adapters.base import AdapterContext
+    from medre.core.contracts.adapter import AdapterContext
     return AdapterContext(
         adapter_id=adapter_id,
         event_bus=None,

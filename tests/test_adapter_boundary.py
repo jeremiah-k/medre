@@ -1,6 +1,6 @@
 """Adapter boundary contract tests.
 
-Documents the uniform contract expectations for BaseAdapter subclasses
+Documents the uniform contract expectations for AdapterContract subclasses
 without adding features.  These tests verify:
 
 * ``start(ctx)`` requires an :class:`AdapterContext`.
@@ -8,7 +8,7 @@ without adding features.  These tests verify:
 * ``health_check()`` returns an :class:`AdapterInfo` with JSON-safe fields.
 * ``deliver(result)`` accepts a :class:`RenderingResult` and returns
   ``AdapterDeliveryResult | None``.
-* ``BaseAdapter`` is abstract and cannot be instantiated directly.
+* ``AdapterContract`` is abstract and cannot be instantiated directly.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from medre.adapters.base import (
+from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
     AdapterDeliveryResult,
@@ -31,7 +31,7 @@ from medre.adapters.base import (
     AdapterPermanentError,
     AdapterRole,
     AdapterSendError,
-    BaseAdapter,
+    AdapterContract,
 )
 from medre.core.rendering.renderer import RenderingResult
 
@@ -66,7 +66,7 @@ def _make_rendering_result() -> RenderingResult:
 
 
 # Minimal concrete adapter for contract verification.
-class _StubAdapter(BaseAdapter):
+class _StubAdapter(AdapterContract):
     adapter_id = "stub"
     platform = "stub_platform"
     role = AdapterRole.TRANSPORT
@@ -98,17 +98,17 @@ class _StubAdapter(BaseAdapter):
 
 
 # ===================================================================
-# 1. BaseAdapter is abstract
+# 1. AdapterContract is abstract
 # ===================================================================
 
 
-class TestBaseAdapterAbstract:
-    """BaseAdapter cannot be instantiated directly."""
+class TestAdapterContractAbstract:
+    """AdapterContract cannot be instantiated directly."""
 
     def test_cannot_instantiate_base_adapter(self) -> None:
-        """BaseAdapter is ABC — instantiation raises TypeError."""
+        """AdapterContract is ABC — instantiation raises TypeError."""
         with pytest.raises(TypeError):
-            BaseAdapter()  # type: ignore[abstract]
+            AdapterContract()  # type: ignore[abstract]
 
 
 # ===================================================================
@@ -128,7 +128,7 @@ class TestStartContract:
 
     def test_start_signature_requires_ctx(self) -> None:
         """start() has a parameter named 'ctx' typed as AdapterContext."""
-        sig = inspect.signature(BaseAdapter.start)
+        sig = inspect.signature(AdapterContract.start)
         params = list(sig.parameters.keys())
         assert "ctx" in params
         ann = sig.parameters["ctx"].annotation
@@ -153,7 +153,7 @@ class TestStopContract:
 
     def test_stop_signature_has_timeout(self) -> None:
         """stop() has a 'timeout' parameter."""
-        sig = inspect.signature(BaseAdapter.stop)
+        sig = inspect.signature(AdapterContract.stop)
         params = list(sig.parameters.keys())
         assert "timeout" in params
 
@@ -226,7 +226,7 @@ class TestDeliverContract:
         assert out is None
 
     def test_deliver_signature(self) -> None:
-        sig = inspect.signature(BaseAdapter.deliver)
+        sig = inspect.signature(AdapterContract.deliver)
         params = list(sig.parameters.keys())
         assert "result" in params
 
@@ -521,7 +521,7 @@ class TestPerAdapterErrorClassification:
         """MatrixAdapter raises AdapterPermanentError when
         client is not connected — lifecycle state missing is permanent."""
         from medre.adapters.matrix.adapter import MatrixAdapter
-        from medre.adapters.matrix.config import MatrixConfig
+        from medre.config.adapters.matrix import MatrixConfig
 
         config = MatrixConfig(adapter_id="test", user_id="@test:server", homeserver="https://server", access_token="tok")
         adapter = MatrixAdapter(config)
@@ -535,7 +535,7 @@ class TestPerAdapterErrorClassification:
     async def test_matrix_no_room_id_permanent(self) -> None:
         """MatrixAdapter raises AdapterPermanentError when room_id is missing."""
         from medre.adapters.matrix.adapter import MatrixAdapter
-        from medre.adapters.matrix.config import MatrixConfig
+        from medre.config.adapters.matrix import MatrixConfig
 
         config = MatrixConfig(adapter_id="test", user_id="@test:server", homeserver="https://server", access_token="tok")
         adapter = MatrixAdapter(config)
@@ -554,7 +554,7 @@ class TestPerAdapterErrorClassification:
     async def test_matrix_send_error_converted_to_transient(self) -> None:
         """MatrixAdapter converts MatrixSendError to AdapterSendError(transient=True)."""
         from medre.adapters.matrix.adapter import MatrixAdapter
-        from medre.adapters.matrix.config import MatrixConfig
+        from medre.config.adapters.matrix import MatrixConfig
         from medre.adapters.matrix.errors import MatrixSendError
 
         config = MatrixConfig(adapter_id="test", user_id="@test:server", homeserver="https://server", access_token="tok")
@@ -573,7 +573,7 @@ class TestPerAdapterErrorClassification:
     async def test_meshcore_session_not_initialised_permanent(self) -> None:
         """MeshCoreAdapter raises AdapterPermanentError for session not initialised."""
         from medre.adapters.meshcore.adapter import MeshCoreAdapter
-        from medre.adapters.meshcore.config import MeshCoreConfig
+        from medre.config.adapters.meshcore import MeshCoreConfig
 
         config = MeshCoreConfig(adapter_id="test")
         adapter = MeshCoreAdapter(config)
@@ -590,7 +590,7 @@ class TestPerAdapterErrorClassification:
     async def test_meshcore_timeout_transient(self) -> None:
         """MeshCoreAdapter raises AdapterSendError(transient=True) for timeout."""
         from medre.adapters.meshcore.adapter import MeshCoreAdapter
-        from medre.adapters.meshcore.config import MeshCoreConfig
+        from medre.config.adapters.meshcore import MeshCoreConfig
 
         config = MeshCoreConfig(adapter_id="test")
         adapter = MeshCoreAdapter(config)
@@ -611,7 +611,7 @@ class TestPerAdapterErrorClassification:
     async def test_meshtastic_timeout_transient(self) -> None:
         """MeshtasticAdapter raises AdapterSendError(transient=True) for timeout."""
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
-        from medre.adapters.meshtastic.config import MeshtasticConfig
+        from medre.config.adapters.meshtastic import MeshtasticConfig
 
         config = MeshtasticConfig(adapter_id="test")
         adapter = MeshtasticAdapter(config)
@@ -631,7 +631,7 @@ class TestPerAdapterErrorClassification:
     async def test_lxmf_timeout_transient(self) -> None:
         """LxmfAdapter raises AdapterSendError(transient=True) for timeout."""
         from medre.adapters.lxmf.adapter import LxmfAdapter
-        from medre.adapters.lxmf.config import LxmfConfig
+        from medre.config.adapters.lxmf import LxmfConfig
 
         config = LxmfConfig(adapter_id="test")
         adapter = LxmfAdapter(config)
@@ -652,7 +652,7 @@ class TestPerAdapterErrorClassification:
     async def test_lxmf_send_error_transient(self) -> None:
         """LxmfAdapter raises AdapterSendError(transient=True) for LxmfSendError."""
         from medre.adapters.lxmf.adapter import LxmfAdapter
-        from medre.adapters.lxmf.config import LxmfConfig
+        from medre.config.adapters.lxmf import LxmfConfig
         from medre.adapters.lxmf.errors import LxmfSendError
 
         config = LxmfConfig(adapter_id="test")
@@ -674,7 +674,7 @@ class TestPerAdapterErrorClassification:
     async def test_meshtastic_not_started_permanent(self) -> None:
         """MeshtasticAdapter raises AdapterPermanentError when not started in real mode."""
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
-        from medre.adapters.meshtastic.config import MeshtasticConfig
+        from medre.config.adapters.meshtastic import MeshtasticConfig
 
         config = MeshtasticConfig(adapter_id="test", connection_type="tcp", host="localhost", port=4403)
         adapter = MeshtasticAdapter(config)
@@ -689,7 +689,7 @@ class TestPerAdapterErrorClassification:
     async def test_meshtastic_send_error_converted_to_transient(self) -> None:
         """MeshtasticAdapter converts MeshtasticSendError to AdapterSendError(transient=True)."""
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
-        from medre.adapters.meshtastic.config import MeshtasticConfig
+        from medre.config.adapters.meshtastic import MeshtasticConfig
         from medre.adapters.meshtastic.errors import MeshtasticSendError
 
         config = MeshtasticConfig(adapter_id="test")
@@ -709,7 +709,7 @@ class TestPerAdapterErrorClassification:
     async def test_lxmf_not_started_permanent(self) -> None:
         """LxmfAdapter raises AdapterPermanentError when not started."""
         from medre.adapters.lxmf.adapter import LxmfAdapter
-        from medre.adapters.lxmf.config import LxmfConfig
+        from medre.config.adapters.lxmf import LxmfConfig
 
         config = LxmfConfig(adapter_id="test")
         adapter = LxmfAdapter(config)
@@ -725,7 +725,7 @@ class TestPerAdapterErrorClassification:
     async def test_meshcore_send_error_converted_to_transient(self) -> None:
         """MeshCoreAdapter converts MeshCoreSendError to AdapterSendError(transient=True)."""
         from medre.adapters.meshcore.adapter import MeshCoreAdapter
-        from medre.adapters.meshcore.config import MeshCoreConfig
+        from medre.config.adapters.meshcore import MeshCoreConfig
         from medre.adapters.meshcore.errors import MeshCoreSendError
 
         config = MeshCoreConfig(adapter_id="test")

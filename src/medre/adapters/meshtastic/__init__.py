@@ -10,8 +10,6 @@ Public symbols
   itself.
 * :class:`~medre.adapters.meshtastic.session.MeshtasticSession` — session
   lifecycle boundary owning raw transport.
-* :class:`~medre.adapters.meshtastic.config.MeshtasticConfig` — configuration
-  dataclass.
 * :class:`~medre.adapters.meshtastic.codec.MeshtasticCodec` — decode helper.
 * :class:`~medre.adapters.meshtastic.renderer.MeshtasticRenderer` — platform
   renderer for Meshtastic content payloads.
@@ -31,8 +29,6 @@ Public symbols
 
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.adapters.meshtastic.codec import MeshtasticCodec
-from medre.adapters.meshtastic.config import MeshtasticConfig
-from medre.adapters.meshtastic.config import MeshtasticConfigError
 from medre.adapters.meshtastic.errors import (
     MeshtasticCodecError,
     MeshtasticConnectionError,
@@ -54,8 +50,6 @@ __all__ = [
     "MeshtasticAdapter",
     "MeshtasticCodec",
     "MeshtasticCodecError",
-    "MeshtasticConfig",
-    "MeshtasticConfigError",
     "MeshtasticConnectionError",
     "MeshtasticError",
     "MeshtasticPacketClassifier",

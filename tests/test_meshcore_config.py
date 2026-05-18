@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from medre.adapters.meshcore.config import MeshCoreConfig
+from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.config.adapters.meshcore import MeshCoreConfigError
 
 

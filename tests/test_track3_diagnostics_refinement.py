@@ -18,11 +18,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from medre.adapters.lxmf.config import LxmfConfig
+from medre.config.adapters.lxmf import LxmfConfig
 from medre.adapters.lxmf.session import LxmfSession
-from medre.adapters.matrix.config import MatrixConfig
+from medre.config.adapters.matrix import MatrixConfig
 from medre.adapters.matrix.session import MatrixSession
-from medre.adapters.meshtastic.config import MeshtasticConfig
+from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.adapters.meshtastic.session import MeshtasticSession
 
 
@@ -415,7 +415,7 @@ def make_adapter_context():
     """Create an AdapterContext for testing."""
     from datetime import datetime, timezone
 
-    from medre.adapters.base import AdapterContext
+    from medre.core.contracts.adapter import AdapterContext
 
     def _make(adapter_id: str = "mesh-test") -> AdapterContext:
         return AdapterContext(

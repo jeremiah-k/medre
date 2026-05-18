@@ -15,6 +15,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from medre.adapters.matrix.errors import MatrixConnectionError
+from medre.config.adapters.matrix_credentials import (
+    get_credentials_path,
+    load_credentials_json,
+)
 
 
 def _normalize_homeserver(homeserver: str) -> str:
@@ -452,19 +456,6 @@ def discover_well_known(domain: str) -> str | None:
         return None
 
 
-def get_credentials_path() -> Path:
-    """Return the canonical path for the Matrix credentials JSON file.
-
-    The path points to
-    ``$XDG_CONFIG_HOME/medre/credentials/matrix.json``
-    (defaulting to ``~/.config/medre/credentials/matrix.json``).
-
-    This function does **not** create any directories.
-    """
-    config_home = os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))
-    return Path(config_home) / "medre" / "credentials" / "matrix.json"
-
-
 def save_credentials_json(result: MatrixLoginResult) -> Path:
     """Persist login credentials to disk with restrictive permissions (0o600).
 
@@ -481,21 +472,6 @@ def save_credentials_json(result: MatrixLoginResult) -> Path:
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)  # 0o600
     return path
-
-
-def load_credentials_json() -> dict | None:
-    """Load previously saved Matrix credentials.
-
-    Returns the credential dict, or ``None`` if the file does not exist or
-    cannot be parsed.
-    """
-    path = get_credentials_path()
-    if not path.exists():
-        return None
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return None
 
 
 def check_credentials_completeness(creds: dict) -> list[str]:

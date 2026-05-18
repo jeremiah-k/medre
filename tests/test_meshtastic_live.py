@@ -203,7 +203,7 @@ require_mtjk = pytest.mark.skipif(
 # ---------------------------------------------------------------------------
 def _make_config():
     """Build a MeshtasticConfig from the live environment variables."""
-    from medre.adapters.meshtastic.config import MeshtasticConfig
+    from medre.config.adapters.meshtastic import MeshtasticConfig
 
     ct = MESHTASTIC_CONNECTION_TYPE
     if ct == "tcp":
@@ -235,7 +235,7 @@ def _make_config():
 
 def _make_context():
     """Build an AdapterContext suitable for live smoke tests."""
-    from medre.adapters.base import AdapterContext
+    from medre.core.contracts.adapter import AdapterContext
 
     return AdapterContext(
         adapter_id="meshtastic-live-smoke",

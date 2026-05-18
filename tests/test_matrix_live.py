@@ -165,7 +165,7 @@ require_live = pytest.mark.skipif(
 # ---------------------------------------------------------------------------
 def _make_config():
     """Build a MatrixConfig from the live environment variables."""
-    from medre.adapters.matrix.config import MatrixConfig
+    from medre.config.adapters.matrix import MatrixConfig
 
     assert MATRIX_HOMESERVER and MATRIX_USER_ID and MATRIX_ACCESS_TOKEN
     return MatrixConfig(
@@ -178,7 +178,7 @@ def _make_config():
 
 def _make_context():
     """Build an AdapterContext suitable for live smoke tests."""
-    from medre.adapters.base import AdapterContext
+    from medre.core.contracts.adapter import AdapterContext
 
     return AdapterContext(
         adapter_id="matrix-live-smoke",
@@ -192,7 +192,7 @@ def _make_context():
 
 def _make_config_with_allowlist(allowlist: set[str] | None):
     """Build a MatrixConfig with a specific room_allowlist."""
-    from medre.adapters.matrix.config import MatrixConfig
+    from medre.config.adapters.matrix import MatrixConfig
 
     assert MATRIX_HOMESERVER and MATRIX_USER_ID and MATRIX_ACCESS_TOKEN
     return MatrixConfig(
@@ -449,7 +449,7 @@ class TestMatrixLiveSmoke:
         ``test_matrix_lifecycle.py`` cover the non-self path.
         """
         from medre.adapters.matrix.adapter import MatrixAdapter
-        from medre.adapters.base import AdapterContext
+        from medre.core.contracts.adapter import AdapterContext
         from medre.core.rendering.renderer import RenderingResult
 
         publish_mock = AsyncMock()
@@ -537,7 +537,7 @@ class TestMatrixLiveSmoke:
         isolate the allowlist check from self-message suppression.
         """
         from medre.adapters.matrix.adapter import MatrixAdapter
-        from medre.adapters.base import AdapterContext
+        from medre.core.contracts.adapter import AdapterContext
         from medre.core.rendering.renderer import RenderingResult
 
         wrong_allowlist = {"!nonexistent-room:example.com"}
@@ -649,7 +649,7 @@ class TestMatrixLiveSmoke:
         - ``platform`` and ``role`` still populated
         """
         from medre.adapters.matrix.adapter import MatrixAdapter
-        from medre.adapters.base import AdapterContext, AdapterRole
+        from medre.core.contracts.adapter import AdapterContext, AdapterRole
 
         adapter = MatrixAdapter(_make_config())
         ctx = AdapterContext(
@@ -698,7 +698,7 @@ class TestMatrixLiveSmoke:
         shutdown that would prevent a second start.
         """
         from medre.adapters.matrix.adapter import MatrixAdapter
-        from medre.adapters.base import AdapterContext
+        from medre.core.contracts.adapter import AdapterContext
 
         config = _make_config()
 
@@ -763,7 +763,7 @@ class TestMatrixLiveSmoke:
         the storage-level replay mechanism.
         """
         from medre.adapters.matrix.adapter import MatrixAdapter
-        from medre.adapters.base import AdapterContext
+        from medre.core.contracts.adapter import AdapterContext
         from medre.core.rendering.renderer import RenderingResult
 
         adapter = MatrixAdapter(_make_config())
@@ -859,7 +859,7 @@ class TestMatrixLiveSmoke:
         delay, missing sender, quiet room).
         """
         from medre.adapters.matrix.adapter import MatrixAdapter
-        from medre.adapters.base import AdapterContext
+        from medre.core.contracts.adapter import AdapterContext
 
         inbound_sender = os.environ.get("MATRIX_INBOUND_SENDER")
 

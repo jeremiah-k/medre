@@ -319,7 +319,7 @@ class TestPipelineNativeChannelIdNoFallback:
             received_events: list[object] = []
 
             async def deliver(self, payload: object):
-                from medre.adapters.base import AdapterDeliveryResult
+                from medre.core.contracts.adapter import AdapterDeliveryResult
                 return AdapterDeliveryResult(
                     native_message_id="msg-001",
                     native_channel_id=None,
@@ -370,7 +370,7 @@ class TestPipelineNativeChannelIdNoFallback:
             received_events: list[object] = []
 
             async def deliver(self, payload: object):
-                from medre.adapters.base import AdapterDeliveryResult
+                from medre.core.contracts.adapter import AdapterDeliveryResult
                 return AdapterDeliveryResult(
                     native_message_id=None,
                     native_channel_id="ch-1",

@@ -1,5 +1,12 @@
 """Config-owned adapter configuration models.
 
-Moved from ``medre.adapters.*.config`` in Tranche 2 so that the global
-config layer no longer imports concrete adapter packages.
+Owns adapter configuration dataclasses, config validation errors, and
+Matrix credential sidecar helpers.  The config layer does not import
+concrete adapter packages.
+
+Canonical imports::
+
+    from medre.config.adapters.matrix import MatrixConfig
+    from medre.config.adapters.errors import MatrixConfigError
+    from medre.config.adapters.matrix_credentials import load_credentials_json
 """

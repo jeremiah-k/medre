@@ -21,7 +21,7 @@ from typing import Any
 
 import pytest
 
-from medre.adapters.base import (
+from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterInfo,
     AdapterRole,

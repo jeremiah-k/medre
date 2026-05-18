@@ -175,7 +175,7 @@ require_lxmf_sdk = pytest.mark.skipif(
 # ---------------------------------------------------------------------------
 def _make_config():
     """Build an LxmfConfig from the live environment variables."""
-    from medre.adapters.lxmf.config import LxmfConfig
+    from medre.config.adapters.lxmf import LxmfConfig
 
     return LxmfConfig(
         adapter_id="lxmf-live-smoke",
@@ -188,7 +188,7 @@ def _make_config():
 
 def _make_fake_config():
     """Build an LxmfConfig for fake mode (no Reticulum required)."""
-    from medre.adapters.lxmf.config import LxmfConfig
+    from medre.config.adapters.lxmf import LxmfConfig
 
     return LxmfConfig(
         adapter_id="lxmf-live-smoke",
@@ -205,7 +205,7 @@ def _make_context(publish_inbound=None):
         Optional async callable override for the publish_inbound field.
         Defaults to an ``AsyncMock()``.
     """
-    from medre.adapters.base import AdapterContext
+    from medre.core.contracts.adapter import AdapterContext
 
     return AdapterContext(
         adapter_id="lxmf-live-smoke",
@@ -248,7 +248,7 @@ class TestLxmfLiveSmoke:
         string.  This is a config-shape test; runtime file-existence
         checks happen inside ``LxmfSession.start()``.
         """
-        from medre.adapters.lxmf.config import LxmfConfig
+        from medre.config.adapters.lxmf import LxmfConfig
 
         config = LxmfConfig(
             adapter_id="lxmf-live-smoke",
@@ -266,8 +266,8 @@ class TestLxmfLiveSmoke:
         When ``identity_path`` is explicitly set to ``""``, validation
         must raise ``LxmfConfigError`` because empty strings are invalid.
         """
-        from medre.adapters.lxmf.config import LxmfConfig
-        from medre.adapters.lxmf.errors import LxmfConfigError
+        from medre.config.adapters.lxmf import LxmfConfig
+        from medre.config.adapters.errors import LxmfConfigError
 
         config = LxmfConfig(
             adapter_id="lxmf-live-smoke",
@@ -324,7 +324,7 @@ class TestLxmfLiveSmoke:
         "lxmf"`` before any ``start()`` call.
         """
         from medre.adapters.lxmf.adapter import LxmfAdapter
-        from medre.adapters.base import AdapterRole
+        from medre.core.contracts.adapter import AdapterRole
 
         config = _make_config()
         adapter = LxmfAdapter(config)
@@ -392,7 +392,7 @@ class TestLxmfLiveSmoke:
         metadata set to ``"outbound"`` (honest pending semantics).
         """
         from medre.adapters.lxmf.adapter import LxmfAdapter
-        from medre.adapters.base import AdapterDeliveryResult
+        from medre.core.contracts.adapter import AdapterDeliveryResult
 
         config = _make_fake_config()
         adapter = LxmfAdapter(config)
@@ -499,7 +499,7 @@ class TestLxmfLiveSmoke:
         validation which works in any connection mode.  Uses fake mode
         so the adapter can start without Reticulum.
         """
-        from medre.adapters.base import AdapterPermanentError
+        from medre.core.contracts.adapter import AdapterPermanentError
         from medre.adapters.lxmf.adapter import LxmfAdapter
 
         config = _make_fake_config()
@@ -745,7 +745,7 @@ class TestLxmfLiveSmoke:
         ``AdapterDeliveryResult`` with ``lxmf`` delivery-state metadata.
         """
         from medre.adapters.lxmf.adapter import LxmfAdapter
-        from medre.adapters.base import AdapterDeliveryResult
+        from medre.core.contracts.adapter import AdapterDeliveryResult
         from medre.core.rendering.renderer import RenderingResult
 
         config = _make_fake_config()

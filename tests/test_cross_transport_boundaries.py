@@ -6,7 +6,7 @@ These tests verify architectural boundaries across ALL four alpha transports
 1. Core import boundary: core packages must not import concrete adapter
    packages (medre.adapters.{matrix,meshtastic,meshcore,lxmf}) or transport
    SDKs (nio, meshtastic, meshcore, RNS, lxmf).  Importing from
-   medre.adapters.base (protocol/base types) is permitted.
+   medre.core.contracts.adapter (protocol/base types) is permitted.
 
 2. Runtime import boundary: runtime/diagnostics/health/capability modules
    must not import transport SDKs directly.
@@ -572,13 +572,13 @@ class TestCodecBoundary:
         assert mod is not None
         cls = getattr(mod, cls_name)
 
-        matrix_cfg = _load_module("medre.adapters.matrix.config")
+        matrix_cfg = _load_module("medre.config.adapters.matrix")
         assert matrix_cfg is not None
-        meshtastic_cfg = _load_module("medre.adapters.meshtastic.config")
+        meshtastic_cfg = _load_module("medre.config.adapters.meshtastic")
         assert meshtastic_cfg is not None
-        meshcore_cfg = _load_module("medre.adapters.meshcore.config")
+        meshcore_cfg = _load_module("medre.config.adapters.meshcore")
         assert meshcore_cfg is not None
-        lxmf_cfg = _load_module("medre.adapters.lxmf.config")
+        lxmf_cfg = _load_module("medre.config.adapters.lxmf")
         assert lxmf_cfg is not None
 
         config_map = {
@@ -647,8 +647,8 @@ class TestCodecBoundary:
         mod = _load_module(mod_name)
         source = _read_module_source(mod)
         for line in _import_lines(source):
-            # Allow imports from medre.adapters.base
-            if "medre.adapters.base" in line:
+            # Allow imports from medre.core.contracts.adapter
+            if "medre.core.contracts.adapter" in line:
                 continue
             assert f"medre.adapters.{_transport}.adapter" not in line, (
                 f"Codec must not import adapter module; found: {line!r}"
@@ -741,7 +741,7 @@ class TestDiagnosticContractBoundary:
 
     Diagnostic contract modules (diagnostics, health, capabilities) provide
     pure projections of adapter metadata into JSON-safe types.  They may
-    import from ``medre.adapters.base`` (protocol/base types like
+    import from ``medre.core.contracts.adapter`` (protocol/base types like
     ``AdapterInfo``, ``AdapterCapabilities``) but must never import concrete
     adapter packages or transport SDKs.
     """
@@ -827,7 +827,7 @@ class TestDiagnosticContractBoundary:
 # Boundary 8: Delivery contract boundary
 # ===================================================================
 
-_ADAPTER_BASE_MODULE = "medre.adapters.base"
+_ADAPTER_BASE_MODULE = "medre.core.contracts.adapter"
 """Module that owns the AdapterDeliveryResult contract."""
 
 _DELIVERY_CONTRACT_MODULES = [
@@ -842,7 +842,7 @@ class TestDeliveryContractBoundary:
     """Delivery contract modules must not import concrete adapters or SDKs.
 
     The delivery result contract (``AdapterDeliveryResult``) currently lives
-    in ``medre.adapters.base``, which is the protocol/base types module.  It
+    in ``medre.core.contracts.adapter``, which is the protocol/base types module.  It
     must not import concrete adapter packages or transport SDKs, ensuring the
     delivery result type is SDK-agnostic and transport-neutral.
 
@@ -1050,7 +1050,7 @@ class TestAdapterRuntimeContainment:
     adapter packages.
 
     Adapter modules implement transport-specific logic and communicate
-    with the framework through the ``medre.adapters.base`` protocol.
+    with the framework through the ``medre.core.contracts.adapter`` protocol.
     They must not reach into pipeline/router/storage internals.
     """
 

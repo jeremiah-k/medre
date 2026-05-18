@@ -24,9 +24,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from medre.adapters.base import AdapterContext
+from medre.core.contracts.adapter import AdapterContext
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
-from medre.adapters.meshtastic.config import MeshtasticConfig
+from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.adapters.meshtastic.compat import HAS_MESHTASTIC
 
 from .conftest import MeshtasticdEnvironment

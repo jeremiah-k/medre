@@ -10,13 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal, Self
 
-
-class MeshtasticConfigError(ValueError):
-    """Raised when the Meshtastic configuration is invalid.
-
-    Inherits from :class:`ValueError` so that it is caught by
-    ``except ValueError``.
-    """
+from medre.config.adapters.errors import MeshtasticConfigError
 
 
 @dataclass(frozen=True)

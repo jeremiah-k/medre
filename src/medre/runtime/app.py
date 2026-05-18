@@ -48,7 +48,7 @@ from medre.core.lifecycle.states import AdapterState, require_valid_transition
 from medre.runtime.boot_summary import BootSummary, build_boot_summary
 
 if TYPE_CHECKING:
-    from medre.adapters.base import AdapterContext, BaseAdapter
+    from medre.core.contracts.adapter import AdapterContext, AdapterContract
     from medre.config.model import RuntimeConfig
     from medre.config.paths import MedrePaths
     from medre.core.engine.pipeline import PipelineRunner
@@ -163,7 +163,7 @@ class MedreApp:
     relation_resolver: RelationResolver
     pipeline_runner: PipelineRunner
     diagnostician: Diagnostician
-    adapters: dict[str, BaseAdapter]
+    adapters: dict[str, AdapterContract]
     shutdown_event: asyncio.Event
     route_stats: RouteStats | None = None
     build_failures: list[AdapterBuildFailure] = field(default_factory=list)
@@ -327,7 +327,7 @@ class MedreApp:
         states raise :class:`RuntimeError`.
 
         Iterates adapters in deterministic ``adapter_id`` order (same as
-        startup), calls each adapter's :meth:`~medre.adapters.base.BaseAdapter.health_check`
+        startup),         calls each adapter's :meth:`~medre.core.contracts.adapter.AdapterContract.health_check`
         once, builds per-adapter :class:`~medre.core.runtime.health.AdapterLiveHealth`
         entries, classifies aggregate runtime health from the live results,
         and stores the resulting :class:`LiveHealthSnapshot` on the app.
@@ -577,7 +577,7 @@ class MedreApp:
                 transport = getattr(adapter, "platform", "unknown")
                 t0 = _monotonic_ms()
                 try:
-                    from medre.adapters.base import AdapterContext
+                    from medre.core.contracts.adapter import AdapterContext
 
                     ctx = AdapterContext(
                         adapter_id=adapter_id,

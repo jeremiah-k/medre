@@ -38,7 +38,7 @@ import time
 from collections import deque
 from typing import Any, Callable, Awaitable
 
-from medre.adapters.base import AdapterDeliveryResult
+from medre.core.contracts.adapter import AdapterDeliveryResult
 
 _logger = logging.getLogger(__name__)
 

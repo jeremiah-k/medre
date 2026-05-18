@@ -1,16 +1,14 @@
-"""Abstract base classes and value types for the adapter framework.
+"""Core adapter contract package.
 
-Re-export shim — definitions moved to ``medre.core.ports`` and
-``medre.core.adapter_base``.
+Re-exports all adapter contract types from
+:mod:`medre.core.contracts.adapter`.
 """
 
-from __future__ import annotations
-
-from medre.core.adapter_base import BaseAdapter
-from medre.core.ports import (
+from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterCodec,
     AdapterContext,
+    AdapterContract,
     AdapterDeliveryResult,
     AdapterInfo,
     AdapterPermanentError,
@@ -22,10 +20,10 @@ __all__ = [
     "AdapterCapabilities",
     "AdapterCodec",
     "AdapterContext",
+    "AdapterContract",
     "AdapterDeliveryResult",
     "AdapterInfo",
     "AdapterPermanentError",
     "AdapterRole",
     "AdapterSendError",
-    "BaseAdapter",
 ]

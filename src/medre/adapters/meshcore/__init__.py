@@ -9,8 +9,6 @@ Public symbols
   itself.
 * :class:`~medre.adapters.meshcore.session.MeshCoreSession` — session
   boundary that owns the SDK client lifecycle.
-* :class:`~medre.adapters.meshcore.config.MeshCoreConfig` — configuration
-  dataclass.
 * :class:`~medre.adapters.meshcore.codec.MeshCoreCodec` — decode helper.
 * :class:`~medre.adapters.meshcore.renderer.MeshCoreRenderer` — platform
   renderer for MeshCore content payloads.
@@ -29,8 +27,6 @@ Public symbols
 from medre.adapters.meshcore.adapter import MeshCoreAdapter
 from medre.adapters.meshcore.codec import MeshCoreCodec
 from medre.adapters.meshcore.compat import HAS_MESHCORE
-from medre.adapters.meshcore.config import MeshCoreConfig
-from medre.adapters.meshcore.config import MeshCoreConfigError
 from medre.adapters.meshcore.errors import (
     MeshCoreCodecError,
     MeshCoreConnectionError,
@@ -49,8 +45,6 @@ __all__ = [
     "MeshCoreAdapter",
     "MeshCoreCodec",
     "MeshCoreCodecError",
-    "MeshCoreConfig",
-    "MeshCoreConfigError",
     "MeshCoreConnectionError",
     "MeshCoreError",
     "MeshCorePacketClassifier",

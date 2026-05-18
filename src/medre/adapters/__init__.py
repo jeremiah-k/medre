@@ -6,14 +6,10 @@ presentation platforms.
 
 Quick-start imports::
 
-    from medre.adapters import BaseAdapter, AdapterRole
     from medre.adapters import FakeTransportAdapter, FakeMatrixAdapter
 
 Re-exported symbols
 -------------------
-* From :mod:`~medre.core.ports` and :mod:`~medre.core.adapter_base`:
-  ``AdapterCapabilities``, ``AdapterCodec``, ``AdapterContext``,
-  ``AdapterInfo``, ``AdapterRole``, ``BaseAdapter``.
 * From :mod:`~medre.adapters.fake_transport`:
   ``FakeTransportAdapter``.
 * From :mod:`~medre.adapters.fake_presentation`:
@@ -28,17 +24,6 @@ Re-exported symbols
   ``FakeLxmfAdapter``.
 """
 
-from medre.core.adapter_base import BaseAdapter
-from medre.core.ports import (
-    AdapterCapabilities,
-    AdapterCodec,
-    AdapterContext,
-    AdapterDeliveryResult,
-    AdapterInfo,
-    AdapterPermanentError,
-    AdapterRole,
-    AdapterSendError,
-)
 from medre.adapters.fake_lxmf import FakeLxmfAdapter
 from medre.adapters.fake_matrix import FakeMatrixAdapter
 from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
@@ -50,16 +35,6 @@ from medre.adapters.fake_presentation import (
 from medre.adapters.fake_transport import FakeTransportAdapter
 
 __all__ = [
-    # base
-    "AdapterCapabilities",
-    "AdapterCodec",
-    "AdapterContext",
-    "AdapterDeliveryResult",
-    "AdapterInfo",
-    "AdapterPermanentError",
-    "AdapterRole",
-    "AdapterSendError",
-    "BaseAdapter",
     # fake adapters
     "FakeLxmfAdapter",
     "FakeMatrixAdapter",

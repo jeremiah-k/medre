@@ -27,13 +27,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, Self
 
-
-class LxmfConfigError(ValueError):
-    """Raised when the LXMF configuration is invalid.
-
-    Inherits from :class:`ValueError` so that it is caught by
-    ``except ValueError``.
-    """
+from medre.config.adapters.errors import LxmfConfigError
 
 
 # Allowed connection_type values.

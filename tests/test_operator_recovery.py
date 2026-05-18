@@ -34,13 +34,13 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from medre.adapters.base import (
+from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
     AdapterDeliveryResult,
     AdapterInfo,
     AdapterRole,
-    BaseAdapter,
+    AdapterContract,
 )
 from medre.cli import main
 from medre.config.errors import (
@@ -294,7 +294,7 @@ def _run_cli_raw(*args: str) -> tuple[str, str, int | None]:
 # ---------------------------------------------------------------------------
 
 
-class _FailingAdapter(BaseAdapter):
+class _FailingAdapter(AdapterContract):
     """Adapter that raises on start() for failure-recovery testing."""
 
     adapter_id: str = "failing_adapter"

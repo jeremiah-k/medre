@@ -1016,7 +1016,7 @@ class TestFailureKindIntegration:
     @pytest.mark.asyncio
     async def test_adapter_permanent(self, tmp_paths: MedrePaths) -> None:
         """ADAPTER_PERMANENT: adapter raises AdapterPermanentError."""
-        from medre.adapters.base import AdapterPermanentError
+        from medre.core.contracts.adapter import AdapterPermanentError
         from medre.core.rendering.renderer import RenderingResult
 
         config, route = _make_pipeline_failure_config()
@@ -1244,7 +1244,7 @@ class TestFailureKindIntegration:
           2. A permanent AdapterSendError is classified as ADAPTER_PERMANENT,
              confirming TARGET_NOT_FOUND remains unused in the live pipeline.
         """
-        from medre.adapters.base import AdapterSendError
+        from medre.core.contracts.adapter import AdapterSendError
         from medre.core.planning.delivery_plan import RetryExecutor
 
         # A permanent adapter error (even one mentioning "channel not found")

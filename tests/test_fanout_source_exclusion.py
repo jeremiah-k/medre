@@ -13,8 +13,8 @@ from __future__ import annotations
 from medre.adapters.fake_matrix import FakeMatrixAdapter
 from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
 from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
-from medre.adapters.meshtastic.config import MeshtasticConfig
-from medre.adapters.meshcore.config import MeshCoreConfig
+from medre.config.adapters.meshtastic import MeshtasticConfig
+from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.events.kinds import EventKind
 from medre.core.rendering.renderer import RenderingPipeline

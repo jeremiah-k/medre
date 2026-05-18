@@ -23,13 +23,13 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from medre.adapters.base import (
+from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
     AdapterDeliveryResult,
     AdapterInfo,
     AdapterRole,
-    BaseAdapter,
+    AdapterContract,
 )
 from medre.config.model import (
     AdapterConfigSet,
@@ -79,7 +79,7 @@ def tmp_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> MedrePaths:
 # ---------------------------------------------------------------------------
 
 
-class _StubAdapter(BaseAdapter):
+class _StubAdapter(AdapterContract):
     """Cooperative adapter that tracks start/stop calls."""
 
     adapter_id: str = "stub"
@@ -111,7 +111,7 @@ class _StubAdapter(BaseAdapter):
         return None
 
 
-class _FailingStartAdapter(BaseAdapter):
+class _FailingStartAdapter(AdapterContract):
     """Adapter that raises on start()."""
 
     adapter_id: str = "failing_start"
@@ -141,7 +141,7 @@ class _FailingStartAdapter(BaseAdapter):
         return None
 
 
-class _FailingStopAdapter(BaseAdapter):
+class _FailingStopAdapter(AdapterContract):
     """Adapter that raises on stop()."""
 
     adapter_id: str = "failing_stop"

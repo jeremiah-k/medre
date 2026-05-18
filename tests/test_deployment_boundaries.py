@@ -48,7 +48,7 @@ _ADAPTER_PREFIXES = (
     "medre.adapters.meshcore",
     "medre.adapters.lxmf",
 )
-"""Concrete adapter package prefixes (excludes medre.adapters.base and fake_*)."""
+"""Concrete adapter package prefixes (excludes medre.core.contracts.adapter and fake_*)."""
 
 _ADAPTER_COMPAT_MODULES = (
     "medre.adapters.matrix.compat",
@@ -273,7 +273,7 @@ class TestConfigSubsystemNoSdk:
         lines = _import_lines(source)
 
         # Exclude adapter config dataclass imports from the SDK check.
-        # Lines like ``from medre.adapters.meshtastic.config import ...``
+        # Lines like ``from medre.config.adapters.meshtastic import ...``
         # contain the word "meshtastic" but are safe pure-data imports.
         non_config_lines = [
             line for line in lines

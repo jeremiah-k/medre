@@ -44,7 +44,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from medre.adapters.base import (
+from medre.core.contracts.adapter import (
     AdapterContext,
     AdapterDeliveryResult,
     AdapterPermanentError,
@@ -52,7 +52,7 @@ from medre.adapters.base import (
 )
 from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
-from medre.adapters.meshtastic.config import MeshtasticConfig
+from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.adapters.meshtastic.errors import (
     MeshtasticConnectionError,
     MeshtasticSendError,

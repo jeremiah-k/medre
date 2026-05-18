@@ -9,13 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from typing import Literal, Self
 
-
-class MatrixConfigError(ValueError):
-    """Raised when the Matrix configuration is invalid.
-
-    Inherits from :class:`ValueError` so that it is caught by
-    ``except ValueError``.
-    """
+from medre.config.adapters.errors import MatrixConfigError
 
 
 EncryptionMode = Literal["plaintext", "e2ee_required", "e2ee_optional"]
@@ -107,8 +101,8 @@ class MatrixConfig:
         if not (needs_homeserver or needs_user_id or needs_access_token):
             return self
 
-        # Lazy import to avoid circular dependency at module level.
-        from medre.adapters.matrix.auth import load_credentials_json
+        # Import from config-owned credential helpers (not from adapters).
+        from medre.config.adapters.matrix_credentials import load_credentials_json
 
         creds = load_credentials_json()
         if creds is None:

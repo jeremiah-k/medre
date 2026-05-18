@@ -89,13 +89,13 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 from unittest.mock import patch
 
-from medre.adapters.base import (
+from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
+    AdapterContract,
     AdapterDeliveryResult,
     AdapterInfo,
     AdapterRole,
-    BaseAdapter,
 )
 from medre.config.loader import load_config
 from medre.config.env import apply_env_overrides
@@ -342,7 +342,7 @@ async def _drill_adapter_permanent_failure(
     storage_path: str | None,
 ) -> dict[str, Any]:
     """Target adapter raises AdapterPermanentError."""
-    from medre.adapters.base import AdapterPermanentError
+    from medre.core.contracts.adapter import AdapterPermanentError
 
     report = _base_report("adapter_permanent_failure", storage_path=storage_path)
     steps: list[dict[str, Any]] = []
@@ -474,7 +474,7 @@ async def _drill_adapter_transient_failure(
     storage_path: str | None,
 ) -> dict[str, Any]:
     """Target adapter raises AdapterSendError(transient=True)."""
-    from medre.adapters.base import AdapterSendError
+    from medre.core.contracts.adapter import AdapterSendError
 
     report = _base_report("adapter_transient_failure", storage_path=storage_path)
     steps: list[dict[str, Any]] = []
@@ -1028,7 +1028,7 @@ async def _drill_degraded_live_health(
 
         adapter = app.adapters[target_aid]
 
-        from medre.adapters.base import AdapterInfo, AdapterCapabilities
+        from medre.core.contracts.adapter import AdapterInfo, AdapterCapabilities
 
         # Preserve original capabilities if available.
         orig_caps = getattr(adapter, "_capabilities", None)
@@ -1042,7 +1042,7 @@ async def _drill_degraded_live_health(
                 orig_caps = AdapterCapabilities(text=True)
 
         async def _degraded_health() -> AdapterInfo:
-            from medre.adapters.base import AdapterRole as _AR
+            from medre.core.contracts.adapter import AdapterRole as _AR
             raw_role = getattr(adapter, "role", "unknown")
             role = raw_role if isinstance(raw_role, _AR) else _AR.PRESENTATION
             return AdapterInfo(
@@ -1120,7 +1120,7 @@ async def _drill_degraded_live_health(
 # ---------------------------------------------------------------------------
 
 
-class _DrillFailingAdapter(BaseAdapter):
+class _DrillFailingAdapter(AdapterContract):
     """Adapter that raises on ``start()`` and records ``stop()`` calls.
 
     Used by pre-runtime startup-failure drills to simulate adapter

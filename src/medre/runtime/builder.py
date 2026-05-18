@@ -30,7 +30,7 @@ import time
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
-from medre.adapters.base import BaseAdapter
+from medre.core.contracts.adapter import AdapterContract
 from medre.config.model import (
     AdapterConfigSet,
     LxmfRuntimeConfig,
@@ -111,7 +111,7 @@ class _AdapterFactory:
         self._dependency_module = dependency_module
         self._dependency_availability_flag = dependency_availability_flag
 
-    def build(self, config: Any) -> BaseAdapter | None:
+    def build(self, config: Any) -> AdapterContract | None:
         """Construct the adapter, returning ``None`` on missing deps."""
         # Check optional dependency flag if applicable.
         if self._dependency_module and self._dependency_availability_flag:
@@ -176,7 +176,7 @@ _ADAPTER_BUILDERS: dict[str, _AdapterFactory] = {
 }
 
 
-def _build_fake_adapter(transport: str, adapter_id: str) -> BaseAdapter:
+def _build_fake_adapter(transport: str, adapter_id: str) -> AdapterContract:
     """Construct a fake adapter for the given transport.
 
     Fake adapters are always importable from core — they do not depend on
@@ -328,7 +328,7 @@ class RuntimeBuilder:
         relation_resolver = RelationResolver(storage=storage)
 
         # 8. Build adapters dict (mutable — shared with PipelineConfig)
-        adapters: dict[str, BaseAdapter] = {}
+        adapters: dict[str, AdapterContract] = {}
 
         # 9. PipelineConfig + PipelineRunner
         route_stats = RouteStats()
@@ -507,7 +507,7 @@ class RuntimeBuilder:
     # -- Adapter construction ----------------------------------------------------
 
     def _build_adapters(
-        self, adapters: dict[str, BaseAdapter]
+        self, adapters: dict[str, AdapterContract]
     ) -> list[AdapterBuildFailure]:
         """Populate *adapters* from the enabled adapter configs.
 
@@ -571,7 +571,7 @@ class RuntimeBuilder:
         transport: str,
         adapter_id: str,
         rtc: Any,
-    ) -> BaseAdapter:
+    ) -> AdapterContract:
         """Construct a single enabled adapter.
 
         Raises :class:`RuntimeConfigError` if the adapter is enabled but

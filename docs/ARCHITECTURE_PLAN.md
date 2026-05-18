@@ -6,6 +6,92 @@
 
 ---
 
+## 0. Canonical Architecture (Current — Tranche 3 Applied)
+
+> **This section supersedes any earlier sections that reference old module
+> paths.**  The project is pre-release and old imports were intentionally
+> removed in favor of clean canonical ownership.
+
+### 0.1 Core Adapter Contracts
+
+Core adapter contracts live in **`medre.core.contracts.adapter`**:
+
+```python
+from medre.core.contracts.adapter import AdapterContract
+from medre.core.contracts.adapter import AdapterRole
+from medre.core.contracts.adapter import AdapterCodec
+from medre.core.contracts.adapter import AdapterContext
+from medre.core.contracts.adapter import AdapterCapabilities
+from medre.core.contracts.adapter import AdapterInfo
+from medre.core.contracts.adapter import AdapterDeliveryResult
+from medre.core.contracts.adapter import AdapterSendError
+from medre.core.contracts.adapter import AdapterPermanentError
+```
+
+- `AdapterContract` replaces the old `BaseAdapter` name.
+- `medre.core.contracts` re-exports all of the above from its `__init__.py`.
+- The following old modules **do not exist** and must not be imported:
+  - `medre.core.ports`
+  - `medre.core.adapter_base`
+  - `medre.adapters.base`
+
+### 0.2 Adapter Configuration
+
+Adapter config dataclasses live in **`medre.config.adapters.*`**:
+
+```python
+from medre.config.adapters.matrix import MatrixConfig
+from medre.config.adapters.meshtastic import MeshtasticConfig
+from medre.config.adapters.meshcore import MeshCoreConfig
+from medre.config.adapters.lxmf import LxmfConfig
+```
+
+- The following old modules **do not exist** and must not be imported:
+  - `medre.adapters.matrix.config`
+  - `medre.adapters.meshtastic.config`
+  - `medre.adapters.meshcore.config`
+  - `medre.adapters.lxmf.config`
+
+### 0.3 Adapter Config Validation Errors
+
+Config validation errors live in **`medre.config.adapters.errors`**:
+
+```python
+from medre.config.adapters.errors import AdapterConfigError
+from medre.config.adapters.errors import MatrixConfigError
+from medre.config.adapters.errors import MeshtasticConfigError
+from medre.config.adapters.errors import MeshCoreConfigError
+from medre.config.adapters.errors import LxmfConfigError
+```
+
+- Config errors are `ValueError` subclasses, not adapter runtime errors.
+- Runtime adapter errors (session, network, protocol) remain in
+  `medre.adapters.*.errors`.
+
+### 0.4 Matrix Credential Sidecar
+
+Matrix credential sidecar helpers live in
+**`medre.config.adapters.matrix_credentials`**:
+
+```python
+from medre.config.adapters.matrix_credentials import get_credentials_path
+from medre.config.adapters.matrix_credentials import load_credentials_json
+```
+
+### 0.5 Layer Dependencies
+
+| Layer | May Import From | Must Not Import From |
+|---|---|---|
+| `medre.core` | `medre.core` only (documented exceptions: `observability/sanitization`) | `medre.adapters`, `medre.config` |
+| `medre.config` | `medre.config` (including `config.adapters`) | `medre.adapters` |
+| `medre.adapters` | `medre.core.contracts.adapter`, `medre.config.adapters`, `medre.core.*` | — |
+
+- Concrete adapters depend inward on core contracts and config models.
+- `medre.adapters` packages own concrete implementations only — no config
+  dataclasses, no config errors, no core contract re-exports.
+
+---
+
 ## 1. Current State Summary
 
 ### 1.1 Package Tree (as-is)
@@ -15,25 +101,30 @@ medre/
 ├── __init__.py              # empty
 ├── __main__.py              # delegates to cli:main
 ├── py.typed
-├── adapters/                # adapter framework + 4 transport implementations
-│   ├── __init__.py          # re-exports base types + all fakes
-│   ├── base.py              # AdapterRole, BaseAdapter, AdapterCodec, AdapterContext,
-│   │                        # AdapterCapabilities, AdapterInfo, AdapterSendError,
-│   │                        # AdapterDeliveryResult
+├── adapters/                # concrete adapter implementations only
+│   ├── __init__.py          # re-exports all fakes (no BaseAdapter/AdapterContract re-export)
 │   ├── fake_lxmf.py
 │   ├── fake_matrix.py
 │   ├── fake_meshcore.py
 │   ├── fake_meshtastic.py
 │   ├── fake_presentation.py
 │   ├── fake_transport.py
-│   ├── matrix/              # 12 modules (adapter, auth, cli, codec, compat, config,
+│   ├── matrix/              # 10 modules (adapter, auth, cli, codec, compat,
 │   │                        #            errors, metadata, relations, renderer, session)
-│   ├── meshtastic/          # 10 modules
-│   ├── lxmf/                # 10 modules
-│   └── meshcore/            # 9 modules
+│   ├── meshtastic/          # 9 modules (no config.py)
+│   ├── lxmf/                # 9 modules (no config.py)
+│   └── meshcore/            # 8 modules (no config.py)
 ├── cli/                     # 18 command modules + main + __main__
 ├── config/
 │   ├── __init__.py          # PEP 562 deferred-import dict (_DEFERRED)
+│   ├── adapters/            # adapter config models + errors + matrix credentials
+│   │   ├── __init__.py
+│   │   ├── errors.py        # AdapterConfigError hierarchy (not in adapter error modules)
+│   │   ├── matrix.py        # MatrixConfig dataclass
+│   │   ├── matrix_credentials.py  # get_credentials_path, load_credentials_json
+│   │   ├── meshtastic.py    # MeshtasticConfig dataclass
+│   │   ├── meshcore.py      # MeshCoreConfig dataclass
+│   │   └── lxmf.py          # LxmfConfig dataclass
 │   ├── env.py
 │   ├── errors.py
 │   ├── loader.py
@@ -41,6 +132,11 @@ medre/
 │   ├── paths.py
 │   └── sample.py
 ├── core/
+│   ├── contracts/           # adapter runtime contracts (canonical)
+│   │   ├── __init__.py      # re-exports AdapterContract, AdapterRole, etc.
+│   │   └── adapter.py       # AdapterContract (was BaseAdapter), AdapterRole, AdapterCodec,
+│   │                        # AdapterContext, AdapterCapabilities, AdapterInfo,
+│   │                        AdapterDeliveryResult, AdapterSendError, AdapterPermanentError
 │   ├── diagnostics/         # replay_metrics, snapshot
 │   ├── engine/              # pipeline.py (orchestration, ~1300 lines)
 │   ├── events/              # bus, canonical, kinds, metadata, schema
@@ -70,7 +166,7 @@ medre/
 
 | Capability | medre | mmrelay |
 |---|---|---|
-| Adapter abstraction | `BaseAdapter` protocol + `AdapterCodec` | Inline utility classes |
+| Adapter abstraction | `AdapterContract` protocol + `AdapterCodec` | Inline utility classes |
 | Event model | `CanonicalEvent` msgspec struct, frozen | Dict-based payloads |
 | Rendering boundary | `RenderingPipeline` protocol; adapters never render | Formatting mixed into relay logic |
 | Routing engine | `Router` with `RouteSource`/`RouteTarget` models | Hardcoded room/channel map |
@@ -88,20 +184,17 @@ medre/
 
 ## 2. Problems Identified
 
-### 2.1 Dependency Inversion Violation (Critical)
+### 2.1 Dependency Inversion Violation (Resolved)
 
-Four `core/` files import from `adapters/base.py`, creating a `core -> adapters` dependency that violates the innermost-layer rule:
+**Tranche 3 (current) fix applied**: Core adapter contracts now live in
+`medre.core.contracts.adapter`.  `BaseAdapter` has been renamed to
+`AdapterContract`.  The old `core/ports.py`, `core/adapter_base.py`, and
+`adapters/base.py` have been removed.  All source and test imports updated
+to use `medre.core.contracts.adapter`.
 
-| Source file | Imports |
-|---|---|
-| `core/engine/pipeline.py` | `AdapterRole`, `BaseAdapter`, `AdapterCodec`, `AdapterContext`, `AdapterCapabilities`, `AdapterSendError`, `AdapterDeliveryResult`, `AdapterInfo` |
-| `core/runtime/capabilities.py` | `AdapterCapabilities` |
-| `core/runtime/health.py` | `AdapterInfo` |
-| `core/planning/delivery_plan.py` | `AdapterSendError` |
+**Tranche 1 fix applied**: `core` modules now import from `core/ports.py` and `core/adapter_base.py` instead of `adapters/base.py`.
 
-**Tranche 1 fix applied**: `core` modules now import from `core/ports.py` and `core/adapter_base.py` instead of `adapters/base.py`. The `adapters/base.py` module is a re-export shim that preserves all existing import paths.
-
-The dependency is already bidirectional: `adapters/base.py` imports `CanonicalEvent` from `core.events.canonical` and `RenderingResult` from `core.rendering.renderer` (line 32-33). So `core -> adapters` and `adapters -> core` both exist at the same module. This circular coupling works at runtime (Python resolves it) but blocks future extraction of core as a standalone package and complicates testing.
+**Tranche 2 fix applied**: Config decoupling — adapter config dataclasses moved from `medre.adapters.*.config` to `medre.config.adapters.*` so the global config layer no longer imports concrete adapter packages at module level.
 
 ### 2.2 Dual Observability
 
@@ -185,18 +278,14 @@ medre/
 ├── core/                                # INNERMOST -- aspirational zero external deps
 │   │                                    #   (2 documented exceptions to observability/sanitization)
 │   ├── __init__.py
-│   ├── ports.py                         # NEW: pure adapter value types + protocols
-│   │                                    #   (AdapterRole, AdapterCodec, AdapterContext,
-│   │                                    #    AdapterCapabilities, AdapterSendError,
-│   │                                    #    AdapterDeliveryResult, AdapterInfo)
-│   │                                    #   Zero behavioral logic. Zero imports outside core.
-│   ├── adapter_base.py                  # NEW: BaseAdapter ABC with Template Methods
-│   │                                    #   (publish_inbound, _is_stale_event, _mark_started,
-│   │                                    #    get_codec default, abstract deliver/start/stop)
-│   │                                    #   Imports: core/ports, core/events/canonical,
-│   │                                    #   core/rendering/renderer
+│   ├── contracts/                       # adapter runtime contracts (canonical)
+│   │   ├── __init__.py                  # re-exports AdapterContract, AdapterRole, etc.
+│   │   └── adapter.py                   # AdapterContract, AdapterRole, AdapterCodec,
+│   │                                    # AdapterContext, AdapterCapabilities, AdapterInfo,
+│   │                                    # AdapterSendError, AdapterPermanentError,
+│   │                                    # AdapterDeliveryResult
 │   ├── engine/
-│   │   └── pipeline.py                  # imports core.ports + core.adapter_base (not adapters.base)
+│   │   └── pipeline.py                  # imports core.contracts.adapter
 │   ├── events/
 │   │   ├── bus.py
 │   │   ├── canonical.py
@@ -213,7 +302,7 @@ medre/
 │   │   ├── metrics.py                   # Diagnostician (unchanged)
 │   │   └── logging.py                   # structured logging (unchanged position)
 │   ├── planning/
-│   │   ├── delivery_plan.py             # imports core.ports (not adapters.base)
+│   │   ├── delivery_plan.py             # imports core.contracts.adapter
 │   │   ├── fallback_resolution.py
 │   │   └── relation_resolution.py
 │   ├── rendering/
@@ -238,9 +327,8 @@ medre/
 │       (deleted)                         # in Tranche 2 if PC approves
 │
 ├── adapters/                            # depends on core only
-│   ├── __init__.py                      # re-exports from core.ports + core.adapter_base + fakes
-│   ├── base.py                          # thin re-export shim: from core.ports + core.adapter_base
-│   ├── fakes/                           # NEW DIR: consolidated test doubles
+│   ├── __init__.py                      # re-exports fakes only
+│   ├── fakes/                           # consolidated test doubles
 │   │   ├── __init__.py
 │   │   ├── fake_lxmf.py
 │   │   ├── fake_matrix.py
@@ -248,13 +336,21 @@ medre/
 │   │   ├── fake_meshtastic.py
 │   │   ├── fake_presentation.py
 │   │   └── fake_transport.py
-│   ├── matrix/                          # (unchanged)
-│   ├── meshtastic/                      # (unchanged)
-│   ├── lxmf/                            # (unchanged)
-│   └── meshcore/                        # (unchanged)
+│   ├── matrix/                          # concrete implementation, no config.py shim
+│   ├── meshtastic/                      # concrete implementation, no config.py shim
+│   ├── lxmf/                            # concrete implementation, no config.py shim
+│   └── meshcore/                        # concrete implementation, no config.py shim
 │
-├── config/                              # depends on adapter config value types
+├── config/                              # owns adapter config models and errors
 │   ├── __init__.py                      # _DEFERRED dict updated for any path changes
+│   ├── adapters/                        # adapter config dataclasses + errors + credentials
+│   │   ├── __init__.py
+│   │   ├── errors.py                    # AdapterConfigError hierarchy
+│   │   ├── matrix.py                    # MatrixConfig dataclass
+│   │   ├── matrix_credentials.py        # get_credentials_path, load_credentials_json
+│   │   ├── meshtastic.py                # MeshtasticConfig dataclass
+│   │   ├── meshcore.py                  # MeshCoreConfig dataclass
+│   │   └── lxmf.py                      # LxmfConfig dataclass
 │   ├── env.py
 │   ├── errors.py
 │   ├── loader.py
@@ -301,8 +397,8 @@ medre/
 ```
 cli/           ->  runtime/, config/, core/, observability/
 runtime/       ->  core/, adapters/, config/, observability/
-adapters/      ->  core/ (ports + adapter_base + domain types), observability/
-config/        ->  config/adapters/ (owned adapter config value types, Tranche 2)
+adapters/      ->  core/ (contracts.adapter + domain types), config/adapters.*, observability/
+config/        ->  config/adapters/ (owned adapter config value types + errors + credentials)
 observability/ ->  core/ (types only)
 plugins/       ->  core/ (types only)
 interop/       ->  NOTHING (pure constants)
@@ -310,6 +406,8 @@ core/          ->  core/ ONLY (aspirational; documented exceptions below)
 ```
 
 **Hard rule**: `core/` MUST NOT import from `adapters/`, `config/`, `cli/`, or top-level `runtime/` at runtime.
+
+**Hard rule**: `config/` MUST NOT import from `adapters/`.
 
 **Documented runtime exceptions** (core -> outside core):
 
@@ -333,13 +431,14 @@ These `TYPE_CHECKING` imports do not create runtime dependencies. They exist bec
 
 | Package | Owns | Depends On |
 |---|---|---|
-| `core/` | Domain types, protocols, pure logic | **Nothing outside core/** (after T1), with documented exceptions: `core/observability/logging.py` imports `sanitize_for_log` from `observability/sanitization.py`; `core/routing/stats.py` imports `sanitize_error` from `observability/sanitization.py` |
-| `core/ports.py` | Pure adapter value types and protocol definitions | `core/` only (zero imports from outside core) |
-| `core/adapter_base.py` | `BaseAdapter` ABC with Template Method behavior | `core/ports`, `core/events/`, `core/rendering/` (all within core) |
-| `core/engine/` | Pipeline orchestration | `core/ports`, `core/adapter_base`, `core/events`, `core/routing`, `core/planning`, `core/rendering`, `core/storage`, `core/observability`; TYPE_CHECKING import of `runtime.capacity.CapacityController` (type-only coupling) |
-| `adapters/*` | Transport/platform implementations | `core/ports`, `core/adapter_base`, `core/events`, `core/rendering`, `observability/` |
+| `core/` | Domain types, protocols, pure logic | **Nothing outside core/** (after T3), with documented exceptions: `core/observability/logging.py` imports `sanitize_for_log` from `observability/sanitization.py`; `core/routing/stats.py` imports `sanitize_error` from `observability/sanitization.py` |
+| `core/contracts/adapter.py` | `AdapterContract` ABC, `AdapterRole`, `AdapterCodec`, `AdapterContext`, `AdapterCapabilities`, `AdapterInfo`, `AdapterSendError`, `AdapterPermanentError`, `AdapterDeliveryResult` | `core/` only (zero imports from outside core) |
+| `core/engine/` | Pipeline orchestration | `core/contracts/adapter`, `core/events`, `core/routing`, `core/planning`, `core/rendering`, `core/storage`, `core/observability`; TYPE_CHECKING import of `runtime.capacity.CapacityController` (type-only coupling) |
+| `adapters/*` | Transport/platform implementations | `core/contracts/adapter`, `config/adapters.*`, `core/events`, `core/rendering`, `observability/` |
 | `adapters/fakes/` | Test doubles for smoke/drill | Same as adapters |
-| `config/` | Configuration loading and validation | `config/adapters/` (owned adapter config value types, Tranche 2); no direct imports from `adapters/*` |
+| `config/` | Configuration loading and validation | `config/adapters/` (owned adapter config value types + errors + credentials); no imports from `adapters/*` |
+| `config/adapters/errors.py` | `AdapterConfigError`, `MatrixConfigError`, `MeshtasticConfigError`, `MeshCoreConfigError`, `LxmfConfigError` | `ValueError` only |
+| `config/adapters/matrix_credentials.py` | `get_credentials_path`, `load_credentials_json` | stdlib only |
 | `observability/` | Logging, sanitization, classification, summaries | `core/` (types only) |
 | `interop/` | External wire-format constants | **Nothing** |
 | `plugins/` | Plugin protocol scaffolding | `core/events/` (for event types) |
@@ -408,9 +507,9 @@ grep -r "from medre\.adapters\.fake_" tests/ | grep -v fakes
 
 **Estimated effort**: ~2 hours. This is the single most important change.
 
-**Status**: IMPLEMENTED (branch `maint-517-2`).
+**Status**: SUPERSEDED by Tranche 3 — `core/ports.py` and `core/adapter_base.py` removed. All imports now target `medre.core.contracts.adapter`.
 
-**Tranche 2 status**: IMPLEMENTED (branch `maint-517-2`). Config decoupling — adapter config dataclasses moved from ``medre.adapters.*.config`` to ``medre.config.adapters.*`` so the global config layer no longer imports concrete adapter packages at module level.
+**Tranche 2 status**: SUPERSEDED by Tranche 3 — adapter config shims (`adapters/*/config.py`) removed. Config imports now target `medre.config.adapters.*` directly.
 
 **Background**: The current dependency is bidirectional. `adapters/base.py` imports `CanonicalEvent` from `core.events.canonical` and `RenderingResult` from `core.rendering.renderer` (line 32-33), while four core files import types from `adapters.base`. The split extraction (Decision 6) breaks both directions of the coupling.
 
@@ -714,7 +813,11 @@ After T0 lands, **T1 (port extraction)** is the next priority. It is the only ch
 | **No `validation/` package** | Validation is context-specific: config in `config/errors.py`, routes in `runtime/routes.py`, schemas in `core/events/schema.py`. Shared validation adds abstraction without value. |
 | **No `tools/` package** | Operator tooling lives in `cli/`. Sample configs in `config/sample.py` and `examples/`. Docker artifacts in `runtime/docker_bridge_artifacts.py`. Contextually placed. |
 | **`config/model.py` adapter config imports kept** | Each adapter declares its own frozen-dataclass config. The runtime config model wraps these. Config-time dependency on value types only. Acceptable. |
-| **Port extraction as two modules** | `core/ports.py` (pure value types) + `core/adapter_base.py` (BaseAdapter ABC). `BaseAdapter` has concrete Template Method behavior and imports from core events/rendering, so it cannot live in the same "ports" file as pure interfaces. The split keeps naming honest. See Decision Point 6. |
+| **Port extraction consolidated into core/contracts/adapter.py** | Tranche 3 merged `core/ports.py` and `core/adapter_base.py` into a single canonical module `core/contracts/adapter.py`. `BaseAdapter` renamed to `AdapterContract`. Old files removed. All imports updated because the project is pre-release and clean architecture is preferred over compatibility. |
+| **Config errors centralized in config/adapters/errors.py** | Config validation errors (`MatrixConfigError`, etc.) are `ValueError` subclasses, not adapter runtime errors. They live in the config layer. Runtime adapter errors remain in `medre.adapters.*.errors`. |
+| **Config does not import adapters** | `config/adapters/matrix.py` previously imported `load_credentials_json` from `adapters/matrix/auth.py`. That function (and `get_credentials_path`) moved to `config/adapters/matrix_credentials.py`, eliminating the boundary violation. |
+| **adapters/base.py removed** | No longer a re-export shim. All consumers import directly from `core.contracts.adapter`. |
+| **adapters/*/config.py shims removed** | All consumers import config dataclasses directly from `config.adapters.*`. |
 | **`interop/` kept separate from adapters/** | Wire-format constants define a cross-adapter contract. Placing them in any single adapter creates adapter-to-adapter coupling. |
 | **Fake adapters kept in production package** | `runtime/drill.py` and `runtime/smoke.py` use fakes for operational testing. They ship as part of the runtime. Consolidating into `adapters/fakes/` is the right balance. |
 | **NOT flattening to match mmrelay** | medre's layered architecture is objectively superior for a multi-transport routing engine. Flattening would destroy the boundary tests that enforce layer separation. |
@@ -727,7 +830,7 @@ After T0 lands, **T1 (port extraction)** is the next priority. It is the only ch
 | Adapter hot-reload | Architecture supports it (ports are protocols) but no implementation planned. |
 | Core as standalone package | Port extraction enables this, but extraction is not planned pre-release. |
 | Event schema migrations | `SchemaRegistry` + `MIGRATION_REGISTRY` exist. No migrations needed pre-release. |
-| `adapters/base.py` shim removal | Keep the re-export shim for now. Remove in a cleanup pass after all consumers (real adapters, tests) import directly from `core.ports` and `core.adapter_base`. The shim is a temporary bridge, not permanent architecture. |
+| ~~`adapters/base.py` shim removal~~ | **Done** in Tranche 3. The shim was removed; all consumers now import from `core.contracts.adapter`. |
 | Duplicated secret-key patterns | `core/runtime/diagnostic_contract.py` and `observability/sanitization.py` both define `_SECRET_KEY_PATTERNS` with overlapping regex lists. After T2/T3 dependency cleanup, evaluate whether one module can import from the other or whether a shared `core/sanitization.py` is warranted. Do not deduplicate before the dependency graph stabilizes. |
 
 ---
@@ -736,23 +839,30 @@ After T0 lands, **T1 (port extraction)** is the next priority. It is the only ch
 
 | File | Change | Tranche |
 |---|---|---|
-| `core/ports.py` | **NEW** -- pure value types extracted from `adapters/base.py` | T1 |
-| `core/adapter_base.py` | **NEW** -- BaseAdapter ABC with Template Method behavior | T1 |
-| `adapters/base.py` | **SHIM** -- re-export from `core.ports` + `core.adapter_base` | T1 |
-| `core/engine/pipeline.py` | **MODIFY** -- imports from `core.ports` + `core.adapter_base` | T1 |
-| `core/runtime/capabilities.py` | **MODIFY** -- imports from `core.ports` | T1 |
-| `core/runtime/health.py` | **MODIFY** -- imports from `core.ports` | T1 |
-| `core/planning/delivery_plan.py` | **MODIFY** -- imports from `core.ports` | T1 |
-| `adapters/__init__.py` | **MODIFY** -- update re-exports (fake paths + ports) | T0, T1 |
-| `adapters/fakes/` | **NEW DIR** -- consolidated test doubles | T0 |
-| `adapters/fake_*.py` | **MOVE** to `adapters/fakes/` | T0 |
-| `core/policies/` | **DELETE** | T0 |
-| `core/transforms/` | **DELETE** | T0 |
-| `core/observability/diagnostics.py` | **NEW** -- merge from `core/diagnostics/` | T2 |
-| `core/diagnostics/` | **DELETE** directory | T2 |
-| `core/runtime/` | **RENAME** to `core/supervision/` | T3 |
-| ~12 test files | **UPDATE** hardcoded module path strings | T0-T3 |
-| `config/__init__.py` | **NO CHANGE** (no `core.*` paths in `_DEFERRED`) | -- |
+| `core/contracts/__init__.py` | **NEW** — re-exports from `core/contracts/adapter.py` | T3 |
+| `core/contracts/adapter.py` | **NEW** — merged `core/ports.py` + `core/adapter_base.py`, `BaseAdapter` renamed to `AdapterContract` | T3 |
+| `core/ports.py` | **DELETED** | T3 |
+| `core/adapter_base.py` | **DELETED** | T3 |
+| `adapters/base.py` | **DELETED** | T3 |
+| `adapters/matrix/config.py` | **DELETED** | T3 |
+| `adapters/meshtastic/config.py` | **DELETED** | T3 |
+| `adapters/meshcore/config.py` | **DELETED** | T3 |
+| `adapters/lxmf/config.py` | **DELETED** | T3 |
+| `config/adapters/errors.py` | **NEW** — centralized config error hierarchy | T3 |
+| `config/adapters/matrix_credentials.py` | **NEW** — credential helpers moved from `adapters/matrix/auth.py` | T3 |
+| `config/adapters/matrix.py` | **MODIFY** — import `MatrixConfigError` from `errors`, import `load_credentials_json` from `matrix_credentials` | T3 |
+| `config/adapters/meshtastic.py` | **MODIFY** — import `MeshtasticConfigError` from `errors` | T3 |
+| `config/adapters/meshcore.py` | **MODIFY** — import `MeshCoreConfigError` from `errors` | T3 |
+| `config/adapters/lxmf.py` | **MODIFY** — import `LxmfConfigError` from `errors` | T3 |
+| `adapters/matrix/auth.py` | **MODIFY** — import credential helpers from `config.adapters.matrix_credentials`, remove local definitions | T3 |
+| `adapters/matrix/__init__.py` | **MODIFY** — remove Config/ConfigError exports | T3 |
+| `adapters/meshtastic/__init__.py` | **MODIFY** — remove Config/ConfigError exports | T3 |
+| `adapters/meshcore/__init__.py` | **MODIFY** — remove Config/ConfigError exports | T3 |
+| `adapters/lxmf/__init__.py` | **MODIFY** — remove Config/ConfigError exports | T3 |
+| `adapters/__init__.py` | **MODIFY** — remove BaseAdapter and port type re-exports | T3 |
+| All adapter implementations | **MODIFY** — `BaseAdapter` → `AdapterContract`, import from `core.contracts.adapter` | T3 |
+| All source files importing config | **MODIFY** — import from `config.adapters.*` instead of `adapters.*.config` | T3 |
+| ~70+ test files | **MODIFY** — updated import paths | T3 |
 
 ---
 

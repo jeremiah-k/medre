@@ -25,7 +25,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from medre.adapters.base import AdapterCapabilities, AdapterInfo, AdapterRole
+from medre.core.contracts.adapter import AdapterCapabilities, AdapterInfo, AdapterRole
 from medre.core.lifecycle.states import AdapterState
 from medre.core.runtime.health import (
     AdapterLiveHealth,

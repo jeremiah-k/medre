@@ -301,7 +301,7 @@ class TestRetryTraceEvidence:
     async def test_cross_surface_retry_consistency(self, temp_storage):
         """Full pipeline: inject event → transient failure → retry succeeds.
         Timeline assembly shows both receipts, correct lineage, and mixed source."""
-        from medre.adapters.base import AdapterContext
+        from medre.core.contracts.adapter import AdapterContext
         from medre.adapters.fake_presentation import FakePresentationAdapter
         from medre.core.events.bus import EventBus
         from medre.core.observability.metrics import Diagnostician
@@ -528,7 +528,7 @@ class TestRetryTraceEvidence:
         """RetryWorker with event_buffer emits retry_attempted and
         retry_succeeded events during a transient-failure → retry-succeed
         cycle."""
-        from medre.adapters.base import AdapterContext
+        from medre.core.contracts.adapter import AdapterContext
         from medre.adapters.fake_presentation import FakePresentationAdapter
         from medre.core.events.bus import EventBus
         from medre.core.observability.metrics import Diagnostician
@@ -677,7 +677,7 @@ class TestRetryTraceEvidence:
     async def test_retry_snapshot_consistency(self, temp_storage):
         """After retry succeeds, the RetryWorkerState snapshot shows
         processed >= 1 and succeeded >= 1."""
-        from medre.adapters.base import AdapterContext
+        from medre.core.contracts.adapter import AdapterContext
         from medre.adapters.fake_presentation import FakePresentationAdapter
         from medre.core.events.bus import EventBus
         from medre.core.observability.metrics import Diagnostician

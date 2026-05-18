@@ -15,7 +15,7 @@ This file covers runtime-level boundaries:
    SDK-free and transport-agnostic.
 4. Observability modules are SDK-free.
 5. Export/reporting modules are SDK-free.
-6. Runtime builder uses BaseAdapter abstraction — no direct adapter
+6. Runtime builder uses AdapterContract abstraction — no direct adapter
    construction.
 7. Runtime modules reference adapter config dataclasses (pure frozen
    dataclasses) but not adapter runtime modules.
@@ -67,13 +67,13 @@ _ADAPTER_PREFIXES = (
     "medre.adapters.meshcore",
     "medre.adapters.lxmf",
 )
-"""Concrete adapter package prefixes (excludes medre.adapters.base and fake_*)."""
+"""Concrete adapter package prefixes (excludes medre.core.contracts.adapter and fake_*)."""
 
 _ADAPTER_CONFIG_ALLOWED = (
-    "medre.adapters.matrix.config",
-    "medre.adapters.meshtastic.config",
-    "medre.adapters.meshcore.config",
-    "medre.adapters.lxmf.config",
+    "medre.config.adapters.matrix",
+    "medre.config.adapters.meshtastic",
+    "medre.config.adapters.meshcore",
+    "medre.config.adapters.lxmf",
 )
 """Adapter config modules that ARE allowed — pure dataclasses, no SDK."""
 
@@ -156,7 +156,7 @@ class TestRuntimeCoreNoSdk:
     transport SDK packages.
 
     Note: ``medre.runtime.builder`` imports adapter config dataclasses
-    (``medre.adapters.*.config``) and the abstract ``BaseAdapter``.
+    (``medre.adapters.*.config``) and the abstract ``AdapterContract``.
     These are pure dataclasses / abstract base with no SDK dependency
     and are excluded from the SDK ban.
 
@@ -332,14 +332,14 @@ class TestRuntimeCoreModuleGuard:
 class TestRuntimeCoreNoAdapterRuntime:
     """Runtime core modules must not import concrete adapter runtime modules.
 
-    The runtime builder uses ``BaseAdapter`` and adapter config dataclasses
+    The runtime builder uses ``AdapterContract`` and adapter config dataclasses
     to construct adapters through abstraction.  It must never import
     concrete adapter modules (adapter.py, session.py, codec.py, queue.py)
     directly — those are loaded via compat modules and dynamic imports.
 
     This does NOT ban:
-    - ``from medre.adapters.base import BaseAdapter`` (abstract base)
-    - ``from medre.adapters.matrix.config import MatrixConfig`` (pure dataclass)
+    - ``from medre.core.contracts.adapter import AdapterContract`` (abstract base)
+    - ``from medre.config.adapters.matrix import MatrixConfig`` (pure dataclass)
     - ``from medre.adapters.fake_adapter import FakeAdapter`` (test utility)
 
     **WHY this matters**: Direct imports of concrete adapter modules would
@@ -531,14 +531,14 @@ class TestObservabilityModulesSdkFree:
 
 
 # ===================================================================
-# 5. Runtime builder uses BaseAdapter abstraction
+# 5. Runtime builder uses AdapterContract abstraction
 # ===================================================================
 
 
 class TestBuilderAbstraction:
     """RuntimeBuilder must construct adapters through abstraction.
 
-    The builder may import ``BaseAdapter`` and adapter config dataclasses,
+    The builder may import ``AdapterContract`` and adapter config dataclasses,
     but must never directly instantiate concrete adapter classes.
 
     **WHY this matters**: The builder is the composition root — it wires
@@ -549,14 +549,14 @@ class TestBuilderAbstraction:
     """
 
     def test_builder_imports_base_adapter(self) -> None:
-        """builder.py must import BaseAdapter from the base module."""
+        """builder.py must import AdapterContract from the base module."""
         try:
             source = _source_of("medre.runtime.builder")
         except ImportError:
             pytest.skip("medre.runtime.builder not importable")
 
-        assert "BaseAdapter" in source, (
-            "medre.runtime.builder must reference BaseAdapter"
+        assert "AdapterContract" in source, (
+            "medre.runtime.builder must reference AdapterContract"
         )
 
     def test_builder_no_direct_adapter_construction(self) -> None:

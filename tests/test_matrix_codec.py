@@ -11,7 +11,7 @@ import pytest
 from datetime import datetime, timezone
 
 from medre.adapters.matrix.codec import MatrixCodec
-from medre.adapters.matrix.config import MatrixConfig
+from medre.config.adapters.matrix import MatrixConfig
 from medre.adapters.matrix.errors import MatrixCodecError
 from medre.core.events.kinds import EventKind
 

@@ -25,10 +25,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from medre.adapters.base import AdapterContext, AdapterPermanentError, AdapterSendError
+from medre.core.contracts.adapter import AdapterContext, AdapterPermanentError, AdapterSendError
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.compat import HAS_E2EE, HAS_NIO
-from medre.adapters.matrix.config import MatrixConfig
+from medre.config.adapters.matrix import MatrixConfig
 from medre.adapters.matrix.errors import (
     MatrixConfigError,
     MatrixConnectionError,

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from medre.adapters.base import (
+from medre.core.contracts.adapter import (
     AdapterPermanentError,
     AdapterSendError,
 )
@@ -206,7 +206,7 @@ async def _inject_scenario(
             break
         if target_aid is None:
             return "No adapter available for health patch"
-        from medre.adapters.base import AdapterInfo, AdapterCapabilities, AdapterRole
+        from medre.core.contracts.adapter import AdapterInfo, AdapterCapabilities, AdapterRole
         adapter = app.adapters[target_aid]
 
         # Preserve original capabilities.

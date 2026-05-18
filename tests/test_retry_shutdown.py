@@ -354,7 +354,7 @@ class TestRetryShutdownRealPipeline:
     async def test_shutdown_with_real_pipeline_and_due_receipt(self, temp_storage):
         """Real pipeline creates due receipt, worker starts then stops cleanly."""
         from medre.adapters.fake_presentation import FakePresentationAdapter
-        from medre.adapters.base import AdapterContext, AdapterDeliveryResult
+        from medre.core.contracts.adapter import AdapterContext, AdapterDeliveryResult
         from medre.core.events.bus import EventBus
         from medre.core.events.metadata import EventMetadata
         from medre.core.observability.metrics import Diagnostician

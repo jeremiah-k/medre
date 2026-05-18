@@ -18,10 +18,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from medre.adapters.base import AdapterContext, BaseAdapter
+from medre.core.contracts.adapter import AdapterContext, AdapterContract
 from medre.adapters.fake_matrix import FakeMatrixAdapter
 from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
-from medre.adapters.meshtastic.config import MeshtasticConfig
+from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.config.model import (
     AdapterConfigSet,
     LoggingConfig,

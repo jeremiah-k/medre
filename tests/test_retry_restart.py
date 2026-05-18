@@ -17,7 +17,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from medre.adapters.base import AdapterContext
+from medre.core.contracts.adapter import AdapterContext
 from medre.adapters.fake_presentation import FakePresentationAdapter
 from medre.core.events.bus import EventBus
 from medre.core.events.canonical import (
@@ -601,7 +601,7 @@ class TestRetryRestart:
 
     async def test_restart_dead_letter_preserves_target_channel(self):
         """Dead-letter receipt carries target_channel across restart."""
-        from medre.adapters.base import AdapterDeliveryResult
+        from medre.core.contracts.adapter import AdapterDeliveryResult
 
         db_path = _persistent_storage()
         call_counter = [0]

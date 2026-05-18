@@ -158,7 +158,7 @@ pytestmark_meshtastic = [
 
 def _make_matrix_context() -> Any:
     """Build an AdapterContext for Matrix soak tests."""
-    from medre.adapters.base import AdapterContext
+    from medre.core.contracts.adapter import AdapterContext
 
     return AdapterContext(
         adapter_id="matrix-soak",
@@ -172,7 +172,7 @@ def _make_matrix_context() -> Any:
 
 def _make_matrix_config() -> Any:
     """Build a MatrixConfig from environment variables."""
-    from medre.adapters.matrix.config import MatrixConfig
+    from medre.config.adapters.matrix import MatrixConfig
 
     return MatrixConfig(
         adapter_id="matrix-soak",
@@ -185,7 +185,7 @@ def _make_matrix_config() -> Any:
 
 def _make_meshtastic_context() -> Any:
     """Build an AdapterContext for Meshtastic soak tests."""
-    from medre.adapters.base import AdapterContext
+    from medre.core.contracts.adapter import AdapterContext
 
     return AdapterContext(
         adapter_id="meshtastic-soak",
@@ -203,7 +203,7 @@ def _make_meshtastic_config() -> Any:
     Supports tcp, serial, and ble connection types with the same env var
     convention as the live smoke tests (``test_meshtastic_live.py``).
     """
-    from medre.adapters.meshtastic.config import MeshtasticConfig
+    from medre.config.adapters.meshtastic import MeshtasticConfig
 
     ct = _MESHTASTIC_CONNECTION_TYPE
     if ct == "serial":

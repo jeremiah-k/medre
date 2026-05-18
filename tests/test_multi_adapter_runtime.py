@@ -13,10 +13,10 @@ from typing import Any
 
 import pytest
 
-from medre.adapters.base import BaseAdapter
+from medre.core.contracts.adapter import AdapterContract
 from medre.adapters.fake_matrix import FakeMatrixAdapter
 from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
-from medre.adapters.meshtastic.config import MeshtasticConfig
+from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.config.errors import ConfigValidationError
 from medre.config.model import (
     AdapterConfigSet,

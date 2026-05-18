@@ -11,7 +11,7 @@ import pytest
 
 from medre.adapters import FakeMeshCoreAdapter
 from medre.adapters.meshcore.adapter import MeshCoreAdapter
-from medre.adapters.meshcore.config import MeshCoreConfig
+from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.adapters.meshcore.session import MeshCoreSession
 from medre.core.events import CanonicalEvent, EventMetadata
 

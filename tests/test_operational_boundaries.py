@@ -42,7 +42,7 @@ _ADAPTER_PREFIXES = (
     "medre.adapters.meshcore",
     "medre.adapters.lxmf",
 )
-"""Concrete adapter package prefixes (excludes medre.adapters.base and fake_*)."""
+"""Concrete adapter package prefixes (excludes medre.core.contracts.adapter and fake_*)."""
 
 _ADAPTER_COMPAT_MODULES = (
     "medre.adapters.matrix.compat",
@@ -609,7 +609,7 @@ class TestDiagnosticsNoTransportCoupling:
         """Diagnostics source modules must not import concrete adapter
         packages.
 
-        Imports from ``medre.adapters.base`` (protocol types) are
+        Imports from ``medre.core.contracts.adapter`` (protocol types) are
         permitted — these are abstract interfaces, not concrete adapters.
         """
         source = _source_of(module_name)

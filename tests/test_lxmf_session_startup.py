@@ -25,7 +25,7 @@ from unittest.mock import MagicMock, patch, call
 
 import pytest
 
-from medre.adapters.lxmf.config import LxmfConfig
+from medre.config.adapters.lxmf import LxmfConfig
 from medre.adapters.lxmf.errors import (
     LxmfConfigError,
     LxmfConnectionError,

@@ -68,12 +68,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from medre.adapters.base import AdapterContext
+from medre.core.contracts.adapter import AdapterContext
 from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
 from medre.core.events.canonical import CanonicalEvent
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.adapters.meshtastic.compat import HAS_MESHTASTIC
-from medre.adapters.meshtastic.config import MeshtasticConfig
+from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
 from medre.core.events.bus import EventBus
 from medre.core.planning.fallback_resolution import FallbackResolver

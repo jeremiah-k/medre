@@ -128,7 +128,7 @@ from enum import Enum
 from typing import Any, Callable
 
 from medre.adapters.lxmf.compat import HAS_LXMF, _require_lxmf
-from medre.adapters.lxmf.config import LxmfConfig
+from medre.config.adapters.lxmf import LxmfConfig
 from medre.adapters.lxmf.errors import (
     LxmfConnectionError,
     LxmfSendError,

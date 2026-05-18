@@ -199,7 +199,7 @@ def make_adapter_context(inbound_collector: _InboundCollector):
     """Factory that creates an AdapterContext wired to the inbound collector."""
 
     def _make(adapter_id: str = "test_adapter") -> Any:
-        from medre.adapters.base import AdapterContext
+        from medre.core.contracts.adapter import AdapterContext
 
         return AdapterContext(
             adapter_id=adapter_id,

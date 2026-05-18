@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 import pytest
 
 from medre.adapters.fake_lxmf import FakeLxmfAdapter
-from medre.adapters.lxmf.config import LxmfConfig
+from medre.config.adapters.lxmf import LxmfConfig
 from medre.adapters.lxmf.renderer import LxmfRenderer
 from medre.adapters.lxmf.fields import FIELD_MEDRE_ENVELOPE, LXMF_NAMESPACE
 from medre.core.events import CanonicalEvent, EventMetadata
@@ -50,7 +50,7 @@ def _make_adapter_context_for_pipeline(
     adapter_id: str, runner: PipelineRunner
 ):
     """Create an AdapterContext wired to a PipelineRunner's ingress handler."""
-    from medre.adapters.base import AdapterContext
+    from medre.core.contracts.adapter import AdapterContext
     return AdapterContext(
         adapter_id=adapter_id,
         event_bus=None,
