@@ -30,29 +30,27 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from medre.adapters.fake_matrix import FakeMatrixAdapter
+from medre.adapters.matrix.adapter import MatrixAdapter
+from medre.adapters.matrix.errors import MatrixSendError
+from medre.adapters.matrix.renderer import MatrixRenderer
+from medre.config.adapters.matrix import MatrixConfig
 from medre.core.contracts.adapter import (
     AdapterContext,
     AdapterDeliveryResult,
     AdapterPermanentError,
     AdapterSendError,
 )
-from medre.adapters.fake_matrix import FakeMatrixAdapter
-from medre.adapters.matrix.adapter import MatrixAdapter
-from medre.adapters.matrix.codec import MatrixCodec
-from medre.config.adapters.matrix import MatrixConfig
-from medre.adapters.matrix.errors import MatrixSendError
-from medre.adapters.matrix.renderer import MatrixRenderer
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
-from medre.core.events import CanonicalEvent, EventMetadata, NativeRef
-from medre.core.events.kinds import EventKind
+from medre.core.events import CanonicalEvent
 from medre.core.events.bus import EventBus
+from medre.core.events.kinds import EventKind
 from medre.core.planning import FallbackResolver, RelationResolver
 from medre.core.rendering.renderer import RenderingPipeline, RenderingResult
 from medre.core.rendering.text import TextRenderer
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage import SQLiteStorage
 from medre.core.storage.backend import StorageBackend
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -220,6 +218,7 @@ def _make_adapter_context_for_pipeline(
     that returns ``None`` (the pipeline returns ``list[DeliveryOutcome]``
     which is discarded at the adapter boundary).
     """
+
     async def _publish(event: CanonicalEvent) -> None:
         await runner.ingress_handler(event)
 
@@ -252,9 +251,7 @@ class TestMatrixInboundToFakeOutbound:
     ) -> None:
         """A third-party Matrix message is decoded, routed, rendered, and
         delivered to a FakeMatrixAdapter."""
-        matrix_adapter = MatrixAdapter(
-            _make_matrix_config(adapter_id="matrix-in")
-        )
+        matrix_adapter = MatrixAdapter(_make_matrix_config(adapter_id="matrix-in"))
         fake_adapter = FakeMatrixAdapter("fake-out", channel="ch-0")
 
         route = Route(
@@ -308,9 +305,7 @@ class TestMatrixInboundToFakeOutbound:
         self, mock_nio, temp_storage: SQLiteStorage
     ) -> None:
         """Inbound Matrix event_id and room_id are stored as native refs."""
-        matrix_adapter = MatrixAdapter(
-            _make_matrix_config(adapter_id="matrix-in-ref")
-        )
+        matrix_adapter = MatrixAdapter(_make_matrix_config(adapter_id="matrix-in-ref"))
 
         route = Route(
             id="bridge-in-ref-route",
@@ -408,17 +403,13 @@ class TestMatrixInboundToFakeOutbound:
         self, mock_nio, temp_storage: SQLiteStorage
     ) -> None:
         """Canonical event's source_channel_id is the Matrix room_id."""
-        matrix_adapter = MatrixAdapter(
-            _make_matrix_config(adapter_id="matrix-channel")
-        )
+        matrix_adapter = MatrixAdapter(_make_matrix_config(adapter_id="matrix-channel"))
         published: list[CanonicalEvent] = []
 
         async def _capture(event: CanonicalEvent) -> None:
             published.append(event)
 
-        ctx = _make_context(
-            adapter_id="matrix-channel", publish_inbound=_capture
-        )
+        ctx = _make_context(adapter_id="matrix-channel", publish_inbound=_capture)
         matrix_adapter.ctx = ctx
 
         room = _make_nio_room("!channel_room:example.com")
@@ -459,9 +450,7 @@ class TestFakeInboundToMatrixOutbound:
         """Fake adapter inbound -> pipeline -> MatrixRenderer -> real
         MatrixAdapter.deliver() -> mock client.room_send."""
         fake_in = FakeMatrixAdapter("fake-in", channel="ch-0")
-        matrix_out = MatrixAdapter(
-            _make_matrix_config(adapter_id="matrix-out")
-        )
+        matrix_out = MatrixAdapter(_make_matrix_config(adapter_id="matrix-out"))
 
         target_room = "!out_room:example.com"
         route = Route(
@@ -520,9 +509,7 @@ class TestFakeInboundToMatrixOutbound:
         """Outbound Matrix delivery stores a native ref with the response
         event_id and room_id."""
         fake_in = FakeMatrixAdapter("fake-ref-in", channel="ch-0")
-        matrix_out = MatrixAdapter(
-            _make_matrix_config(adapter_id="matrix-ref-out")
-        )
+        matrix_out = MatrixAdapter(_make_matrix_config(adapter_id="matrix-ref-out"))
 
         target_room = "!ref_out:example.com"
         route = Route(
@@ -583,9 +570,7 @@ class TestFakeInboundToMatrixOutbound:
     ) -> None:
         """The payload delivered to room_send has Matrix content shape."""
         fake_in = FakeMatrixAdapter("fake-shape-in", channel="ch-0")
-        matrix_out = MatrixAdapter(
-            _make_matrix_config(adapter_id="matrix-shape-out")
-        )
+        matrix_out = MatrixAdapter(_make_matrix_config(adapter_id="matrix-shape-out"))
 
         target_room = "!shape_room:example.com"
         route = Route(
@@ -648,9 +633,7 @@ class TestFakeInboundToMatrixOutbound:
         """Even if the rendered payload contains room_id, it is stripped
         before being sent via room_send."""
         fake_in = FakeMatrixAdapter("fake-strip-in", channel="ch-0")
-        matrix_out = MatrixAdapter(
-            _make_matrix_config(adapter_id="matrix-strip-out")
-        )
+        matrix_out = MatrixAdapter(_make_matrix_config(adapter_id="matrix-strip-out"))
 
         target_room = "!strip_room:example.com"
         route = Route(
@@ -708,9 +691,7 @@ class TestMatrixBridgeErrorTaxonomy:
     ) -> None:
         """ConnectionError from room_send produces transient_failure."""
         fake_in = FakeMatrixAdapter("fake-trans-in", channel="ch-0")
-        matrix_out = MatrixAdapter(
-            _make_matrix_config(adapter_id="matrix-trans-out")
-        )
+        matrix_out = MatrixAdapter(_make_matrix_config(adapter_id="matrix-trans-out"))
 
         # Make room_send raise a transient error
         mock_client = mock_nio.AsyncClient.return_value
@@ -769,9 +750,7 @@ class TestMatrixBridgeErrorTaxonomy:
     ) -> None:
         """AdapterPermanentError from deliver produces permanent_failure."""
         fake_in = FakeMatrixAdapter("fake-perm-in", channel="ch-0")
-        matrix_out = MatrixAdapter(
-            _make_matrix_config(adapter_id="matrix-perm-out")
-        )
+        matrix_out = MatrixAdapter(_make_matrix_config(adapter_id="matrix-perm-out"))
 
         # Make room_send raise a permanent error (MatrixSendError with
         # transient=False is converted to AdapterPermanentError).
@@ -829,14 +808,10 @@ class TestMatrixBridgeErrorTaxonomy:
         """CancelledError from room_send propagates and is not swallowed
         by the adapter or pipeline."""
         fake_in = FakeMatrixAdapter("fake-cancel-in", channel="ch-0")
-        matrix_out = MatrixAdapter(
-            _make_matrix_config(adapter_id="matrix-cancel-out")
-        )
+        matrix_out = MatrixAdapter(_make_matrix_config(adapter_id="matrix-cancel-out"))
 
         mock_client = mock_nio.AsyncClient.return_value
-        mock_client.room_send = AsyncMock(
-            side_effect=asyncio.CancelledError()
-        )
+        mock_client.room_send = AsyncMock(side_effect=asyncio.CancelledError())
 
         target_room = "!cancel_room:example.com"
         route = Route(
@@ -894,9 +869,7 @@ class TestMatrixBridgeNoChannelFallback:
         """When no room_id is available, deliver raises AdapterPermanentError
         and the pipeline records permanent_failure."""
         fake_in = FakeMatrixAdapter("fake-noroom-in", channel="ch-0")
-        matrix_out = MatrixAdapter(
-            _make_matrix_config(adapter_id="matrix-noroom-out")
-        )
+        matrix_out = MatrixAdapter(_make_matrix_config(adapter_id="matrix-noroom-out"))
 
         # Route with no explicit channel target
         route = Route(
@@ -948,9 +921,7 @@ class TestMatrixBridgeNoChannelFallback:
     ) -> None:
         """A failed delivery must not store an outbound native ref."""
         fake_in = FakeMatrixAdapter("fake-noref-in", channel="ch-0")
-        matrix_out = MatrixAdapter(
-            _make_matrix_config(adapter_id="matrix-noref-out")
-        )
+        matrix_out = MatrixAdapter(_make_matrix_config(adapter_id="matrix-noref-out"))
 
         # Make room_send raise
         mock_client = mock_nio.AsyncClient.return_value
@@ -1008,9 +979,7 @@ class TestMatrixBridgeNoChannelFallback:
         """A delivery failure to Matrix does not fabricate any additional
         routes or deliveries."""
         fake_in = FakeMatrixAdapter("fake-phantom-in", channel="ch-0")
-        matrix_out = MatrixAdapter(
-            _make_matrix_config(adapter_id="matrix-phantom-out")
-        )
+        matrix_out = MatrixAdapter(_make_matrix_config(adapter_id="matrix-phantom-out"))
 
         mock_client = mock_nio.AsyncClient.return_value
         mock_client.room_send = AsyncMock(
@@ -1073,9 +1042,7 @@ class TestMatrixBridgeDirectErrorBoundary:
     the full pipeline.  These complement the pipeline-level tests by
     verifying the exact exception types and transient flags."""
 
-    async def test_matrix_send_error_transient_converted(
-        self, mock_nio
-    ) -> None:
+    async def test_matrix_send_error_transient_converted(self, mock_nio) -> None:
         """MatrixSendError(transient=True) is converted to
         AdapterSendError at the adapter boundary."""
         config = _make_matrix_config()
@@ -1097,9 +1064,7 @@ class TestMatrixBridgeDirectErrorBoundary:
             await adapter.deliver(result)
         assert exc_info.value.transient is True
 
-    async def test_matrix_send_error_permanent_converted(
-        self, mock_nio
-    ) -> None:
+    async def test_matrix_send_error_permanent_converted(self, mock_nio) -> None:
         """MatrixSendError(transient=False) is converted to
         AdapterPermanentError at the adapter boundary."""
         config = _make_matrix_config()
@@ -1152,9 +1117,7 @@ class TestMatrixBridgeDirectErrorBoundary:
         with pytest.raises(AdapterPermanentError, match="no room_id"):
             await adapter.deliver(result)
 
-    async def test_successful_response_event_id_maps_to_native(
-        self, mock_nio
-    ) -> None:
+    async def test_successful_response_event_id_maps_to_native(self, mock_nio) -> None:
         """Successful room_send returns AdapterDeliveryResult with the
         response event_id as native_message_id and room_id as
         native_channel_id."""

@@ -3,24 +3,23 @@
 All network calls are mocked via ``urllib.request.urlopen`` patches.
 No Matrix SDK (nio) is imported.
 """
+
 from __future__ import annotations
 
 import io
 import json
-import os
 import stat
-import sys
 import tomllib
+import urllib.error
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-import urllib.error
-
 from medre.adapters.matrix.auth import (
     MatrixLoginResult,
     _normalize_homeserver,
+    _update_toml_field,
     check_credentials_completeness,
     discover_well_known,
     extract_domain_from_mxid,
@@ -28,7 +27,6 @@ from medre.adapters.matrix.auth import (
     matrix_whoami,
     save_credentials_json,
     update_toml_credentials,
-    _update_toml_field,
 )
 from medre.adapters.matrix.errors import MatrixConnectionError
 from medre.config.adapters.matrix_credentials import (
@@ -36,10 +34,10 @@ from medre.config.adapters.matrix_credentials import (
     load_credentials_json,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 class _FakeResponse:
     """Minimal stand-in for ``http.client.HTTPResponse``."""
@@ -75,6 +73,7 @@ class _FakeHTTPError(Exception):
 # _normalize_homeserver tests
 # ---------------------------------------------------------------------------
 
+
 class TestNormalizeHomeserver:
     """Tests for ``_normalize_homeserver``."""
 
@@ -91,7 +90,10 @@ class TestNormalizeHomeserver:
         assert _normalize_homeserver("https://matrix.org") == "https://matrix.org"
 
     def test_full_https_with_path_pass_through(self) -> None:
-        assert _normalize_homeserver("https://matrix.org:8448") == "https://matrix.org:8448"
+        assert (
+            _normalize_homeserver("https://matrix.org:8448")
+            == "https://matrix.org:8448"
+        )
 
     def test_http_scheme_rejected(self) -> None:
         with pytest.raises(ValueError, match="Unsupported"):
@@ -109,16 +111,19 @@ class TestNormalizeHomeserver:
 # matrix_login tests
 # ---------------------------------------------------------------------------
 
+
 class TestMatrixLogin:
     """Tests for ``matrix_login``."""
 
     @patch("medre.adapters.matrix.auth.urllib.request.urlopen")
     def test_success(self, mock_urlopen: MagicMock) -> None:
-        mock_urlopen.return_value = _FakeResponse({
-            "access_token": "syt_secret123",
-            "device_id": "DEVICE_ABC",
-            "user_id": "@alice:matrix.org",
-        })
+        mock_urlopen.return_value = _FakeResponse(
+            {
+                "access_token": "syt_secret123",
+                "device_id": "DEVICE_ABC",
+                "user_id": "@alice:matrix.org",
+            }
+        )
 
         result = matrix_login("https://matrix.org", "@alice:matrix.org", "hunter2")
 
@@ -131,22 +136,26 @@ class TestMatrixLogin:
 
     @patch("medre.adapters.matrix.auth.urllib.request.urlopen")
     def test_success_strips_trailing_slash(self, mock_urlopen: MagicMock) -> None:
-        mock_urlopen.return_value = _FakeResponse({
-            "access_token": "tok",
-            "device_id": "DEV",
-            "user_id": "@b:matrix.org",
-        })
+        mock_urlopen.return_value = _FakeResponse(
+            {
+                "access_token": "tok",
+                "device_id": "DEV",
+                "user_id": "@b:matrix.org",
+            }
+        )
 
         result = matrix_login("https://matrix.org/", "@b:matrix.org", "pw")
         assert result.homeserver == "https://matrix.org"
 
     @patch("medre.adapters.matrix.auth.urllib.request.urlopen")
     def test_sends_correct_payload(self, mock_urlopen: MagicMock) -> None:
-        mock_urlopen.return_value = _FakeResponse({
-            "access_token": "tok",
-            "device_id": "D",
-            "user_id": "@u:m.org",
-        })
+        mock_urlopen.return_value = _FakeResponse(
+            {
+                "access_token": "tok",
+                "device_id": "D",
+                "user_id": "@u:m.org",
+            }
+        )
 
         matrix_login("https://m.org", "@u:m.org", "pw")
 
@@ -179,39 +188,43 @@ class TestMatrixLogin:
     def test_network_error(self, mock_urlopen: MagicMock) -> None:
         import urllib.error
 
-        mock_urlopen.side_effect = urllib.error.URLError(
-            reason="Connection refused"
-        )
+        mock_urlopen.side_effect = urllib.error.URLError(reason="Connection refused")
 
         with pytest.raises(MatrixConnectionError, match="network error"):
             matrix_login("https://m.org", "@u:m.org", "pw")
 
     @patch("medre.adapters.matrix.auth.urllib.request.urlopen")
     def test_missing_access_token(self, mock_urlopen: MagicMock) -> None:
-        mock_urlopen.return_value = _FakeResponse({
-            "user_id": "@u:m.org",
-            "device_id": "D",
-        })
+        mock_urlopen.return_value = _FakeResponse(
+            {
+                "user_id": "@u:m.org",
+                "device_id": "D",
+            }
+        )
 
         with pytest.raises(MatrixConnectionError, match="missing access_token"):
             matrix_login("https://m.org", "@u:m.org", "pw")
 
     @patch("medre.adapters.matrix.auth.urllib.request.urlopen")
     def test_missing_user_id(self, mock_urlopen: MagicMock) -> None:
-        mock_urlopen.return_value = _FakeResponse({
-            "access_token": "tok",
-            "device_id": "D",
-        })
+        mock_urlopen.return_value = _FakeResponse(
+            {
+                "access_token": "tok",
+                "device_id": "D",
+            }
+        )
 
         with pytest.raises(MatrixConnectionError, match="missing user_id"):
             matrix_login("https://m.org", "@u:m.org", "pw")
 
     @patch("medre.adapters.matrix.auth.urllib.request.urlopen")
     def test_missing_device_id_defaults_empty(self, mock_urlopen: MagicMock) -> None:
-        mock_urlopen.return_value = _FakeResponse({
-            "access_token": "tok",
-            "user_id": "@u:m.org",
-        })
+        mock_urlopen.return_value = _FakeResponse(
+            {
+                "access_token": "tok",
+                "user_id": "@u:m.org",
+            }
+        )
 
         result = matrix_login("https://m.org", "@u:m.org", "pw")
         assert result.device_id == ""
@@ -229,11 +242,13 @@ class TestMatrixLogin:
 
     @patch("medre.adapters.matrix.auth.urllib.request.urlopen")
     def test_bare_domain_normalized_to_https(self, mock_urlopen: MagicMock) -> None:
-        mock_urlopen.return_value = _FakeResponse({
-            "access_token": "tok",
-            "device_id": "D",
-            "user_id": "@u:matrix.org",
-        })
+        mock_urlopen.return_value = _FakeResponse(
+            {
+                "access_token": "tok",
+                "device_id": "D",
+                "user_id": "@u:matrix.org",
+            }
+        )
 
         result = matrix_login("matrix.org", "@u:matrix.org", "pw")
         assert result.homeserver == "https://matrix.org"
@@ -248,14 +263,17 @@ class TestMatrixLogin:
 # matrix_whoami tests
 # ---------------------------------------------------------------------------
 
+
 class TestMatrixWhoami:
     """Tests for ``matrix_whoami``."""
 
     @patch("medre.adapters.matrix.auth.urllib.request.urlopen")
     def test_success(self, mock_urlopen: MagicMock) -> None:
-        mock_urlopen.return_value = _FakeResponse({
-            "user_id": "@alice:matrix.org",
-        })
+        mock_urlopen.return_value = _FakeResponse(
+            {
+                "user_id": "@alice:matrix.org",
+            }
+        )
 
         user_id = matrix_whoami("https://matrix.org", "syt_token")
         assert user_id == "@alice:matrix.org"
@@ -274,7 +292,7 @@ class TestMatrixWhoami:
         import urllib.error
 
         token = "syt_super_secret_12345"
-        error_body = f'Token {token} is invalid'
+        error_body = f"Token {token} is invalid"
         mock_urlopen.side_effect = urllib.error.HTTPError(
             url="https://m.org/_matrix/client/v3/account/whoami",
             code=401,
@@ -311,6 +329,7 @@ class TestMatrixWhoami:
 # update_toml_access_token tests
 # ---------------------------------------------------------------------------
 
+
 class TestUpdateTomlAccessToken:
     """Tests for ``update_toml_credentials``."""
 
@@ -321,17 +340,17 @@ class TestUpdateTomlAccessToken:
 
     def test_updates_token_in_section(self, tmp_path: Path) -> None:
         toml_content = (
-            '# medre config\n'
-            '[general]\n'
+            "# medre config\n"
+            "[general]\n"
             'log_level = "info"\n'
-            '\n'
-            '[adapters.matrix.mybot]\n'
+            "\n"
+            "[adapters.matrix.mybot]\n"
             'homeserver = "https://matrix.org"\n'
             'user_id = "@bot:matrix.org"\n'
             'access_token = "old_token"\n'
             'room_allowlist = ["!room:matrix.org"]\n'
-            '\n'
-            '[adapters.matrix.otherbot]\n'
+            "\n"
+            "[adapters.matrix.otherbot]\n"
             'homeserver = ""\n'
             'user_id = ""\n'
             'access_token = "other_token"\n'
@@ -339,7 +358,9 @@ class TestUpdateTomlAccessToken:
         p = self._write_toml(tmp_path, toml_content)
 
         update_toml_credentials(
-            p, "matrix", "mybot",
+            p,
+            "matrix",
+            "mybot",
             homeserver="https://example.com",
             user_id="@bot:example.com",
             access_token="new_secret_token",
@@ -356,15 +377,20 @@ class TestUpdateTomlAccessToken:
         assert "# medre config" in p.read_text(encoding="utf-8")
 
     def test_chmod_0600(self, tmp_path: Path) -> None:
-        p = self._write_toml(tmp_path, (
-            '[adapters.matrix.bot]\n'
-            'homeserver = ""\n'
-            'user_id = ""\n'
-            'access_token = "old"\n'
-        ))
+        p = self._write_toml(
+            tmp_path,
+            (
+                "[adapters.matrix.bot]\n"
+                'homeserver = ""\n'
+                'user_id = ""\n'
+                'access_token = "old"\n'
+            ),
+        )
 
         update_toml_credentials(
-            p, "matrix", "bot",
+            p,
+            "matrix",
+            "bot",
             homeserver="https://example.com",
             user_id="@bot:example.com",
             access_token="new",
@@ -382,41 +408,47 @@ class TestUpdateTomlAccessToken:
         p = tmp_path / "nonexistent.toml"
         with pytest.raises(FileNotFoundError, match="Config file not found"):
             update_toml_credentials(
-                p, "matrix", "bot",
+                p,
+                "matrix",
+                "bot",
                 homeserver="https://example.com",
                 user_id="@bot:example.com",
                 access_token="tok",
             )
 
     def test_missing_section_raises(self, tmp_path: Path) -> None:
-        p = self._write_toml(tmp_path, (
-            '[general]\n'
-            'log_level = "info"\n'
-        ))
+        p = self._write_toml(tmp_path, ("[general]\n" 'log_level = "info"\n'))
 
         with pytest.raises(ValueError, match="not found"):
             update_toml_credentials(
-                p, "matrix", "bot",
+                p,
+                "matrix",
+                "bot",
                 homeserver="https://example.com",
                 user_id="@bot:example.com",
                 access_token="tok",
             )
 
     def test_missing_access_token_key_raises(self, tmp_path: Path) -> None:
-        p = self._write_toml(tmp_path, (
-            '[adapters.matrix.bot]\n'
-            'homeserver = "https://matrix.org"\n'
-            'user_id = "@bot:matrix.org"\n'
-            'access_token = ""\n'
-        ))
+        p = self._write_toml(
+            tmp_path,
+            (
+                "[adapters.matrix.bot]\n"
+                'homeserver = "https://matrix.org"\n'
+                'user_id = "@bot:matrix.org"\n'
+                'access_token = ""\n'
+            ),
+        )
         # Remove access_token line to trigger key-not-found
         content = p.read_text(encoding="utf-8")
-        content = content.replace('access_token = ""\n', '')
+        content = content.replace('access_token = ""\n', "")
         p.write_text(content, encoding="utf-8")
 
         with pytest.raises(ValueError, match="access_token key not found"):
             update_toml_credentials(
-                p, "matrix", "bot",
+                p,
+                "matrix",
+                "bot",
                 homeserver="https://example.com",
                 user_id="@bot:example.com",
                 access_token="tok",
@@ -424,12 +456,12 @@ class TestUpdateTomlAccessToken:
 
     def test_preserves_comments_and_formatting(self, tmp_path: Path) -> None:
         toml_content = (
-            '# Top comment\n'
-            '[general]  # inline comment\n'
+            "# Top comment\n"
+            "[general]  # inline comment\n"
             'log_level = "info"\n'
-            '\n'
-            '# Matrix adapter\n'
-            '[adapters.matrix.mybot]\n'
+            "\n"
+            "# Matrix adapter\n"
+            "[adapters.matrix.mybot]\n"
             'homeserver = "https://matrix.org"  # homeserver\n'
             'user_id = "@bot:matrix.org"\n'
             'access_token = "old"\n'
@@ -437,7 +469,9 @@ class TestUpdateTomlAccessToken:
         p = self._write_toml(tmp_path, toml_content)
 
         update_toml_credentials(
-            p, "matrix", "mybot",
+            p,
+            "matrix",
+            "mybot",
             homeserver="https://example.com",
             user_id="@bot:example.com",
             access_token="new",
@@ -450,15 +484,20 @@ class TestUpdateTomlAccessToken:
         assert "homeserver" in lines[6]
 
     def test_single_quoted_token(self, tmp_path: Path) -> None:
-        p = self._write_toml(tmp_path, (
-            "[adapters.matrix.bot]\n"
-            "homeserver = ''\n"
-            "user_id = ''\n"
-            "access_token = 'old_token'\n"
-        ))
+        p = self._write_toml(
+            tmp_path,
+            (
+                "[adapters.matrix.bot]\n"
+                "homeserver = ''\n"
+                "user_id = ''\n"
+                "access_token = 'old_token'\n"
+            ),
+        )
 
         update_toml_credentials(
-            p, "matrix", "bot",
+            p,
+            "matrix",
+            "bot",
             homeserver="https://example.com",
             user_id="@bot:example.com",
             access_token="new_token",
@@ -468,20 +507,25 @@ class TestUpdateTomlAccessToken:
         assert data["adapters"]["matrix"]["bot"]["access_token"] == "new_token"
 
     def test_different_adapter_names(self, tmp_path: Path) -> None:
-        p = self._write_toml(tmp_path, (
-            '[adapters.matrix.alpha]\n'
-            'homeserver = ""\n'
-            'user_id = ""\n'
-            'access_token = "alpha_old"\n'
-            '\n'
-            '[adapters.matrix.beta]\n'
-            'homeserver = ""\n'
-            'user_id = ""\n'
-            'access_token = "beta_old"\n'
-        ))
+        p = self._write_toml(
+            tmp_path,
+            (
+                "[adapters.matrix.alpha]\n"
+                'homeserver = ""\n'
+                'user_id = ""\n'
+                'access_token = "alpha_old"\n'
+                "\n"
+                "[adapters.matrix.beta]\n"
+                'homeserver = ""\n'
+                'user_id = ""\n'
+                'access_token = "beta_old"\n'
+            ),
+        )
 
         update_toml_credentials(
-            p, "matrix", "beta",
+            p,
+            "matrix",
+            "beta",
             homeserver="https://example.com",
             user_id="@bot:example.com",
             access_token="beta_new",
@@ -503,14 +547,19 @@ class TestTomlEscaping:
 
     def _roundtrip(self, tmp_path: Path, token: str) -> str:
         """Write *token*, parse the file with tomllib, return stored value."""
-        p = self._write_toml(tmp_path, (
-            '[adapters.matrix.bot]\n'
-            'homeserver = ""\n'
-            'user_id = ""\n'
-            'access_token = "old"\n'
-        ))
+        p = self._write_toml(
+            tmp_path,
+            (
+                "[adapters.matrix.bot]\n"
+                'homeserver = ""\n'
+                'user_id = ""\n'
+                'access_token = "old"\n'
+            ),
+        )
         update_toml_credentials(
-            p, "matrix", "bot",
+            p,
+            "matrix",
+            "bot",
             homeserver="https://example.com",
             user_id="@bot:example.com",
             access_token=token,
@@ -551,14 +600,19 @@ class TestTomlEscaping:
 
     def test_written_file_is_valid_toml(self, tmp_path: Path) -> None:
         """Token with mixed special characters produces parseable TOML."""
-        p = self._write_toml(tmp_path, (
-            '[adapters.matrix.bot]\n'
-            'homeserver = ""\n'
-            'user_id = ""\n'
-            'access_token = "old"\n'
-        ))
+        p = self._write_toml(
+            tmp_path,
+            (
+                "[adapters.matrix.bot]\n"
+                'homeserver = ""\n'
+                'user_id = ""\n'
+                'access_token = "old"\n'
+            ),
+        )
         update_toml_credentials(
-            p, "matrix", "bot",
+            p,
+            "matrix",
+            "bot",
             homeserver="https://example.com",
             user_id="@bot:example.com",
             access_token='x"y\\z\t\n',
@@ -572,16 +626,18 @@ class TestTomlEscaping:
 # No nio import verification
 # ---------------------------------------------------------------------------
 
+
 class TestNoSdkImport:
     """Verify that importing auth does not pull in nio."""
 
     def test_importing_auth_does_not_import_nio(self) -> None:
         """The auth module must not import nio or any Matrix SDK."""
         # Check that 'nio' is not in sys.modules after importing auth
-        nio_present = "nio" in sys.modules
         # Import fresh
         import importlib
+
         import medre.adapters.matrix.auth as auth_mod
+
         importlib.reload(auth_mod)
 
         # nio should still not be in sys.modules (unless some other test loaded it)
@@ -595,6 +651,7 @@ class TestNoSdkImport:
 # update_toml_credentials tests
 # ---------------------------------------------------------------------------
 
+
 class TestUpdateTomlCredentials:
     """Tests for ``update_toml_credentials``."""
 
@@ -604,15 +661,20 @@ class TestUpdateTomlCredentials:
         return p
 
     def test_writes_homeserver_user_id_access_token(self, tmp_path: Path) -> None:
-        p = self._write_toml(tmp_path, (
-            '[adapters.matrix.mybot]\n'
-            'homeserver = ""\n'
-            'user_id = ""\n'
-            'access_token = ""\n'
-        ))
+        p = self._write_toml(
+            tmp_path,
+            (
+                "[adapters.matrix.mybot]\n"
+                'homeserver = ""\n'
+                'user_id = ""\n'
+                'access_token = ""\n'
+            ),
+        )
 
         update_toml_credentials(
-            p, "matrix", "mybot",
+            p,
+            "matrix",
+            "mybot",
             homeserver="https://matrix.example.com",
             user_id="@alice:example.com",
             access_token="syt_secret123",
@@ -626,23 +688,25 @@ class TestUpdateTomlCredentials:
 
     def test_preserves_comments(self, tmp_path: Path) -> None:
         toml_content = (
-            '# medre config\n'
-            '[general]\n'
+            "# medre config\n"
+            "[general]\n"
             'log_level = "info"\n'
-            '\n'
-            '# Matrix adapter section\n'
-            '[adapters.matrix.mybot]\n'
-            '# Homeserver URL\n'
+            "\n"
+            "# Matrix adapter section\n"
+            "[adapters.matrix.mybot]\n"
+            "# Homeserver URL\n"
             'homeserver = ""\n'
-            '# User ID\n'
+            "# User ID\n"
             'user_id = ""\n'
-            '# Access token\n'
+            "# Access token\n"
             'access_token = ""\n'
         )
         p = self._write_toml(tmp_path, toml_content)
 
         update_toml_credentials(
-            p, "matrix", "mybot",
+            p,
+            "matrix",
+            "mybot",
             homeserver="https://m.org",
             user_id="@b:m.org",
             access_token="tok",
@@ -656,43 +720,48 @@ class TestUpdateTomlCredentials:
         assert "# Access token" in updated
 
     def test_raises_valueerror_section_not_found(self, tmp_path: Path) -> None:
-        p = self._write_toml(tmp_path, (
-            '[general]\n'
-            'log_level = "info"\n'
-        ))
+        p = self._write_toml(tmp_path, ("[general]\n" 'log_level = "info"\n'))
 
         with pytest.raises(ValueError, match="not found"):
             update_toml_credentials(
-                p, "matrix", "mymatrix",
+                p,
+                "matrix",
+                "mymatrix",
                 homeserver="https://m.org",
                 user_id="@a:m.org",
                 access_token="tok",
             )
 
     def test_raises_valueerror_key_not_found(self, tmp_path: Path) -> None:
-        p = self._write_toml(tmp_path, (
-            '[adapters.matrix.mymatrix]\n'
-            'homeserver = "https://m.org"\n'
-        ))
+        p = self._write_toml(
+            tmp_path, ("[adapters.matrix.mymatrix]\n" 'homeserver = "https://m.org"\n')
+        )
 
         with pytest.raises(ValueError, match="key not found"):
             update_toml_credentials(
-                p, "matrix", "mymatrix",
+                p,
+                "matrix",
+                "mymatrix",
                 homeserver="https://m.org",
                 user_id="@a:m.org",
                 access_token="tok",
             )
 
     def test_chmod_0600(self, tmp_path: Path) -> None:
-        p = self._write_toml(tmp_path, (
-            '[adapters.matrix.bot]\n'
-            'homeserver = ""\n'
-            'user_id = ""\n'
-            'access_token = ""\n'
-        ))
+        p = self._write_toml(
+            tmp_path,
+            (
+                "[adapters.matrix.bot]\n"
+                'homeserver = ""\n'
+                'user_id = ""\n'
+                'access_token = ""\n'
+            ),
+        )
 
         update_toml_credentials(
-            p, "matrix", "bot",
+            p,
+            "matrix",
+            "bot",
             homeserver="https://m.org",
             user_id="@b:m.org",
             access_token="tok",
@@ -711,6 +780,7 @@ class TestUpdateTomlCredentials:
 # _update_toml_field tests
 # ---------------------------------------------------------------------------
 
+
 class TestUpdateTomlField:
     """Tests for ``_update_toml_field`` helper."""
 
@@ -720,8 +790,12 @@ class TestUpdateTomlField:
             'access_token = "old"\n',
         ]
         new_lines, found = _update_toml_field(
-            lines, Path("/dummy"), "matrix", "mybot",
-            "access_token", "new_secret",
+            lines,
+            Path("/dummy"),
+            "matrix",
+            "mybot",
+            "access_token",
+            "new_secret",
         )
         assert found is True
         assert 'access_token = "new_secret"\n' in new_lines
@@ -735,8 +809,12 @@ class TestUpdateTomlField:
             'access_token = "beta_old"\n',
         ]
         new_lines, found = _update_toml_field(
-            lines, Path("/dummy"), "matrix", "beta",
-            "access_token", "beta_new",
+            lines,
+            Path("/dummy"),
+            "matrix",
+            "beta",
+            "access_token",
+            "beta_new",
         )
         assert found is True
         assert 'access_token = "alpha_old"\n' in new_lines
@@ -749,8 +827,12 @@ class TestUpdateTomlField:
             'access_token = "old_dq"\n',
         ]
         new_lines_dq, found_dq = _update_toml_field(
-            lines_dq, Path("/dummy"), "matrix", "bot",
-            "access_token", "new_val",
+            lines_dq,
+            Path("/dummy"),
+            "matrix",
+            "bot",
+            "access_token",
+            "new_val",
         )
         assert found_dq is True
         assert 'access_token = "new_val"\n' in new_lines_dq
@@ -761,8 +843,12 @@ class TestUpdateTomlField:
             "access_token = 'old_sq'\n",
         ]
         new_lines_sq, found_sq = _update_toml_field(
-            lines_sq, Path("/dummy"), "matrix", "bot",
-            "access_token", "new_val",
+            lines_sq,
+            Path("/dummy"),
+            "matrix",
+            "bot",
+            "access_token",
+            "new_val",
         )
         assert found_sq is True
         assert 'access_token = "new_val"\n' in new_lines_sq
@@ -771,6 +857,7 @@ class TestUpdateTomlField:
 # ---------------------------------------------------------------------------
 # extract_domain_from_mxid tests
 # ---------------------------------------------------------------------------
+
 
 class TestExtractDomainFromMxid:
     """Tests for ``extract_domain_from_mxid``."""
@@ -801,14 +888,17 @@ class TestExtractDomainFromMxid:
 # discover_well_known tests
 # ---------------------------------------------------------------------------
 
+
 class TestDiscoverWellKnown:
     """Tests for ``discover_well_known``."""
 
     @patch("medre.adapters.matrix.auth.urllib.request.urlopen")
     def test_success_returns_base_url(self, mock_urlopen: MagicMock) -> None:
-        mock_urlopen.return_value = _FakeResponse({
-            "m.homeserver": {"base_url": "https://matrix.sk.community"},
-        })
+        mock_urlopen.return_value = _FakeResponse(
+            {
+                "m.homeserver": {"base_url": "https://matrix.sk.community"},
+            }
+        )
 
         result = discover_well_known("sk.community")
         assert result == "https://matrix.sk.community"
@@ -855,6 +945,7 @@ class TestDiscoverWellKnown:
 # get_credentials_path tests
 # ---------------------------------------------------------------------------
 
+
 class TestGetCredentialsPath:
     """Tests for ``get_credentials_path``."""
 
@@ -863,7 +954,9 @@ class TestGetCredentialsPath:
 
         result = get_credentials_path()
 
-        assert result == Path.home() / ".config" / "medre" / "credentials" / "matrix.json"
+        assert (
+            result == Path.home() / ".config" / "medre" / "credentials" / "matrix.json"
+        )
 
     def test_xdg_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("XDG_CONFIG_HOME", "/custom")
@@ -876,6 +969,7 @@ class TestGetCredentialsPath:
 # ---------------------------------------------------------------------------
 # save_credentials_json tests
 # ---------------------------------------------------------------------------
+
 
 class TestSaveCredentialsJson:
     """Tests for ``save_credentials_json``."""
@@ -916,6 +1010,7 @@ class TestSaveCredentialsJson:
 # load_credentials_json tests
 # ---------------------------------------------------------------------------
 
+
 class TestLoadCredentialsJson:
     """Tests for ``load_credentials_json``."""
 
@@ -925,12 +1020,17 @@ class TestLoadCredentialsJson:
 
     def test_valid_file_returns_dict(self, tmp_path: Path) -> None:
         dest = tmp_path / "exists.json"
-        dest.write_text(json.dumps({
-            "homeserver": "https://matrix.org",
-            "access_token": "tok",
-            "user_id": "@u:m.org",
-            "device_id": "D",
-        }), encoding="utf-8")
+        dest.write_text(
+            json.dumps(
+                {
+                    "homeserver": "https://matrix.org",
+                    "access_token": "tok",
+                    "user_id": "@u:m.org",
+                    "device_id": "D",
+                }
+            ),
+            encoding="utf-8",
+        )
 
         result = load_credentials_json(path=dest)
         assert result is not None
@@ -948,37 +1048,46 @@ class TestLoadCredentialsJson:
 # check_credentials_completeness tests
 # ---------------------------------------------------------------------------
 
+
 class TestCheckCredentialsCompleteness:
     """Tests for ``check_credentials_completeness``."""
 
     def test_all_present(self) -> None:
-        result = check_credentials_completeness({
-            "homeserver": "x",
-            "access_token": "x",
-            "user_id": "x",
-            "device_id": "x",
-        })
+        result = check_credentials_completeness(
+            {
+                "homeserver": "x",
+                "access_token": "x",
+                "user_id": "x",
+                "device_id": "x",
+            }
+        )
         assert result == []
 
     def test_missing_homeserver(self) -> None:
-        result = check_credentials_completeness({
-            "access_token": "x",
-            "user_id": "x",
-        })
+        result = check_credentials_completeness(
+            {
+                "access_token": "x",
+                "user_id": "x",
+            }
+        )
         assert result == ["homeserver"]
 
     def test_missing_access_token(self) -> None:
-        result = check_credentials_completeness({
-            "homeserver": "x",
-            "user_id": "x",
-        })
+        result = check_credentials_completeness(
+            {
+                "homeserver": "x",
+                "user_id": "x",
+            }
+        )
         assert result == ["access_token"]
 
     def test_missing_user_id(self) -> None:
-        result = check_credentials_completeness({
-            "homeserver": "x",
-            "access_token": "x",
-        })
+        result = check_credentials_completeness(
+            {
+                "homeserver": "x",
+                "access_token": "x",
+            }
+        )
         assert result == ["user_id"]
 
     def test_all_missing(self) -> None:
@@ -986,17 +1095,21 @@ class TestCheckCredentialsCompleteness:
         assert result == ["homeserver", "access_token", "user_id"]
 
     def test_empty_string_values(self) -> None:
-        result = check_credentials_completeness({
-            "homeserver": "",
-            "access_token": "x",
-            "user_id": "x",
-        })
+        result = check_credentials_completeness(
+            {
+                "homeserver": "",
+                "access_token": "x",
+                "user_id": "x",
+            }
+        )
         assert result == ["homeserver"]
 
     def test_device_id_optional(self) -> None:
-        result = check_credentials_completeness({
-            "homeserver": "x",
-            "access_token": "x",
-            "user_id": "x",
-        })
+        result = check_credentials_completeness(
+            {
+                "homeserver": "x",
+                "access_token": "x",
+                "user_id": "x",
+            }
+        )
         assert result == []

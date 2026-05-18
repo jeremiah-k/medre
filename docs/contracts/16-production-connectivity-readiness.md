@@ -10,10 +10,9 @@ All four adapters are in tranche 1. Fake mode is the default development path fo
 
 **Note (2026-05-09):** The per-transport sections below were written before the MeshCore and LXMF real session code was merged. MeshCore and LXMF now have real session implementations (see contracts 19, 20) and live smoke harnesses. The current cross-transport assessment is consolidated in contract 28 (`28-alpha-readiness-report.md`). The diagnostics consistency audit is in contract 27 (`27-diagnostics-consistency-audit.md`).
 
-
 ## Matrix
 
-### What tranche 1 proves (deterministic / fake-only)
+### Matrix: What tranche 1 proves (deterministic / fake-only)
 
 - The decode/render/deliver pipeline works end to end with fake data.
 - `MatrixCodec` converts nio-shaped event objects into `CanonicalEvent` instances. The codec is nio-agnostic (expects `.sender`, `.body`, `.event_id`, `.source` attributes but doesn't import nio).
@@ -23,7 +22,7 @@ All four adapters are in tranche 1. Fake mode is the default development path fo
 - Room allowlist filtering works.
 - The `FakeMatrixAdapter` enforces the rendering boundary: `deliver()` accepts `RenderingResult` only, not `CanonicalEvent`.
 
-### What the optional live smoke harness proves
+### Matrix: What the optional live smoke harness proves
 
 A skipped-by-default live test harness at `tests/test_matrix_live.py` with a companion runbook at `docs/runbooks/matrix-live-smoke.md` provides optional real-homeserver validation. When enabled via environment variables, it proves:
 
@@ -33,48 +32,47 @@ A skipped-by-default live test harness at `tests/test_matrix_live.py` with a com
 - The full lifecycle (start → send → healthy → stop → unknown) works as an ordered sequence.
 - No asyncio tasks are leaked after stop.
 
-The live harness is **optional** and **does not gate CI**.  Default `pytest` remains fake-only.  See `docs/runbooks/matrix-live-smoke.md` for setup and usage.
+The live harness is **optional** and **does not gate CI**. Default `pytest` remains fake-only. See `docs/runbooks/matrix-live-smoke.md` for setup and usage.
 
-### What the live smoke harness does NOT prove
+### Matrix: What the live smoke harness does NOT prove
 
-- **Inbound message reception.**  Requires a second Matrix account to send a message into the room.  With one account, timing-sensitive polling would be needed, making tests flaky.  Inbound codec correctness is covered by deterministic unit tests.
-- **Self-message suppression with real sync echoes.**  The homeserver echoes outbound messages back.  Verifying suppression requires waiting for the echo with a timeout, which is unreliable.  Self-message suppression is covered by deterministic unit tests.
-- **MEDRE-origin envelope suppression.**  Secondary suppression path, unit-tested.
-- **E2EE, reactions, edits, deletes, attachments, media.**  Not implemented in tranche 1.
-- **Admin API, webhooks, HTTP server.**  Out of scope.
-- **Non-Matrix connectivity.**  Meshtastic, MeshCore, LXMF are out of scope.
-- **Auth command / credential storage.**  Current tranche uses env-var access tokens.  A future mmrelay-like auth command may be useful but is not implemented.
-- **Real operation scope.**  The live harness confirms transport-level connectivity for Matrix tranche 1 features only.  It does not prove production readiness for bridging, federation, encrypted rooms, or multi-user scenarios.
+- **Inbound message reception.** Requires a second Matrix account to send a message into the room. With one account, timing-sensitive polling would be needed, making tests flaky. Inbound codec correctness is covered by deterministic unit tests.
+- **Self-message suppression with real sync echoes.** The homeserver echoes outbound messages back. Verifying suppression requires waiting for the echo with a timeout, which is unreliable. Self-message suppression is covered by deterministic unit tests.
+- **MEDRE-origin envelope suppression.** Secondary suppression path, unit-tested.
+- **E2EE, reactions, edits, deletes, attachments, media.** Not implemented in tranche 1.
+- **Admin API, webhooks, HTTP server.** Out of scope.
+- **Non-Matrix connectivity.** Meshtastic, MeshCore, LXMF are out of scope.
+- **Auth command / credential storage.** Current tranche uses env-var access tokens. A future mmrelay-like auth command may be useful but is not implemented.
+- **Real operation scope.** The live harness confirms transport-level connectivity for Matrix tranche 1 features only. It does not prove production readiness for bridging, federation, encrypted rooms, or multi-user scenarios.
 
-### What is still fake/scaffolded
+### Matrix: What is still fake/scaffolded
 
 - **No inbound message reception has been verified against a real homeserver.** The sync loop starts, but no test has verified that a real inbound event flows through `_on_room_message` → codec → `publish_inbound`.
 - **E2EE is not implemented.** No olm/megolm support.
 - **Reactions, edits, deletes, and attachments are all deferred.** Only text and replies work.
-- **Storage is authoritative.** The metadata envelope is secondary and diagnostic.  The live harness does not test storage round-trips against a real homeserver.
+- **Storage is authoritative.** The metadata envelope is secondary and diagnostic. The live harness does not test storage round-trips against a real homeserver.
 
-### What must be done before real operation
+### Matrix: What must be done before real operation
 
 1. **Verify `_on_room_message` callback behavior** with real nio event objects from a second user, not just test fakes.
 2. **Verify self-message suppression** with real echo events from the homeserver (requires a second account or device).
 3. **Test against multiple room types.** Public, private, DMs.
 4. **Test federation.** Cross-server message delivery.
-5. **Token storage and rotation.** The `access_token` is a plain string.  Production deployment needs a security review.  A future mmrelay-like auth command may address this.
+5. **Token storage and rotation.** The `access_token` is a plain string. Production deployment needs a security review. A future mmrelay-like auth command may address this.
 
-### Likely first production-connectivity tranche focus
+### Matrix: Likely first production-connectivity tranche focus
 
-The live smoke harness already covers the smallest useful connectivity milestone (connect, send, lifecycle).  The next step is verifying inbound reception with a second account and testing self-message suppression with real echoes.
+The live smoke harness already covers the smallest useful connectivity milestone (connect, send, lifecycle). The next step is verifying inbound reception with a second account and testing self-message suppression with real echoes.
 
-### Known risks
+### Matrix: Known risks
 
 - `mindroom-nio` is a fork. Its maintenance status and API stability relative to upstream `matrix-nio` need verification.
 - Sync loop error handling may need hardening for real network conditions (timeouts, reconnects, rate limiting).
 - The `access_token` config field is stored as a plain string. Token storage and rotation need a security review before production deployment.
 
-
 ## Meshtastic
 
-### What tranche 1 proves
+### Meshtastic: What tranche 1 proves
 
 - The decode/classify/deliver pipeline works with fake packet dicts.
 - `MeshtasticCodec` converts Meshtastic-shaped packet dicts into `CanonicalEvent` instances, including `replyId` relation extraction.
@@ -84,7 +82,7 @@ The live smoke harness already covers the smallest useful connectivity milestone
 - `FakeMeshtasticAdapter` returns `AdapterDeliveryResult` with deterministic packet IDs via `FakeMeshtasticClient`.
 - Fixture provenance labels (mtjk-derived, MMRelay-derived, synthetic scaffold, unverified) document the derivation source of each test packet shape.
 
-### What the optional live smoke harness proves
+### Meshtastic: What the optional live smoke harness proves
 
 A skipped-by-default live test harness at `tests/test_meshtastic_live.py` with a companion runbook at `docs/runbooks/meshtastic-live-smoke.md` provides optional real-node validation. When enabled via environment variables, it proves:
 
@@ -97,7 +95,7 @@ A skipped-by-default live test harness at `tests/test_meshtastic_live.py` with a
 
 The live harness is **optional** and **does not gate CI**. Default `pytest` remains fake-only. See `docs/runbooks/meshtastic-live-smoke.md` for setup and usage.
 
-### What the live smoke harness does NOT prove
+### Meshtastic: What the live smoke harness does NOT prove
 
 - **MEDRE adapter integration.** The tests use the raw `mtjk` interface directly. The MEDRE adapter's real connection code is not yet implemented.
 - **Inbound reception from a second node.** Tests use self-receive only.
@@ -107,14 +105,14 @@ The live harness is **optional** and **does not gate CI**. Default `pytest` rema
 - **Reconnection handling.** No automatic recovery testing.
 - **Production deployment readiness.** The harness validates transport-level connectivity for a single session only.
 
-### What is still fake/scaffolded
+### Meshtastic: What is still fake/scaffolded
 
 - **No real Meshtastic client connection.** Even when `connection_type` is not `"fake"`, `self._client` is set to `None`. The comment says "Real client creation is deferred to a later tranche."
 - **No real `send_text` has been executed.** Outbound goes through `MeshtasticOutboundQueue.enqueue()` but the queue doesn't actually send anything over the air.
 - **No real packet callbacks have been received.** `_on_packet()` is tested with manual dict injection only.
 - **The compat module provides `get_portnum_table()`** from the real `mtjk` package, but core classifier logic uses a scaffold map so tests pass without the dependency.
 
-### What must be done before real operation
+### Meshtastic: What must be done before real operation
 
 1. **Real `mtjk` client connection.** Implement TCP/serial/BLE connection in `start()` when `connection_type` is not `"fake"`.
 2. **Wire real packet callbacks.** Register `_on_packet` as a callback with the real Meshtastic client.
@@ -123,21 +121,20 @@ The live harness is **optional** and **does not gate CI**. Default `pytest` rema
 5. **Verify startup backlog suppression.** The `startup_backlog_suppress_seconds` config field exists but needs testing against real stale packets from a node's history.
 6. **Test channel mapping with real channels.**
 
-### Likely first production-connectivity tranche focus
+### Meshtastic: Likely first production-connectivity tranche focus
 
 Connect to a real Meshtastic node via TCP. Receive text packets, decode them, send a text message back. Verify packet ID round-trip.
 
-### Known risks
+### Meshtastic: Known risks
 
 - `mtjk` is a fork of the Meshtastic Python library. Its version pinning and compatibility with real Meshtastic firmware need verification.
 - Meshtastic's 512-byte payload limit is not enforced in the renderer. Real messages longer than the limit will silently fail or be truncated by the radio.
 - The `_on_packet` callback is synchronous but publishes async. The background task management works, but error propagation from the async publish back to the callback context needs review.
 - Real Meshtastic nodes may send packets with different protobuf schemas than the scaffold map expects.
 
-
 ## MeshCore
 
-### What tranche 1 proves
+### MeshCore: What tranche 1 proves
 
 - The decode/classify/deliver pipeline works with fake event payloads.
 - `MeshCoreCodec` converts MeshCore-shaped event dicts into `CanonicalEvent` instances.
@@ -145,14 +142,14 @@ Connect to a real Meshtastic node via TCP. Receive text packets, decode them, se
 - `MeshCoreAdapter` follows the same structural pattern as `MeshtasticAdapter` (background tasks, synchronous callback, async publish).
 - `FakeMeshCoreAdapter` returns `AdapterDeliveryResult` with deterministic packet IDs.
 
-### What is still fake/scaffolded
+### MeshCore: What is still fake/scaffolded
 
 - **No real MeshCore SDK or connectivity.** `start()` raises `MeshCoreConnectionError` for any non-fake connection type. There is no real client code at all.
 - **No real MeshCore packet format verification.** The packet shape used in tests is based on the source audit (Contract 64) but has not been validated against real MeshCore event payloads.
 - **No outbound delivery.** `deliver()` returns `None` in tranche 1.
 - **No real dependency.** MeshCore doesn't have a known stable PyPI package yet.
 
-### What must be done before real operation
+### MeshCore: What must be done before real operation
 
 1. **Identify and integrate the MeshCore Python SDK.** The source audit (Contract 64) documented the available interfaces, but no SDK has been selected or integrated.
 2. **Verify real packet format against real MeshCore events.** The current packet shape is based on documentation and source review, not live observation.
@@ -160,21 +157,20 @@ Connect to a real Meshtastic node via TCP. Receive text packets, decode them, se
 4. **Implement real send.** Wire `deliver()` to the actual MeshCore send API.
 5. **Verify event payload schema** with real hardware or simulator output.
 
-### Likely first production-connectivity tranche focus
+### MeshCore: Likely first production-connectivity tranche focus
 
 Obtain real MeshCore event samples. Validate that the codec and classifier handle them correctly. If a Python SDK is available, integrate it for basic TCP connection and text send/receive.
 
-### Known risks
+### MeshCore: Known risks
 
 - MeshCore's SDK availability and stability are uncertain. The project may not have a mature Python client library.
 - Packet format assumptions are based on source code review, not live testing. The real format may differ.
 - MeshCore's event model (channels, direct messages, ACKs) may not map cleanly to the current classifier's assumptions.
 - The adapter is structurally ready (following the Meshtastic template) but substantively empty. This is the most speculative of the four adapters.
 
-
 ## LXMF
 
-### What tranche 1 proves
+### LXMF: What tranche 1 proves
 
 - The decode/classify/deliver pipeline works with fake message payloads.
 - `LxmfCodec` converts LXMF-shaped message dicts into `CanonicalEvent` instances, including source_hash extraction and fields-based metadata.
@@ -183,7 +179,7 @@ Obtain real MeshCore event samples. Validate that the codec and classifier handl
 - `LxmfRenderer` builds payloads with `content`, `title`, `fields`, and `destination_hash`.
 - `FakeLxmfAdapter` returns `AdapterDeliveryResult` with SHA-256-based deterministic message IDs.
 
-### What is still fake/scaffolded
+### LXMF: What is still fake/scaffolded
 
 - **No real Reticulum or LXMF library integration.** `start()` raises `LxmfConnectionError` for non-fake types. No `rns` or `lxmf` imports exist.
 - **No real identity loading.** The `identity_path` config field is a placeholder.
@@ -191,7 +187,7 @@ Obtain real MeshCore event samples. Validate that the codec and classifier handl
 - **Relation reconstruction from fields envelope is explicitly deferred.** The codec stores the raw envelope dict in metadata but does not create `EventRelation` objects from it.
 - **Delivery method selection** (`direct`, `opportunistic`, `propagated`, `paper`) is a config hint only. No actual LXMF delivery method logic exists.
 
-### What must be done before real operation
+### LXMF: What must be done before real operation
 
 1. **Integrate `rns` (Reticulum) and `lxmf` Python packages.** These are the real dependencies for LXMF messaging.
 2. **Implement real identity loading.** Load or create a Reticulum identity from `identity_path`.
@@ -201,18 +197,17 @@ Obtain real MeshCore event samples. Validate that the codec and classifier handl
 6. **Implement relation reconstruction.** Decode the envelope's relation data back into `EventRelation` objects on inbound.
 7. **Verify field key `0xFD` doesn't conflict** with real LXMF field usage.
 
-### Likely first production-connectivity tranche focus
+### LXMF: Likely first production-connectivity tranche focus
 
 Integrate the `rns` and `lxmf` packages. Create a minimal Reticulum identity. Connect to a local LXMF router. Send and receive one message. Verify that the codec handles real `LXMF.Message` objects (or their dict representation).
 
-### Known risks
+### LXMF: Known risks
 
 - Reticulum and LXMF have their own networking stack that may conflict with asyncio's event loop. The async/sync boundary needs careful design.
 - LXMF messages can be very large (16KB+), but the renderer doesn't enforce any limit. Real networks may have practical constraints.
 - The fields envelope approach (key `0xFD`) is an assumption. It needs validation against real LXMF field usage to ensure no conflicts.
 - Identity management (creation, storage, rotation) is a significant piece of work that hasn't been scoped yet.
 - LXMF's store-and-forward and propagation mechanisms add complexity that the current adapter doesn't address at all.
-
 
 ## Summary
 

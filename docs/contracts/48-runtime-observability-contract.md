@@ -7,7 +7,6 @@
 
 Every agent or document that references MEDRE runtime logging, structured log output, adapter lifecycle events, or diagnostics snapshots must defer to this contract.
 
-
 ## 1. Structured Adapter Lifecycle Logs
 
 ### 1.1 Consistent Fields
@@ -23,18 +22,17 @@ These fields appear on every lifecycle log message: start, stop, connect, discon
 
 The following adapter lifecycle events are always logged at INFO level:
 
-| Event | When | Required Fields |
-|-------|------|-----------------|
-| `adapter_starting` | Before adapter start begins | `adapter_id`, `transport` |
-| `adapter_started` | After adapter start succeeds | `adapter_id`, `transport`, `duration_ms` |
-| `adapter_stopping` | Before adapter stop begins | `adapter_id`, `transport` |
-| `adapter_stopped` | After adapter stop completes | `adapter_id`, `transport`, `duration_ms` |
-| `adapter_connected` | Transport connection established | `adapter_id`, `transport` |
-| `adapter_disconnected` | Transport connection lost | `adapter_id`, `transport` |
-| `adapter_failed` | Unrecoverable adapter failure | `adapter_id`, `transport`, error summary |
+| Event                  | When                             | Required Fields                          |
+| ---------------------- | -------------------------------- | ---------------------------------------- |
+| `adapter_starting`     | Before adapter start begins      | `adapter_id`, `transport`                |
+| `adapter_started`      | After adapter start succeeds     | `adapter_id`, `transport`, `duration_ms` |
+| `adapter_stopping`     | Before adapter stop begins       | `adapter_id`, `transport`                |
+| `adapter_stopped`      | After adapter stop completes     | `adapter_id`, `transport`, `duration_ms` |
+| `adapter_connected`    | Transport connection established | `adapter_id`, `transport`                |
+| `adapter_disconnected` | Transport connection lost        | `adapter_id`, `transport`                |
+| `adapter_failed`       | Unrecoverable adapter failure    | `adapter_id`, `transport`, error summary |
 
 Recoverable errors (transient send failures, reconnect attempts) are logged at WARNING level. Internal state transitions are logged at DEBUG level.
-
 
 ## 2. Runtime Startup Logs
 
@@ -51,7 +49,7 @@ At INFO level, the runtime emits:
 
 ### 2.2 Startup Log Sequence Example
 
-```
+```console
 INFO  medre.runtime: Starting 3 adapters
 INFO  medre.adapters.matrix.bot1: adapter_starting transport=matrix adapter_id=bot1
 INFO  medre.adapters.matrix.bot1: adapter_started transport=matrix adapter_id=bot1 duration_ms=234
@@ -62,14 +60,13 @@ INFO  medre.adapters.meshtastic.radio: adapter_started transport=meshtastic adap
 INFO  medre.runtime: Assembly complete: 3/3 adapters started in 525ms
 ```
 
-
 ## 3. Runtime Shutdown Logs
 
 ### 3.1 Shutdown Sequence
 
 At INFO level, the runtime emits per-adapter stop entries in reverse start order:
 
-```
+```console
 INFO  medre.runtime: Shutting down 3 adapters
 INFO  medre.adapters.meshtastic.radio: adapter_stopping transport=meshtastic adapter_id=radio
 INFO  medre.adapters.meshtastic.radio: adapter_stopped transport=meshtastic adapter_id=radio duration_ms=45
@@ -84,10 +81,9 @@ INFO  medre.runtime: Shutdown complete in 103ms
 
 If an adapter does not stop within the global shutdown timeout, a WARNING is logged:
 
-```
+```console
 WARNING  medre.runtime: adapter_id=radio did not stop within shutdown_timeout_seconds=10
 ```
-
 
 ## 4. Startup Duration Metrics
 
@@ -101,7 +97,6 @@ Each adapter's start duration is recorded in milliseconds (`duration_ms`). This 
 ### 4.2 Total Assembly Duration
 
 The total runtime assembly duration is measured from the first adapter start to the last adapter completion (success or failure). This appears in the final summary log.
-
 
 ## 5. Reconnect and Retry State Visibility
 
@@ -123,25 +118,24 @@ The current reconnect state is visible in the adapter diagnostics snapshot:
 
 These fields are specified in Contract 29 § 3.
 
-
 ## 6. Adapter Health Snapshots
 
 ### 6.1 Health States
 
 Each adapter exposes a health state via `health_check()`. The possible states:
 
-| State | Meaning |
-|-------|---------|
-| `healthy` | Adapter is connected and operating normally. |
+| State      | Meaning                                                                           |
+| ---------- | --------------------------------------------------------------------------------- |
+| `healthy`  | Adapter is connected and operating normally.                                      |
 | `degraded` | Adapter is connected but experiencing transient errors (retries, slow responses). |
-| `failed` | Adapter is in a non-recoverable failure state. Not connected. |
-| `stopped` | Adapter has been stopped and is no longer running. |
+| `failed`   | Adapter is in a non-recoverable failure state. Not connected.                     |
+| `stopped`  | Adapter has been stopped and is no longer running.                                |
 
 ### 6.2 Health State Transitions
 
 Health state transitions are logged at INFO level:
 
-```
+```console
 INFO  medre.adapters.matrix.bot1: health_change transport=matrix adapter_id=bot1 old=starting new=healthy
 INFO  medre.adapters.meshtastic.radio: health_change transport=meshtastic adapter_id=radio old=healthy new=degraded
 ```
@@ -152,21 +146,20 @@ Diagnostics snapshots are per-adapter. Each adapter's `diagnostics()` method ret
 
 See Contract 29 for the complete diagnostics schema.
 
-
 ## 7. Strict No-Secrets Policy
 
 ### 7.1 Prohibited Content
 
 The following must **never** appear in logs, diagnostics output, or error messages:
 
-| Category | Examples |
-|----------|----------|
-| Access tokens | Matrix `syt_...` tokens, OAuth tokens, API keys |
-| Device keys | Matrix device keys, ed25519/Curve25519 key data |
-| Crypto material | Olm/Megolm session keys, pickle data, key bytes |
-| Raw SDK dumps | nio sync responses, Meshtastic protobuf objects, Reticulum objects |
-| Protobuf objects | Serialized or deserialized Meshtastic protobuf payloads |
-| Reticulum objects | RNS Identity, Link, or Destination object representations |
+| Category          | Examples                                                           |
+| ----------------- | ------------------------------------------------------------------ |
+| Access tokens     | Matrix `syt_...` tokens, OAuth tokens, API keys                    |
+| Device keys       | Matrix device keys, ed25519/Curve25519 key data                    |
+| Crypto material   | Olm/Megolm session keys, pickle data, key bytes                    |
+| Raw SDK dumps     | nio sync responses, Meshtastic protobuf objects, Reticulum objects |
+| Protobuf objects  | Serialized or deserialized Meshtastic protobuf payloads            |
+| Reticulum objects | RNS Identity, Link, or Destination object representations          |
 
 ### 7.2 Safe Representations
 
@@ -181,22 +174,20 @@ When referencing secrets or sensitive data:
 
 This policy applies to all log levels, including DEBUG. Turning up log verbosity must not leak secrets. Adapter authors must ensure that transport SDK debug output is not forwarded to MEDRE logs without sanitization.
 
-
 ## 8. Log Levels
 
 ### 8.1 Level Assignment
 
-| Level | Purpose | Examples |
-|-------|---------|---------|
-| `INFO` | Lifecycle events, state transitions, startup/shutdown sequences | Adapter started, connected, stopped, health change |
-| `DEBUG` | Internal state, message processing details, SDK interaction summaries | Codec decode details, routing decisions, session state |
-| `WARNING` | Recoverable errors, degraded conditions, retry attempts | Transient send failure, reconnect attempt, slow response |
-| `ERROR` | Failures that affect adapter operation | Adapter start failure, exhausted retries, unrecoverable transport error |
+| Level     | Purpose                                                               | Examples                                                                |
+| --------- | --------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `INFO`    | Lifecycle events, state transitions, startup/shutdown sequences       | Adapter started, connected, stopped, health change                      |
+| `DEBUG`   | Internal state, message processing details, SDK interaction summaries | Codec decode details, routing decisions, session state                  |
+| `WARNING` | Recoverable errors, degraded conditions, retry attempts               | Transient send failure, reconnect attempt, slow response                |
+| `ERROR`   | Failures that affect adapter operation                                | Adapter start failure, exhausted retries, unrecoverable transport error |
 
 ### 8.2 CRITICAL Usage
 
 `CRITICAL` is not used by MEDRE components. Process-level failures (OOM, segfault) are outside MEDRE's logging scope.
-
 
 ## 9. Structured Logger Names
 
@@ -204,16 +195,16 @@ This policy applies to all log levels, including DEBUG. Turning up log verbosity
 
 Logger names follow a hierarchical dotted convention:
 
-| Logger | Scope |
-|--------|-------|
-| `medre.runtime` | Runtime assembly, startup, shutdown, global events |
-| `medre.adapters.{transport}.{adapter_id}` | Per-adapter lifecycle and transport events |
-| `medre.cli` | CLI command execution, argument parsing |
-| `medre.core.{module}` | Core library components (codec, event bus, routing) |
+| Logger                                    | Scope                                               |
+| ----------------------------------------- | --------------------------------------------------- |
+| `medre.runtime`                           | Runtime assembly, startup, shutdown, global events  |
+| `medre.adapters.{transport}.{adapter_id}` | Per-adapter lifecycle and transport events          |
+| `medre.cli`                               | CLI command execution, argument parsing             |
+| `medre.core.{module}`                     | Core library components (codec, event bus, routing) |
 
 ### 9.2 Examples
 
-```
+```text
 medre.adapters.matrix.bot1
 medre.adapters.matrix.bot2
 medre.adapters.meshtastic.longfast
@@ -233,14 +224,13 @@ Structured logger names enable:
 - **Runtime vs. adapter separation:** Distinguish runtime lifecycle from adapter events.
 - **CLI vs. runtime separation:** Distinguish CLI command output from runtime events.
 
-
 ## 10. Log Output
 
 ### 10.1 Log File Location
 
 All log output is written to a single global log file:
 
-```
+```json
 {state}/logs/medre.log
 ```
 
@@ -258,7 +248,6 @@ The log format is controlled by the `[logging]` configuration section:
 - `format = "json"` — structured JSON, suitable for log aggregation and production monitoring.
 
 Both formats include the logger name, level, timestamp, and message. Structured fields (`adapter_id`, `transport`, `duration_ms`) are included as key-value pairs in both formats.
-
 
 ## 11. Observability Invariants
 

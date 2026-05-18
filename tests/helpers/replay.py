@@ -7,7 +7,7 @@ traceability).
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from typing import Any, cast
 
 import pytest
@@ -16,11 +16,10 @@ from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.planning import FallbackResolver
 from medre.core.rendering import RenderingPipeline, TextRenderer
 from medre.core.routing import Router
+from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.storage import SQLiteStorage
 from medre.core.storage.backend import StorageBackend
 from medre.core.storage.replay import ReplayEngine
-from medre.core.runtime.accounting import RuntimeAccounting
-
 
 # ---------------------------------------------------------------------------
 # Stub pipeline
@@ -54,7 +53,8 @@ class StubPipeline:
         return None
 
     async def route_event(
-        self, event: CanonicalEvent,
+        self,
+        event: CanonicalEvent,
     ) -> list[tuple[Any, list[Any]]]:
         """Match event against the router and return (route, targets) pairs."""
         if self._router is None:
@@ -72,11 +72,9 @@ class StubPipeline:
     ) -> list[Any]:
         """Build delivery plans for each route-target pair."""
         plans: list[Any] = []
-        for route, targets in routes:
+        for _route, targets in routes:
             for target in targets:
-                plan = self._fallback_resolver.resolve_fallback(
-                    event, target, {}
-                )
+                plan = self._fallback_resolver.resolve_fallback(event, target, {})
                 plans.append(plan)
         return plans
 

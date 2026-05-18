@@ -23,19 +23,12 @@ Usage
 >>> event = adapter.make_event("Hello from Matrix!")
 >>> await adapter.simulate_inbound(event)
 """
+
 from __future__ import annotations
 
 import logging
 import uuid
 from typing import Any
-
-from medre.core.events.canonical import (
-    CanonicalEvent,
-    EventRelation,
-    NativeRef,
-)
-from medre.core.events.kinds import EventKind
-from medre.core.rendering.renderer import RenderingResult
 
 from medre.core.contracts.adapter import (
     AdapterCapabilities,
@@ -46,6 +39,13 @@ from medre.core.contracts.adapter import (
     AdapterPermanentError,
     AdapterRole,
 )
+from medre.core.events.canonical import (
+    CanonicalEvent,
+    EventRelation,
+    NativeRef,
+)
+from medre.core.events.kinds import EventKind
+from medre.core.rendering.renderer import RenderingResult
 
 _logger = logging.getLogger(__name__)
 
@@ -60,8 +60,10 @@ def _trim(lst: list[Any], maxsize: int = _MAX_FAKE_HISTORY) -> None:
         del lst[:excess]
         _logger.warning(
             "Fake adapter history trimmed %d oldest entries (cap=%d)",
-            excess, maxsize,
+            excess,
+            maxsize,
         )
+
 
 # Default capabilities for the fake Matrix adapter.
 _FAKE_MATRIX_CAPABILITIES = AdapterCapabilities(
@@ -146,9 +148,7 @@ class FakeMatrixAdapter(AdapterContract):
         """Mark the adapter as stopped."""
         self._started = False
         if self.ctx is not None:
-            self.ctx.logger.info(
-                "FakeMatrixAdapter %s stopped", self.adapter_id
-            )
+            self.ctx.logger.info("FakeMatrixAdapter %s stopped", self.adapter_id)
 
     async def health_check(self) -> AdapterInfo:
         """Return a healthy :class:`AdapterInfo` snapshot."""

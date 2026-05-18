@@ -20,19 +20,18 @@ These tests verify:
 from __future__ import annotations
 
 import re
-import sys
 from datetime import datetime, timezone
 
 import pytest
 
-from medre.core.contracts.adapter import AdapterPermanentError, AdapterSendError
 from medre.adapters.fake_lxmf import FakeLxmfAdapter
-from medre.config.adapters.lxmf import LxmfConfig
-from medre.adapters.lxmf.codec import LxmfCodec
-from medre.adapters.lxmf.renderer import LxmfRenderer
 from medre.adapters.lxmf.adapter import LxmfAdapter
+from medre.adapters.lxmf.codec import LxmfCodec
 from medre.adapters.lxmf.errors import LxmfSendError
 from medre.adapters.lxmf.packet_classifier import LxmfPacketClassifier
+from medre.adapters.lxmf.renderer import LxmfRenderer
+from medre.config.adapters.lxmf import LxmfConfig
+from medre.core.contracts.adapter import AdapterPermanentError, AdapterSendError
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.rendering.renderer import RenderingResult
 
@@ -54,18 +53,21 @@ class TestCoreLxmfIsolation:
     def test_core_events_does_not_import_lxmf(self) -> None:
         """medre.core.events has no lxmf references."""
         import medre.core.events as events_mod
+
         source = _read_module_source(events_mod)
         assert "lxmf" not in source.lower()
 
     def test_core_rendering_does_not_import_lxmf(self) -> None:
         """medre.core.rendering.renderer has no lxmf references."""
         import medre.core.rendering.renderer as renderer_mod
+
         source = _read_module_source(renderer_mod)
         assert "lxmf" not in source.lower()
 
     def test_core_engine_does_not_import_lxmf(self) -> None:
         """medre.core.engine.pipeline has no lxmf references."""
         import medre.core.engine.pipeline as pipeline_mod
+
         source = _read_module_source(pipeline_mod)
         assert "lxmf" not in source.lower()
 
@@ -80,51 +82,59 @@ class TestLxmfMatrixIsolation:
 
     def test_lxmf_adapter_does_not_import_matrix(self) -> None:
         import medre.adapters.lxmf.adapter as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "matrix" not in line.lower(), (
-                f"LXMF adapter must not import Matrix code; found: {line!r}"
-            )
+            assert (
+                "matrix" not in line.lower()
+            ), f"LXMF adapter must not import Matrix code; found: {line!r}"
 
     def test_lxmf_codec_does_not_import_matrix(self) -> None:
         import medre.adapters.lxmf.codec as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "matrix" not in line.lower(), (
-                f"LXMF codec must not import Matrix code; found: {line!r}"
-            )
+            assert (
+                "matrix" not in line.lower()
+            ), f"LXMF codec must not import Matrix code; found: {line!r}"
 
     def test_lxmf_renderer_does_not_import_matrix(self) -> None:
         import medre.adapters.lxmf.renderer as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "matrix" not in line.lower(), (
-                f"LXMF renderer must not import Matrix code; found: {line!r}"
-            )
+            assert (
+                "matrix" not in line.lower()
+            ), f"LXMF renderer must not import Matrix code; found: {line!r}"
 
     def test_lxmf_packet_classifier_does_not_import_matrix(self) -> None:
         import medre.adapters.lxmf.packet_classifier as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "matrix" not in line.lower(), (
-                f"Packet classifier must not import Matrix code; found: {line!r}"
-            )
+            assert (
+                "matrix" not in line.lower()
+            ), f"Packet classifier must not import Matrix code; found: {line!r}"
 
 
 # ===================================================================
@@ -137,123 +147,143 @@ class TestLxmfMeshtasticMeshCoreIsolation:
 
     def test_lxmf_adapter_does_not_import_meshtastic(self) -> None:
         import medre.adapters.lxmf.adapter as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "meshtastic" not in line.lower(), (
-                f"LXMF adapter must not import Meshtastic code; found: {line!r}"
-            )
+            assert (
+                "meshtastic" not in line.lower()
+            ), f"LXMF adapter must not import Meshtastic code; found: {line!r}"
 
     def test_lxmf_adapter_does_not_import_meshcore(self) -> None:
         import medre.adapters.lxmf.adapter as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "meshcore" not in line.lower(), (
-                f"LXMF adapter must not import MeshCore code; found: {line!r}"
-            )
+            assert (
+                "meshcore" not in line.lower()
+            ), f"LXMF adapter must not import MeshCore code; found: {line!r}"
 
     def test_lxmf_codec_does_not_import_meshtastic(self) -> None:
         import medre.adapters.lxmf.codec as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "meshtastic" not in line.lower(), (
-                f"LXMF codec must not import Meshtastic code; found: {line!r}"
-            )
+            assert (
+                "meshtastic" not in line.lower()
+            ), f"LXMF codec must not import Meshtastic code; found: {line!r}"
 
     def test_lxmf_codec_does_not_import_meshcore(self) -> None:
         import medre.adapters.lxmf.codec as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "meshcore" not in line.lower(), (
-                f"LXMF codec must not import MeshCore code; found: {line!r}"
-            )
+            assert (
+                "meshcore" not in line.lower()
+            ), f"LXMF codec must not import MeshCore code; found: {line!r}"
 
     def test_lxmf_renderer_does_not_import_meshtastic(self) -> None:
         import medre.adapters.lxmf.renderer as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "meshtastic" not in line.lower(), (
-                f"LXMF renderer must not import Meshtastic code; found: {line!r}"
-            )
+            assert (
+                "meshtastic" not in line.lower()
+            ), f"LXMF renderer must not import Meshtastic code; found: {line!r}"
 
     def test_lxmf_renderer_does_not_import_meshcore(self) -> None:
         import medre.adapters.lxmf.renderer as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "meshcore" not in line.lower(), (
-                f"LXMF renderer must not import MeshCore code; found: {line!r}"
-            )
+            assert (
+                "meshcore" not in line.lower()
+            ), f"LXMF renderer must not import MeshCore code; found: {line!r}"
 
     def test_lxmf_classifier_does_not_import_meshtastic(self) -> None:
         import medre.adapters.lxmf.packet_classifier as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "meshtastic" not in line.lower(), (
-                f"Packet classifier must not import Meshtastic code; found: {line!r}"
-            )
+            assert (
+                "meshtastic" not in line.lower()
+            ), f"Packet classifier must not import Meshtastic code; found: {line!r}"
 
     def test_lxmf_classifier_does_not_import_meshcore(self) -> None:
         import medre.adapters.lxmf.packet_classifier as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "meshcore" not in line.lower(), (
-                f"Packet classifier must not import MeshCore code; found: {line!r}"
-            )
+            assert (
+                "meshcore" not in line.lower()
+            ), f"Packet classifier must not import MeshCore code; found: {line!r}"
 
     def test_fake_lxmf_does_not_import_meshtastic(self) -> None:
         import medre.adapters.fake_lxmf as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "meshtastic" not in line.lower(), (
-                f"FakeLxmfAdapter must not import Meshtastic code; found: {line!r}"
-            )
+            assert (
+                "meshtastic" not in line.lower()
+            ), f"FakeLxmfAdapter must not import Meshtastic code; found: {line!r}"
 
     def test_fake_lxmf_does_not_import_meshcore(self) -> None:
         import medre.adapters.fake_lxmf as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "meshcore" not in line.lower(), (
-                f"FakeLxmfAdapter must not import MeshCore code; found: {line!r}"
-            )
+            assert (
+                "meshcore" not in line.lower()
+            ), f"FakeLxmfAdapter must not import MeshCore code; found: {line!r}"
 
 
 # ===================================================================
@@ -283,6 +313,7 @@ class TestLxmfCodecIsolation:
 
     def test_codec_does_not_import_routing(self) -> None:
         import medre.adapters.lxmf.codec as mod
+
         source = _read_module_source(mod)
         assert "routing" not in source
         assert "Router" not in source
@@ -291,6 +322,7 @@ class TestLxmfCodecIsolation:
 
     def test_codec_source_has_no_route_or_deliver_definitions(self) -> None:
         import medre.adapters.lxmf.codec as mod
+
         source = _read_module_source(mod)
         method_defs = re.findall(r"def\s+(\w+)", source)
         assert "route" not in method_defs
@@ -317,15 +349,17 @@ class TestLxmfRendererIsolation:
 
     def test_renderer_source_does_not_import_deliver(self) -> None:
         import medre.adapters.lxmf.renderer as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "deliver" not in line.lower(), (
-                f"Renderer must not import delivery code; found: {line!r}"
-            )
+            assert (
+                "deliver" not in line.lower()
+            ), f"Renderer must not import delivery code; found: {line!r}"
 
     async def test_renderer_returns_rendering_result_not_delivery(self) -> None:
         renderer = LxmfRenderer()
@@ -396,7 +430,9 @@ class TestLxmfAdapterDeliveryBoundary:
             payload={"body": "hello"},
             metadata=EventMetadata(),
         )
-        with pytest.raises((TypeError, AdapterPermanentError), match="RenderingResult only"):
+        with pytest.raises(
+            (TypeError, AdapterPermanentError), match="RenderingResult only"
+        ):
             await adapter.deliver(event)
 
     async def test_real_lxmf_rejects_canonical_event(self) -> None:
@@ -416,7 +452,9 @@ class TestLxmfAdapterDeliveryBoundary:
             payload={"body": "hello"},
             metadata=EventMetadata(),
         )
-        with pytest.raises((TypeError, AdapterPermanentError), match="RenderingResult only"):
+        with pytest.raises(
+            (TypeError, AdapterPermanentError), match="RenderingResult only"
+        ):
             await adapter.deliver(event)
 
 
@@ -534,51 +572,57 @@ class TestCoreNoLxmfOrRns:
     def test_core_events_does_not_import_rns(self) -> None:
         """medre.core.events has no RNS references."""
         import medre.core.events as events_mod
+
         source = _read_module_source(events_mod)
         # Check import lines only to avoid false positives from words like "returns"
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "rns" not in line.lower(), (
-                f"Core events must not import RNS; found: {line!r}"
-            )
-            assert "reticulum" not in line.lower(), (
-                f"Core events must not import Reticulum; found: {line!r}"
-            )
+            assert (
+                "rns" not in line.lower()
+            ), f"Core events must not import RNS; found: {line!r}"
+            assert (
+                "reticulum" not in line.lower()
+            ), f"Core events must not import Reticulum; found: {line!r}"
 
     def test_core_rendering_does_not_import_rns(self) -> None:
         """medre.core.rendering.renderer has no RNS references."""
         import medre.core.rendering.renderer as renderer_mod
+
         source = _read_module_source(renderer_mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "rns" not in line.lower(), (
-                f"Core rendering must not import RNS; found: {line!r}"
-            )
-            assert "reticulum" not in line.lower(), (
-                f"Core rendering must not import Reticulum; found: {line!r}"
-            )
+            assert (
+                "rns" not in line.lower()
+            ), f"Core rendering must not import RNS; found: {line!r}"
+            assert (
+                "reticulum" not in line.lower()
+            ), f"Core rendering must not import Reticulum; found: {line!r}"
 
     def test_core_engine_does_not_import_rns(self) -> None:
         """medre.core.engine.pipeline has no RNS references."""
         import medre.core.engine.pipeline as pipeline_mod
+
         source = _read_module_source(pipeline_mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "rns" not in line.lower(), (
-                f"Core engine must not import RNS; found: {line!r}"
-            )
-            assert "reticulum" not in line.lower(), (
-                f"Core engine must not import Reticulum; found: {line!r}"
-            )
+            assert (
+                "rns" not in line.lower()
+            ), f"Core engine must not import RNS; found: {line!r}"
+            assert (
+                "reticulum" not in line.lower()
+            ), f"Core engine must not import Reticulum; found: {line!r}"
 
 
 # ===================================================================
@@ -592,9 +636,11 @@ class TestLxmfCompatIsolation:
     def test_adapter_does_not_import_lxmf_directly(self) -> None:
         """LXMF adapter uses compat.HAS_LXMF, not direct lxmf import."""
         import medre.adapters.lxmf.adapter as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
             and not line.strip().startswith("#")
         ]
@@ -604,65 +650,65 @@ class TestLxmfCompatIsolation:
             if "lxmf.compat" in line or "lxmf." in line and ".compat" in line:
                 continue
             assert not (
-                line.startswith("import lxmf")
-                or line.startswith("from lxmf")
-            ), (
-                f"LXMF adapter must not import lxmf directly; found: {line!r}"
-            )
+                line.startswith("import lxmf") or line.startswith("from lxmf")
+            ), f"LXMF adapter must not import lxmf directly; found: {line!r}"
             assert not (
-                line.startswith("import RNS")
-                or line.startswith("from RNS")
-            ), (
-                f"LXMF adapter must not import RNS directly; found: {line!r}"
-            )
+                line.startswith("import RNS") or line.startswith("from RNS")
+            ), f"LXMF adapter must not import RNS directly; found: {line!r}"
 
     def test_codec_does_not_import_lxmf_or_rns(self) -> None:
         """LXMF codec is pure — no lxmf/RNS imports."""
         import medre.adapters.lxmf.codec as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "lxmf" not in line.lower() or "medre.adapters.lxmf" in line, (
-                f"LXMF codec must not import lxmf; found: {line!r}"
-            )
-            assert "rns" not in line.lower(), (
-                f"LXMF codec must not import RNS; found: {line!r}"
-            )
+            assert (
+                "lxmf" not in line.lower() or "medre.adapters.lxmf" in line
+            ), f"LXMF codec must not import lxmf; found: {line!r}"
+            assert (
+                "rns" not in line.lower()
+            ), f"LXMF codec must not import RNS; found: {line!r}"
 
     def test_classifier_does_not_import_lxmf_or_rns(self) -> None:
         """LXMF classifier is pure — no lxmf/RNS imports."""
         import medre.adapters.lxmf.packet_classifier as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "lxmf" not in line.lower() or "medre.adapters.lxmf" in line, (
-                f"Classifier must not import lxmf; found: {line!r}"
-            )
-            assert "rns" not in line.lower(), (
-                f"Classifier must not import RNS; found: {line!r}"
-            )
+            assert (
+                "lxmf" not in line.lower() or "medre.adapters.lxmf" in line
+            ), f"Classifier must not import lxmf; found: {line!r}"
+            assert (
+                "rns" not in line.lower()
+            ), f"Classifier must not import RNS; found: {line!r}"
 
     def test_renderer_does_not_import_lxmf_or_rns(self) -> None:
         """LXMF renderer does not import lxmf/RNS."""
         import medre.adapters.lxmf.renderer as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "lxmf" not in line.lower() or "medre.adapters.lxmf" in line, (
-                f"Renderer must not import lxmf; found: {line!r}"
-            )
-            assert "rns" not in line.lower(), (
-                f"Renderer must not import RNS; found: {line!r}"
-            )
+            assert (
+                "lxmf" not in line.lower() or "medre.adapters.lxmf" in line
+            ), f"Renderer must not import lxmf; found: {line!r}"
+            assert (
+                "rns" not in line.lower()
+            ), f"Renderer must not import RNS; found: {line!r}"
 
 
 # ===================================================================
@@ -690,6 +736,7 @@ class TestLxmfClassifierPurity:
 
     def test_classifier_source_has_no_side_effects(self) -> None:
         import medre.adapters.lxmf.packet_classifier as mod
+
         source = _read_module_source(mod)
         method_defs = re.findall(r"def\s+(\w+)", source)
         assert "deliver" not in method_defs
@@ -843,9 +890,7 @@ class TestLxmfErrorClassification:
 
         session = MagicMock()
         session.send_text = AsyncMock(
-            side_effect=LxmfSendError(
-                "Send failed after 3 attempts", transient=True
-            )
+            side_effect=LxmfSendError("Send failed after 3 attempts", transient=True)
         )
         adapter._session = session
 

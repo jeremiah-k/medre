@@ -266,8 +266,8 @@ class TestLxmfLiveSmoke:
         When ``identity_path`` is explicitly set to ``""``, validation
         must raise ``LxmfConfigError`` because empty strings are invalid.
         """
-        from medre.config.adapters.lxmf import LxmfConfig
         from medre.config.adapters.errors import LxmfConfigError
+        from medre.config.adapters.lxmf import LxmfConfig
 
         config = LxmfConfig(
             adapter_id="lxmf-live-smoke",
@@ -304,15 +304,13 @@ class TestLxmfLiveSmoke:
         try:
             await adapter.start(ctx)
             info = await adapter.health_check()
-            assert info.health == "healthy", (
-                f"Expected healthy after start, got {info.health!r}"
-            )
+            assert (
+                info.health == "healthy"
+            ), f"Expected healthy after start, got {info.health!r}"
             assert info.platform == "lxmf"
             assert info.adapter_id == "lxmf-live-smoke"
         except LxmfConnectionError as exc:
-            pytest.skip(
-                f"LXMF connection unavailable: {exc}"
-            )
+            pytest.skip(f"LXMF connection unavailable: {exc}")
         finally:
             await adapter.stop()
 
@@ -330,9 +328,9 @@ class TestLxmfLiveSmoke:
         adapter = LxmfAdapter(config)
 
         info = await adapter.health_check()
-        assert info.health == "unknown", (
-            f"Expected unknown before start, got {info.health!r}"
-        )
+        assert (
+            info.health == "unknown"
+        ), f"Expected unknown before start, got {info.health!r}"
         assert info.platform == "lxmf"
         assert info.role == AdapterRole.TRANSPORT
 
@@ -353,15 +351,13 @@ class TestLxmfLiveSmoke:
         try:
             await adapter.start(ctx)
         except LxmfConnectionError as exc:
-            pytest.skip(
-                f"LXMF connection unavailable: {exc}"
-            )
+            pytest.skip(f"LXMF connection unavailable: {exc}")
 
         await adapter.stop()
         info = await adapter.health_check()
-        assert info.health == "unknown", (
-            f"Expected unknown after stop, got {info.health!r}"
-        )
+        assert (
+            info.health == "unknown"
+        ), f"Expected unknown after stop, got {info.health!r}"
 
     async def test_adapter_stop_idempotent_before_start(self):
         """Calling stop() on a never-started adapter is safe (idempotent).
@@ -415,20 +411,18 @@ class TestLxmfLiveSmoke:
                 metadata={"renderer": "lxmf", "test": "send-smoke"},
             )
             delivery = await adapter.deliver(result)
-            assert delivery is not None, (
-                "deliver() returned None — expected AdapterDeliveryResult"
-            )
+            assert (
+                delivery is not None
+            ), "deliver() returned None — expected AdapterDeliveryResult"
             assert isinstance(delivery, AdapterDeliveryResult)
-            assert delivery.native_message_id is not None, (
-                "native_message_id is None"
-            )
+            assert delivery.native_message_id is not None, "native_message_id is None"
             lxmf_meta = delivery.metadata.get("lxmf")
-            assert isinstance(lxmf_meta, dict), (
-                "Expected 'lxmf' dict in delivery metadata"
-            )
-            assert "delivery_state" in lxmf_meta, (
-                "Expected 'delivery_state' in lxmf metadata"
-            )
+            assert isinstance(
+                lxmf_meta, dict
+            ), "Expected 'lxmf' dict in delivery metadata"
+            assert (
+                "delivery_state" in lxmf_meta
+            ), "Expected 'delivery_state' in lxmf metadata"
             assert lxmf_meta["delivery_state"] == "outbound", (
                 f"Expected delivery_state 'outbound', "
                 f"got {lxmf_meta['delivery_state']!r}"
@@ -486,9 +480,9 @@ class TestLxmfLiveSmoke:
             assert d1 is not None and d2 is not None
             assert d1.native_message_id is not None
             assert d2.native_message_id is not None
-            assert d1.native_message_id != d2.native_message_id, (
-                "Two sends produced the same native_message_id"
-            )
+            assert (
+                d1.native_message_id != d2.native_message_id
+            ), "Two sends produced the same native_message_id"
         finally:
             await adapter.stop()
 
@@ -499,8 +493,8 @@ class TestLxmfLiveSmoke:
         validation which works in any connection mode.  Uses fake mode
         so the adapter can start without Reticulum.
         """
-        from medre.core.contracts.adapter import AdapterPermanentError
         from medre.adapters.lxmf.adapter import LxmfAdapter
+        from medre.core.contracts.adapter import AdapterPermanentError
 
         config = _make_fake_config()
         adapter = LxmfAdapter(config)
@@ -555,9 +549,9 @@ class TestLxmfLiveSmoke:
                 content="MEDRE live smoke inbound test",
             )
             await adapter.simulate_inbound(packet)
-            assert publish_mock.call_count == 1, (
-                f"Expected 1 inbound publish, got {publish_mock.call_count}"
-            )
+            assert (
+                publish_mock.call_count == 1
+            ), f"Expected 1 inbound publish, got {publish_mock.call_count}"
             event = publish_mock.call_args.args[0]
             assert event.payload.get("body") == "MEDRE live smoke inbound test"
         finally:
@@ -593,38 +587,34 @@ class TestLxmfLiveSmoke:
         try:
             await adapter.start(ctx1)
         except LxmfConnectionError as exc:
-            pytest.skip(
-                f"LXMF connection unavailable: {exc}"
-            )
+            pytest.skip(f"LXMF connection unavailable: {exc}")
 
         info = await adapter.health_check()
-        assert info.health == "healthy", (
-            f"Cycle 1 start: expected healthy, got {info.health!r}"
-        )
+        assert (
+            info.health == "healthy"
+        ), f"Cycle 1 start: expected healthy, got {info.health!r}"
         await adapter.stop()
         info = await adapter.health_check()
-        assert info.health == "unknown", (
-            f"Cycle 1 stop: expected unknown, got {info.health!r}"
-        )
+        assert (
+            info.health == "unknown"
+        ), f"Cycle 1 stop: expected unknown, got {info.health!r}"
 
         # Cycle 2 — same adapter instance, new context
         ctx2 = _make_context()
         try:
             await adapter.start(ctx2)
         except LxmfConnectionError as exc:
-            pytest.skip(
-                f"LXMF connection unavailable on restart: {exc}"
-            )
+            pytest.skip(f"LXMF connection unavailable on restart: {exc}")
 
         info = await adapter.health_check()
-        assert info.health == "healthy", (
-            f"Cycle 2 start: expected healthy, got {info.health!r}"
-        )
+        assert (
+            info.health == "healthy"
+        ), f"Cycle 2 start: expected healthy, got {info.health!r}"
         await adapter.stop()
         info = await adapter.health_check()
-        assert info.health == "unknown", (
-            f"Cycle 2 stop: expected unknown, got {info.health!r}"
-        )
+        assert (
+            info.health == "unknown"
+        ), f"Cycle 2 stop: expected unknown, got {info.health!r}"
 
     async def test_restart_with_fake_mode(self):
         """Restart cycle using fake mode (no Reticulum required).
@@ -722,14 +712,13 @@ class TestLxmfLiveSmoke:
             ctx = _make_context()
             await adapter.start(ctx)
             info = await adapter.health_check()
-            assert info.health == "healthy", (
-                f"Cycle {i + 1}: expected healthy, got {info.health!r}"
-            )
+            assert (
+                info.health == "healthy"
+            ), f"Cycle {i + 1}: expected healthy, got {info.health!r}"
             await adapter.stop()
             info = await adapter.health_check()
             assert info.health == "unknown", (
-                f"Cycle {i + 1}: expected unknown after stop, "
-                f"got {info.health!r}"
+                f"Cycle {i + 1}: expected unknown after stop, " f"got {info.health!r}"
             )
 
     # ===================================================================
@@ -773,9 +762,7 @@ class TestLxmfLiveSmoke:
         delivery = await adapter.deliver(result)
         assert delivery is not None, "deliver() returned None"
         assert isinstance(delivery, AdapterDeliveryResult)
-        assert delivery.native_message_id is not None, (
-            "native_message_id is None"
-        )
+        assert delivery.native_message_id is not None, "native_message_id is None"
         lxmf_meta = delivery.metadata.get("lxmf")
         assert isinstance(lxmf_meta, dict)
         assert lxmf_meta["delivery_state"] == "outbound"
@@ -810,15 +797,15 @@ class TestLxmfLiveSmoke:
 
         await adapter.start(ctx)
         diag = adapter.session.diagnostics()
-        assert diag.connected is True, (
-            f"Expected connected=True after start, got {diag.connected}"
-        )
+        assert (
+            diag.connected is True
+        ), f"Expected connected=True after start, got {diag.connected}"
 
         await adapter.stop()
         diag = adapter.session.diagnostics()
-        assert diag.connected is False, (
-            f"Expected connected=False after stop, got {diag.connected}"
-        )
+        assert (
+            diag.connected is False
+        ), f"Expected connected=False after stop, got {diag.connected}"
 
     # ===================================================================
     # 9. Documentation notes

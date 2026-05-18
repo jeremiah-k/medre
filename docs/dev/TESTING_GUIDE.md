@@ -10,7 +10,6 @@ pipeline. See the [README](../../README.md) for project context and the
 [Fake Bridge Smoke Runbook](../runbooks/fake-bridge-smoke-runbook.md) for
 bridge-specific test commands.
 
-
 ## File Size Limits
 
 **Target: < 1,200 lines per test file.** Hard ceiling: 1,500 lines unless
@@ -20,14 +19,14 @@ Split files by behavioral domain, not by "coverage" or "misc". When a domain
 file approaches the target, split it by subdomain following the procedure in
 the [Next Modernization Wave](#next-modernization-wave) section below.
 
-### Allowlisted files (legacy, above 1,500 lines)
+### Allowlisted files (existing large files, above 1,500 lines)
 
 These files predate the size policy and have not yet been split. Each must
 carry a TODO comment in the structure test explaining why it has not been
 split.
 
-| File | Lines | Status |
-|------|-------|--------|
+| File                           | Lines | Status                     |
+| ------------------------------ | ----- | -------------------------- |
 | `tests/test_matrix_session.py` | 2,241 | Allowlisted; pending split |
 
 | `tests/test_replay_routing.py` | 1,584 | Allowlisted; pending split |
@@ -53,13 +52,12 @@ be split according to the schedule in
 6. Run the full suite to confirm nothing is broken:
    `PYTHONPATH=src pytest -q`.
 
-
 ## Test Style
 
 ### Use pytest function style for new tests
 
 New tests must use pytest function style (module-level `async def` or `def`),
-not `unittest.TestCase`. Existing `TestCase` classes are acceptable as legacy
+not `unittest.TestCase`. Existing `TestCase` classes are acceptable as existing
 but should not be extended with new test methods.
 
 ```python
@@ -69,7 +67,7 @@ async def test_adapter_delivers_event(fake_adapter, canonical_event):
     assert result.status == "success"
 
 
-# Acceptable legacy: existing TestCase classes (do not extend)
+# Existing pattern: TestCase classes (do not extend with new methods)
 class TestLegacyStorage(unittest.TestCase):
     def setUp(self):
         self.store = InMemoryStorage()
@@ -102,7 +100,6 @@ The project uses `asyncio_mode = "auto"` in `pyproject.toml`. Most async test
 functions do not need an explicit `@pytest.mark.asyncio` decorator. Add the
 decorator only when the auto-detection fails (rare, usually with parametrized
 generators).
-
 
 ## Avoiding Fixed Sleeps
 
@@ -152,7 +149,6 @@ async def test_pipeline_processes_event(pipeline, event):
     await asyncio.wait_for(processed.wait(), timeout=2.0)
 ```
 
-
 ## Async Mocking Rules
 
 Using the wrong mock type is the most common source of `RuntimeWarning:
@@ -160,12 +156,12 @@ coroutine was never awaited` and `ResourceWarning` noise in the test suite.
 
 ### Rule: match the mock type to the production call shape
 
-| Production call | Mock type | Example |
-|-----------------|-----------|---------|
-| `await client.close()` | `AsyncMock` | `client.close = AsyncMock()` |
-| `client.add_event_callback(fn)` | `MagicMock` (never awaited) | `client.add_event_callback = MagicMock()` |
-| `await session.start()` | `AsyncMock` | `session.start = AsyncMock()` |
-| `session.config` (attribute access) | Plain attribute or `PropertyMock` | `session.config = test_config` |
+| Production call                     | Mock type                         | Example                                   |
+| ----------------------------------- | --------------------------------- | ----------------------------------------- |
+| `await client.close()`              | `AsyncMock`                       | `client.close = AsyncMock()`              |
+| `client.add_event_callback(fn)`     | `MagicMock` (never awaited)       | `client.add_event_callback = MagicMock()` |
+| `await session.start()`             | `AsyncMock`                       | `session.start = AsyncMock()`             |
+| `session.config` (attribute access) | Plain attribute or `PropertyMock` | `session.config = test_config`            |
 
 The rule is simple: if production code `await`s the callable, use `AsyncMock`.
 For everything else, use `Mock` or `MagicMock`.
@@ -200,20 +196,19 @@ async def _cancel_immediately(*args, **kwargs):
     raise asyncio.CancelledError()
 ```
 
-
 ## Adapter/Bridge Test Tiers
 
 Tests are classified into five tiers based on what they honestly prove. Never
 overclaim the evidence level of a test. If a test uses fake adapters, call it
 "fake pipeline", not "docker" or "live".
 
-| Tier | Label | What it proves | How to test |
-|------|-------|---------------|-------------|
-| 1 | `fake_pipeline` | `PipelineRunner.handle_ingress()` works with direct `CanonicalEvent` injection | Import `CanonicalEvent`, construct it, call `runner.handle_ingress()` directly |
-| 2 | `fake_adapter_callback` | `adapter.simulate_inbound()` produces the same results as direct injection | Use `FakeMatrixAdapter.simulate_inbound()`, compare output with direct injection |
-| 3 | `wrapper_callback` | Real adapter SDK callback (e.g., `_on_room_message`) bridges to fake target | Mock the SDK, test the wrapper callback through the pipeline to a fake target adapter |
-| 4 | `docker_sdk_boundary` | Real SDK code paths work against containerized services (Synapse, meshtasticd) | Docker Compose tests, gated by `@pytest.mark.docker` |
-| 5 | `live_network` | Real adapter against real endpoint or hardware | `@pytest.mark.live`, requires environment variables |
+| Tier | Label                   | What it proves                                                                 | How to test                                                                           |
+| ---- | ----------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| 1    | `fake_pipeline`         | `PipelineRunner.handle_ingress()` works with direct `CanonicalEvent` injection | Import `CanonicalEvent`, construct it, call `runner.handle_ingress()` directly        |
+| 2    | `fake_adapter_callback` | `adapter.simulate_inbound()` produces the same results as direct injection     | Use `FakeMatrixAdapter.simulate_inbound()`, compare output with direct injection      |
+| 3    | `wrapper_callback`      | Real adapter SDK callback (e.g., `_on_room_message`) bridges to fake target    | Mock the SDK, test the wrapper callback through the pipeline to a fake target adapter |
+| 4    | `docker_sdk_boundary`   | Real SDK code paths work against containerized services (Synapse, meshtasticd) | Docker Compose tests, gated by `@pytest.mark.docker`                                  |
+| 5    | `live_network`          | Real adapter against real endpoint or hardware                                 | `@pytest.mark.live`, requires environment variables                                   |
 
 ### Honest evidence reporting
 
@@ -226,7 +221,6 @@ overclaim the evidence level of a test. If a test uses fake adapters, call it
 
 The `medre smoke --json` report includes an `evidence_level` field set to
 `fake_bridge`. This is intentional. It does not overclaim.
-
 
 ## Storage Tests
 
@@ -264,7 +258,6 @@ Schema version stays at 1 pre-release. No schema bumps until beta. Tests
 should assert `schema_version == 1` and that opening a v1 database does not
 trigger migration.
 
-
 ## Operator/CLI Tests
 
 ### Normalized JSON shape assertions
@@ -294,7 +287,6 @@ async def test_config_check_valid_config(tmp_path):
     assert result.exit_code == 0
 ```
 
-
 ## Patch Target Policy
 
 Patch the canonical module where the object is **looked up**, not where it is
@@ -318,7 +310,6 @@ Avoid patching package-root re-exports. If `medre.adapters.matrix.__init__`
 re-exports `HAS_NIO`, patch `medre.adapters.matrix.adapter.HAS_NIO` instead
 of `medre.adapters.matrix.HAS_NIO`.
 
-
 ## Compatibility
 
 ### No compatibility shims in tests
@@ -341,7 +332,6 @@ PYTHONPATH=src pytest -W error::ResourceWarning -q
 
 This is not enforced by default (some third-party libraries produce noisy
 warnings), but failures from this flag should be fixed, not suppressed.
-
 
 ## Docker Tests
 
@@ -386,7 +376,6 @@ PYTHONPATH=src pytest tests/integration/test_synapse_connectivity.py -m docker -
 PYTHONPATH=src pytest tests/integration/test_meshtasticd_connectivity.py -m docker -v
 ```
 
-
 ## Type Safety
 
 ### Fix type issues with better fakes
@@ -406,7 +395,6 @@ adapter._client.send_response = MagicMock()  # type: ignore[assignment]  # fake 
 
 When editing a test file that already has type-ignores, remove any that the
 edit makes unnecessary.
-
 
 ## Running Tests
 
@@ -471,31 +459,29 @@ PYTHONPATH=src medre smoke --json
 
 ### Failure interpretation
 
-| Symptom | Likely cause | Action |
-|---------|-------------|--------|
-| Docker tests skip with "Docker not available" | Docker daemon not running | `docker info` |
-| Docker tests skip with "mtjk not installed" | Meshtastic SDK not installed | `pip install -e ".[meshtastic]"` |
-| Docker tests skip with "mindroom-nio not installed" | Matrix SDK not installed | `pip install -e ".[matrix]"` |
-| Live tests skip | Missing environment variables | Set required `MATRIX_*` or `MESHTASTIC_*` env vars |
-| Compile check produces output | Syntax error or import issue | Fix the reported file |
-| `ResourceWarning` in test output | Unclosed resource or leaked coroutine | Fix the mock or add cleanup (see [Async Mocking Rules](#async-mocking-rules)) |
-
+| Symptom                                             | Likely cause                          | Action                                                                        |
+| --------------------------------------------------- | ------------------------------------- | ----------------------------------------------------------------------------- |
+| Docker tests skip with "Docker not available"       | Docker daemon not running             | `docker info`                                                                 |
+| Docker tests skip with "mtjk not installed"         | Meshtastic SDK not installed          | `pip install -e ".[meshtastic]"`                                              |
+| Docker tests skip with "mindroom-nio not installed" | Matrix SDK not installed              | `pip install -e ".[matrix]"`                                                  |
+| Live tests skip                                     | Missing environment variables         | Set required `MATRIX_*` or `MESHTASTIC_*` env vars                            |
+| Compile check produces output                       | Syntax error or import issue          | Fix the reported file                                                         |
+| `ResourceWarning` in test output                    | Unclosed resource or leaked coroutine | Fix the mock or add cleanup (see [Async Mocking Rules](#async-mocking-rules)) |
 
 ## Completed Splits
 
 These files have been split by behavioral domain following the procedure above.
 
-| Original file | Result | Domain files |
-|---------------|--------|-------------|
-| `tests/test_adapter_callback_bridge.py` | Split | 6 domain files |
-| `tests/test_longrun_callback_bridge.py` | Split | 4 domain files |
-| `tests/test_operator_workflows.py` | Split | 7 domain files |
-| `tests/test_pipeline.py` | Split | 5 domain files (delivery, failure taxonomy, fanout, native refs, capacity) |
-| `tests/test_replay.py` | Split | 5 domain files (engine, policy, accounting, capacity, traceability) |
-| `tests/test_cli.py` | Split | 9 domain files: `test_cli_command_help_hints`, `test_cli_config_workflows`, `test_cli_diagnostics_workflows`, `test_cli_install_metadata`, `test_cli_replay_surface`, `test_cli_route_workflows`, `test_cli_run_workflows`, `test_cli_scenario_crosscheck`, `test_cli_smoke_run_session`. Helper: `helpers/cli.py`. |
-| `tests/test_alpha_walkthrough_cli.py` | Split | 4 domain files: `test_alpha_cli_config_and_smoke`, `test_alpha_cli_inspect_flow`, `test_alpha_cli_replay_flow`, `test_alpha_cli_error_paths`. Helper: `helpers/alpha_cli.py`. |
-| `tests/test_docker_bridge_artifacts.py` | Split | 4 domain files: `test_docker_artifact_core`, `test_docker_artifact_plan`, `test_docker_artifact_metadata`, `test_docker_artifact_honesty`. Helper: `helpers/docker_artifacts.py`. |
-
+| Original file                           | Result | Domain files                                                                                                                                                                                                                                                                                                        |
+| --------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tests/test_adapter_callback_bridge.py` | Split  | 6 domain files                                                                                                                                                                                                                                                                                                      |
+| `tests/test_longrun_callback_bridge.py` | Split  | 4 domain files                                                                                                                                                                                                                                                                                                      |
+| `tests/test_operator_workflows.py`      | Split  | 7 domain files                                                                                                                                                                                                                                                                                                      |
+| `tests/test_pipeline.py`                | Split  | 5 domain files (delivery, failure taxonomy, fanout, native refs, capacity)                                                                                                                                                                                                                                          |
+| `tests/test_replay.py`                  | Split  | 5 domain files (engine, policy, accounting, capacity, traceability)                                                                                                                                                                                                                                                 |
+| `tests/test_cli.py`                     | Split  | 9 domain files: `test_cli_command_help_hints`, `test_cli_config_workflows`, `test_cli_diagnostics_workflows`, `test_cli_install_metadata`, `test_cli_replay_surface`, `test_cli_route_workflows`, `test_cli_run_workflows`, `test_cli_scenario_crosscheck`, `test_cli_smoke_run_session`. Helper: `helpers/cli.py`. |
+| `tests/test_alpha_walkthrough_cli.py`   | Split  | 4 domain files: `test_alpha_cli_config_and_smoke`, `test_alpha_cli_inspect_flow`, `test_alpha_cli_replay_flow`, `test_alpha_cli_error_paths`. Helper: `helpers/alpha_cli.py`.                                                                                                                                       |
+| `tests/test_docker_bridge_artifacts.py` | Split  | 4 domain files: `test_docker_artifact_core`, `test_docker_artifact_plan`, `test_docker_artifact_metadata`, `test_docker_artifact_honesty`. Helper: `helpers/docker_artifacts.py`.                                                                                                                                   |
 
 ## Next Modernization Wave
 
@@ -506,21 +492,21 @@ split targets are starting points; actual domains may shift during analysis.
 
 **`tests/test_matrix_session.py` (2,241 lines)**
 
-| Target file | Domain |
-|-------------|--------|
-| `tests/test_matrix_session_lifecycle.py` | Session start, stop, health check |
-| `tests/test_matrix_session_sync_recovery.py` | Initial sync, reconnection, error recovery |
-| `tests/test_matrix_session_encryption.py` | E2EE setup, encrypted room handling |
+| Target file                                   | Domain                                             |
+| --------------------------------------------- | -------------------------------------------------- |
+| `tests/test_matrix_session_lifecycle.py`      | Session start, stop, health check                  |
+| `tests/test_matrix_session_sync_recovery.py`  | Initial sync, reconnection, error recovery         |
+| `tests/test_matrix_session_encryption.py`     | E2EE setup, encrypted room handling                |
 | `tests/test_matrix_session_delivery_retry.py` | Delivery attempts, retry budgets, failure handling |
 
 **`tests/test_storage.py` (2,305 lines)**
 
-| Target file | Domain |
-|-------------|--------|
-| `tests/test_storage_sqlite.py` | SQLite-specific: persistence, concurrent access, WAL |
-| `tests/test_storage_in_memory.py` | In-memory backend: consistency, lifecycle |
-| `tests/test_storage_inspect.py` | Inspect queries: event, receipts, native refs |
-| `tests/test_storage_durability.py` | Crash recovery, partial writes, schema validation |
+| Target file                        | Domain                                               |
+| ---------------------------------- | ---------------------------------------------------- |
+| `tests/test_storage_sqlite.py`     | SQLite-specific: persistence, concurrent access, WAL |
+| `tests/test_storage_in_memory.py`  | In-memory backend: consistency, lifecycle            |
+| `tests/test_storage_inspect.py`    | Inspect queries: event, receipts, native refs        |
+| `tests/test_storage_durability.py` | Crash recovery, partial writes, schema validation    |
 
 **`tests/test_canonical_events.py` (1,992 lines)** -- domains TBD
 

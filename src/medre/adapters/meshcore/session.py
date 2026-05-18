@@ -83,17 +83,16 @@ import asyncio
 import importlib
 import logging
 import random
-import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Callable, Coroutine, Protocol, cast
+from typing import Any, Callable, Protocol, cast
 
 from medre.adapters.meshcore.compat import HAS_MESHCORE
-from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.adapters.meshcore.errors import (
     MeshCoreConnectionError,
     MeshCoreSendError,
 )
+from medre.config.adapters.meshcore import MeshCoreConfig
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -309,9 +308,7 @@ class MeshCoreSession:
         self._diag.connected = False
         self._diag.reconnecting = False
         self._started = False
-        self._logger.info(
-            "MeshCoreSession %s stopped", self._adapter_id
-        )
+        self._logger.info("MeshCoreSession %s stopped", self._adapter_id)
 
     # ------------------------------------------------------------------
     # Outbound
@@ -426,8 +423,7 @@ class MeshCoreSession:
                     )
             else:
                 raise MeshCoreConnectionError(
-                    f"Unsupported connection_type: "
-                    f"{self._config.connection_type!r}"
+                    f"Unsupported connection_type: " f"{self._config.connection_type!r}"
                 )
 
         except MeshCoreConnectionError:
@@ -530,9 +526,7 @@ class MeshCoreSession:
     async def _on_disconnect_event(self, event: Any) -> None:
         """Handle SDK disconnect event — trigger reconnect if appropriate."""
         self._diag.connected = False
-        self._logger.warning(
-            "MeshCoreSession %s: SDK disconnected", self._adapter_id
-        )
+        self._logger.warning("MeshCoreSession %s: SDK disconnected", self._adapter_id)
 
         if self._stop_requested:
             return
@@ -560,7 +554,7 @@ class MeshCoreSession:
                 and self._diag.reconnect_attempts < _RECONNECT_MAX_ATTEMPTS
             ):
                 delay = min(
-                    _RECONNECT_BASE_DELAY * (2 ** self._diag.reconnect_attempts),
+                    _RECONNECT_BASE_DELAY * (2**self._diag.reconnect_attempts),
                     _RECONNECT_MAX_DELAY,
                 )
                 # Apply jitter.
@@ -641,9 +635,7 @@ class MeshCoreSession:
                         channel_index, text
                     )
                 else:
-                    result = await self._meshcore.commands.send_msg(
-                        contact_id, text
-                    )
+                    result = await self._meshcore.commands.send_msg(contact_id, text)
 
                 # Check for SDK-level error.
                 if hasattr(result, "is_error") and result.is_error():
@@ -664,7 +656,9 @@ class MeshCoreSession:
                     native_id = result.get("message_id")
                 elif hasattr(result, "payload") and isinstance(result.payload, dict):
                     native_id = result.payload.get("message_id")
-                elif hasattr(result, "attributes") and isinstance(result.attributes, dict):
+                elif hasattr(result, "attributes") and isinstance(
+                    result.attributes, dict
+                ):
                     native_id = result.attributes.get("message_id")
 
                 return str(native_id) if native_id is not None else None

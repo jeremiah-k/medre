@@ -15,6 +15,7 @@ selection from adapter naming conventions.
 **Tranche 1 scope**: text messages only.  Length-limit enforcement is
 noted but not applied; full enforcement is deferred to a later tranche.
 """
+
 from __future__ import annotations
 
 from medre.core.events import CanonicalEvent

@@ -1,20 +1,19 @@
 """Recover CLI command: analyze failed deliveries and generate recovery runbooks."""
+
 from __future__ import annotations
 
 import json as _json
 import sys
-import uuid
 from typing import Any
 
-from medre.core.storage.replay import ReplayMode, ReplayRequest
+from medre.observability.classification import failure_category as _failure_category
+from medre.observability.classification import infer_failure_kind as _infer_failure_kind
 from medre.observability.classification import (
-    infer_failure_kind as _infer_failure_kind,
-    failure_category as _failure_category,
     recommended_commands as _recommended_commands,
 )
 from medre.runtime import timeline as _timeline
 
-from .exit_codes import EXIT_NOT_FOUND, EXIT_CONFIG, EXIT_BUILD
+from .exit_codes import EXIT_NOT_FOUND
 from .storage_helpers import _open_readonly_storage
 from .transport_constants import RADIO_TRANSPORTS
 
@@ -78,18 +77,18 @@ async def _build_event_recovery_runbook(
         r_run_id = getattr(r, "replay_run_id", None)
         if r_source == "replay" and r_run_id and r_run_id not in seen_run_ids:
             seen_run_ids.add(r_run_id)
-            replay_context.append({
-                "replay_run_id": r_run_id,
-                "source": "replay",
-            })
+            replay_context.append(
+                {
+                    "replay_run_id": r_run_id,
+                    "source": "replay",
+                }
+            )
 
     # Build timeline for runbook.
     timeline_entries = tl_result["timeline_entries"]
 
     # Aggregate recommended commands across present categories.
-    present_categories = {
-        cat for cat, items in classification.items() if items
-    }
+    present_categories = {cat for cat, items in classification.items() if items}
     all_commands: list[str] = []
     for cat in sorted(present_categories):
         all_commands.extend(_recommended_commands(cat, event_id))
@@ -137,8 +136,7 @@ async def _build_event_recovery_runbook(
     # Add duplicate-send risk warnings for radio transports.
     for nref in native_refs:
         if nref.adapter.lower() in RADIO_TRANSPORTS or any(
-            nref.adapter.lower().startswith(t)
-            for t in RADIO_TRANSPORTS
+            nref.adapter.lower().startswith(t) for t in RADIO_TRANSPORTS
         ):
             runbook["warnings"].append(
                 f"Adapter {nref.adapter} uses a radio transport — "
@@ -244,9 +242,7 @@ async def _recover(
                         for cat in ("retryable", "permanent", "operational", "unknown"):
                             items = fc.get(cat, [])
                             if items:
-                                adapters = ", ".join(
-                                    i["target_adapter"] for i in items
-                                )
+                                adapters = ", ".join(i["target_adapter"] for i in items)
                                 print(f"    {cat}: {adapters}")
                 else:
                     print("  Failed targets: none")

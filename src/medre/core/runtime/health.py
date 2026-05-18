@@ -359,9 +359,7 @@ class LiveHealthSnapshot:
         """Return a JSON-safe dict representation with sorted keys."""
         return {
             "adapter_summary": dict(sorted(self.adapter_summary.items())),
-            "adapters": {
-                k: v.to_dict() for k, v in sorted(self.adapters.items())
-            },
+            "adapters": {k: v.to_dict() for k, v in sorted(self.adapters.items())},
             "poll_count": self.poll_count,
             "poll_timestamp_monotonic": self.poll_timestamp_monotonic,
             "poll_timestamp_wall": self.poll_timestamp_wall,

@@ -3,7 +3,6 @@
 > Extracted from: `docs/spec/modular-event-engine-spec.md` Sections 3, 4, 7, 8, 10, 12
 > This document is self-contained. An implementer can build routing and delivery planning from these definitions without re-reading the full spec.
 
-
 ## 1. Scope
 
 This contract covers everything between "the pipeline has a derived event ready to deliver" and "the adapter reports back with a receipt." Specifically:
@@ -24,7 +23,6 @@ What this contract does **not** cover: adapter internals, codec implementation, 
 
 Phase 1 provides **policy package scaffolding only**. The four-stage policy architecture (ingress, event, route, delivery) is a spec-level design, not a runtime pipeline in the current implementation. No `Policy` protocol, `PolicyResult`, concrete policy classes, or policy evaluation stage exist in Phase 1. The built-in policies listed in Section 10.4 (e.g., `RouteRateLimitPolicy`, `QuietHoursPolicy`, `MaxLengthPolicy`) are spec-level definitions, not implemented classes. Current runtime flow proceeds directly from routing to delivery planning without policy evaluation.
 
-
 ## 2. Route Data Model
 
 ### 2.1 RouteSource
@@ -40,11 +38,11 @@ class RouteSource:
 
 Matching rules:
 
-| Field | Match behavior |
-|---|---|
-| `adapter` | Exact match on adapter instance name. `None` is a wildcard matching any adapter. |
-| `event_kinds` | Event must have an `event_kind` present in this list. The list must not be empty. |
-| `channel` | Exact match on the event's `source_channel_id`. `None` is a wildcard matching any channel. |
+| Field         | Match behavior                                                                             |
+| ------------- | ------------------------------------------------------------------------------------------ |
+| `adapter`     | Exact match on adapter instance name. `None` is a wildcard matching any adapter.           |
+| `event_kinds` | Event must have an `event_kind` present in this list. The list must not be empty.          |
+| `channel`     | Exact match on the event's `source_channel_id`. `None` is a wildcard matching any channel. |
 
 All three fields are ANDed together. A source matches only when every non-None field matches the corresponding event field.
 
@@ -77,12 +75,12 @@ class RouteDestination:
 
 The `kind` field tells the delivery planner and adapter what addressing model to use:
 
-| kind | Addressing model | Key fields |
-|---|---|---|
-| `"channel"` | Logical channel name | `destination_name` holds the channel name |
-| `"lxmf_destination"` | LXMF destination hash | `destination_hash` holds the 16-byte hex hash |
-| `"meshcore_contact"` | MeshCore contact | `destination_hash` or `destination_name` identifies the contact |
-| `"matrix_room"` | Matrix room ID | Resolved via adapter's `connection.rooms` config, not stored here |
+| kind                 | Addressing model      | Key fields                                                        |
+| -------------------- | --------------------- | ----------------------------------------------------------------- |
+| `"channel"`          | Logical channel name  | `destination_name` holds the channel name                         |
+| `"lxmf_destination"` | LXMF destination hash | `destination_hash` holds the 16-byte hex hash                     |
+| `"meshcore_contact"` | MeshCore contact      | `destination_hash` or `destination_name` identifies the contact   |
+| `"matrix_room"`      | Matrix room ID        | Resolved via adapter's `connection.rooms` config, not stored here |
 
 ### 2.4 Route
 
@@ -141,17 +139,16 @@ routes:
 A wildcard route (any adapter, any channel):
 
 ```yaml
-  - id: all-text-to-discord
-    from:
-      adapter: null
-      event_kinds: ["message.text"]
-      channel: null
-    to:
-      - adapter: discord-bot
-        channel: "#mesh-general"
-    priority: 20
+- id: all-text-to-discord
+  from:
+    adapter: null
+    event_kinds: ["message.text"]
+    channel: null
+  to:
+    - adapter: discord-bot
+      channel: "#mesh-general"
+  priority: 20
 ```
-
 
 ## 3. Route Matching Semantics
 
@@ -174,6 +171,7 @@ Routes are **non-exclusive** by default. If an event matches routes A and B, bot
 ### 3.3 Route Ordering
 
 Matching routes are sorted by `priority` (ascending, lower is higher priority) before delivery plan construction. This ordering influences:
+
 - Which delivery plans are constructed first.
 - The order in which the adapter execution stage dequeues and processes deliveries.
 - Policy evaluation order when `RouteRateLimitPolicy` or `RoutePermissionPolicy` apply per-route limits.
@@ -181,7 +179,6 @@ Matching routes are sorted by `priority` (ascending, lower is higher priority) b
 ### 3.4 No Match Behavior
 
 If an event matches zero routes, it is not delivered anywhere. It remains stored in the canonical event log and is available for replay if routes are added later. No error is raised for unroutable events. This is normal: `telemetry` events with a `storage-only` tag, `delivery.receipt` events, and `policy.action` events are typically not routed to presentation adapters.
-
 
 ## 4. Channel vs Destination Precedence Rules
 
@@ -199,13 +196,12 @@ The destination carries the addressing. The adapter resolves it internally. Sett
 **Rule 4: Matrix room mapping is not stored in `RouteDestination`.**
 Routes reference channels by logical name. The Matrix adapter's `connection.rooms` config maps logical names to Matrix room IDs. Routes never contain Matrix room IDs directly.
 
-| Scenario | `channel` | `destination` | Example |
-|---|---|---|---|
-| Deliver to Matrix room "general" | `"general"` | `None` | `RouteTarget(adapter="matrix-home", channel="general")` |
-| Deliver to LXMF peer | `None` | `RouteDestination(kind="lxmf_destination", ...)` | See Section 2.5 config example |
-| Deliver to adapter default | `None` | `None` | `RouteTarget(adapter="meshcore-radio-1")` |
-| Deliver to MeshCore channel by name | `"emergency"` | `None` | `RouteTarget(adapter="meshcore-radio-1", channel="emergency")` |
-
+| Scenario                            | `channel`     | `destination`                                    | Example                                                        |
+| ----------------------------------- | ------------- | ------------------------------------------------ | -------------------------------------------------------------- |
+| Deliver to Matrix room "general"    | `"general"`   | `None`                                           | `RouteTarget(adapter="matrix-home", channel="general")`        |
+| Deliver to LXMF peer                | `None`        | `RouteDestination(kind="lxmf_destination", ...)` | See Section 2.5 config example                                 |
+| Deliver to adapter default          | `None`        | `None`                                           | `RouteTarget(adapter="meshcore-radio-1")`                      |
+| Deliver to MeshCore channel by name | `"emergency"` | `None`                                           | `RouteTarget(adapter="meshcore-radio-1", channel="emergency")` |
 
 ## 5. Fanout Strategy
 
@@ -236,7 +232,6 @@ A single event matching multiple routes fans out across all matching routes' tar
 ### 5.3 Phase 1 Constraint
 
 **Broadcast is the only fanout strategy.** All matching targets receive the event. Round-robin, weighted, and first-available strategies are deferred to a later phase. The routing engine does not filter or prioritize among matched targets within a single route. Every target in the `to` list gets a delivery plan.
-
 
 ## 6. DeliveryPlan
 
@@ -283,12 +278,11 @@ class RetryPolicy:
 
 ### 6.4 Planning Modules
 
-| Module | File | Responsibility |
-|---|---|---|
-| Delivery plan construction | `core/planning/delivery_plan.py` | Constructs `DeliveryPlan` instances with primary strategy, fallback chain, retry policy, ordering, and dedup scope |
-| Relation resolution | `core/planning/relation_resolution.py` | Maps reply threading, reactions, and edit correlation across adapters using `native_message_refs`. Falls back to inline text when the target lacks native support |
-| Capability fallback | `core/planning/capability_fallback.py` | Degrades event features based on target adapter capabilities |
-
+| Module                     | File                                   | Responsibility                                                                                                                                                    |
+| -------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Delivery plan construction | `core/planning/delivery_plan.py`       | Constructs `DeliveryPlan` instances with primary strategy, fallback chain, retry policy, ordering, and dedup scope                                                |
+| Relation resolution        | `core/planning/relation_resolution.py` | Maps reply threading, reactions, and edit correlation across adapters using `native_message_refs`. Falls back to inline text when the target lacks native support |
+| Capability fallback        | `core/planning/capability_fallback.py` | Degrades event features based on target adapter capabilities                                                                                                      |
 
 ## 7. Fallback Resolution
 
@@ -304,7 +298,6 @@ When primary delivery fails, the fallback resolution chain executes in order:
    - Store for later delivery (queue until adapter recovers)
 
 The fallback chain is part of the `DeliveryPlan`. It is constructed at planning time, not at execution time. The executor walks the chain and reports receipts for each attempt.
-
 
 ## 8. Relation Resolution
 
@@ -358,7 +351,6 @@ The resolver queries `native_message_refs` by `(adapter, native_channel_id, nati
 
 When the target adapter lacks native support for a relation type, or when the canonical event ID cannot be resolved, the `fallback_text` field provides an inline text representation. Example: `[Alice] re: original msg > reply text`.
 
-
 ## 9. Capability Fallback
 
 The capability fallback module degrades event features based on what the target adapter supports.
@@ -367,17 +359,16 @@ The capability fallback module degrades event features based on what the target 
 
 Each adapter declares capabilities (e.g., `reactions: true`, `edits: "metadata_native_or_fallback"`). During delivery planning, the capability fallback module checks the event's relations and payload against the target adapter's capabilities:
 
-| Adapter capability | Fallback when unsupported |
-|---|---|
-| `reactions: false` | Drop reaction relations entirely, or render as inline text |
-| `edits: "metadata_native_or_fallback"` | Render edit as a new message (no native edit support) |
-| `replies: false` | Render reply as plain text with `fallback_text` prefix |
-| Text length limit exceeded | Truncate or split per `MaxLengthPolicy` |
+| Adapter capability                     | Fallback when unsupported                                  |
+| -------------------------------------- | ---------------------------------------------------------- |
+| `reactions: false`                     | Drop reaction relations entirely, or render as inline text |
+| `edits: "metadata_native_or_fallback"` | Render edit as a new message (no native edit support)      |
+| `replies: false`                       | Render reply as plain text with `fallback_text` prefix     |
+| Text length limit exceeded             | Truncate or split per `MaxLengthPolicy`                    |
 
 ### 9.2 Fallback as Policy
 
 The `CapabilityFallbackPolicy` (delivery stage) applies these downgrade rules. It is the last policy check before the adapter executes the delivery. This means capability fallback is a delivery policy concern, not a routing concern. The router does not filter routes based on adapter capabilities. If a route matches, the delivery plan is constructed. Capability fallback happens during delivery policy evaluation.
-
 
 ## 10. Policy Pipeline Split
 
@@ -385,12 +376,12 @@ Policies are split into four stages that run at distinct pipeline positions. Eac
 
 ### 10.1 Stage Definitions
 
-| Stage | Pipeline Position | Scope | What It Controls |
-|---|---|---|---|
-| **ingress** | Before storage | Raw inbound events | Rejects malformed, unauthorized, or rate-limited ingress at the adapter boundary. Prevents bad data from reaching storage. |
-| **event** | After transforms | Derived events | Rate limiting, content filtering, permission checks, deduplication. Controls what content is allowed to proceed to routing. |
-| **route** | After routing, before delivery planning | Matched routes | Per-route rate limits, quiet hours, permission checks on the route+adapter pair. Controls which matched routes actually proceed. |
-| **delivery** | Before adapter execution, after delivery planning | Delivery plans | Adapter-specific size limits, capability downgrade, final content filtering. Controls how content is rendered and delivered. |
+| Stage        | Pipeline Position                                 | Scope              | What It Controls                                                                                                                 |
+| ------------ | ------------------------------------------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| **ingress**  | Before storage                                    | Raw inbound events | Rejects malformed, unauthorized, or rate-limited ingress at the adapter boundary. Prevents bad data from reaching storage.       |
+| **event**    | After transforms                                  | Derived events     | Rate limiting, content filtering, permission checks, deduplication. Controls what content is allowed to proceed to routing.      |
+| **route**    | After routing, before delivery planning           | Matched routes     | Per-route rate limits, quiet hours, permission checks on the route+adapter pair. Controls which matched routes actually proceed. |
+| **delivery** | Before adapter execution, after delivery planning | Delivery plans     | Adapter-specific size limits, capability downgrade, final content filtering. Controls how content is rendered and delivered.     |
 
 ### 10.2 Policy Interface
 
@@ -420,19 +411,19 @@ class PolicyResult:
 
 These policies directly affect routing and delivery:
 
-| Policy | Stage | Effect on Routing/Delivery |
-|---|---|---|
-| `RouteRateLimitPolicy` | route | Skips a matched route if the rate limit for that route+adapter pair is exceeded |
-| `RoutePermissionPolicy` | route | Drops a matched route if the source identity lacks permission to use this specific route |
-| `QuietHoursPolicy` | route | Suppresses non-urgent deliveries during configured quiet hours per route |
-| `MaxLengthPolicy` | delivery | Truncates or splits messages exceeding adapter limits before delivery |
-| `CapabilityFallbackPolicy` | delivery | Degrades event features based on target adapter capabilities |
+| Policy                     | Stage    | Effect on Routing/Delivery                                                               |
+| -------------------------- | -------- | ---------------------------------------------------------------------------------------- |
+| `RouteRateLimitPolicy`     | route    | Skips a matched route if the rate limit for that route+adapter pair is exceeded          |
+| `RoutePermissionPolicy`    | route    | Drops a matched route if the source identity lacks permission to use this specific route |
+| `QuietHoursPolicy`         | route    | Suppresses non-urgent deliveries during configured quiet hours per route                 |
+| `MaxLengthPolicy`          | delivery | Truncates or splits messages exceeding adapter limits before delivery                    |
+| `CapabilityFallbackPolicy` | delivery | Degrades event features based on target adapter capabilities                             |
 
 ### 10.5 Pipeline Flow for Routing
 
 The full routing and delivery pipeline flow:
 
-```
+```text
 derived event
     |
     v
@@ -456,7 +447,6 @@ derived event
     v
 [receipt]  (append-only receipt row)
 ```
-
 
 ## 11. DeliveryReceipt
 
@@ -532,7 +522,6 @@ The `delivery.receipt` event kind exists in the event kind registry but is syste
 - Dead-lettered events trigger alerts and are available for manual reprocessing.
 - Receipt metrics feed into observability: delivery latency, success rates, retry counts.
 
-
 ## 12. delivery_status Projection
 
 ### 12.1 View Definition
@@ -559,7 +548,6 @@ JOIN (
 ### 12.3 Key Invariant
 
 The delivery_status view is read-only. No code path writes to it. It reflects the append-only receipt table. If you need to change the "current status" of a delivery, you append a new receipt row with the new status. The view picks it up automatically.
-
 
 ## 13. Route Startup and Dynamic Reload Rules
 
@@ -590,7 +578,6 @@ When route configuration is reloaded at runtime:
 - The runtime does not prevent overlapping routes. Overlap (e.g., two routes matching the same source and event kind) is allowed. The operator is responsible for configuring non-overlapping routes when dedup is not desired.
 - Route ordering is deterministic: priority ascending, then route_id lexicographic for ties.
 
-
 ## 14. Route Ownership Semantics
 
 Routes are operator-owned configuration. There is no per-user or per-identity route ownership in Phase 1. All routes apply globally to all events that match their source criteria.
@@ -600,7 +587,6 @@ Routes are operator-owned configuration. There is no per-user or per-identity ro
 - **Route priority** is the only control over delivery ordering, not delivery exclusivity.
 
 Plugins with the `MODIFY_ROUTES` capability can add or remove routes programmatically. These runtime routes follow the same matching and validation rules as configuration-defined routes. Runtime routes should not conflict with configuration routes on `route_id` (plugin routes should use a namespaced prefix).
-
 
 ## 15. Storage Queries for Routing
 
@@ -626,7 +612,6 @@ CREATE INDEX idx_native_refs_adapter_native ON native_message_refs(adapter, nati
 CREATE INDEX idx_native_refs_relation ON native_message_refs(adapter, native_relation_id);
 ```
 
-
 ## 16. Delivery Failure Taxonomy
 
 ### 16.1 DeliveryFailureKind
@@ -648,17 +633,17 @@ class DeliveryFailureKind(Enum):
 
 Classification rules:
 
-| Failure kind | Pipeline stage | Retryable | Auto-classified from exception |
-|---|---|---|---|
-| `PLANNER_FAILURE` | Routing / planning | No | Exception during `route_event()` |
-| `RENDERER_FAILURE` | Rendering | No | Exception during `render()` |
-| `ADAPTER_TRANSIENT` | Adapter delivery | **Yes** | `TimeoutError`, `ConnectionError`, `OSError` hierarchy |
-| `ADAPTER_PERMANENT` | Adapter delivery | No | All other adapter exceptions |
-| `ADAPTER_MISSING` | Adapter lookup | No | Target adapter ID has no runtime adapter instance |
-| `TARGET_NOT_FOUND` | Adapter delivery | No | **Reserved — not currently emitted.** No adapter produces this at runtime. `ADAPTER_PERMANENT` is used for all permanent adapter errors including channel-not-found conditions. |
-| `DEADLINE_EXCEEDED` | Deadline check | No | `plan.deadline < now` |
-| `CAPACITY_REJECTION` | Capacity gate | No | Capacity controller semaphore exhausted or timed out |
-| `SHUTDOWN_REJECTION` | Capacity gate | No | Runtime shutdown cancelled delivery before capacity acquire |
+| Failure kind         | Pipeline stage     | Retryable | Auto-classified from exception                                                                                                                                                  |
+| -------------------- | ------------------ | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PLANNER_FAILURE`    | Routing / planning | No        | Exception during `route_event()`                                                                                                                                                |
+| `RENDERER_FAILURE`   | Rendering          | No        | Exception during `render()`                                                                                                                                                     |
+| `ADAPTER_TRANSIENT`  | Adapter delivery   | **Yes**   | `TimeoutError`, `ConnectionError`, `OSError` hierarchy                                                                                                                          |
+| `ADAPTER_PERMANENT`  | Adapter delivery   | No        | All other adapter exceptions                                                                                                                                                    |
+| `ADAPTER_MISSING`    | Adapter lookup     | No        | Target adapter ID has no runtime adapter instance                                                                                                                               |
+| `TARGET_NOT_FOUND`   | Adapter delivery   | No        | **Reserved — not currently emitted.** No adapter produces this at runtime. `ADAPTER_PERMANENT` is used for all permanent adapter errors including channel-not-found conditions. |
+| `DEADLINE_EXCEEDED`  | Deadline check     | No        | `plan.deadline < now`                                                                                                                                                           |
+| `CAPACITY_REJECTION` | Capacity gate      | No        | Capacity controller semaphore exhausted or timed out                                                                                                                            |
+| `SHUTDOWN_REJECTION` | Capacity gate      | No        | Runtime shutdown cancelled delivery before capacity acquire                                                                                                                     |
 
 The classification drives retry decisions and `DeliveryOutcome.failure_kind`.
 
@@ -714,17 +699,16 @@ Retry is bounded by `RetryPolicy` (max attempts, backoff). It is single-process 
 
 **Production retry properties:**
 
-| Property | Detail |
-|----------|--------|
-| `target_channel` | Retry receipts carry the same `target_channel` as the original delivery, preserving route target addressing |
-| NOT EXISTS exclusion | The RetryWorker's query excludes receipts that already have a `dead_lettered` successor in the same lineage |
-| Dead-letter lineage | When retries are exhausted, the chain ends with a `dead_lettered` receipt linked via `parent_receipt_id` (Section 17.4) |
-| Capacity rejection | If delivery semaphore is full, no new receipt is created; the existing receipt is rescheduled for the next cycle |
-| Opt-in | Retry requires an explicit `RetryPolicy` on the route or delivery plan; without it, no automatic retry occurs |
-| Policy persistence | Retry policy parameters are stored on the first failure receipt and used by the RetryWorker on subsequent attempts |
-| Frozen target metadata | Retry targets the `target_adapter` and `target_channel` from the original failed receipt; route config changes do not affect in-flight retries |
-| Adapter existence validation | Before retry, the RetryWorker checks that the target adapter is still registered; missing adapters are dead-lettered |
-
+| Property                     | Detail                                                                                                                                         |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `target_channel`             | Retry receipts carry the same `target_channel` as the original delivery, preserving route target addressing                                    |
+| NOT EXISTS exclusion         | The RetryWorker's query excludes receipts that already have a `dead_lettered` successor in the same lineage                                    |
+| Dead-letter lineage          | When retries are exhausted, the chain ends with a `dead_lettered` receipt linked via `parent_receipt_id` (Section 17.4)                        |
+| Capacity rejection           | If delivery semaphore is full, no new receipt is created; the existing receipt is rescheduled for the next cycle                               |
+| Opt-in                       | Retry requires an explicit `RetryPolicy` on the route or delivery plan; without it, no automatic retry occurs                                  |
+| Policy persistence           | Retry policy parameters are stored on the first failure receipt and used by the RetryWorker on subsequent attempts                             |
+| Frozen target metadata       | Retry targets the `target_adapter` and `target_channel` from the original failed receipt; route config changes do not affect in-flight retries |
+| Adapter existence validation | Before retry, the RetryWorker checks that the target adapter is still registered; missing adapters are dead-lettered                           |
 
 ## 17. Receipt Lineage
 
@@ -732,9 +716,9 @@ Retry is bounded by `RetryPolicy` (max attempts, backoff). It is single-process 
 
 `DeliveryReceipt` carries two fields for receipt chain ordering:
 
-| Field | Type | Description |
-|---|---|---|
-| `attempt_number` | `int` (default `1`) | 1-indexed attempt number. First attempt = 1. |
+| Field               | Type                           | Description                                                    |
+| ------------------- | ------------------------------ | -------------------------------------------------------------- |
+| `attempt_number`    | `int` (default `1`)            | 1-indexed attempt number. First attempt = 1.                   |
 | `parent_receipt_id` | `str \| None` (default `None`) | Receipt ID of the preceding attempt. `None` for first attempt. |
 
 Together these provide explicit receipt lineage without relying on timestamps.
@@ -756,11 +740,10 @@ parent_receipt_id TEXT,
 
 When retries are exhausted, the receipt chain ends with a `dead_lettered` receipt:
 
-```
+```text
 rcpt-1 (attempt=1, parent=None, status=failed)
   └→ rcpt-2 (attempt=2, parent=rcpt-1, status=dead_lettered)
 ```
-
 
 ## 18. DeliveryOutcome with Failure Classification
 

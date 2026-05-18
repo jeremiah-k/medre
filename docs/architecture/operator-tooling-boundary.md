@@ -6,30 +6,28 @@ Operator tools are CLI-facing commands that exercise the runtime to produce
 reports, evidence bundles, and failure drills. They are operator-level
 concerns, not runtime infrastructure.
 
-
 ## Current location
 
 Operator tools currently live in `medre/runtime/` because they depend on
 `MedreApp`, `RuntimeBuilder`, and the runtime lifecycle to do their work:
 
-| Tool | Module | Depends on |
-|------|--------|------------|
-| `medre smoke` | `runtime.smoke` | `MedreApp`, `RuntimeBuilder`, fake adapters |
-| `medre drill` | `runtime.drill` | `MedreApp`, failure injection, pipeline |
-| `medre evidence` | `runtime.evidence` | `MedreApp`, `smoke`, `drill`, storage |
-| `medre trace` | `runtime.trace` | Storage queries, receipt enrichment |
-| `medre recover` | `runtime.recover` | Storage queries, incident classification |
-| `run_session` | `runtime.run_session` | `MedreApp`, standardized report generation |
+| Tool             | Module                | Depends on                                  |
+| ---------------- | --------------------- | ------------------------------------------- |
+| `medre smoke`    | `runtime.smoke`       | `MedreApp`, `RuntimeBuilder`, fake adapters |
+| `medre drill`    | `runtime.drill`       | `MedreApp`, failure injection, pipeline     |
+| `medre evidence` | `runtime.evidence`    | `MedreApp`, `smoke`, `drill`, storage       |
+| `medre trace`    | `runtime.trace`       | Storage queries, receipt enrichment         |
+| `medre recover`  | `runtime.recover`     | Storage queries, incident classification    |
+| `run_session`    | `runtime.run_session` | `MedreApp`, standardized report generation  |
 
 These modules orchestrate the runtime for operator purposes. They are not
 called during normal `medre run` operation.
-
 
 ## Target location
 
 Operator tools should move to `medre/operator/` when the import graph allows:
 
-```
+```text
 src/medre/
   operator/       smoke, drill, evidence, trace, recover, run_session
   runtime/        builder, app, route engine, capacity, snapshot
@@ -39,19 +37,17 @@ src/medre/
   cli/            argparse, command dispatch, I/O formatting
 ```
 
-
 ## Import invariants
 
-| From | May import | Must not import |
-|------|-----------|-----------------|
-| `operator/` | `runtime.*`, `core.*`, `config.*`, `core.contracts.adapter` | Specific adapter SDK modules |
-| `runtime/` | `core.*`, `config.*`, `core.contracts.adapter` | `operator.*` |
-| `core/` | Other `core/*` sub-packages | `operator.*`, `runtime.*`, `adapters.*` |
+| From        | May import                                                  | Must not import                         |
+| ----------- | ----------------------------------------------------------- | --------------------------------------- |
+| `operator/` | `runtime.*`, `core.*`, `config.*`, `core.contracts.adapter` | Specific adapter SDK modules            |
+| `runtime/`  | `core.*`, `config.*`, `core.contracts.adapter`              | `operator.*`                            |
+| `core/`     | Other `core/*` sub-packages                                 | `operator.*`, `runtime.*`, `adapters.*` |
 
 The critical rule: **`runtime/` and `core/` must never import from `operator/`.**
 Operator tools are consumers of the runtime, not dependencies of it. The
 runtime must remain usable without any operator tooling present.
-
 
 ## Why they are still in runtime/
 
@@ -64,7 +60,6 @@ runtime must remain usable without any operator tooling present.
 4. Extracting these modules today would require `runtime/` to expose a
    stable internal API surface (or operator tools would need to reach into
    runtime internals, violating the boundary from the wrong direction).
-
 
 ## When to Split
 
@@ -85,7 +80,6 @@ Until these conditions are met, keeping operator tools in `runtime/` avoids
 circular imports and preserves the buildability of the package. The cost is
 that `runtime/` is larger than its core mandate, but the import direction is
 correct: operator tools import from runtime, never the reverse.
-
 
 ## Operator report standardization
 

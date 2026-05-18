@@ -30,13 +30,14 @@ room for the new enqueue.  This prevents unbounded memory growth in
 long-duration runs where outbound throughput exceeds send capacity.
 The ``total_dropped`` counter tracks how many items were shed.
 """
+
 from __future__ import annotations
 
 import asyncio
 import logging
 import time
 from collections import deque
-from typing import Any, Callable, Awaitable
+from typing import Any, Awaitable, Callable
 
 from medre.core.contracts.adapter import AdapterDeliveryResult
 
@@ -118,10 +119,12 @@ class MeshtasticOutboundQueue:
                 "MeshtasticOutboundQueue full (%d items); dropping oldest",
                 self._max_queue_size,
             )
-        self._queue.append({
-            "payload": payload,
-            "channel_index": channel_index,
-        })
+        self._queue.append(
+            {
+                "payload": payload,
+                "channel_index": channel_index,
+            }
+        )
 
     async def dequeue(self) -> dict[str, Any] | None:
         """Dequeue the next payload, or ``None`` if the queue is empty.

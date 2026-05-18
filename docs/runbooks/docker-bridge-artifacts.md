@@ -9,12 +9,14 @@
 The Docker bridge artifact collector is an **opt-in** tool that runs Docker integration tests for Matrix <-> Meshtastic bridge scenarios and collects structured evidence into a timestamped run directory. It is not invoked by default CI — it requires explicit activation.
 
 **What this proves:**
+
 - Docker SDK-boundary validation: real adapter SDKs work against containerized services.
 - Config-to-runtime path with real connection parameters.
 - Adapter lifecycle correctness (start, health check, deliver, stop).
 - Cross-adapter routing for `matrix_to_meshtastic`: real Matrix nio SDK ingress, PipelineRunner routing, real Meshtastic SDK outbound to meshtasticd.
 
 **What this does NOT prove:**
+
 - No real external Matrix account is used or proven (container-local Synapse only).
 - No real radio hardware is used or proven (container-local meshtasticd simulation only).
 - No automated queue draining, real pubsub Meshtastic inbound, or sustained throughput.
@@ -47,17 +49,17 @@ print(f"Run directory: {summary['run_directory']}")
 
 ## Scenarios
 
-| Scenario | Tests Included | Description |
-|----------|---------------|-------------|
-| `matrix_to_meshtastic` | Synapse connectivity, bridge smoke, run session | Real MatrixAdapter Synapse ingress via nio SDK, routed through PipelineRunner, real MeshtasticAdapter outbound to meshtasticd. Both `synapse.log` and `meshtasticd.log` required. |
-| `meshtastic_to_matrix` | meshtasticd connectivity, SDK bridge | Meshtastic SDK lifecycle and outbound `sendText` proven. Inbound uses `simulate_inbound`/`wrapper_callback`, not real pubsub. No real external Matrix target. **Direction deferred** until cross-adapter Matrix outbound is proven. |
-| `bidirectional` | All of the above | Both scenarios above combined. The `meshtastic_to_matrix` leg carries the same simulate_inbound limitations. |
+| Scenario               | Tests Included                                  | Description                                                                                                                                                                                                                         |
+| ---------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `matrix_to_meshtastic` | Synapse connectivity, bridge smoke, run session | Real MatrixAdapter Synapse ingress via nio SDK, routed through PipelineRunner, real MeshtasticAdapter outbound to meshtasticd. Both `synapse.log` and `meshtasticd.log` required.                                                   |
+| `meshtastic_to_matrix` | meshtasticd connectivity, SDK bridge            | Meshtastic SDK lifecycle and outbound `sendText` proven. Inbound uses `simulate_inbound`/`wrapper_callback`, not real pubsub. No real external Matrix target. **Direction deferred** until cross-adapter Matrix outbound is proven. |
+| `bidirectional`        | All of the above                                | Both scenarios above combined. The `meshtastic_to_matrix` leg carries the same simulate_inbound limitations.                                                                                                                        |
 
 ## Artifact Directory
 
 Artifacts are written to:
 
-```
+```text
 .ci-artifacts/docker-bridge-runs/<ISO-timestamp>/
 ├── summary.json           # Structured evidence summary (always written)
 ├── run-metadata.json      # Run parameters, images, timestamps (always written)
@@ -80,27 +82,27 @@ These files are written on every run, including failed runs. The exact list depe
 
 **Scenario-aware required files:**
 
-| Scenario | Required files |
-|----------|---------------|
+| Scenario               | Required files                                                                       |
+| ---------------------- | ------------------------------------------------------------------------------------ |
 | `matrix_to_meshtastic` | `summary.json`, `run-metadata.json`, `config.toml`, `synapse.log`, `meshtasticd.log` |
-| `meshtastic_to_matrix` | `summary.json`, `run-metadata.json`, `config.toml`, `meshtasticd.log` |
-| `bidirectional` | `summary.json`, `run-metadata.json`, `config.toml`, `synapse.log`, `meshtasticd.log` |
+| `meshtastic_to_matrix` | `summary.json`, `run-metadata.json`, `config.toml`, `meshtasticd.log`                |
+| `bidirectional`        | `summary.json`, `run-metadata.json`, `config.toml`, `synapse.log`, `meshtasticd.log` |
 
 For `matrix_to_meshtastic`, both `synapse.log` and `meshtasticd.log` are required because the scenario exercises the full cross-adapter path: real Synapse ingress through the nio SDK, PipelineRunner routing, and real Meshtastic adapter outbound delivery to meshtasticd. The run starts both containers and validates SDK-to-SDK event flow end to end.
 
 **Always required (all scenarios):**
 
-| File | Contents |
-|------|----------|
-| `summary.json` | Structured evidence summary: status, scenario, timestamps, per-transport results, limitations. See shape below. |
-| `run-metadata.json` | Run parameters: scenario name, Docker image tags, ports, timeout, Python version, MEDRE version. |
-| `config.toml` | Copy of the TOML config used to configure adapters and routes for this run. |
+| File                | Contents                                                                                                        |
+| ------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `summary.json`      | Structured evidence summary: status, scenario, timestamps, per-transport results, limitations. See shape below. |
+| `run-metadata.json` | Run parameters: scenario name, Docker image tags, ports, timeout, Python version, MEDRE version.                |
+| `config.toml`       | Copy of the TOML config used to configure adapters and routes for this run.                                     |
 
 **Conditionally required:**
 
-| File | Contents | When required |
-|------|----------|---------------|
-| `synapse.log` | `docker logs` output from the Synapse container. | `matrix_to_meshtastic`, `bidirectional` |
+| File              | Contents                                             | When required                                                   |
+| ----------------- | ---------------------------------------------------- | --------------------------------------------------------------- |
+| `synapse.log`     | `docker logs` output from the Synapse container.     | `matrix_to_meshtastic`, `bidirectional`                         |
 | `meshtasticd.log` | `docker logs` output from the meshtasticd container. | `matrix_to_meshtastic`, `meshtastic_to_matrix`, `bidirectional` |
 
 **Legacy note:** Older runs (before scenario-aware plans) may have `pytest-stdout.log` and `pytest-stderr.log` as required files. Current runs capture pytest output inline in `summary.json` under `logs.pytest_stdout` and `logs.pytest_stderr`.
@@ -109,15 +111,15 @@ For `matrix_to_meshtastic`, both `synapse.log` and `meshtasticd.log` are require
 
 These files may or may not be present depending on how far the run progressed. If missing, the reason is noted in `summary.json` under `limitations`.
 
-| File | Contents | When present |
-|------|----------|--------------|
-| `meshtasticd.log` | `docker logs` output from the meshtasticd container. Required for `matrix_to_meshtastic`, `meshtastic_to_matrix`, and `bidirectional` scenarios (see conditionally required table above). | meshtasticd container ran |
-| `medre.log` | Runtime log output from the MEDRE process. **Absent when PipelineRunner is used instead of full MedreApp** (which is the common case for Docker bridge artifact runs). Present only when the full runtime started and wrote to its log file before the run ended (e.g., `test_synapse_run_session`). | Full MedreApp runtime initialized |
-| `receipts.json` | JSON array of `DeliveryReceipt` objects persisted during the run. Present when at least one delivery was attempted. | Delivery attempted |
-| `native-refs.json` | JSON array of `NativeMessageRef` objects recording inbound message provenance. Present when inbound events were processed and refs were stored. | Inbound refs recorded |
-| `inspect-timeline.json` | Per-event pipeline timeline produced by the inspect subsystem. Present when events were fully processed through the pipeline. | Pipeline completed for at least one event |
-| `evidence.json` | Full bridge evidence bundle (events, receipts, native refs, accounting). Present when the evidence collector ran successfully. | Evidence collection succeeded |
-| `final-snapshot.json` | Runtime shutdown snapshot with final accounting counters, capacity gauges, and adapter state. **Absent when PipelineRunner is used instead of full MedreApp** (which is the common case for Docker bridge artifact runs). Present only when the full MedreApp runtime shut down gracefully. | Full MedreApp graceful shutdown |
+| File                    | Contents                                                                                                                                                                                                                                                                                             | When present                              |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| `meshtasticd.log`       | `docker logs` output from the meshtasticd container. Required for `matrix_to_meshtastic`, `meshtastic_to_matrix`, and `bidirectional` scenarios (see conditionally required table above).                                                                                                            | meshtasticd container ran                 |
+| `medre.log`             | Runtime log output from the MEDRE process. **Absent when PipelineRunner is used instead of full MedreApp** (which is the common case for Docker bridge artifact runs). Present only when the full runtime started and wrote to its log file before the run ended (e.g., `test_synapse_run_session`). | Full MedreApp runtime initialized         |
+| `receipts.json`         | JSON array of `DeliveryReceipt` objects persisted during the run. Present when at least one delivery was attempted.                                                                                                                                                                                  | Delivery attempted                        |
+| `native-refs.json`      | JSON array of `NativeMessageRef` objects recording inbound message provenance. Present when inbound events were processed and refs were stored.                                                                                                                                                      | Inbound refs recorded                     |
+| `inspect-timeline.json` | Per-event pipeline timeline produced by the inspect subsystem. Present when events were fully processed through the pipeline.                                                                                                                                                                        | Pipeline completed for at least one event |
+| `evidence.json`         | Full bridge evidence bundle (events, receipts, native refs, accounting). Present when the evidence collector ran successfully.                                                                                                                                                                       | Evidence collection succeeded             |
+| `final-snapshot.json`   | Runtime shutdown snapshot with final accounting counters, capacity gauges, and adapter state. **Absent when PipelineRunner is used instead of full MedreApp** (which is the common case for Docker bridge artifact runs). Present only when the full MedreApp runtime shut down gracefully.          | Full MedreApp graceful shutdown           |
 
 When a best-effort file is absent, `summary.json` explains why in its `limitations` array. For example: `"medre.log not written: runtime exited before log initialization"` or `"receipts.json absent: no deliveries attempted before failure"`.
 
@@ -256,11 +258,11 @@ cat "${RUN_DIR}summary.json" | python -m json.tool
 
 The `status` field tells you the top-level result:
 
-| Status | Meaning |
-|--------|---------|
-| `passed` | All tests passed. Evidence fields are populated. |
-| `partial` | Some tests passed, some failed. Check `errors` and `limitations`. |
-| `failed` | Tests did not pass. Evidence may be sparse. Read `errors` and logs. |
+| Status    | Meaning                                                             |
+| --------- | ------------------------------------------------------------------- |
+| `passed`  | All tests passed. Evidence fields are populated.                    |
+| `partial` | Some tests passed, some failed. Check `errors` and `limitations`.   |
+| `failed`  | Tests did not pass. Evidence may be sparse. Read `errors` and logs. |
 
 Look at `matrix.ingress_path` to see how the Matrix event arrived:
 
@@ -323,6 +325,7 @@ python -m json.tool "${RUN_DIR}evidence.json"
 ### Matrix to Meshtastic (`matrix_to_meshtastic`)
 
 **What is proven:**
+
 - Real `nio` SDK connects to a Docker-local Synapse homeserver.
 - Inbound Matrix event arrives via the real sync loop (`ingress_path == "sync_loop"`), with fallback to `_on_room_message` if sync does not deliver within the timeout.
 - `MatrixCodec` decodes the event into a `CanonicalEvent`.
@@ -333,6 +336,7 @@ python -m json.tool "${RUN_DIR}evidence.json"
 - Adapter lifecycle (start, health check, deliver, stop) works through real SDK code for both Matrix and Meshtastic adapters.
 
 **What is NOT proven:**
+
 - No real external Matrix account. Synapse runs in a Docker container on localhost.
 - No real LoRa radio. meshtasticd runs in simulation mode inside Docker. No over-the-air packets.
 - No automated queue draining. The test exercises a single message, not sustained message flow.
@@ -345,12 +349,14 @@ python -m json.tool "${RUN_DIR}evidence.json"
 > **Status: Deferred.** This direction is not yet proven at the cross-adapter level. The scenario exercises real Meshtastic SDK lifecycle and outbound delivery, but does not prove real Meshtastic-to-Matrix bridge flow. See limitations below.
 
 **What is proven:**
+
 - Real `mtjk` SDK creates a `TCPInterface` to a Docker-local meshtasticd instance.
 - Outbound delivery via real `sendText` returns a real packet ID.
 - Adapter lifecycle (start, health, stop) works through real SDK code.
 - Pubsub subscription is established at the SDK level.
 
 **What is NOT proven:**
+
 - No real radio hardware. meshtasticd runs in simulation mode inside Docker.
 - Inbound Meshtastic events use `simulate_inbound` or `wrapper_callback`, not real pubsub callbacks from meshtasticd. Real inbound delivery through the pubsub path is unconfirmed.
 - No real external Matrix account for the outbound Matrix target. The Matrix outbound adapter is not exercised in this scenario.
@@ -388,16 +394,16 @@ No secrets appear in any artifact file.
 
 Reuses the existing Docker integration variables:
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `MEDRE_SYNAPSE_IMAGE` | `matrixdotorg/synapse:v1.149.0` | Synapse Docker image |
-| `MEDRE_MESHTASTICD_IMAGE` | `meshtastic/meshtasticd:2.7.15` | meshtasticd Docker image |
-| `MEDRE_SYNAPSE_PORT` | `8008` | Synapse HTTP port |
-| `MEDRE_MESHTASTICD_PORT` | `4403` | meshtasticd TCP port |
-| `MEDRE_MESHTASTICD_HWID` | `11` | meshtasticd hardware ID |
-| `MEDRE_DOCKER_READY_TIMEOUT` | `120` | Seconds to wait per service |
-| `MEDRE_CI_ARTIFACT_DIR` | `.ci-artifacts/docker-bridge-runs` | Artifact base directory |
-| `MEDRE_SKIP_DOCKER` | unset | Skip all Docker tests when set |
+| Variable                     | Default                            | Description                    |
+| ---------------------------- | ---------------------------------- | ------------------------------ |
+| `MEDRE_SYNAPSE_IMAGE`        | `matrixdotorg/synapse:v1.149.0`    | Synapse Docker image           |
+| `MEDRE_MESHTASTICD_IMAGE`    | `meshtastic/meshtasticd:2.7.15`    | meshtasticd Docker image       |
+| `MEDRE_SYNAPSE_PORT`         | `8008`                             | Synapse HTTP port              |
+| `MEDRE_MESHTASTICD_PORT`     | `4403`                             | meshtasticd TCP port           |
+| `MEDRE_MESHTASTICD_HWID`     | `11`                               | meshtasticd hardware ID        |
+| `MEDRE_DOCKER_READY_TIMEOUT` | `120`                              | Seconds to wait per service    |
+| `MEDRE_CI_ARTIFACT_DIR`      | `.ci-artifacts/docker-bridge-runs` | Artifact base directory        |
+| `MEDRE_SKIP_DOCKER`          | unset                              | Skip all Docker tests when set |
 
 ## Docker Test Gating
 
@@ -420,11 +426,11 @@ The script performs **fail-fast checks** on optional imports. It does not silent
 
 ### Required imports per scenario
 
-| Scenario | Required imports | Install command |
-|----------|-----------------|----------------|
-| `matrix_to_meshtastic` | `import nio` (from `mindroom-nio`) | `pip install -e ".[matrix,meshtastic,dev]"` |
+| Scenario               | Required imports                              | Install command                             |
+| ---------------------- | --------------------------------------------- | ------------------------------------------- |
+| `matrix_to_meshtastic` | `import nio` (from `mindroom-nio`)            | `pip install -e ".[matrix,meshtastic,dev]"` |
 | `meshtastic_to_matrix` | `import meshtastic`, `from pubsub import pub` | `pip install -e ".[matrix,meshtastic,dev]"` |
-| `bidirectional` | All of the above | `pip install -e ".[matrix,meshtastic,dev]"` |
+| `bidirectional`        | All of the above                              | `pip install -e ".[matrix,meshtastic,dev]"` |
 
 ### Setup
 
@@ -441,7 +447,7 @@ docker info
 
 If prerequisites are missing, the script prints an error like:
 
-```
+```yaml
 ERROR: Matrix SDK (mindroom-nio exposes 'nio') is not installed.
 
 Install the required extras:

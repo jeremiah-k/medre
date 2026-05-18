@@ -38,7 +38,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -47,8 +46,8 @@ import pytest
 
 from medre.config.model import (
     AdapterConfigSet,
-    LxmfRuntimeConfig,
     LoggingConfig,
+    LxmfRuntimeConfig,
     MatrixRuntimeConfig,
     MeshCoreRuntimeConfig,
     MeshtasticRuntimeConfig,
@@ -63,14 +62,13 @@ from medre.core.events.canonical import CanonicalEvent
 from medre.core.events.metadata import EventMetadata, RoutingMetadata
 from medre.core.routing.stats import RouteStats
 from medre.core.storage.replay import (
+    _MAX_ERROR_LENGTH,
+    _MAX_SUMMARY_ERRORS,
     ReplayMode,
     ReplayResult,
     ReplayRouteAttribution,
     ReplayState,
-    ReplaySummary,
     _build_summary,
-    _MAX_ERROR_LENGTH,
-    _MAX_SUMMARY_ERRORS,
 )
 from medre.runtime.app import MedreApp, RuntimeState
 from medre.runtime.builder import RuntimeBuilder
@@ -81,11 +79,10 @@ from medre.runtime.snapshot import (
     _MAX_ROUTES,
     build_runtime_snapshot,
 )
-
-# Reuse existing harness helpers.
-from tests.test_soak_harness import DiagnosticsSnapshot, SoakRuntime
 from tests.test_soak_foundations_v2 import _count_asyncio_tasks
 
+# Reuse existing harness helpers.
+from tests.test_soak_harness import SoakRuntime
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -355,9 +352,9 @@ class TestLargeRouteCountChurn:
             assert entry["delivered"] == 30, f"{rid}: delivered={entry['delivered']}"
             assert entry["failed"] == 30, f"{rid}: failed={entry['failed']}"
             assert entry["skipped"] == 30, f"{rid}: skipped={entry['skipped']}"
-            assert entry["loop_prevented"] == 30, (
-                f"{rid}: loop_prevented={entry['loop_prevented']}"
-            )
+            assert (
+                entry["loop_prevented"] == 30
+            ), f"{rid}: loop_prevented={entry['loop_prevented']}"
 
     @pytest.mark.asyncio
     async def test_60_routes_snapshot_deterministic(self) -> None:
@@ -384,9 +381,9 @@ class TestLargeRouteCountChurn:
         snap = stats.snapshot()
         for rid, entry in snap.items():
             if "last_error" in entry:
-                assert len(entry["last_error"]) <= 512, (
-                    f"{rid}: error string too long: {len(entry['last_error'])}"
-                )
+                assert (
+                    len(entry["last_error"]) <= 512
+                ), f"{rid}: error string too long: {len(entry['last_error'])}"
 
 
 # ===================================================================
@@ -403,7 +400,9 @@ class TestCombinedReplayDiagnosticsDegraded:
 
     @pytest.mark.asyncio
     async def test_sustained_combined_session(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """12 combined cycles: start with 4 adapters → deliver → diagnostics
         → stop, alternating with 2-adapter degraded cycles.
@@ -436,14 +435,12 @@ class TestCombinedReplayDiagnosticsDegraded:
                 for adapter_id, adapter in app.adapters.items():
                     try:
                         if hasattr(adapter, "simulate_inbound"):
-                            await _adeliver(
-                                adapter_id, adapter, f"comb-{cycle}-{i}"
-                            )
+                            await _adeliver(adapter_id, adapter, f"comb-{cycle}-{i}")
                     except Exception as exc:
                         delivery_failures.append((adapter_id, str(exc)))
-            assert not delivery_failures, (
-                f"Cycle {cycle}: delivery failures: {delivery_failures}"
-            )
+            assert (
+                not delivery_failures
+            ), f"Cycle {cycle}: delivery failures: {delivery_failures}"
 
             # Capture diagnostics.
             raw = build_runtime_snapshot(app)
@@ -465,12 +462,12 @@ class TestCombinedReplayDiagnosticsDegraded:
             assert app.state is RuntimeState.STOPPED
 
         # All even cycles must have 4 adapters, all odd cycles 2.
-        assert all_adapter_counts == [4, 2] * 6, (
-            f"Adapter counts unexpected: {all_adapter_counts}"
-        )
-        assert all(s == "running" for s in all_states), (
-            f"States inconsistent: {all_states}"
-        )
+        assert (
+            all_adapter_counts == [4, 2] * 6
+        ), f"Adapter counts unexpected: {all_adapter_counts}"
+        assert all(
+            s == "running" for s in all_states
+        ), f"States inconsistent: {all_states}"
 
 
 # ===================================================================
@@ -487,7 +484,8 @@ class TestStartupShutdownDeliveryInterleave:
 
     @pytest.mark.asyncio
     async def test_10_cycles_escalating_delivery(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """10 cycles: deliver (cycle+1) × 2 events per cycle, from 2 to 20."""
         baseline = _count_asyncio_tasks()
@@ -511,13 +509,12 @@ class TestStartupShutdownDeliveryInterleave:
         assert adapter_count_sets == {4}
 
         after = _count_asyncio_tasks()
-        assert after <= baseline + 2, (
-            f"Task leak: baseline={baseline}, after={after}"
-        )
+        assert after <= baseline + 2, f"Task leak: baseline={baseline}, after={after}"
 
     @pytest.mark.asyncio
     async def test_8_cycles_with_diagnostics_between_deliveries(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """8 cycles: deliver 3 → diagnostics → deliver 3 more → diagnostics → stop.
 
@@ -551,7 +548,9 @@ class TestDegradedVaryingAdapterCount:
 
     @pytest.mark.asyncio
     async def test_cycle_through_all_adapter_counts(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Cycle 1→2→3→4→3→2→1 adapters — each must start and stop cleanly."""
         counts = [1, 2, 3, 4, 3, 2, 1]
@@ -566,9 +565,9 @@ class TestDegradedVaryingAdapterCount:
 
             await app.start()
             assert app.state is RuntimeState.RUNNING
-            assert len(app.adapters) == n, (
-                f"Cycle {idx}: expected {n} adapters, got {len(app.adapters)}"
-            )
+            assert (
+                len(app.adapters) == n
+            ), f"Cycle {idx}: expected {n} adapters, got {len(app.adapters)}"
 
             # Deliver events — tolerant of adapter variations.
             delivery_failures: list[tuple[str, str]] = []
@@ -576,21 +575,21 @@ class TestDegradedVaryingAdapterCount:
                 for adapter_id, adapter in app.adapters.items():
                     try:
                         if hasattr(adapter, "simulate_inbound"):
-                            await _adeliver(
-                                adapter_id, adapter, f"var-{idx}-{i}"
-                            )
+                            await _adeliver(adapter_id, adapter, f"var-{idx}-{i}")
                     except Exception as exc:
                         delivery_failures.append((adapter_id, str(exc)))
-            assert not delivery_failures, (
-                f"Count-{n} cycle {idx}: delivery failures: {delivery_failures}"
-            )
+            assert (
+                not delivery_failures
+            ), f"Count-{n} cycle {idx}: delivery failures: {delivery_failures}"
 
             await app.stop()
             assert app.state is RuntimeState.STOPPED
 
     @pytest.mark.asyncio
     async def test_single_adapter_sustained_delivery(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Single adapter runtime must handle 15 delivery bursts."""
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
@@ -607,14 +606,12 @@ class TestDegradedVaryingAdapterCount:
             for adapter_id, adapter in app.adapters.items():
                 try:
                     if hasattr(adapter, "simulate_inbound"):
-                        await _adeliver(
-                            adapter_id, adapter, f"single-{burst}"
-                        )
+                        await _adeliver(adapter_id, adapter, f"single-{burst}")
                 except Exception as exc:
                     delivery_failures.append((adapter_id, str(exc)))
-        assert not delivery_failures, (
-            f"Sustained delivery failures: {delivery_failures}"
-        )
+        assert (
+            not delivery_failures
+        ), f"Sustained delivery failures: {delivery_failures}"
 
         await app.stop()
         assert app.state is RuntimeState.STOPPED
@@ -633,7 +630,8 @@ class TestCapacityChurnUnderDeliveryPressure:
 
     @pytest.mark.asyncio
     async def test_capacity_delivery_interleaved_20_cycles(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """20 cycles: acquire delivery slot → deliver event → release slot."""
         limits = RuntimeLimits(
@@ -645,7 +643,7 @@ class TestCapacityChurnUnderDeliveryPressure:
         await soak.start()
         assert soak.app is not None
 
-        for cycle in range(20):
+        for _cycle in range(20):
             acquired = await cc.acquire_delivery()
             assert acquired is True
 
@@ -729,8 +727,7 @@ class TestRouteExpansionBoundedStats:
             snap = stats.snapshot()
             # Number of routes in snapshot must equal i + 1.
             assert len(snap) == i + 1, (
-                f"After adding route {i}, expected {i + 1} routes, "
-                f"got {len(snap)}"
+                f"After adding route {i}, expected {i + 1} routes, " f"got {len(snap)}"
             )
 
         final = stats.snapshot()
@@ -756,9 +753,9 @@ class TestRouteExpansionBoundedStats:
             assert entry["delivered"] == 1
             assert entry["failed"] == 1
             assert "last_error" in entry
-            assert len(entry["last_error"]) <= 512, (
-                f"{rid}: error not truncated: {len(entry['last_error'])}"
-            )
+            assert (
+                len(entry["last_error"]) <= 512
+            ), f"{rid}: error not truncated: {len(entry['last_error'])}"
 
     @pytest.mark.asyncio
     async def test_200_routes_snapshot_deterministic(self) -> None:
@@ -787,7 +784,8 @@ class TestBoundedSnapshotsUnderCombinedLoad:
 
     @pytest.mark.asyncio
     async def test_snapshot_size_stable_under_combined_load(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """15 iterations: deliver events + capacity acquire/release +
         diagnostics snapshot. Snapshot JSON size must not grow."""
@@ -801,7 +799,7 @@ class TestBoundedSnapshotsUnderCombinedLoad:
         cc = CapacityController(limits)
 
         sizes: list[int] = []
-        for i in range(15):
+        for _i in range(15):
             # Capacity pressure.
             acquired = await cc.acquire_delivery()
             if acquired:
@@ -819,13 +817,13 @@ class TestBoundedSnapshotsUnderCombinedLoad:
         max_size = max(sizes)
         # Allow 10% + 100 bytes tolerance for minor counter changes.
         assert max_size - min_size <= min_size * 0.1 + 100, (
-            f"Snapshot size drifted: min={min_size}, max={max_size}, "
-            f"sizes={sizes}"
+            f"Snapshot size drifted: min={min_size}, max={max_size}, " f"sizes={sizes}"
         )
 
     @pytest.mark.asyncio
     async def test_snapshot_adapter_count_constant_under_load(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """20 snapshots under load: adapter count must always be 4."""
         await soak.start()
@@ -835,22 +833,23 @@ class TestBoundedSnapshotsUnderCombinedLoad:
             await soak.deliver_events(count=2)
             raw = build_runtime_snapshot(soak.app)
             adapters = raw.get("adapters", [])
-            assert len(adapters) == 4, (
-                f"Adapter count changed at iteration {i}: {len(adapters)}"
-            )
+            assert (
+                len(adapters) == 4
+            ), f"Adapter count changed at iteration {i}: {len(adapters)}"
 
         await soak.stop()
 
     @pytest.mark.asyncio
     async def test_snapshot_key_structure_stable_30_captures(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """30 consecutive snapshots under delivery load: key structure constant."""
         await soak.start()
         assert soak.app is not None
 
         structures: list[frozenset[str]] = []
-        for i in range(30):
+        for _i in range(30):
             await soak.deliver_events(count=1)
             raw = build_runtime_snapshot(soak.app)
             structures.append(frozenset(raw.keys()))
@@ -859,9 +858,7 @@ class TestBoundedSnapshotsUnderCombinedLoad:
 
         first = structures[0]
         for idx, struct in enumerate(structures[1:], 1):
-            assert struct == first, (
-                f"Snapshot structure changed at capture {idx}"
-            )
+            assert struct == first, f"Snapshot structure changed at capture {idx}"
 
 
 # ===================================================================
@@ -948,9 +945,9 @@ class TestBoundedReplayStateAndSummary:
 
         summary = _build_summary(results)
         for err in summary.errors:
-            assert len(err) <= _MAX_ERROR_LENGTH, (
-                f"Error not truncated: {len(err)} > {_MAX_ERROR_LENGTH}"
-            )
+            assert (
+                len(err) <= _MAX_ERROR_LENGTH
+            ), f"Error not truncated: {len(err)} > {_MAX_ERROR_LENGTH}"
 
     @pytest.mark.asyncio
     async def test_replay_summary_to_dict_deterministic(self) -> None:
@@ -1040,7 +1037,8 @@ class TestTaskCancellationUnderCombinedStress:
 
     @pytest.mark.asyncio
     async def test_12_combined_stress_cycles_no_task_leak(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """12 cycles: start → capacity acquire → deliver → capacity release
         → diagnostics → stop. No task accumulation."""
@@ -1074,20 +1072,20 @@ class TestTaskCancellationUnderCombinedStress:
 
         after = _count_asyncio_tasks()
         assert after <= baseline + 2, (
-            f"Task leak under combined stress: baseline={baseline}, "
-            f"after={after}"
+            f"Task leak under combined stress: baseline={baseline}, " f"after={after}"
         )
 
     @pytest.mark.asyncio
     async def test_rapid_build_start_stop_with_capacity(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """8 rapid build→start→capacity→stop cycles with fresh capacity
         controllers each time."""
         task_counts: list[int] = []
 
         for _ in range(8):
-            baseline = _count_asyncio_tasks()
+            _count_asyncio_tasks()
 
             await soak.start_fresh()
             assert soak.app is not None
@@ -1103,13 +1101,14 @@ class TestTaskCancellationUnderCombinedStress:
 
         max_count = max(task_counts)
         min_count = min(task_counts)
-        assert max_count - min_count <= 2, (
-            f"Task count drifted over combined cycles: {task_counts}"
-        )
+        assert (
+            max_count - min_count <= 2
+        ), f"Task count drifted over combined cycles: {task_counts}"
 
     @pytest.mark.asyncio
     async def test_capacity_fully_released_after_combined_stress(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """After 6 start/deliver/stop cycles, capacity is fully released."""
         for cycle in range(6):
@@ -1122,12 +1121,12 @@ class TestTaskCancellationUnderCombinedStress:
             # Capacity must be zero after stop.
             if soak.app._capacity_controller is not None:
                 snap = soak.app._capacity_controller.snapshot()
-                assert snap.get("delivery_current", 0) == 0, (
-                    f"Capacity leaked at cycle {cycle}: {snap}"
-                )
-                assert snap.get("replay_current", 0) == 0, (
-                    f"Replay capacity leaked at cycle {cycle}: {snap}"
-                )
+                assert (
+                    snap.get("delivery_current", 0) == 0
+                ), f"Capacity leaked at cycle {cycle}: {snap}"
+                assert (
+                    snap.get("replay_current", 0) == 0
+                ), f"Replay capacity leaked at cycle {cycle}: {snap}"
 
 
 # ===================================================================
@@ -1158,12 +1157,11 @@ class TestBoundedRouteStatsUnderDelivery:
             # After burst i, we have (i+1)*2 routes.
             expected = (burst + 1) * 2
             assert len(snap) == expected, (
-                f"After burst {burst}: expected {expected} routes, "
-                f"got {len(snap)}"
+                f"After burst {burst}: expected {expected} routes, " f"got {len(snap)}"
             )
 
             # All counters must be non-negative.
-            for rid, entry in snap.items():
+            for _rid, entry in snap.items():
                 assert entry["delivered"] >= 0
                 assert entry["failed"] >= 0
 
@@ -1305,14 +1303,15 @@ class TestDiagnosticsChurnUnderCombinedLifecycle:
 
     @pytest.mark.asyncio
     async def test_diagnostics_structure_across_15_cycles(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """15 cycles: capture build_runtime_snapshot at RUNNING state.
 
         All 15 snapshots must have identical key structures."""
         structures: list[frozenset[str]] = []
 
-        for cycle in range(15):
+        for _cycle in range(15):
             await soak.start_fresh()
             assert soak.app is not None
 
@@ -1324,16 +1323,15 @@ class TestDiagnosticsChurnUnderCombinedLifecycle:
 
         first = structures[0]
         for idx, struct in enumerate(structures[1:], 1):
-            assert struct == first, (
-                f"Diagnostics structure changed at cycle {idx}"
-            )
+            assert struct == first, f"Diagnostics structure changed at cycle {idx}"
 
     @pytest.mark.asyncio
     async def test_diagnostic_snapshot_json_safe_across_cycles(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """10 cycles: diagnostic_snapshot() must always be JSON-serializable."""
-        for cycle in range(10):
+        for _cycle in range(10):
             await soak.start_fresh()
             assert soak.app is not None
 

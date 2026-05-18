@@ -10,10 +10,7 @@ They intentionally DO NOT modify existing test files.
 
 from __future__ import annotations
 
-import re
-import signal
 import time
-from functools import partial
 
 import pytest
 
@@ -65,7 +62,9 @@ class TestBasicTokenRedaction:
             (f"api-key: {_FAKE_SYT_TOKEN}", True),
         ],
     )
-    def test_redaction_patterns(self, input_text: str, should_contain_redacted: bool) -> None:
+    def test_redaction_patterns(
+        self, input_text: str, should_contain_redacted: bool
+    ) -> None:
         result = sanitize_error(input_text)
         has_redacted = "[REDACTED]" in result
         assert has_redacted is should_contain_redacted, (

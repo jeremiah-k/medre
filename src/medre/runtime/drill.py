@@ -86,19 +86,11 @@ from __future__ import annotations
 import dataclasses
 import logging
 from datetime import datetime, timezone
-from typing import Any, Callable
+from typing import Any
 from unittest.mock import patch
 
-from medre.core.contracts.adapter import (
-    AdapterCapabilities,
-    AdapterContext,
-    AdapterContract,
-    AdapterDeliveryResult,
-    AdapterInfo,
-    AdapterRole,
-)
-from medre.config.loader import load_config
 from medre.config.env import apply_env_overrides
+from medre.config.loader import load_config
 from medre.config.model import (
     AdapterConfigSet,
     MatrixRuntimeConfig,
@@ -109,8 +101,14 @@ from medre.config.model import (
     StorageConfig,
 )
 from medre.config.paths import resolve as resolve_paths
-from medre.core.events.canonical import CanonicalEvent
-from medre.core.events.kinds import EventKind
+from medre.core.contracts.adapter import (
+    AdapterCapabilities,
+    AdapterContext,
+    AdapterContract,
+    AdapterDeliveryResult,
+    AdapterInfo,
+    AdapterRole,
+)
 from medre.runtime.app import MedreApp
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.errors import (
@@ -120,7 +118,6 @@ from medre.runtime.errors import (
 from medre.runtime.route_engine import RouteValidationError
 from medre.runtime.routes import RouteConfig, RouteConfigSet
 from medre.runtime.smoke import (
-    _LIMITATIONS as _SMOKE_LIMITATIONS,
     _default_smoke_config_path,
     _make_smoke_event,
     _pick_source_adapter,
@@ -226,7 +223,9 @@ async def _build_smoke_runtime(
         config = dataclasses.replace(
             config,
             storage=dataclasses.replace(
-                config.storage, backend="sqlite", path=storage_path,
+                config.storage,
+                backend="sqlite",
+                path=storage_path,
             ),
         )
 
@@ -290,16 +289,16 @@ async def _drill_renderer_failure(
             report["fail_reasons"] = ["No delivery outcomes returned"]
         else:
             outcome = outcomes[0]
-            failure_kind = (
-                outcome.failure_kind.value if outcome.failure_kind else None
+            failure_kind = outcome.failure_kind.value if outcome.failure_kind else None
+            steps.append(
+                _step(
+                    "verify_renderer_failure",
+                    "ok" if failure_kind == "renderer_failure" else "unexpected",
+                    expected="renderer_failure",
+                    observed=failure_kind,
+                    outcome_status=outcome.status,
+                )
             )
-            steps.append(_step(
-                "verify_renderer_failure",
-                "ok" if failure_kind == "renderer_failure" else "unexpected",
-                expected="renderer_failure",
-                observed=failure_kind,
-                outcome_status=outcome.status,
-            ))
             # Verify a "failed" receipt was persisted.
             receipts = []
             if app.storage is not None:
@@ -311,12 +310,14 @@ async def _drill_renderer_failure(
                 r.status == "failed" and "Rendering failed" in (r.error or "")
                 for r in receipts
             )
-            steps.append(_step(
-                "verify_failed_receipt",
-                "ok" if has_failed_receipt else "missing",
-                receipt_count=len(receipts),
-                has_failed_receipt=has_failed_receipt,
-            ))
+            steps.append(
+                _step(
+                    "verify_failed_receipt",
+                    "ok" if has_failed_receipt else "missing",
+                    receipt_count=len(receipts),
+                    has_failed_receipt=has_failed_receipt,
+                )
+            )
             if failure_kind != "renderer_failure" or not has_failed_receipt:
                 report["status"] = "failed"
                 report["fail_reasons"] = []
@@ -377,9 +378,7 @@ async def _drill_adapter_permanent_failure(
                     result: Any,
                     _orig: Any = original_deliver,
                 ) -> Any:
-                    raise AdapterPermanentError(
-                        "drill: simulated permanent failure"
-                    )
+                    raise AdapterPermanentError("drill: simulated permanent failure")
 
                 adapter.deliver = _failing_deliver  # type: ignore[assignment]
                 break
@@ -406,18 +405,26 @@ async def _drill_adapter_permanent_failure(
 
         if target_outcome is None:
             report["status"] = "failed"
-            report["fail_reasons"] = [
-                f"No outcome for patched adapter {patched_aid}"
-            ]
+            report["fail_reasons"] = [f"No outcome for patched adapter {patched_aid}"]
         else:
-            failure_kind = target_outcome.failure_kind.value if target_outcome.failure_kind else None
-            steps.append(_step(
-                "verify_permanent_failure",
-                "ok" if target_outcome.status == "permanent_failure" else "unexpected",
-                expected="permanent_failure",
-                observed=target_outcome.status,
-                failure_kind=failure_kind,
-            ))
+            failure_kind = (
+                target_outcome.failure_kind.value
+                if target_outcome.failure_kind
+                else None
+            )
+            steps.append(
+                _step(
+                    "verify_permanent_failure",
+                    (
+                        "ok"
+                        if target_outcome.status == "permanent_failure"
+                        else "unexpected"
+                    ),
+                    expected="permanent_failure",
+                    observed=target_outcome.status,
+                    failure_kind=failure_kind,
+                )
+            )
             # Verify: no native ref for failed delivery (native refs only
             # created on success).  Query storage for any outbound refs for
             # this event targeting the failed adapter.
@@ -429,8 +436,10 @@ async def _drill_adapter_permanent_failure(
                         event.event_id,
                     )
                     for nref in native_ref_records:
-                        if (getattr(nref, "direction", None) == "outbound"
-                                and getattr(nref, "adapter", None) == patched_aid):
+                        if (
+                            getattr(nref, "direction", None) == "outbound"
+                            and getattr(nref, "adapter", None) == patched_aid
+                        ):
                             has_unexpected_ref = True
                             break
                 except (AttributeError, TypeError):
@@ -438,20 +447,28 @@ async def _drill_adapter_permanent_failure(
                     pass
                 except Exception:
                     pass
-            steps.append(_step(
-                "verify_no_native_ref",
-                "ok" if not has_unexpected_ref else "unexpected",
-                unexpected_native_ref=has_unexpected_ref,
-            ))
+            steps.append(
+                _step(
+                    "verify_no_native_ref",
+                    "ok" if not has_unexpected_ref else "unexpected",
+                    unexpected_native_ref=has_unexpected_ref,
+                )
+            )
             # Verify accounting has a failed count.
             acc = None
             if app._runtime_accounting is not None:
                 acc = app._runtime_accounting.snapshot()
-            steps.append(_step(
-                "verify_accounting",
-                "ok" if acc and acc.get("outbound_failed", 0) >= 1 else "unexpected",
-                accounting=acc,
-            ))
+            steps.append(
+                _step(
+                    "verify_accounting",
+                    (
+                        "ok"
+                        if acc and acc.get("outbound_failed", 0) >= 1
+                        else "unexpected"
+                    ),
+                    accounting=acc,
+                )
+            )
 
             if target_outcome.status != "permanent_failure":
                 report["status"] = "failed"
@@ -488,19 +505,25 @@ async def _drill_adapter_transient_failure(
 
     report["config_source"] = cs
     report["preflight"] = preflight
-    steps.append(_step(
-        "runtime_start", "ok",
-        timestamp=datetime.now(timezone.utc).isoformat(),
-    ))
+    steps.append(
+        _step(
+            "runtime_start",
+            "ok",
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
+    )
 
     try:
         source_aid, source_adapter = _pick_source_adapter(app)
         event = _make_smoke_event(source_adapter, "drill: adapter_transient_failure")
-        steps.append(_step(
-            "inject_event", "ok",
-            event_id=event.event_id,
-            timestamp=datetime.now(timezone.utc).isoformat(),
-        ))
+        steps.append(
+            _step(
+                "inject_event",
+                "ok",
+                event_id=event.event_id,
+                timestamp=datetime.now(timezone.utc).isoformat(),
+            )
+        )
         report["event_id"] = event.event_id
         report["source_adapter"] = source_aid
 
@@ -514,7 +537,8 @@ async def _drill_adapter_transient_failure(
 
                 async def _transient_deliver(result: Any) -> Any:
                     raise AdapterSendError(
-                        "drill: simulated transient failure", transient=True,
+                        "drill: simulated transient failure",
+                        transient=True,
                     )
 
                 adapter.deliver = _transient_deliver  # type: ignore[assignment]
@@ -528,19 +552,25 @@ async def _drill_adapter_transient_failure(
             await _clean_stop(app)
             return report
 
-        steps.append(_step(
-            "patch_adapter", "ok",
-            target_adapter=patched_aid,
-            timestamp=datetime.now(timezone.utc).isoformat(),
-        ))
+        steps.append(
+            _step(
+                "patch_adapter",
+                "ok",
+                target_adapter=patched_aid,
+                timestamp=datetime.now(timezone.utc).isoformat(),
+            )
+        )
         report["target_adapters"] = [patched_aid]
 
         outcomes = await app.pipeline_runner.handle_ingress(event)
-        steps.append(_step(
-            "ingress_complete", "ok",
-            outcome_count=len(outcomes),
-            timestamp=datetime.now(timezone.utc).isoformat(),
-        ))
+        steps.append(
+            _step(
+                "ingress_complete",
+                "ok",
+                outcome_count=len(outcomes),
+                timestamp=datetime.now(timezone.utc).isoformat(),
+            )
+        )
 
         target_outcome = None
         for o in outcomes:
@@ -550,30 +580,40 @@ async def _drill_adapter_transient_failure(
 
         if target_outcome is None:
             report["status"] = "failed"
-            report["fail_reasons"] = [
-                f"No outcome for patched adapter {patched_aid}"
-            ]
+            report["fail_reasons"] = [f"No outcome for patched adapter {patched_aid}"]
         else:
-            failure_kind = target_outcome.failure_kind.value if target_outcome.failure_kind else None
-            steps.append(_step(
-                "verify_transient_failure",
-                "ok" if target_outcome.status == "transient_failure" else "unexpected",
-                expected="transient_failure",
-                observed=target_outcome.status,
-                failure_kind=failure_kind,
-                timestamp=datetime.now(timezone.utc).isoformat(),
-            ))
+            failure_kind = (
+                target_outcome.failure_kind.value
+                if target_outcome.failure_kind
+                else None
+            )
+            steps.append(
+                _step(
+                    "verify_transient_failure",
+                    (
+                        "ok"
+                        if target_outcome.status == "transient_failure"
+                        else "unexpected"
+                    ),
+                    expected="transient_failure",
+                    observed=target_outcome.status,
+                    failure_kind=failure_kind,
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                )
+            )
             # Verify: transient failure is retryable.
             is_retryable = (
                 target_outcome.failure_kind is not None
                 and target_outcome.failure_kind.is_retryable
             )
-            steps.append(_step(
-                "verify_retryable",
-                "ok" if is_retryable else "unexpected",
-                is_retryable=is_retryable,
-                timestamp=datetime.now(timezone.utc).isoformat(),
-            ))
+            steps.append(
+                _step(
+                    "verify_retryable",
+                    "ok" if is_retryable else "unexpected",
+                    is_retryable=is_retryable,
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                )
+            )
             # Verify: no native ref for failed delivery.
             failed_adapter = app.adapters.get(patched_aid)
             has_unexpected_ref = False
@@ -583,8 +623,10 @@ async def _drill_adapter_transient_failure(
                         event.event_id,
                     )
                     for nref in native_ref_records:
-                        if (getattr(nref, "direction", None) == "outbound"
-                                and getattr(nref, "adapter", None) == patched_aid):
+                        if (
+                            getattr(nref, "direction", None) == "outbound"
+                            and getattr(nref, "adapter", None) == patched_aid
+                        ):
                             has_unexpected_ref = True
                             break
                 except (AttributeError, TypeError):
@@ -592,12 +634,14 @@ async def _drill_adapter_transient_failure(
                     pass
                 except Exception:
                     pass
-            steps.append(_step(
-                "verify_no_native_ref",
-                "ok" if not has_unexpected_ref else "unexpected",
-                unexpected_native_ref=has_unexpected_ref,
-                timestamp=datetime.now(timezone.utc).isoformat(),
-            ))
+            steps.append(
+                _step(
+                    "verify_no_native_ref",
+                    "ok" if not has_unexpected_ref else "unexpected",
+                    unexpected_native_ref=has_unexpected_ref,
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                )
+            )
 
             # Recovery simulation: restore adapter, re-deliver a new event.
             recovery_ok = False
@@ -605,7 +649,8 @@ async def _drill_adapter_transient_failure(
             if original_deliver is not None and failed_adapter is not None:
                 failed_adapter.deliver = original_deliver  # type: ignore[assignment]
                 recovery_event = _make_smoke_event(
-                    source_adapter, "drill: adapter_transient_failure recovery",
+                    source_adapter,
+                    "drill: adapter_transient_failure recovery",
                 )
                 recovery_outcomes = await app.pipeline_runner.handle_ingress(
                     recovery_event,
@@ -618,13 +663,15 @@ async def _drill_adapter_transient_failure(
                 if recovery_target is not None:
                     recovery_receipt_status = recovery_target.status
                     recovery_ok = recovery_target.status == "success"
-                steps.append(_step(
-                    "simulate_manual_recovery",
-                    "ok" if recovery_ok else "unexpected",
-                    recovery_event_id=recovery_event.event_id,
-                    recovery_receipt_status=recovery_receipt_status,
-                    timestamp=datetime.now(timezone.utc).isoformat(),
-                ))
+                steps.append(
+                    _step(
+                        "simulate_manual_recovery",
+                        "ok" if recovery_ok else "unexpected",
+                        recovery_event_id=recovery_event.event_id,
+                        recovery_receipt_status=recovery_receipt_status,
+                        timestamp=datetime.now(timezone.utc).isoformat(),
+                    )
+                )
 
             report["recovery_path"] = {
                 "failure_kind": "ADAPTER_TRANSIENT",
@@ -672,7 +719,8 @@ async def _drill_capacity_rejection(
 
     try:
         app, preflight, cs, ctx = await _build_smoke_runtime(
-            config_path, storage_path,
+            config_path,
+            storage_path,
         )
     except Exception as exc:
         report["status"] = "failed"
@@ -695,6 +743,7 @@ async def _drill_capacity_rejection(
         # Replace the capacity controller with one that has a single slot
         # and a short timeout, then exhaust it.
         from medre.runtime.capacity import CapacityController
+
         small_cc = CapacityController(
             RuntimeLimits(
                 max_inflight_deliveries=1,
@@ -720,16 +769,19 @@ async def _drill_capacity_rejection(
 
         # Find a CAPACITY_REJECTION outcome.
         cap_outcomes = [
-            o for o in outcomes
+            o
+            for o in outcomes
             if o.failure_kind is not None
             and o.failure_kind.value == "capacity_rejection"
         ]
         has_cap_rejection = len(cap_outcomes) >= 1
-        steps.append(_step(
-            "verify_capacity_rejection",
-            "ok" if has_cap_rejection else "unexpected",
-            capacity_rejections=len(cap_outcomes),
-        ))
+        steps.append(
+            _step(
+                "verify_capacity_rejection",
+                "ok" if has_cap_rejection else "unexpected",
+                capacity_rejections=len(cap_outcomes),
+            )
+        )
         # Verify: no receipts for capacity-rejected deliveries.
         if app.storage is not None:
             try:
@@ -739,14 +791,17 @@ async def _drill_capacity_rejection(
         else:
             receipts = []
         cap_receipts = [
-            r for r in receipts
+            r
+            for r in receipts
             if r.target_adapter in {o.target_adapter for o in cap_outcomes}
         ]
-        steps.append(_step(
-            "verify_no_receipt",
-            "ok" if not cap_receipts else "unexpected",
-            receipt_count=len(cap_receipts),
-        ))
+        steps.append(
+            _step(
+                "verify_no_receipt",
+                "ok" if not cap_receipts else "unexpected",
+                receipt_count=len(cap_receipts),
+            )
+        )
 
         if not has_cap_rejection:
             report["status"] = "failed"
@@ -779,10 +834,13 @@ async def _drill_shutdown_rejection(
 
     report["config_source"] = cs
     report["preflight"] = preflight
-    steps.append(_step(
-        "runtime_start", "ok",
-        timestamp=datetime.now(timezone.utc).isoformat(),
-    ))
+    steps.append(
+        _step(
+            "runtime_start",
+            "ok",
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
+    )
 
     try:
         cc = app._capacity_controller
@@ -795,42 +853,54 @@ async def _drill_shutdown_rejection(
 
         cc.stop_accepting()
         stop_ts = datetime.now(timezone.utc).isoformat()
-        steps.append(_step(
-            "stop_accepting", "ok",
-            accepting_work=cc.accepting_work,
-            timestamp=stop_ts,
-        ))
+        steps.append(
+            _step(
+                "stop_accepting",
+                "ok",
+                accepting_work=cc.accepting_work,
+                timestamp=stop_ts,
+            )
+        )
 
         source_aid, source_adapter = _pick_source_adapter(app)
         event = _make_smoke_event(source_adapter, "drill: shutdown_rejection")
         inject_ts = datetime.now(timezone.utc).isoformat()
-        steps.append(_step(
-            "inject_event", "ok",
-            event_id=event.event_id,
-            timestamp=inject_ts,
-        ))
+        steps.append(
+            _step(
+                "inject_event",
+                "ok",
+                event_id=event.event_id,
+                timestamp=inject_ts,
+            )
+        )
         report["event_id"] = event.event_id
         report["source_adapter"] = source_aid
 
         outcomes = await app.pipeline_runner.handle_ingress(event)
-        steps.append(_step(
-            "ingress_complete", "ok",
-            outcome_count=len(outcomes),
-            timestamp=datetime.now(timezone.utc).isoformat(),
-        ))
+        steps.append(
+            _step(
+                "ingress_complete",
+                "ok",
+                outcome_count=len(outcomes),
+                timestamp=datetime.now(timezone.utc).isoformat(),
+            )
+        )
 
         shutdown_outcomes = [
-            o for o in outcomes
+            o
+            for o in outcomes
             if o.failure_kind is not None
             and o.failure_kind.value == "shutdown_rejection"
         ]
         has_shutdown = len(shutdown_outcomes) >= 1
-        steps.append(_step(
-            "verify_shutdown_rejection",
-            "ok" if has_shutdown else "unexpected",
-            shutdown_rejections=len(shutdown_outcomes),
-            timestamp=datetime.now(timezone.utc).isoformat(),
-        ))
+        steps.append(
+            _step(
+                "verify_shutdown_rejection",
+                "ok" if has_shutdown else "unexpected",
+                shutdown_rejections=len(shutdown_outcomes),
+                timestamp=datetime.now(timezone.utc).isoformat(),
+            )
+        )
         # Verify: no receipts for shutdown-rejected deliveries.
         if app.storage is not None:
             try:
@@ -840,15 +910,18 @@ async def _drill_shutdown_rejection(
         else:
             receipts = []
         shutdown_receipts = [
-            r for r in receipts
+            r
+            for r in receipts
             if r.target_adapter in {o.target_adapter for o in shutdown_outcomes}
         ]
-        steps.append(_step(
-            "verify_no_receipt",
-            "ok" if not shutdown_receipts else "unexpected",
-            receipt_count=len(shutdown_receipts),
-            timestamp=datetime.now(timezone.utc).isoformat(),
-        ))
+        steps.append(
+            _step(
+                "verify_no_receipt",
+                "ok" if not shutdown_receipts else "unexpected",
+                receipt_count=len(shutdown_receipts),
+                timestamp=datetime.now(timezone.utc).isoformat(),
+            )
+        )
 
         report["rejection_timeline"] = {
             "stop_accepting_at": stop_ts,
@@ -877,7 +950,7 @@ async def _drill_replay_duplicate_risk(
     storage_path: str | None,
 ) -> dict[str, Any]:
     """Deliver once, replay BEST_EFFORT; verify duplicate receipts."""
-    from medre.core.storage.replay import ReplayEngine, ReplayMode, ReplayRequest
+    from medre.core.storage.replay import ReplayMode, ReplayRequest
 
     report = _base_report("replay_duplicate_risk", storage_path=storage_path)
     steps: list[dict[str, Any]] = []
@@ -891,19 +964,25 @@ async def _drill_replay_duplicate_risk(
 
     report["config_source"] = cs
     report["preflight"] = preflight
-    steps.append(_step(
-        "runtime_start", "ok",
-        timestamp=datetime.now(timezone.utc).isoformat(),
-    ))
+    steps.append(
+        _step(
+            "runtime_start",
+            "ok",
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
+    )
 
     try:
         source_aid, source_adapter = _pick_source_adapter(app)
         event = _make_smoke_event(source_adapter, "drill: replay_duplicate_risk")
-        steps.append(_step(
-            "inject_event", "ok",
-            event_id=event.event_id,
-            timestamp=datetime.now(timezone.utc).isoformat(),
-        ))
+        steps.append(
+            _step(
+                "inject_event",
+                "ok",
+                event_id=event.event_id,
+                timestamp=datetime.now(timezone.utc).isoformat(),
+            )
+        )
         report["event_id"] = event.event_id
         report["source_adapter"] = source_aid
 
@@ -916,12 +995,15 @@ async def _drill_replay_duplicate_risk(
                 receipts1 = await app.storage.list_receipts_for_event(event.event_id)
             except Exception:
                 pass
-        steps.append(_step(
-            "first_delivery", "ok",
-            outcome_count=len(outcomes1),
-            receipt_count=len(receipts1),
-            timestamp=live_ts,
-        ))
+        steps.append(
+            _step(
+                "first_delivery",
+                "ok",
+                outcome_count=len(outcomes1),
+                receipt_count=len(receipts1),
+                timestamp=live_ts,
+            )
+        )
 
         # Replay BEST_EFFORT.
         replay_engine = app._replay_engine
@@ -941,11 +1023,14 @@ async def _drill_replay_duplicate_risk(
         async for result in replay_engine.replay(request):
             results.append(result)
         replay_ts = datetime.now(timezone.utc).isoformat()
-        steps.append(_step(
-            "replay_best_effort", "ok",
-            replay_results=len(results),
-            timestamp=replay_ts,
-        ))
+        steps.append(
+            _step(
+                "replay_best_effort",
+                "ok",
+                replay_results=len(results),
+                timestamp=replay_ts,
+            )
+        )
 
         # Collect receipts after replay.
         receipts2 = []
@@ -957,14 +1042,16 @@ async def _drill_replay_duplicate_risk(
 
         new_receipts = len(receipts2) - len(receipts1)
         timeline_verified = new_receipts > 0
-        steps.append(_step(
-            "verify_duplicate_receipts",
-            "ok" if timeline_verified else "unexpected",
-            receipts_before=len(receipts1),
-            receipts_after=len(receipts2),
-            new_receipts=new_receipts,
-            timestamp=datetime.now(timezone.utc).isoformat(),
-        ))
+        steps.append(
+            _step(
+                "verify_duplicate_receipts",
+                "ok" if timeline_verified else "unexpected",
+                receipts_before=len(receipts1),
+                receipts_after=len(receipts2),
+                new_receipts=new_receipts,
+                timestamp=datetime.now(timezone.utc).isoformat(),
+            )
+        )
 
         report["receipt_timeline"] = {
             "live_receipt_count": len(receipts1),
@@ -1007,10 +1094,13 @@ async def _drill_degraded_live_health(
 
     report["config_source"] = cs
     report["preflight"] = preflight
-    steps.append(_step(
-        "runtime_start", "ok",
-        timestamp=datetime.now(timezone.utc).isoformat(),
-    ))
+    steps.append(
+        _step(
+            "runtime_start",
+            "ok",
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
+    )
 
     try:
         # Pick a target adapter and override health_check.
@@ -1028,7 +1118,7 @@ async def _drill_degraded_live_health(
 
         adapter = app.adapters[target_aid]
 
-        from medre.core.contracts.adapter import AdapterInfo, AdapterCapabilities
+        from medre.core.contracts.adapter import AdapterCapabilities, AdapterInfo
 
         # Preserve original capabilities if available.
         orig_caps = getattr(adapter, "_capabilities", None)
@@ -1043,6 +1133,7 @@ async def _drill_degraded_live_health(
 
         async def _degraded_health() -> AdapterInfo:
             from medre.core.contracts.adapter import AdapterRole as _AR
+
             raw_role = getattr(adapter, "role", "unknown")
             role = raw_role if isinstance(raw_role, _AR) else _AR.PRESENTATION
             return AdapterInfo(
@@ -1056,23 +1147,30 @@ async def _drill_degraded_live_health(
 
         adapter.health_check = _degraded_health  # type: ignore[assignment]
         patch_ts = datetime.now(timezone.utc).isoformat()
-        steps.append(_step(
-            "patch_health", "ok",
-            target_adapter=target_aid,
-            health_before=health_before,
-            timestamp=patch_ts,
-        ))
+        steps.append(
+            _step(
+                "patch_health",
+                "ok",
+                target_adapter=target_aid,
+                health_before=health_before,
+                timestamp=patch_ts,
+            )
+        )
 
         # Refresh live health.
         await app.refresh_live_health()
         refresh_ts = datetime.now(timezone.utc).isoformat()
-        steps.append(_step(
-            "refresh_health", "ok",
-            timestamp=refresh_ts,
-        ))
+        steps.append(
+            _step(
+                "refresh_health",
+                "ok",
+                timestamp=refresh_ts,
+            )
+        )
 
         # Verify the snapshot sees degraded health.
         from medre.runtime.snapshot import build_runtime_snapshot
+
         snap = build_runtime_snapshot(app)
         snapshot_ts = datetime.now(timezone.utc).isoformat()
         live_health = snap.get("health", {}).get("live_health", {})
@@ -1081,13 +1179,15 @@ async def _drill_degraded_live_health(
         observed_health = adapter_entry.get("health", "unknown")
 
         correlation_verified = observed_health == "degraded"
-        steps.append(_step(
-            "verify_degraded",
-            "ok" if correlation_verified else "unexpected",
-            target_adapter=target_aid,
-            observed_health=observed_health,
-            timestamp=snapshot_ts,
-        ))
+        steps.append(
+            _step(
+                "verify_degraded",
+                "ok" if correlation_verified else "unexpected",
+                target_adapter=target_aid,
+                observed_health=observed_health,
+                timestamp=snapshot_ts,
+            )
+        )
 
         report["health_timeline"] = {
             "patched_at": patch_ts,
@@ -1166,12 +1266,14 @@ def _drill_paths() -> Any:
     Uses MEDRE_HOME so no real filesystem paths are touched.
     """
     import os
+
     os.environ.pop("MEDRE_HOME", None)
     os.environ.pop("XDG_CONFIG_HOME", None)
     os.environ.pop("XDG_STATE_HOME", None)
     os.environ.pop("XDG_DATA_HOME", None)
     os.environ.pop("XDG_CACHE_HOME", None)
     import tempfile
+
     os.environ["MEDRE_HOME"] = tempfile.mkdtemp(prefix="medre-drill-")
     return resolve_paths()
 
@@ -1201,14 +1303,16 @@ async def _drill_bad_route_config(
                 ),
             },
         ),
-        routes=RouteConfigSet(routes=(
-            RouteConfig(
-                route_id="bad_route",
-                source_adapters=("fake_matrix",),
-                dest_adapters=("ghost_adapter",),
-                enabled=True,
-            ),
-        )),
+        routes=RouteConfigSet(
+            routes=(
+                RouteConfig(
+                    route_id="bad_route",
+                    source_adapters=("fake_matrix",),
+                    dest_adapters=("ghost_adapter",),
+                    enabled=True,
+                ),
+            )
+        ),
     )
     steps.append(_step("create_bad_config", "ok"))
 
@@ -1234,13 +1338,19 @@ async def _drill_bad_route_config(
             error_msg = str(caught_error)
             has_ghost = "ghost_adapter" in error_msg
 
-            steps.append(_step(
-                "verify_route_validation_error",
-                "ok" if isinstance(caught_error, RouteValidationError) else "unexpected",
-                error_type=error_type,
-                error_message=error_msg,
-                has_unknown_adapter=has_ghost,
-            ))
+            steps.append(
+                _step(
+                    "verify_route_validation_error",
+                    (
+                        "ok"
+                        if isinstance(caught_error, RouteValidationError)
+                        else "unexpected"
+                    ),
+                    error_type=error_type,
+                    error_message=error_msg,
+                    has_unknown_adapter=has_ghost,
+                )
+            )
 
             report["route_id"] = "bad_route"
             report["unknown_adapter_id"] = "ghost_adapter"
@@ -1319,16 +1429,20 @@ async def _drill_all_adapters_build_fail(
         adapter_count = len(app.adapters)
         failure_count = len(app.build_failures)
 
-        steps.append(_step(
-            "verify_empty_adapters",
-            "ok" if adapter_count == 0 else "unexpected",
-            adapter_count=adapter_count,
-        ))
-        steps.append(_step(
-            "verify_build_failures",
-            "ok" if failure_count == 2 else "unexpected",
-            failure_count=failure_count,
-        ))
+        steps.append(
+            _step(
+                "verify_empty_adapters",
+                "ok" if adapter_count == 0 else "unexpected",
+                adapter_count=adapter_count,
+            )
+        )
+        steps.append(
+            _step(
+                "verify_build_failures",
+                "ok" if failure_count == 2 else "unexpected",
+                failure_count=failure_count,
+            )
+        )
 
         build_failure_records = [
             {
@@ -1338,11 +1452,13 @@ async def _drill_all_adapters_build_fail(
             }
             for bf in app.build_failures
         ]
-        steps.append(_step(
-            "verify_failure_attribution",
-            "ok",
-            build_failures=build_failure_records,
-        ))
+        steps.append(
+            _step(
+                "verify_failure_attribution",
+                "ok",
+                build_failures=build_failure_records,
+            )
+        )
 
         report["build_failures"] = build_failure_records
         report["known_adapter_ids"] = sorted(app.adapters.keys())
@@ -1390,17 +1506,23 @@ async def _drill_partial_degraded_startup(
         adapters=AdapterConfigSet(
             matrix={
                 "alpha": MatrixRuntimeConfig(
-                    adapter_id="alpha", enabled=True, adapter_kind="fake",
+                    adapter_id="alpha",
+                    enabled=True,
+                    adapter_kind="fake",
                 ),
             },
             meshtastic={
                 "beta": MeshtasticRuntimeConfig(
-                    adapter_id="beta", enabled=True, adapter_kind="fake",
+                    adapter_id="beta",
+                    enabled=True,
+                    adapter_kind="fake",
                 ),
             },
             meshcore={
                 "gamma": MeshCoreRuntimeConfig(
-                    adapter_id="gamma", enabled=True, adapter_kind="fake",
+                    adapter_id="gamma",
+                    enabled=True,
+                    adapter_kind="fake",
                 ),
             },
         ),
@@ -1427,40 +1549,50 @@ async def _drill_partial_degraded_startup(
         from medre.runtime.app import RuntimeState
 
         is_running = app.state == RuntimeState.RUNNING
-        steps.append(_step(
-            "verify_running",
-            "ok" if is_running else "unexpected",
-            runtime_state=app.state.value,
-        ))
+        steps.append(
+            _step(
+                "verify_running",
+                "ok" if is_running else "unexpected",
+                runtime_state=app.state.value,
+            )
+        )
 
         boot = app.boot_summary
         is_partial = boot is not None and boot.startup_outcome == "partial"
         is_degraded = boot is not None and boot.runtime_health == "degraded"
 
-        steps.append(_step(
-            "verify_partial_outcome",
-            "ok" if is_partial else "unexpected",
-            startup_outcome=boot.startup_outcome if boot else None,
-        ))
-        steps.append(_step(
-            "verify_degraded_health",
-            "ok" if is_degraded else "unexpected",
-            runtime_health=boot.runtime_health if boot else None,
-        ))
+        steps.append(
+            _step(
+                "verify_partial_outcome",
+                "ok" if is_partial else "unexpected",
+                startup_outcome=boot.startup_outcome if boot else None,
+            )
+        )
+        steps.append(
+            _step(
+                "verify_degraded_health",
+                "ok" if is_degraded else "unexpected",
+                runtime_health=boot.runtime_health if boot else None,
+            )
+        )
 
         started = sorted(app.started_adapter_ids)
         failed = sorted(app._failed_adapter_ids)
 
-        steps.append(_step(
-            "verify_started_adapters",
-            "ok" if started == ["alpha", "gamma"] else "unexpected",
-            started_adapters=started,
-        ))
-        steps.append(_step(
-            "verify_failed_adapters",
-            "ok" if failed == ["beta"] else "unexpected",
-            failed_adapters=failed,
-        ))
+        steps.append(
+            _step(
+                "verify_started_adapters",
+                "ok" if started == ["alpha", "gamma"] else "unexpected",
+                started_adapters=started,
+            )
+        )
+        steps.append(
+            _step(
+                "verify_failed_adapters",
+                "ok" if failed == ["beta"] else "unexpected",
+                failed_adapters=failed,
+            )
+        )
 
         # Verify boot summary counts.
         correct_counts = (
@@ -1469,20 +1601,24 @@ async def _drill_partial_degraded_startup(
             and boot.adapters_failed == 1
             and boot.adapters_total == 3
         )
-        steps.append(_step(
-            "verify_boot_summary_counts",
-            "ok" if correct_counts else "unexpected",
-            adapters_started=boot.adapters_started if boot else None,
-            adapters_failed=boot.adapters_failed if boot else None,
-            adapters_total=boot.adapters_total if boot else None,
-        ))
+        steps.append(
+            _step(
+                "verify_boot_summary_counts",
+                "ok" if correct_counts else "unexpected",
+                adapters_started=boot.adapters_started if boot else None,
+                adapters_failed=boot.adapters_failed if boot else None,
+                adapters_total=boot.adapters_total if boot else None,
+            )
+        )
 
         # Verify the failed adapter's stop() was called (cleanup after start failure).
-        steps.append(_step(
-            "verify_failed_adapter_cleanup",
-            "ok" if failing.stop_called else "unexpected",
-            adapter_stop_called=failing.stop_called,
-        ))
+        steps.append(
+            _step(
+                "verify_failed_adapter_cleanup",
+                "ok" if failing.stop_called else "unexpected",
+                adapter_stop_called=failing.stop_called,
+            )
+        )
 
         report["started_adapters"] = started
         report["failed_adapters"] = failed
@@ -1542,12 +1678,16 @@ async def _drill_all_adapters_start_fail(
         adapters=AdapterConfigSet(
             matrix={
                 "alpha": MatrixRuntimeConfig(
-                    adapter_id="alpha", enabled=True, adapter_kind="fake",
+                    adapter_id="alpha",
+                    enabled=True,
+                    adapter_kind="fake",
                 ),
             },
             meshtastic={
                 "beta": MeshtasticRuntimeConfig(
-                    adapter_id="beta", enabled=True, adapter_kind="fake",
+                    adapter_id="beta",
+                    enabled=True,
+                    adapter_kind="fake",
                 ),
             },
         ),
@@ -1598,61 +1738,81 @@ async def _drill_all_adapters_start_fail(
         except RuntimeStartupError:
             startup_error_caught = True
 
-        steps.append(_step(
-            "attempt_start",
-            "ok" if startup_error_caught else "unexpected",
-            runtime_startup_error_caught=startup_error_caught,
-        ))
+        steps.append(
+            _step(
+                "attempt_start",
+                "ok" if startup_error_caught else "unexpected",
+                runtime_startup_error_caught=startup_error_caught,
+            )
+        )
 
         from medre.runtime.app import RuntimeState
 
         is_failed_state = app.state == RuntimeState.FAILED
-        steps.append(_step(
-            "verify_app_state_failed",
-            "ok" if is_failed_state else "unexpected",
-            app_state=app.state.value,
-        ))
+        steps.append(
+            _step(
+                "verify_app_state_failed",
+                "ok" if is_failed_state else "unexpected",
+                app_state=app.state.value,
+            )
+        )
 
         boot = app.boot_summary
         is_total_failure = boot is not None and boot.startup_outcome == "total_failure"
 
-        steps.append(_step(
-            "verify_total_failure",
-            "ok" if is_total_failure else "unexpected",
-            startup_outcome=boot.startup_outcome if boot else None,
-        ))
+        steps.append(
+            _step(
+                "verify_total_failure",
+                "ok" if is_total_failure else "unexpected",
+                startup_outcome=boot.startup_outcome if boot else None,
+            )
+        )
 
         no_started = len(app.started_adapter_ids) == 0
-        steps.append(_step(
-            "verify_no_started_adapters",
-            "ok" if no_started else "unexpected",
-            started_count=len(app.started_adapter_ids),
-        ))
+        steps.append(
+            _step(
+                "verify_no_started_adapters",
+                "ok" if no_started else "unexpected",
+                started_count=len(app.started_adapter_ids),
+            )
+        )
 
         all_failed = sorted(app._failed_adapter_ids) == ["alpha", "beta"]
-        steps.append(_step(
-            "verify_all_adapters_failed",
-            "ok" if all_failed else "unexpected",
-            failed_adapters=sorted(app._failed_adapter_ids),
-        ))
+        steps.append(
+            _step(
+                "verify_all_adapters_failed",
+                "ok" if all_failed else "unexpected",
+                failed_adapters=sorted(app._failed_adapter_ids),
+            )
+        )
 
         # Cleanup evidence.
-        steps.append(_step(
-            "verify_pipeline_cleanup",
-            "ok" if pipeline_stop_called else "unexpected",
-            pipeline_stopped=pipeline_stop_called,
-        ))
-        steps.append(_step(
-            "verify_storage_cleanup",
-            "ok" if storage_close_called else "unexpected",
-            storage_closed=storage_close_called,
-        ))
-        steps.append(_step(
-            "verify_adapter_cleanup",
-            "ok" if alpha_fail.stop_called and beta_fail.stop_called else "unexpected",
-            alpha_stopped=alpha_fail.stop_called,
-            beta_stopped=beta_fail.stop_called,
-        ))
+        steps.append(
+            _step(
+                "verify_pipeline_cleanup",
+                "ok" if pipeline_stop_called else "unexpected",
+                pipeline_stopped=pipeline_stop_called,
+            )
+        )
+        steps.append(
+            _step(
+                "verify_storage_cleanup",
+                "ok" if storage_close_called else "unexpected",
+                storage_closed=storage_close_called,
+            )
+        )
+        steps.append(
+            _step(
+                "verify_adapter_cleanup",
+                (
+                    "ok"
+                    if alpha_fail.stop_called and beta_fail.stop_called
+                    else "unexpected"
+                ),
+                alpha_stopped=alpha_fail.stop_called,
+                beta_stopped=beta_fail.stop_called,
+            )
+        )
 
         report["started_adapters"] = sorted(app.started_adapter_ids)
         report["failed_adapters"] = sorted(app._failed_adapter_ids)
@@ -1666,9 +1826,15 @@ async def _drill_all_adapters_start_fail(
             "app_state": app.state.value,
         }
 
-        if not (startup_error_caught and is_total_failure and is_failed_state
-                and no_started and all_failed
-                and pipeline_stop_called and storage_close_called):
+        if not (
+            startup_error_caught
+            and is_total_failure
+            and is_failed_state
+            and no_started
+            and all_failed
+            and pipeline_stop_called
+            and storage_close_called
+        ):
             report["status"] = "failed"
             report["fail_reasons"] = []
             if not startup_error_caught:

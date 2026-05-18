@@ -12,16 +12,14 @@ over sustained operation.
 **Soak tests are observational.** They do not assert on throughput, latency, or
 message ordering. They report what happened.
 
-
 ## 1. Terminology
 
-| Term | Meaning |
-|------|---------|
-| **Dry run** | Uses `SoakRuntime` harness with fake adapters. No hardware or credentials needed. |
-| **Manual soak** | Uses real transport endpoint. Duration configurable (30–300 s). Operator-supervised. |
-| **Live soak** | Same as manual soak but executed against production-adjacent infrastructure. |
-| **SOAK_DURATION_SECONDS** | Environment variable controlling soak duration. Default 30 s, hard cap 300 s. |
-
+| Term                      | Meaning                                                                              |
+| ------------------------- | ------------------------------------------------------------------------------------ |
+| **Dry run**               | Uses `SoakRuntime` harness with fake adapters. No hardware or credentials needed.    |
+| **Manual soak**           | Uses real transport endpoint. Duration configurable (30–300 s). Operator-supervised. |
+| **Live soak**             | Same as manual soak but executed against production-adjacent infrastructure.         |
+| **SOAK_DURATION_SECONDS** | Environment variable controlling soak duration. Default 30 s, hard cap 300 s.        |
 
 ## 2. Tier 1: Short CI-Friendly Dry Run
 
@@ -51,18 +49,18 @@ SOAK_HARNESS_ITERATIONS=100 pytest tests/test_soak_harness.py -v
 
 ### 2.3 Expected results
 
-| Check | Expected |
-|-------|----------|
-| Start/stop cycles (10x) | All pass, no leaked tasks |
-| State clean after each cycle | All state cleared between cycles |
-| Queue depths within limits | No unbounded growth |
-| N iterations no degradation | All iterations complete within bounds |
+| Check                        | Expected                              |
+| ---------------------------- | ------------------------------------- |
+| Start/stop cycles (10x)      | All pass, no leaked tasks             |
+| State clean after each cycle | All state cleared between cycles      |
+| Queue depths within limits   | No unbounded growth                   |
+| N iterations no degradation  | All iterations complete within bounds |
 
 ### 2.4 Evidence to record
 
 Record in `docs/runbooks/operational-evidence.md` under a new subsection:
 
-```
+```text
 ### Soak Harness Evidence
 | Field | Value |
 |-------|-------|
@@ -71,7 +69,6 @@ Record in `docs/runbooks/operational-evidence.md` under a new subsection:
 | SOAK_HARNESS_ITERATIONS | (value, default 50) |
 | Passed / Failed | (result) |
 ```
-
 
 ## 3. Tier 2: Manual Longer Soak (With Real Endpoint)
 
@@ -163,7 +160,7 @@ available:
 
 For each transport soak, record in `docs/runbooks/operational-evidence.md`:
 
-```
+```text
 ### N.M Soak Test Evidence
 | Field | Value |
 |-------|-------|
@@ -176,7 +173,6 @@ For each transport soak, record in `docs/runbooks/operational-evidence.md`:
 | Session health throughout | (description) |
 | Caveats observed | (description or "none") |
 ```
-
 
 ## 4. Tier 3: Live Soak (Production-Adjacent)
 
@@ -194,28 +190,27 @@ but the **expectations and evidence requirements** are stricter.
 
 Beyond the Tier 2 evidence, a live soak must record:
 
-| Field | Required |
-|-------|----------|
-| Exact MEDRE commit hash | Yes |
-| Transport SDK version (`pip show <package>`) | Yes |
-| Firmware version (for hardware transports) | Yes |
-| Network topology description | Yes (e.g., "single radio, USB-serial, firmware 2.7.19") |
-| Observed message delivery | Yes (event_ids or packet_ids) |
-| Error log excerpts (if any errors) | Yes |
-| Resource usage observations | Desired (memory, open files, task count) |
+| Field                                        | Required                                                |
+| -------------------------------------------- | ------------------------------------------------------- |
+| Exact MEDRE commit hash                      | Yes                                                     |
+| Transport SDK version (`pip show <package>`) | Yes                                                     |
+| Firmware version (for hardware transports)   | Yes                                                     |
+| Network topology description                 | Yes (e.g., "single radio, USB-serial, firmware 2.7.19") |
+| Observed message delivery                    | Yes (event_ids or packet_ids)                           |
+| Error log excerpts (if any errors)           | Yes                                                     |
+| Resource usage observations                  | Desired (memory, open files, task count)                |
 
 ### 4.3 Duration guidance
 
-| Scope | Recommended duration |
-|-------|---------------------|
-| Minimum live soak | 60 seconds (`SOAK_DURATION_SECONDS=60`) |
+| Scope              | Recommended duration                      |
+| ------------------ | ----------------------------------------- |
+| Minimum live soak  | 60 seconds (`SOAK_DURATION_SECONDS=60`)   |
 | Standard live soak | 120 seconds (`SOAK_DURATION_SECONDS=120`) |
 | Extended live soak | 300 seconds (`SOAK_DURATION_SECONDS=300`) |
 
 The 300-second hard cap in `test_soak.py` prevents accidental indefinite runs.
 For longer observations, use the MEDRE runtime directly with
 `medre run --config <path>` and monitor health diagnostics.
-
 
 ## 5. Safety Constraints
 
@@ -230,44 +225,41 @@ All soak tests enforce these constraints (defined in `tests/test_soak.py`):
 6. **Observational only:** Tests report what happened; they do not enforce
    throughput or latency targets.
 
-
 ## 6. Current Soak Evidence Status
 
-| Transport | Tier 1 (dry run) | Tier 2 (manual soak) | Tier 3 (live soak) |
-|-----------|-------------------|----------------------|---------------------|
-| Matrix | NOT EXECUTED | NOT EXECUTED | NOT EXECUTED |
-| Meshtastic | NOT EXECUTED | NOT EXECUTED | NOT EXECUTED |
-| MeshCore | NOT EXECUTED | No test class exists | No test class exists |
-| LXMF | NOT EXECUTED | No test class exists | No test class exists |
-| Harness | NOT EXECUTED | N/A (this IS the harness tier) | N/A |
+| Transport  | Tier 1 (dry run) | Tier 2 (manual soak)           | Tier 3 (live soak)   |
+| ---------- | ---------------- | ------------------------------ | -------------------- |
+| Matrix     | NOT EXECUTED     | NOT EXECUTED                   | NOT EXECUTED         |
+| Meshtastic | NOT EXECUTED     | NOT EXECUTED                   | NOT EXECUTED         |
+| MeshCore   | NOT EXECUTED     | No test class exists           | No test class exists |
+| LXMF       | NOT EXECUTED     | No test class exists           | No test class exists |
+| Harness    | NOT EXECUTED     | N/A (this IS the harness tier) | N/A                  |
 
 All entries marked NOT EXECUTED should be resolved as hardware and
 credentials become available. See `docs/runbooks/operational-evidence.md` §7
 for reasoning and required commands.
 
-
 ## 7. Soak Observations and Contracts
 
 Soak tests exercise the runtime over sustained periods. The following contracts define the guarantees and non-guarantees that soak tests may validate:
 
-| Topic | Contract | Soak-relevant guarantee |
-|-------|----------|------------------------|
-| Capacity boundedness | Contract 53 | `max_inflight_deliveries` and `max_inflight_replay_events` prevent unbounded memory growth |
-| Shutdown drain | Contract 54 | In-flight work is drained (or abandoned) within `shutdown_drain_timeout_seconds` |
-| Crash durability | Contract 59 | SQLite events and receipts survive hard crash; in-flight work is lost |
-| Cancellation under load | Contract 60 | `CapacityController.stop_accepting()` gates new work; drain polls `snapshot()` |
-| Counter resets on restart | Contract 59 | All process-local counters reset to zero on every startup |
+| Topic                     | Contract    | Soak-relevant guarantee                                                                    |
+| ------------------------- | ----------- | ------------------------------------------------------------------------------------------ |
+| Capacity boundedness      | Contract 53 | `max_inflight_deliveries` and `max_inflight_replay_events` prevent unbounded memory growth |
+| Shutdown drain            | Contract 54 | In-flight work is drained (or abandoned) within `shutdown_drain_timeout_seconds`           |
+| Crash durability          | Contract 59 | SQLite events and receipts survive hard crash; in-flight work is lost                      |
+| Cancellation under load   | Contract 60 | `CapacityController.stop_accepting()` gates new work; drain polls `snapshot()`             |
+| Counter resets on restart | Contract 59 | All process-local counters reset to zero on every startup                                  |
 
 Soak tests are **observational** — they do not assert on throughput, latency, or ordering. They report whether the runtime maintained its guarantees over the soak duration.
 
-
 ## 8. Relationship to Other Documents
 
-| Document | Relationship |
-|----------|-------------|
-| `docs/runbooks/operational-evidence.md` | Where soak evidence is recorded |
+| Document                                 | Relationship                              |
+| ---------------------------------------- | ----------------------------------------- |
+| `docs/runbooks/operational-evidence.md`  | Where soak evidence is recorded           |
 | `docs/runbooks/beta-entry-validation.md` | Beta gate (soak is desired, not blocking) |
-| `docs/runbooks/developer-environment.md` | Clean-env procedure (prerequisite) |
-| `tests/test_soak.py` | Live soak test implementation |
-| `tests/test_soak_harness.py` | Dry run soak harness tests |
-| `tests/test_soak_config_builder.py` | Soak config builder tests |
+| `docs/runbooks/developer-environment.md` | Clean-env procedure (prerequisite)        |
+| `tests/test_soak.py`                     | Live soak test implementation             |
+| `tests/test_soak_harness.py`             | Dry run soak harness tests                |
+| `tests/test_soak_config_builder.py`      | Soak config builder tests                 |

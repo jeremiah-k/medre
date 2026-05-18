@@ -293,9 +293,7 @@ class TestSecretFiltering:
             "credentials",
         ],
     )
-    def test_secret_keys_dropped_from_transport_specific(
-        self, secret_key: str
-    ) -> None:
+    def test_secret_keys_dropped_from_transport_specific(self, secret_key: str) -> None:
         """Secret keys in adapter-specific fields must be dropped."""
         raw = {
             "connected": True,
@@ -573,9 +571,7 @@ class TestHints:
     """Tests for adapter_hint and mode_hint parameters."""
 
     def test_adapter_hint_included(self) -> None:
-        result = normalize_diagnostics(
-            {"connected": True}, adapter_hint="meshtastic"
-        )
+        result = normalize_diagnostics({"connected": True}, adapter_hint="meshtastic")
 
         assert result["adapter"] == "meshtastic"
 
@@ -606,15 +602,12 @@ class TestNoAdapterImports:
     """Verify the diagnostic_contract module does not import adapters."""
 
     def test_module_imports_no_adapters(self) -> None:
-        import medre.core.runtime.diagnostic_contract as mod
         import sys
 
+        import medre.core.runtime.diagnostic_contract as mod
+
         # Collect all loaded modules that start with medre.adapters.
-        adapter_modules = [
-            name
-            for name in sys.modules
-            if name.startswith("medre.adapters")
-        ]
+        [name for name in sys.modules if name.startswith("medre.adapters")]
 
         # The diagnostic_contract module itself should not have caused any
         # adapter modules to be imported.  (They might be imported by other
@@ -770,8 +763,12 @@ class TestNestedSessionDiagnosticsLimitation:
         assert result["permanent_delivery_failures"] is None
 
         # The nested session dict is preserved in transport_specific.
-        assert result["transport_specific"]["session"]["transient_delivery_failures"] == 5
-        assert result["transport_specific"]["session"]["permanent_delivery_failures"] == 1
+        assert (
+            result["transport_specific"]["session"]["transient_delivery_failures"] == 5
+        )
+        assert (
+            result["transport_specific"]["session"]["permanent_delivery_failures"] == 1
+        )
 
     def test_flat_transient_failures_extracted(self) -> None:
         """Delivery counters at the top level are extracted correctly."""
@@ -1136,12 +1133,13 @@ class TestRecursionAndSizeBounds:
         assert result[-1] == "<truncated: 50 items>"
         # First elements are preserved.
         assert result[0] == 0
-        assert result[_SANITIZE_MAX_SEQUENCE_ITEMS - 1] == _SANITIZE_MAX_SEQUENCE_ITEMS - 1
+        assert (
+            result[_SANITIZE_MAX_SEQUENCE_ITEMS - 1] == _SANITIZE_MAX_SEQUENCE_ITEMS - 1
+        )
 
     def test_sequence_within_bound_unchanged(self) -> None:
         """Sequences within the limit are not modified."""
         from medre.core.runtime.diagnostic_contract import (
-            _SANITIZE_MAX_SEQUENCE_ITEMS,
             sanitize_diagnostic_value,
         )
 
@@ -1163,7 +1161,10 @@ class TestRecursionAndSizeBounds:
         assert len(result) == _SANITIZE_MAX_MAPPING_ENTRIES
         # First entries preserved (insertion order).
         assert result["key_0000"] == 0
-        assert result[f"key_{_SANITIZE_MAX_MAPPING_ENTRIES - 1:04d}"] == _SANITIZE_MAX_MAPPING_ENTRIES - 1
+        assert (
+            result[f"key_{_SANITIZE_MAX_MAPPING_ENTRIES - 1:04d}"]
+            == _SANITIZE_MAX_MAPPING_ENTRIES - 1
+        )
         # Excess keys dropped.
         excess_key = f"key_{_SANITIZE_MAX_MAPPING_ENTRIES:04d}"
         assert excess_key not in result
@@ -1171,7 +1172,6 @@ class TestRecursionAndSizeBounds:
     def test_mapping_within_bound_unchanged(self) -> None:
         """Dicts within the limit are fully preserved."""
         from medre.core.runtime.diagnostic_contract import (
-            _SANITIZE_MAX_MAPPING_ENTRIES,
             sanitize_diagnostic_mapping,
         )
 
@@ -1206,7 +1206,9 @@ class TestRecursionAndSizeBounds:
             sanitize_diagnostic_value,
         )
 
-        items = [ValueError(f"err_{i}") for i in range(_SANITIZE_MAX_SEQUENCE_ITEMS + 10)]
+        items = [
+            ValueError(f"err_{i}") for i in range(_SANITIZE_MAX_SEQUENCE_ITEMS + 10)
+        ]
         result = sanitize_diagnostic_value(items)
         serialized = json.dumps(result, sort_keys=True)
         assert isinstance(serialized, str)

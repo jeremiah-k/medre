@@ -15,15 +15,13 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 
-import pytest
-
-from medre.core.contracts.adapter import AdapterContext
 from medre.adapters.fake_presentation import FakePresentationAdapter
+from medre.core.contracts.adapter import AdapterContext
+from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.events.bus import EventBus
 from medre.core.events.canonical import (
     CanonicalEvent,
     DeliveryReceipt,
-    NativeMessageRef,
 )
 from medre.core.events.metadata import EventMetadata
 from medre.core.observability.metrics import Diagnostician
@@ -41,10 +39,8 @@ from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.core.routing.router import Router
 from medre.core.routing.stats import RouteStats
 from medre.core.runtime.accounting import RuntimeAccounting
-from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.storage.sqlite import SQLiteStorage
 from medre.observability.classification import infer_failure_kind
-
 
 # ---------------------------------------------------------------------------
 # Custom adapter: fails N times then succeeds
@@ -93,15 +89,18 @@ def _route_from_receipt(receipt: DeliveryReceipt) -> Route:
     return Route(
         id=receipt.route_id or "retry-route",
         source=RouteSource(adapter=None, event_kinds=(), channel=None),
-        targets=[RouteTarget(
-            adapter=receipt.target_adapter,
-            channel=getattr(receipt, "target_channel", None),
-        )],
+        targets=[
+            RouteTarget(
+                adapter=receipt.target_adapter,
+                channel=getattr(receipt, "target_channel", None),
+            )
+        ],
     )
 
 
 def _plan_from_receipt(
-    receipt: DeliveryReceipt, retry_policy: RetryPolicy,
+    receipt: DeliveryReceipt,
+    retry_policy: RetryPolicy,
 ) -> DeliveryPlan:
     return DeliveryPlan(
         plan_id=receipt.delivery_plan_id,
@@ -156,7 +155,9 @@ class _RetryWorker:
 
             try:
                 await self.pipeline.deliver_to_target(
-                    event, route, plan,
+                    event,
+                    route,
+                    plan,
                     previous_receipt=receipt,
                     source="retry",
                 )
@@ -289,7 +290,8 @@ class TestRetryRestart:
             storage_a = SQLiteStorage(db_path=db_path)
             await storage_a.initialize()
             adapter_a = _FailsThenSucceedsAdapter(
-                adapter_id="restart_target", fail_count=1,
+                adapter_id="restart_target",
+                fail_count=1,
                 call_counter=call_counter,
             )
             event = _make_event()
@@ -297,7 +299,8 @@ class TestRetryRestart:
                 id="restart-route",
                 source=RouteSource(
                     adapter="fake_source",
-                    event_kinds=("message.created",), channel=None,
+                    event_kinds=("message.created",),
+                    channel=None,
                 ),
                 targets=[RouteTarget(adapter="restart_target")],
             )
@@ -322,7 +325,8 @@ class TestRetryRestart:
             storage_b = SQLiteStorage(db_path=db_path)
             await storage_b.initialize()
             adapter_b = _FailsThenSucceedsAdapter(
-                adapter_id="restart_target", fail_count=1,
+                adapter_id="restart_target",
+                fail_count=1,
                 call_counter=call_counter,
             )
             accounting_b = RuntimeAccounting()
@@ -338,7 +342,9 @@ class TestRetryRestart:
                 storage_b.list_due_retry_receipts = AsyncMock(return_value=failed_b)
 
                 policy = RetryPolicy(max_attempts=5)
-                worker = _RetryWorker(storage_b, runner_b, policy, accounting=accounting_b)
+                worker = _RetryWorker(
+                    storage_b, runner_b, policy, accounting=accounting_b
+                )
                 processed = await worker._process_due(datetime.now(timezone.utc))
 
                 assert processed == 1
@@ -346,7 +352,8 @@ class TestRetryRestart:
 
                 all_receipts = await storage_b.list_receipts_for_event(event.event_id)
                 retry = [
-                    r for r in all_receipts
+                    r
+                    for r in all_receipts
                     if r.parent_receipt_id == original_receipt.receipt_id
                 ][0]
                 assert retry.attempt_number == 2
@@ -371,7 +378,8 @@ class TestRetryRestart:
             storage_a = SQLiteStorage(db_path=db_path)
             await storage_a.initialize()
             adapter_a = _FailsThenSucceedsAdapter(
-                adapter_id="restart_target", fail_count=1,
+                adapter_id="restart_target",
+                fail_count=1,
                 call_counter=call_counter,
             )
             event = _make_event()
@@ -379,7 +387,8 @@ class TestRetryRestart:
                 id="dedup-route",
                 source=RouteSource(
                     adapter="fake_source",
-                    event_kinds=("message.created",), channel=None,
+                    event_kinds=("message.created",),
+                    channel=None,
                 ),
                 targets=[RouteTarget(adapter="restart_target")],
             )
@@ -399,7 +408,8 @@ class TestRetryRestart:
             storage_b = SQLiteStorage(db_path=db_path)
             await storage_b.initialize()
             adapter_b = _FailsThenSucceedsAdapter(
-                adapter_id="restart_target", fail_count=1,
+                adapter_id="restart_target",
+                fail_count=1,
                 call_counter=call_counter,
             )
             accounting_b = RuntimeAccounting()
@@ -414,7 +424,9 @@ class TestRetryRestart:
                 storage_b.list_due_retry_receipts = AsyncMock(return_value=failed)
 
                 policy = RetryPolicy(max_attempts=5)
-                worker = _RetryWorker(storage_b, runner_b, policy, accounting=accounting_b)
+                worker = _RetryWorker(
+                    storage_b, runner_b, policy, accounting=accounting_b
+                )
                 await worker._process_due(datetime.now(timezone.utc))
 
                 event_count_b = await storage_b.count_events()
@@ -437,7 +449,8 @@ class TestRetryRestart:
             storage_a = SQLiteStorage(db_path=db_path)
             await storage_a.initialize()
             adapter_a = _FailsThenSucceedsAdapter(
-                adapter_id="restart_target", fail_count=1,
+                adapter_id="restart_target",
+                fail_count=1,
                 call_counter=call_counter,
             )
             event = _make_event()
@@ -445,7 +458,8 @@ class TestRetryRestart:
                 id="real-restart-route",
                 source=RouteSource(
                     adapter="fake_source",
-                    event_kinds=("message.created",), channel=None,
+                    event_kinds=("message.created",),
+                    channel=None,
                 ),
                 targets=[RouteTarget(adapter="restart_target")],
             )
@@ -472,7 +486,8 @@ class TestRetryRestart:
             storage_b = SQLiteStorage(db_path=db_path)
             await storage_b.initialize()
             adapter_b = _FailsThenSucceedsAdapter(
-                adapter_id="restart_target", fail_count=1,
+                adapter_id="restart_target",
+                fail_count=1,
                 call_counter=call_counter,
             )
             accounting_b = RuntimeAccounting()
@@ -487,20 +502,22 @@ class TestRetryRestart:
                 assert len(due) >= 1
 
                 policy = RetryPolicy(max_attempts=5)
-                worker = _RetryWorker(storage_b, runner_b, policy, accounting=accounting_b)
+                worker = _RetryWorker(
+                    storage_b, runner_b, policy, accounting=accounting_b
+                )
                 processed = await worker._process_due(future_now)
                 assert processed == 1
                 assert worker.state.succeeded == 1
 
                 all_receipts = await storage_b.list_receipts_for_event(event.event_id)
-                orig = [r for r in all_receipts
-                        if r.receipt_id == original.receipt_id]
+                orig = [r for r in all_receipts if r.receipt_id == original.receipt_id]
                 assert len(orig) == 1
                 assert orig[0].status == "failed"
                 assert orig[0].attempt_number == 1
 
                 retry = [
-                    r for r in all_receipts
+                    r
+                    for r in all_receipts
                     if r.parent_receipt_id == original.receipt_id
                 ][0]
                 assert retry.attempt_number == 2
@@ -527,7 +544,8 @@ class TestRetryRestart:
             storage_a = SQLiteStorage(db_path=db_path)
             await storage_a.initialize()
             adapter_a = _FailsThenSucceedsAdapter(
-                adapter_id="channel_target", fail_count=1,
+                adapter_id="channel_target",
+                fail_count=1,
                 call_counter=call_counter,
             )
             event = _make_event()
@@ -535,7 +553,8 @@ class TestRetryRestart:
                 id="channel-route",
                 source=RouteSource(
                     adapter="fake_source",
-                    event_kinds=("message.created",), channel=None,
+                    event_kinds=("message.created",),
+                    channel=None,
                 ),
                 targets=[RouteTarget(adapter="channel_target", channel=target_ch)],
             )
@@ -558,7 +577,8 @@ class TestRetryRestart:
             storage_b = SQLiteStorage(db_path=db_path)
             await storage_b.initialize()
             adapter_b = _FailsThenSucceedsAdapter(
-                adapter_id="channel_target", fail_count=1,
+                adapter_id="channel_target",
+                fail_count=1,
                 call_counter=call_counter,
             )
             accounting_b = RuntimeAccounting()
@@ -568,8 +588,8 @@ class TestRetryRestart:
             await runner_b.start()
             try:
                 failed_b = [
-                    r for r in
-                    await storage_b.list_receipts_for_event(event.event_id)
+                    r
+                    for r in await storage_b.list_receipts_for_event(event.event_id)
                     if r.status == "failed"
                 ]
                 assert len(failed_b) >= 1
@@ -577,7 +597,10 @@ class TestRetryRestart:
                 storage_b.list_due_retry_receipts = AsyncMock(return_value=failed_b)
                 policy = RetryPolicy(max_attempts=5)
                 worker = _RetryWorker(
-                    storage_b, runner_b, policy, accounting=accounting_b,
+                    storage_b,
+                    runner_b,
+                    policy,
+                    accounting=accounting_b,
                 )
                 processed = await worker._process_due(datetime.now(timezone.utc))
                 assert processed == 1
@@ -585,7 +608,8 @@ class TestRetryRestart:
 
                 all_receipts = await storage_b.list_receipts_for_event(event.event_id)
                 retry = [
-                    r for r in all_receipts
+                    r
+                    for r in all_receipts
                     if r.parent_receipt_id == original.receipt_id
                 ][0]
                 assert retry.attempt_number == 2
@@ -601,7 +625,6 @@ class TestRetryRestart:
 
     async def test_restart_dead_letter_preserves_target_channel(self):
         """Dead-letter receipt carries target_channel across restart."""
-        from medre.core.contracts.adapter import AdapterDeliveryResult
 
         db_path = _persistent_storage()
         call_counter = [0]
@@ -609,6 +632,7 @@ class TestRetryRestart:
 
         class _AlwaysTransientAdapter(_FailsThenSucceedsAdapter):
             """Always raises ConnectionError regardless of call count."""
+
             async def deliver(self, result):
                 raise ConnectionError("permanent transient for dead-letter test")
 
@@ -625,7 +649,8 @@ class TestRetryRestart:
                 id="dl-route",
                 source=RouteSource(
                     adapter="fake_source",
-                    event_kinds=("message.created",), channel=None,
+                    event_kinds=("message.created",),
+                    channel=None,
                 ),
                 targets=[RouteTarget(adapter="dl_target", channel=target_ch)],
             )
@@ -663,7 +688,10 @@ class TestRetryRestart:
                 # Retry via worker — will fail again, exhausting retries
                 policy = RetryPolicy(max_attempts=1)
                 worker = _RetryWorker(
-                    storage_b, runner_b, policy, accounting=accounting_b,
+                    storage_b,
+                    runner_b,
+                    policy,
+                    accounting=accounting_b,
                 )
                 storage_b.list_due_retry_receipts = AsyncMock(
                     return_value=[original],
@@ -706,7 +734,8 @@ class TestRetryRestart:
             storage_a = SQLiteStorage(db_path=db_path)
             await storage_a.initialize()
             adapter_a = _FailsThenSucceedsAdapter(
-                adapter_id="excl_target", fail_count=1,
+                adapter_id="excl_target",
+                fail_count=1,
                 call_counter=call_counter,
             )
             event = _make_event()
@@ -714,7 +743,8 @@ class TestRetryRestart:
                 id="excl-route",
                 source=RouteSource(
                     adapter="fake_source",
-                    event_kinds=("message.created",), channel=None,
+                    event_kinds=("message.created",),
+                    channel=None,
                 ),
                 targets=[RouteTarget(adapter="excl_target", channel=target_ch)],
             )
@@ -737,7 +767,8 @@ class TestRetryRestart:
             storage_b = SQLiteStorage(db_path=db_path)
             await storage_b.initialize()
             adapter_b = _FailsThenSucceedsAdapter(
-                adapter_id="excl_target", fail_count=1,
+                adapter_id="excl_target",
+                fail_count=1,
                 call_counter=call_counter,
             )
             accounting_b = RuntimeAccounting()
@@ -753,7 +784,10 @@ class TestRetryRestart:
 
                 policy = RetryPolicy(max_attempts=5)
                 worker = _RetryWorker(
-                    storage_b, runner_b, policy, accounting=accounting_b,
+                    storage_b,
+                    runner_b,
+                    policy,
+                    accounting=accounting_b,
                 )
                 processed = await worker._process_due(future_now)
                 assert processed == 1
@@ -775,7 +809,8 @@ class TestRetryRestart:
                     event.event_id,
                 )
                 retry = [
-                    r for r in all_receipts
+                    r
+                    for r in all_receipts
                     if r.parent_receipt_id == original.receipt_id
                 ]
                 assert len(retry) >= 1

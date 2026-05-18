@@ -36,6 +36,7 @@ The adapter delegates all SDK interaction to its owned
 :class:`~medre.adapters.lxmf.session.LxmfSession` instance.  The
 session owns raw transport; the adapter owns semantic conversion.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -45,6 +46,15 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from medre.core.events.canonical import CanonicalEvent
 
+from medre.adapters.lxmf.codec import LxmfCodec
+from medre.adapters.lxmf.compat import HAS_LXMF
+from medre.adapters.lxmf.errors import (
+    LxmfConnectionError,
+    LxmfSendError,
+)
+from medre.adapters.lxmf.packet_classifier import LxmfPacketClassifier
+from medre.adapters.lxmf.session import LxmfSession
+from medre.config.adapters.lxmf import LxmfConfig
 from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
@@ -55,15 +65,6 @@ from medre.core.contracts.adapter import (
     AdapterRole,
     AdapterSendError,
 )
-from medre.adapters.lxmf.codec import LxmfCodec
-from medre.adapters.lxmf.compat import HAS_LXMF
-from medre.config.adapters.lxmf import LxmfConfig
-from medre.adapters.lxmf.errors import (
-    LxmfConnectionError,
-    LxmfSendError,
-)
-from medre.adapters.lxmf.packet_classifier import LxmfPacketClassifier
-from medre.adapters.lxmf.session import LxmfSession
 from medre.core.rendering.renderer import RenderingResult
 
 # Capabilities for the LXMF transport adapter.
@@ -163,9 +164,7 @@ class LxmfAdapter(AdapterContract):
         except LxmfConnectionError:
             raise
         except Exception as exc:
-            raise LxmfConnectionError(
-                f"LXMF session failed to start: {exc}"
-            ) from exc
+            raise LxmfConnectionError(f"LXMF session failed to start: {exc}") from exc
 
         self._started = True
         ctx.logger.info(
@@ -196,9 +195,7 @@ class LxmfAdapter(AdapterContract):
 
         self._started = False
         if self.ctx is not None:
-            self.ctx.logger.info(
-                "LxmfAdapter %s stopped", self.adapter_id
-            )
+            self.ctx.logger.info("LxmfAdapter %s stopped", self.adapter_id)
 
     async def health_check(self) -> AdapterInfo:
         """Return a snapshot of the adapter's current health.
@@ -273,9 +270,7 @@ class LxmfAdapter(AdapterContract):
         if self._background_tasks:
             try:
                 await asyncio.wait_for(
-                    asyncio.gather(
-                        *self._background_tasks, return_exceptions=True
-                    ),
+                    asyncio.gather(*self._background_tasks, return_exceptions=True),
                     timeout=timeout,
                 )
             except asyncio.TimeoutError:
@@ -347,9 +342,7 @@ class LxmfAdapter(AdapterContract):
                 destination_hash=str(destination_hash),
                 content=str(content),
                 title=str(title),
-                delivery_method=(
-                    str(delivery_method) if delivery_method else None
-                ),
+                delivery_method=(str(delivery_method) if delivery_method else None),
                 fields=fields if isinstance(fields, dict) else None,
             )
         except asyncio.CancelledError:
@@ -365,16 +358,18 @@ class LxmfAdapter(AdapterContract):
         return AdapterDeliveryResult(
             native_message_id=native_id,
             native_channel_id=str(destination_hash) if destination_hash else None,
-            metadata=MappingProxyType({
-                "lxmf": {
-                    "delivery_state": delivery_state.value,
-                    "delivery_method": (
-                        delivery_method
-                        if isinstance(delivery_method, str)
-                        else self._config.default_delivery_method
-                    ),
-                },
-            }),
+            metadata=MappingProxyType(
+                {
+                    "lxmf": {
+                        "delivery_state": delivery_state.value,
+                        "delivery_method": (
+                            delivery_method
+                            if isinstance(delivery_method, str)
+                            else self._config.default_delivery_method
+                        ),
+                    },
+                }
+            ),
         )
 
     # -- Inbound callback ---------------------------------------------------

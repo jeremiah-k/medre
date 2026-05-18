@@ -25,7 +25,6 @@ import pytest
 
 from medre.core.runtime.accounting import RuntimeAccounting, RuntimeCounters
 
-
 # ---------------------------------------------------------------------------
 # Fresh instance
 # ---------------------------------------------------------------------------
@@ -52,7 +51,7 @@ class TestFreshInstance:
 
     def test_eight_counters_exactly(self) -> None:
         """Exactly 8 counters exist — no more, no fewer."""
-        c = RuntimeCounters()
+        RuntimeCounters()
         assert len(RuntimeCounters.__dataclass_fields__) == 8
         snap = RuntimeAccounting().snapshot()
         assert len(snap) == 8

@@ -28,7 +28,6 @@ from typing import Any
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Shared helpers (same pattern as test_architectural_boundaries.py)
 # ---------------------------------------------------------------------------
@@ -128,9 +127,7 @@ class TestDiagnosticsNoTransportSdk:
         lines = _import_lines(source)
 
         banned = _banned_imports(lines, _SDK_PACKAGES)
-        assert banned == [], (
-            f"{module_name} imports transport SDKs: {banned}"
-        )
+        assert banned == [], f"{module_name} imports transport SDKs: {banned}"
 
     @pytest.mark.parametrize(
         "module_name",
@@ -146,9 +143,9 @@ class TestDiagnosticsNoTransportSdk:
         lines = _import_lines(source)
 
         banned = _banned_imports(lines, _ADAPTER_PREFIXES)
-        assert banned == [], (
-            f"{module_name} imports concrete adapter packages: {banned}"
-        )
+        assert (
+            banned == []
+        ), f"{module_name} imports concrete adapter packages: {banned}"
 
 
 # ===================================================================
@@ -169,18 +166,16 @@ class TestSnapshotNoDirectAdapterImport:
         lines = _import_lines(source)
 
         banned = _banned_imports(lines, _ADAPTER_PREFIXES)
-        assert banned == [], (
-            f"runtime/snapshot.py imports concrete adapter packages: {banned}"
-        )
+        assert (
+            banned == []
+        ), f"runtime/snapshot.py imports concrete adapter packages: {banned}"
 
     def test_snapshot_no_transport_sdks(self) -> None:
         source = _source_of("medre.runtime.snapshot")
         lines = _import_lines(source)
 
         banned = _banned_imports(lines, _SDK_PACKAGES)
-        assert banned == [], (
-            f"runtime/snapshot.py imports transport SDKs: {banned}"
-        )
+        assert banned == [], f"runtime/snapshot.py imports transport SDKs: {banned}"
 
 
 # ===================================================================
@@ -212,15 +207,14 @@ class TestStorageNoRuntimeInternals:
         _PURE_STORAGE_MODULES,
     )
     def test_pure_storage_no_runtime_imports(
-        self, module_name: str,
+        self,
+        module_name: str,
     ) -> None:
         source = _source_of(module_name)
         lines = _import_lines(source)
 
         banned = _banned_imports(lines, _RUNTIME_PREFIXES)
-        assert banned == [], (
-            f"{module_name} imports runtime internals: {banned}"
-        )
+        assert banned == [], f"{module_name} imports runtime internals: {banned}"
 
     def test_replay_only_capacity_import(self) -> None:
         """replay.py may only import CapacityController from runtime.
@@ -233,10 +227,10 @@ class TestStorageNoRuntimeInternals:
         # Allow only medre.runtime.capacity.
         runtime_imports = _banned_imports(lines, _RUNTIME_PREFIXES)
         allowed = ["from medre.runtime.capacity import CapacityController"]
-        disallowed = [l for l in runtime_imports if l not in allowed]
-        assert disallowed == [], (
-            f"replay.py imports disallowed runtime modules: {disallowed}"
-        )
+        disallowed = [line for line in runtime_imports if line not in allowed]
+        assert (
+            disallowed == []
+        ), f"replay.py imports disallowed runtime modules: {disallowed}"
 
 
 # ===================================================================
@@ -274,19 +268,16 @@ class TestReplayNoAdapterLifecycleOwnership:
                 if pattern in stripped:
                     violations.append(f"line {i}: {stripped}")
 
-        assert violations == [], (
-            f"replay.py contains adapter lifecycle patterns:\n"
-            + "\n".join(violations)
-        )
+        assert (
+            violations == []
+        ), "replay.py contains adapter lifecycle patterns:\n" + "\n".join(violations)
 
     def test_replay_no_concrete_adapter_imports(self) -> None:
         source = _source_of("medre.core.storage.replay")
         lines = _import_lines(source)
 
         banned = _banned_imports(lines, _ADAPTER_PREFIXES)
-        assert banned == [], (
-            f"replay.py imports concrete adapter packages: {banned}"
-        )
+        assert banned == [], f"replay.py imports concrete adapter packages: {banned}"
 
 
 # ===================================================================
@@ -332,7 +323,8 @@ class TestDurabilityHelpersTransportAgnostic:
         return path
 
     def test_durability_files_no_transport_imports(
-        self, durability_file: Path,
+        self,
+        durability_file: Path,
     ) -> None:
         source = _file_source(durability_file)
         lines = source.splitlines()
@@ -344,15 +336,12 @@ class TestDurabilityHelpersTransportAgnostic:
                 continue
             for pattern in self._BANNED_PATTERNS:
                 if pattern in stripped:
-                    violations.append(
-                        f"{durability_file.name}:{i}: {stripped}"
-                    )
+                    violations.append(f"{durability_file.name}:{i}: {stripped}")
                     break
 
-        assert violations == [], (
-            f"Durability test files contain transport imports:\n"
-            + "\n".join(violations)
-        )
+        assert (
+            violations == []
+        ), "Durability test files contain transport imports:\n" + "\n".join(violations)
 
 
 # ===================================================================
@@ -409,15 +398,12 @@ class TestSoakFakeOnly:
                 continue
             for pattern in self._BANNED_PATTERNS:
                 if pattern in stripped:
-                    violations.append(
-                        f"{soak_file.name}:{i}: {stripped}"
-                    )
+                    violations.append(f"{soak_file.name}:{i}: {stripped}")
                     break
 
-        assert violations == [], (
-            f"Soak test files contain live transport imports:\n"
-            + "\n".join(violations)
-        )
+        assert (
+            violations == []
+        ), "Soak test files contain live transport imports:\n" + "\n".join(violations)
 
 
 # ===================================================================
@@ -438,27 +424,23 @@ class TestCliNoDirectTransportSdk:
         lines = _import_lines(source)
 
         banned = _banned_imports(lines, _SDK_PACKAGES)
-        assert banned == [], (
-            f"cli.py has top-level transport SDK imports: {banned}"
-        )
+        assert banned == [], f"cli.py has top-level transport SDK imports: {banned}"
 
     def test_cli_no_concrete_adapter_imports(self) -> None:
         source = _source_of("medre.cli")
         lines = _import_lines(source)
 
         banned = _banned_imports(lines, _ADAPTER_PREFIXES)
-        assert banned == [], (
-            f"cli.py imports concrete adapter packages: {banned}"
-        )
+        assert banned == [], f"cli.py imports concrete adapter packages: {banned}"
 
     def test_cli_sdk_probe_is_dynamic_only(self) -> None:
         """SDK availability checks in CLI must use importlib.import_module."""
         source = _source_of("medre.cli.transports")
 
         # Verify the TRANSPORTS list uses importlib.import_module.
-        assert "importlib.import_module" in source, (
-            "CLI transports module should use importlib.import_module for SDK probing"
-        )
+        assert (
+            "importlib.import_module" in source
+        ), "CLI transports module should use importlib.import_module for SDK probing"
 
         # Verify no direct SDK instantiation patterns in function bodies
         # (outside of the dynamic probing block).
@@ -477,7 +459,8 @@ class TestCliNoDirectTransportSdk:
                 if pattern in stripped:
                     violations.append(f"line {i}: {stripped}")
 
-        assert violations == [], (
-            f"transports.py directly instantiates transport SDKs:\n"
-            + "\n".join(violations)
+        assert (
+            violations == []
+        ), "transports.py directly instantiates transport SDKs:\n" + "\n".join(
+            violations
         )

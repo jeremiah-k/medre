@@ -5,6 +5,7 @@ trace -> evidence.  Every test uses ``run_fake_bridge_smoke`` which exercises
 the complete runtime pipeline with fake adapters.  No Docker, no network, no
 SDKs.
 """
+
 from __future__ import annotations
 
 import io
@@ -14,8 +15,6 @@ from contextlib import redirect_stdout
 from pathlib import Path
 
 import pytest
-
-from tests.test_cli_config_workflows import _run_cli
 
 
 def _smoke_config_path() -> str:
@@ -113,29 +112,25 @@ class TestOperatorBridgeSession:
 
             # Contains event_id and --storage-path with the actual DB path
             assert event_id in txt, f"primary.{key} text missing event_id"
-            assert "--storage-path" in txt, (
-                f"primary.{key} text missing --storage-path: {txt}"
-            )
+            assert (
+                "--storage-path" in txt
+            ), f"primary.{key} text missing --storage-path: {txt}"
             assert db_path in txt, f"primary.{key} text missing db_path: {txt}"
             # No stale --config in primary read-only commands
-            assert "--config" not in txt, (
-                f"primary.{key} has stale --config: {txt}"
-            )
+            assert "--config" not in txt, f"primary.{key} has stale --config: {txt}"
 
             # argv mirrors text via shlex.split
-            assert shlex.split(txt) == argv, (
-                f"primary.{key} argv mismatch: {argv!r} vs shlex.split({txt!r})"
-            )
+            assert (
+                shlex.split(txt) == argv
+            ), f"primary.{key} argv mismatch: {argv!r} vs shlex.split({txt!r})"
 
         # -- Specialized keys: trace/evidence (storage-path), recover (config) --
         specialized_keys = ["trace_event", "evidence_bundle", "recover_event"]
         for key in specialized_keys:
-            assert key in cmd_text["specialized"], (
-                f"Missing specialized key: {key}"
-            )
-            assert key in cmd_argv["specialized"], (
-                f"Missing specialized argv key: {key}"
-            )
+            assert key in cmd_text["specialized"], f"Missing specialized key: {key}"
+            assert (
+                key in cmd_argv["specialized"]
+            ), f"Missing specialized argv key: {key}"
 
             txt = cmd_text["specialized"][key]
             argv = cmd_argv["specialized"][key]
@@ -144,32 +139,28 @@ class TestOperatorBridgeSession:
 
             # Read-only specialized commands use --storage-path
             if key in ("trace_event", "evidence_bundle"):
-                assert "--storage-path" in txt, (
-                    f"specialized.{key} missing --storage-path: {txt}"
-                )
-                assert db_path in txt, (
-                    f"specialized.{key} missing db_path: {txt}"
-                )
+                assert (
+                    "--storage-path" in txt
+                ), f"specialized.{key} missing --storage-path: {txt}"
+                assert db_path in txt, f"specialized.{key} missing db_path: {txt}"
 
             # recover_event is config-required
             if key == "recover_event":
-                assert "--config" in txt, (
-                    f"specialized.{key} missing --config: {txt}"
-                )
+                assert "--config" in txt, f"specialized.{key} missing --config: {txt}"
 
             # argv mirrors text
-            assert shlex.split(txt) == argv, (
-                f"specialized.{key} argv mismatch: {argv!r} vs shlex.split({txt!r})"
-            )
+            assert (
+                shlex.split(txt) == argv
+            ), f"specialized.{key} argv mismatch: {argv!r} vs shlex.split({txt!r})"
 
         # -- No stale primary keys for trace/evidence --
         for stale_key in ("trace", "evidence"):
-            assert stale_key not in cmd_text["primary"], (
-                f"Stale primary key '{stale_key}' should be under specialized"
-            )
-            assert stale_key not in cmd_argv["primary"], (
-                f"Stale primary argv key '{stale_key}' should be under specialized"
-            )
+            assert (
+                stale_key not in cmd_text["primary"]
+            ), f"Stale primary key '{stale_key}' should be under specialized"
+            assert (
+                stale_key not in cmd_argv["primary"]
+            ), f"Stale primary argv key '{stale_key}' should be under specialized"
 
         # -- Native refs still present and inspectable --
         for ref in report["native_refs"]:
@@ -214,7 +205,9 @@ class TestOperatorBridgeSession:
 
         rcpt_stdout = io.StringIO()
         with redirect_stdout(rcpt_stdout):
-            await _inspect_receipts(str(inspect_config), event_id=event_id, replay_run_id=None)
+            await _inspect_receipts(
+                str(inspect_config), event_id=event_id, replay_run_id=None
+            )
         assert len(rcpt_stdout.getvalue().strip()) > 0
 
         # Trace event
@@ -270,9 +263,9 @@ class TestOperatorBridgeSession:
             assert field in acc, f"Missing required accounting field: {field}"
 
         for field in required_fields:
-            assert isinstance(acc[field], int), (
-                f"Accounting field {field} is not int: {type(acc[field])}"
-            )
+            assert isinstance(
+                acc[field], int
+            ), f"Accounting field {field} is not int: {type(acc[field])}"
             assert acc[field] >= 0, f"Accounting field {field} is negative"
 
         assert acc["outbound_delivered"] >= 1

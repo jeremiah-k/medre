@@ -45,7 +45,6 @@ from medre.core.observability.logging import (
 )
 from medre.observability.sanitization import sanitize_for_log
 
-
 # ---------------------------------------------------------------------------
 # Canonical sanitizer tests
 # ---------------------------------------------------------------------------
@@ -183,9 +182,7 @@ class TestSanitizeForLogCanonical:
 class TestJsonFormatterExtraFields:
     """Tests that ``_JsonFormatter`` includes safe extra fields."""
 
-    def _make_record(
-        self, msg: str = "test", **extra: Any
-    ) -> logging.LogRecord:
+    def _make_record(self, msg: str = "test", **extra: Any) -> logging.LogRecord:
         record = logging.LogRecord(
             name="medre.test",
             level=logging.INFO,
@@ -283,9 +280,7 @@ class TestDiagnosticEventRedaction:
         yield buf
         diag_logger.handlers.clear()
 
-    def test_no_raw_secret_in_output(
-        self, _capture_diagnostic: StringIO
-    ) -> None:
+    def test_no_raw_secret_in_output(self, _capture_diagnostic: StringIO) -> None:
         diagnostic_event(
             "evt-1",
             "adapter_failure",
@@ -336,9 +331,7 @@ class TestDiagnosticEventRedaction:
             log_mod._diagnostic_logger = original
             diag_logger.handlers.clear()
 
-    def test_safe_context_preserved(
-        self, _capture_diagnostic: StringIO
-    ) -> None:
+    def test_safe_context_preserved(self, _capture_diagnostic: StringIO) -> None:
         diagnostic_event(
             "evt-4",
             "renderer_failure",
@@ -409,9 +402,7 @@ class TestSetupLoggingIntegration:
 
         handler = logging.StreamHandler(buf)
         handler.setFormatter(
-            logging.Formatter(
-                "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-            )
+            logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
         )
         logger.addHandler(handler)
         logger.setLevel(logging.DEBUG)
@@ -491,7 +482,6 @@ class TestRouteLogging:
         route_logger.handlers.clear()
 
     def test_log_route_matched(self, _capture_route: StringIO) -> None:
-        from medre.core.observability.logging import log_route_matched
 
         log_route_matched(route_id="r1", event_id="evt-1")
         output = _capture_route.getvalue()
@@ -501,7 +491,6 @@ class TestRouteLogging:
         assert "event_id=evt-1" in output
 
     def test_log_route_delivered(self, _capture_route: StringIO) -> None:
-        from medre.core.observability.logging import log_route_delivered
 
         log_route_delivered(route_id="r1", event_id="evt-1")
         output = _capture_route.getvalue()
@@ -509,7 +498,6 @@ class TestRouteLogging:
         assert "route_delivered" in output
 
     def test_log_route_failed(self, _capture_route: StringIO) -> None:
-        from medre.core.observability.logging import log_route_failed
 
         log_route_failed(route_id="r1", event_id="evt-1", error="timeout")
         output = _capture_route.getvalue()
@@ -518,7 +506,6 @@ class TestRouteLogging:
         assert "timeout" in output
 
     def test_log_route_failed_sanitizes_secret(self, _capture_route: StringIO) -> None:
-        from medre.core.observability.logging import log_route_failed
 
         log_route_failed(
             route_id="r1",
@@ -530,7 +517,6 @@ class TestRouteLogging:
         assert "[REDACTED]" in output
 
     def test_log_route_loop_prevented(self, _capture_route: StringIO) -> None:
-        from medre.core.observability.logging import log_route_loop_prevented
 
         log_route_loop_prevented(route_id="r1", event_id="evt-1")
         output = _capture_route.getvalue()
@@ -539,7 +525,6 @@ class TestRouteLogging:
 
     def test_route_log_no_raw_sdk_objects(self, _capture_route: StringIO) -> None:
         """Log output must not contain repr of SDK/adapter objects."""
-        from medre.core.observability.logging import log_route_failed
 
         log_route_failed(route_id="r1", event_id="evt-1", error="simple error")
         output = _capture_route.getvalue()

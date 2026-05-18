@@ -70,6 +70,7 @@ def _node_num(node_id: str) -> int:
 # ``decoded.text`` is populated by mtjk's ``_on_text_receive()``.
 # ---------------------------------------------------------------------------
 
+
 def make_text_packet(
     text: str = "hello mesh",
     sender: str = "!abc123",
@@ -174,6 +175,7 @@ def make_broadcast_packet(
 # The ``decoded.portnum`` values use MEDRE-normalised names.  See
 # ``make_symbolic_*`` variants for real mtjk callback portnum strings.
 # ---------------------------------------------------------------------------
+
 
 def make_telemetry_packet(
     sender: str = "!node1",
@@ -434,6 +436,7 @@ def make_plugin_packet(
 # Provenance: synthetic scaffold unless otherwise noted.
 # ---------------------------------------------------------------------------
 
+
 def make_minimal_packet(
     from_id: str = "!node1",
     packet_id: int = 1,
@@ -501,6 +504,7 @@ def make_numeric_portnum_packet(
 # Provenance: mtjk-derived (numeric NodeNum fields verified in
 # ``_enrich_packet_identity`` and ``MessageToDict`` output).
 # ---------------------------------------------------------------------------
+
 
 def make_packet_with_numeric_to(
     sender: str = "!node1",

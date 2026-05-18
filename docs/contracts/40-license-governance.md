@@ -6,7 +6,6 @@
 > Supersedes: Version 1 (2026-05-10). License decision finalized: GPL-3.0-or-later.
 > Status: Governance. Records license direction, dependency pressure, open questions, and decision constraints. License decision: **GPL-3.0-or-later** (effective 2026-05-12).
 
-
 ## 1. Purpose
 
 This document governs the intended license direction for medre. It records
@@ -21,23 +20,21 @@ license field changes.
 This is not legal advice. License decisions affect downstream users and
 contributors. When in doubt, consult qualified legal counsel.
 
-
 ## 2. Declared License
 
-| Field | Value |
-|-------|-------|
-| `pyproject.toml license` | `GPL-3.0-or-later` |
-| `LICENSE` file | Present. Standard FSF GPLv3 text with copyright holder placeholder. |
-| `README.md` | License section updated to reflect GPL-3.0-or-later. |
+| Field                        | Value                                                                                  |
+| ---------------------------- | -------------------------------------------------------------------------------------- |
+| `pyproject.toml license`     | `GPL-3.0-or-later`                                                                     |
+| `LICENSE` file               | Present. Standard FSF GPLv3 text with copyright holder placeholder.                    |
+| `README.md`                  | License section updated to reflect GPL-3.0-or-later.                                   |
 | `pyproject.toml classifiers` | Includes `License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)`. |
-| `Development Status` | Updated to `4 - Beta`. |
+| `Development Status`         | Updated to `4 - Beta`.                                                                 |
 
 The license was changed from MIT to GPL-3.0-or-later on 2026-05-12 by project
 governance decision. The decision reflects the dependency reality documented in
 section 4 and contract 41: medre's in-tree adapters import GPL-licensed
 dependencies (Meshtastic via `mtjk`, Reticulum via `rns`/`lxmf`), making MIT
 incompatible with the actual distribution.
-
 
 ## 3. Project Architecture Relevant to Licensing
 
@@ -71,40 +68,38 @@ never import each other), but the code ships in a single distribution
 (package `medre`). How package boundaries interact with copyleft is a
 meaningful open question.
 
-
 ## 4. Dependency License Landscape
 
 ### 4.1 Core dependency
 
-| Package | Version | License | Required | Pressure |
-|---------|---------|---------|----------|----------|
-| `msgspec` | `==0.21.1` | BSD-3-Clause | Yes | None. Permissive. |
+| Package   | Version    | License      | Required | Pressure          |
+| --------- | ---------- | ------------ | -------- | ----------------- |
+| `msgspec` | `==0.21.1` | BSD-3-Clause | Yes      | None. Permissive. |
 
 ### 4.2 Optional transport dependencies
 
-| Package | Version floor | License | Optional group | Pressure |
-|---------|---------------|---------|----------------|----------|
-| `mtjk` (meshtastic-python fork) | `>=2.7.8` | **GPL-3.0-or-later** | `[meshtastic]` | **Strong copyleft.** The highest-pressure dependency. |
-| `mindroom-nio` (matrix-nio fork) | `>=0.25.3` | ISC | `[matrix]` | None. Permissive. |
-| `meshcore` | `>=2.3.7` | MIT | `[meshcore]` | None. Permissive. |
-| `lxmf` | `>=0.9.6` | **Reticulum License** (custom) | `[lxmf]` | **Ambiguous.** Non-standard, non-OSI. Restricts AI training data and certain applications. |
+| Package                          | Version floor | License                        | Optional group | Pressure                                                                                   |
+| -------------------------------- | ------------- | ------------------------------ | -------------- | ------------------------------------------------------------------------------------------ |
+| `mtjk` (meshtastic-python fork)  | `>=2.7.8`     | **GPL-3.0-or-later**           | `[meshtastic]` | **Strong copyleft.** The highest-pressure dependency.                                      |
+| `mindroom-nio` (matrix-nio fork) | `>=0.25.3`    | ISC                            | `[matrix]`     | None. Permissive.                                                                          |
+| `meshcore`                       | `>=2.3.7`     | MIT                            | `[meshcore]`   | None. Permissive.                                                                          |
+| `lxmf`                           | `>=0.9.6`     | **Reticulum License** (custom) | `[lxmf]`       | **Ambiguous.** Non-standard, non-OSI. Restricts AI training data and certain applications. |
 
 ### 4.3 Transitive dependencies of note
 
-| Package | Pulled in by | License | Notes |
-|---------|-------------|---------|-------|
-| `rns` (Reticulum) | `lxmf` | Reticulum License | Same custom license as lxmf. Required at runtime when lxmf is installed. |
-| `PyPubSub` | Explicit in `[meshtastic]` | BSD-2-Clause | Permissive. Added because mtjk doesn't declare it. |
-| `bleak` | `meshcore` | MIT | Permissive. |
-| `vodozemac` | `mindroom-nio[e2e]` | Apache-2.0 | Permissive. |
+| Package           | Pulled in by               | License           | Notes                                                                    |
+| ----------------- | -------------------------- | ----------------- | ------------------------------------------------------------------------ |
+| `rns` (Reticulum) | `lxmf`                     | Reticulum License | Same custom license as lxmf. Required at runtime when lxmf is installed. |
+| `PyPubSub`        | Explicit in `[meshtastic]` | BSD-2-Clause      | Permissive. Added because mtjk doesn't declare it.                       |
+| `bleak`           | `meshcore`                 | MIT               | Permissive.                                                              |
+| `vodozemac`       | `mindroom-nio[e2e]`        | Apache-2.0        | Permissive.                                                              |
 
 ### 4.4 Development dependencies
 
-| Package | License | Notes |
-|---------|---------|-------|
-| `pytest` | MIT | Not shipped. No pressure. |
+| Package          | License    | Notes                     |
+| ---------------- | ---------- | ------------------------- |
+| `pytest`         | MIT        | Not shipped. No pressure. |
 | `pytest-asyncio` | Apache-2.0 | Not shipped. No pressure. |
-
 
 ## 5. The Meshtastic GPL Pressure
 
@@ -121,7 +116,7 @@ This is the strongest copyleft factor in medre's dependency graph.
 - The adapter lives in-tree, in the same distribution (`medre`), as all other
   code.
 - The Meshtastic adapter is optional at install time. A user can `pip install
-  medre` without the `[meshtastic]` extra and never touch GPL code.
+medre` without the `[meshtastic]` extra and never touch GPL code.
 
 ### 5.2 The copyleft question
 
@@ -174,7 +169,6 @@ code in the same package.
 The `pyproject.toml` now says `license = "GPL-3.0-or-later"`, reflecting the
 Meshtastic GPL reality. The license was changed on 2026-05-12.
 
-
 ## 6. The Reticulum/LXMF License Ambiguity
 
 ### 6.1 Facts
@@ -222,7 +216,6 @@ way the Meshtastic GPL does. It does require:
    Reticulum License before using the LXMF adapter.
 3. No pretense that medre controls or understands the full implications of
    the Reticulum License.
-
 
 ## 7. Optional Extras vs. Combined Works
 
@@ -280,7 +273,6 @@ medre should not rely on the optional-extra structure as a definitive shield
 against GPL obligations. The structure is a mitigating factor, not a
 guarantee. The governance position is that the GPL pressure from mtjk is real
 and must be addressed honestly in the project's license selection.
-
 
 ## 8. GPL-3.0-or-later vs. LGPL-3.0-or-later
 
@@ -383,15 +375,15 @@ to modifications of medre itself, not to code that merely uses medre's API.
 
 ### 8.3 Comparison matrix
 
-| Factor | GPL-3.0-or-later | LGPL-3.0-or-later |
-|--------|-------------------|---------------------|
-| Meshtastic adapter conflict | None (same license family) | Unresolved (adapter still imports GPL) |
-| Toolkit usability for non-Meshtastic adapters | Copyleft encumbers all adapters | Copyleft only on modifications to medre |
-| Downstream commercial use | Must comply with copyleft | Free to use as a library |
-| Communicating license to users | Simple: everything is GPL | Complex: LGPL + Meshtastic GPL caveat |
-| Alignment with Meshtastic ecosystem | Strong | Partial |
-| Alignment with importable-toolkit goal | Tension: toolkit becomes copyleft | Better: toolkit remains usable |
-| Copyleft strength | Full: covers derivative works | Lesser: covers modifications only |
+| Factor                                        | GPL-3.0-or-later                  | LGPL-3.0-or-later                       |
+| --------------------------------------------- | --------------------------------- | --------------------------------------- |
+| Meshtastic adapter conflict                   | None (same license family)        | Unresolved (adapter still imports GPL)  |
+| Toolkit usability for non-Meshtastic adapters | Copyleft encumbers all adapters   | Copyleft only on modifications to medre |
+| Downstream commercial use                     | Must comply with copyleft         | Free to use as a library                |
+| Communicating license to users                | Simple: everything is GPL         | Complex: LGPL + Meshtastic GPL caveat   |
+| Alignment with Meshtastic ecosystem           | Strong                            | Partial                                 |
+| Alignment with importable-toolkit goal        | Tension: toolkit becomes copyleft | Better: toolkit remains usable          |
+| Copyleft strength                             | Full: covers derivative works     | Lesser: covers modifications only       |
 
 ### 8.4 Open questions neither license resolves
 
@@ -429,7 +421,6 @@ The license decision has been finalized:
   inaccurate MIT declaration would have been worse than shipping with a
   copyleft license that might surprise some users. Honesty about the license
   is more important than maximizing adoption.
-
 
 ## 9. Copyleft Philosophy
 
@@ -474,7 +465,6 @@ license is not just a legal mechanism. It is a statement about what the project
 wants for its downstream ecosystem. This governance document recorded the
 tradeoffs and the decision.
 
-
 ## 10. Importable-Toolkit Implications
 
 ### 10.1 What "importable toolkit" means for licensing
@@ -492,12 +482,12 @@ copyleft obligations. Only modifications to medre itself trigger copyleft.
 
 ### 10.2 Per-adapter implications
 
-| Adapter | Dependency license | If medre is GPL | If medre is LGPL |
-|---------|-------------------|-----------------|------------------|
-| Matrix | ISC | Downstream must be GPL-compatible | Downstream is not copyleft-encumbered |
-| Meshtastic | GPL-3.0-or-later | No additional conflict beyond medre's own GPL | Adapter still GPL-exposed via mtjk; downstream using this adapter likely GPL-obligated |
-| MeshCore | MIT | Downstream must be GPL-compatible | Downstream is not copyleft-encumbered |
-| LXMF | Reticulum License | Downstream must be GPL-compatible + review Reticulum License | Downstream is not copyleft-encumbered (by medre) but must review Reticulum License |
+| Adapter    | Dependency license | If medre is GPL                                              | If medre is LGPL                                                                       |
+| ---------- | ------------------ | ------------------------------------------------------------ | -------------------------------------------------------------------------------------- |
+| Matrix     | ISC                | Downstream must be GPL-compatible                            | Downstream is not copyleft-encumbered                                                  |
+| Meshtastic | GPL-3.0-or-later   | No additional conflict beyond medre's own GPL                | Adapter still GPL-exposed via mtjk; downstream using this adapter likely GPL-obligated |
+| MeshCore   | MIT                | Downstream must be GPL-compatible                            | Downstream is not copyleft-encumbered                                                  |
+| LXMF       | Reticulum License  | Downstream must be GPL-compatible + review Reticulum License | Downstream is not copyleft-encumbered (by medre) but must review Reticulum License     |
 
 ### 10.3 What changes, what does not
 
@@ -508,7 +498,6 @@ still receive dependencies under their original licenses.
 Changing the license also does not change the import experience. The compat
 guard pattern, optional dependency structure, and adapter API all remain the
 same.
-
 
 ## 11. Runtime/Framework Implications
 
@@ -540,7 +529,6 @@ extras, compat guards) is preserved. If the license choice creates tension
 with the architecture, the governance position is to choose the license that
 fits the architecture, not to restructure the architecture to fit a license.
 
-
 ## 12. Contributor Expectations
 
 ### 12.1 What contributors should know
@@ -568,7 +556,6 @@ If the project ever considers a license change that is not upward-compatible
 (for example, from GPL-3.0-or-later to a more restrictive or different
 license), past contributor consent would be needed. This governance document
 does not contemplate such a change.
-
 
 ## 13. Downstream Expectations
 
@@ -620,23 +607,21 @@ package), that is a future decision, not a current commitment. The current
 governance position is: choose a license that fits the architecture, not an
 architecture that fits a license.
 
-
 ## 14. Action Items
 
-| Item | Status | Notes |
-|------|--------|-------|
-| Review this governance document | ✅ Done | Reviewed 2026-05-12. |
-| Select license direction | ✅ Done | GPL-3.0-or-later selected (2026-05-12). |
-| Update `pyproject.toml` `license` field | ✅ Done | `license = "GPL-3.0-or-later"`. |
-| Create `LICENSE` file in repo root | ✅ Done | Standard FSF GPLv3 text. |
-| Add license section to README.md | ✅ Done | GPL-3.0-or-later with links. |
-| Document Meshtastic GPL implications for downstream | ✅ Done | This document §5, contract 41 §7. |
-| Document Reticulum License implications for downstream | ✅ Done | This document §6, contract 44. |
-| Update SPDX classifiers in pyproject.toml | ✅ Done | `License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)`. |
-| Add SPDX headers to .py source files | Deferred | Post-beta hardening. See contract 45 §4. |
+| Item                                                   | Status   | Notes                                                                         |
+| ------------------------------------------------------ | -------- | ----------------------------------------------------------------------------- |
+| Review this governance document                        | ✅ Done  | Reviewed 2026-05-12.                                                          |
+| Select license direction                               | ✅ Done  | GPL-3.0-or-later selected (2026-05-12).                                       |
+| Update `pyproject.toml` `license` field                | ✅ Done  | `license = "GPL-3.0-or-later"`.                                               |
+| Create `LICENSE` file in repo root                     | ✅ Done  | Standard FSF GPLv3 text.                                                      |
+| Add license section to README.md                       | ✅ Done  | GPL-3.0-or-later with links.                                                  |
+| Document Meshtastic GPL implications for downstream    | ✅ Done  | This document §5, contract 41 §7.                                             |
+| Document Reticulum License implications for downstream | ✅ Done  | This document §6, contract 44.                                                |
+| Update SPDX classifiers in pyproject.toml              | ✅ Done  | `License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)`. |
+| Add SPDX headers to .py source files                   | Deferred | Post-beta hardening. See contract 45 §4.                                      |
 
 All governance actions completed 2026-05-12.
-
 
 ## 15. Constraints
 
@@ -656,19 +641,18 @@ This document operates under the following constraints:
    internal governance record. Contributor-facing communication happens via
    contract 42 and README.md.
 
-
 ## 16. References
 
-| Document | Relevance |
-|----------|-----------|
-| Contract 34 (Dependency Reality Audit) | Install behavior, optional import mechanics, dependency versioning |
-| Contract 09 (Meshtastic Tranche 1) | Meshtastic adapter architecture, mtjk usage |
-| Contract 10 (Meshtastic Source Audit) | mtjk fork details, API surface |
-| Contract 11 (Meshtastic Connection Boundary) | Adapter ownership boundaries |
-| Contract 14 (LXMF Tranche 1) | LXMF adapter architecture, Reticulum dependency |
-| Contract 37 (Transport Maturity Classification) | Per-transport maturity ratings |
-| Contract 38 (Release Candidate Criteria) | RC checklist, pyproject.toml metadata requirements |
-| Contract 39 (Operational Risk Register) | Operational risk context |
-| `pyproject.toml` | Current license declaration, dependency declarations |
-| `docs/runbooks/lxmf-alpha-operation.md` §13.3 | Reticulum License documentation |
-| `docs/runbooks/lxmf-live-smoke.md` | Reticulum License authorship note |
+| Document                                        | Relevance                                                          |
+| ----------------------------------------------- | ------------------------------------------------------------------ |
+| Contract 34 (Dependency Reality Audit)          | Install behavior, optional import mechanics, dependency versioning |
+| Contract 09 (Meshtastic Tranche 1)              | Meshtastic adapter architecture, mtjk usage                        |
+| Contract 10 (Meshtastic Source Audit)           | mtjk fork details, API surface                                     |
+| Contract 11 (Meshtastic Connection Boundary)    | Adapter ownership boundaries                                       |
+| Contract 14 (LXMF Tranche 1)                    | LXMF adapter architecture, Reticulum dependency                    |
+| Contract 37 (Transport Maturity Classification) | Per-transport maturity ratings                                     |
+| Contract 38 (Release Candidate Criteria)        | RC checklist, pyproject.toml metadata requirements                 |
+| Contract 39 (Operational Risk Register)         | Operational risk context                                           |
+| `pyproject.toml`                                | Current license declaration, dependency declarations               |
+| `docs/runbooks/lxmf-alpha-operation.md` §13.3   | Reticulum License documentation                                    |
+| `docs/runbooks/lxmf-live-smoke.md`              | Reticulum License authorship note                                  |

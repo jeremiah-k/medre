@@ -7,13 +7,11 @@
 
 Every agent or document that references MEDRE runtime assembly, startup ordering, adapter lifecycle, or shutdown semantics must defer to this contract.
 
-
 ## 1. RuntimeBuilder — Single Entry Point
 
 `RuntimeBuilder` is the sole entry point for constructing a MEDRE runtime from a loaded configuration. No other component builds the runtime. The builder takes parsed config and produces a fully assembled `MedreApp` ready for `start()` / `stop()`.
 
 The builder does not read files, parse TOML, or resolve config search paths — those responsibilities belong to the config loader. The builder receives already-resolved config.
-
 
 ## 2. Multi-Adapter Support
 
@@ -40,7 +38,6 @@ The `adapter_id` defaults to the TOML table key (`INSTANCE_NAME`) when not expli
 [adapters.matrix.bot2]       # adapter_id = "bot2"
 [adapters.meshtastic.radio]  # adapter_id = "radio"
 ```
-
 
 ## 3. Startup Ordering
 
@@ -71,7 +68,6 @@ Startup order:
 3. `meshtastic.longfast`
 4. `meshtastic.shortturbo`
 
-
 ## 4. Assembly Failure Handling
 
 ### 4.1 Individual Adapter Failures Are Collected
@@ -96,7 +92,6 @@ If some adapters have already started successfully and a subsequent adapter fail
 
 This ensures no orphaned transport connections remain after a failed assembly.
 
-
 ## 5. Shutdown Semantics
 
 ### 5.1 Reverse Start Order
@@ -110,7 +105,6 @@ The runtime observes a configurable shutdown timeout (`shutdown_timeout_seconds`
 ### 5.3 Clean Shutdown
 
 Each adapter's `stop()` method is called exactly once during shutdown. Adapters that were never started (disabled or failed during assembly) are not stopped.
-
 
 ## 6. Adapter Lifecycle Isolation
 
@@ -132,11 +126,9 @@ If an adapter crashes at runtime (after successful start), the crash is:
 
 Crashed adapters may enter a `failed` health state. Recovery is adapter-local (reconnect policies, session retry budgets — see Contract 31).
 
-
 ## 7. Disabled Adapters
 
 Adapters with `enabled = false` are skipped entirely during assembly. They are not constructed, not started, and do not appear in the running adapter set. Their configuration is validated but their transport SDK is not imported.
-
 
 ## 8. Adapter Kind — SDK Import Policy
 
@@ -156,7 +148,6 @@ Real adapters import their transport SDK. If the SDK is not installed:
 - The error message identifies the missing SDK package.
 - This is a fatal configuration error, not a runtime retry condition.
 
-
 ## 9. Config Validation — Before Assembly
 
 Config validation occurs **before** any adapter is constructed. The following checks are performed:
@@ -172,7 +163,6 @@ No two adapters may share the same state path root (`{state}/adapters/{adapter_i
 ### 9.3 Validation Failure Behavior
 
 If config validation fails, the runtime exits with an error. No adapters are started. No directories are created. No connections are made.
-
 
 ## 10. Storage Model — Global DB, Adapter-Local State
 
@@ -197,13 +187,12 @@ The runtime creates directories for adapter-local state but does not manage the 
 
 The complete path model is defined in **Contract 46**. This contract references it without reproducing it. Key paths:
 
-```
+```json
 {state}/medre.sqlite                                    — Global database (one)
 {state}/logs/medre.log                                  — Global log file
 {state}/adapters/{adapter_id}/                          — Per-adapter state root
 {state}/adapters/{adapter_id}/{transport}/              — Transport-owned state
 ```
-
 
 ## 11. Directory Creation
 
@@ -216,12 +205,11 @@ The complete path model is defined in **Contract 46**. This contract references 
 
 See Contract 46 § 7 for the full list.
 
-
 ## 12. Assembly Sequence Summary
 
 The complete assembly sequence, from config to running runtime:
 
-```
+```text
 1. Load and parse config (config loader, not RuntimeBuilder)
 2. Validate config (duplicates, conflicts, required fields)
    → On failure: exit with error, no side effects
@@ -240,7 +228,7 @@ The complete assembly sequence, from config to running runtime:
 
 Shutdown sequence:
 
-```
+```text
 1. Signal received (SIGTERM, SIGINT, or programmatic stop)
 2. For each started adapter, in reverse start order:
    a. Call adapter.stop()
@@ -249,13 +237,12 @@ Shutdown sequence:
 4. Runtime is stopped
 ```
 
-
 ## 13. Error Types
 
-| Error | When Raised | Contains |
-|-------|-------------|----------|
-| `RuntimeConfigError` | Duplicate adapter IDs, conflicting paths, missing SDK for real adapter, invalid config values | `adapter_id` or field name |
-| `RuntimeAssemblyError` | Adapter construction or start failure during assembly | `adapter_id`, original exception |
-| `AdapterStartError` | Transport-specific start failure | `adapter_id`, transport context |
+| Error                  | When Raised                                                                                   | Contains                         |
+| ---------------------- | --------------------------------------------------------------------------------------------- | -------------------------------- |
+| `RuntimeConfigError`   | Duplicate adapter IDs, conflicting paths, missing SDK for real adapter, invalid config values | `adapter_id` or field name       |
+| `RuntimeAssemblyError` | Adapter construction or start failure during assembly                                         | `adapter_id`, original exception |
+| `AdapterStartError`    | Transport-specific start failure                                                              | `adapter_id`, transport context  |
 
 All errors include the `adapter_id` so operators can identify which adapter failed without reading stack traces.

@@ -33,6 +33,14 @@ lint:
     - markdownlint@0.48.0
     - prettier@3.8.3
     - trufflehog@3.95.3
+  definitions:
+    - name: bandit
+      direct_configs:
+        - .bandit.yaml
+      commands:
+        - name: lint
+          run: bandit --exit-zero -c .bandit.yaml --format json --output ${tmpfile} ${target}
+          read_output_from: tmp_file
 actions:
   disabled:
     - trunk-announce

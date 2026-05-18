@@ -28,22 +28,20 @@ the ``meshcore`` package is not installed.
 
 from __future__ import annotations
 
-import asyncio
 import importlib
 import re
-from pathlib import Path
-from typing import Any
-
-import pytest
-
-from medre.adapters.meshcore.compat import HAS_MESHCORE
-
 
 # Capture SDK presence in sys.modules at module-load time, BEFORE any
 # fake adapter imports in test methods.  This establishes a baseline so
 # the sys.modules guard test can detect whether the fake adapter itself
 # introduced the SDK (vs. it being loaded by a prior test or compat).
 import sys as _sys
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from medre.adapters.meshcore.compat import HAS_MESHCORE
 
 _SESSION_BASELINE_SDK_MODULES: frozenset[str] = frozenset(
     sdk for sdk in ("meshcore",) if sdk in _sys.modules
@@ -54,7 +52,9 @@ _SESSION_BASELINE_SDK_MODULES: frozenset[str] = frozenset(
 # Helpers
 # ---------------------------------------------------------------------------
 
-_SRC_ROOT = Path(__file__).resolve().parent.parent / "src" / "medre" / "adapters" / "meshcore"
+_SRC_ROOT = (
+    Path(__file__).resolve().parent.parent / "src" / "medre" / "adapters" / "meshcore"
+)
 """Root directory of MeshCore adapter source files."""
 
 _TESTS_DIR = Path(__file__).resolve().parent
@@ -167,15 +167,14 @@ class TestMeshCoreSdkImportBoundary:
         to runtime methods (e.g. ``_connect_real``) — not module-level.
         """
         if filepath.name in ("compat.py", "session.py"):
-            pytest.skip(
-                "compat.py / session.py are designated SDK interaction sites"
-            )
+            pytest.skip("compat.py / session.py are designated SDK interaction sites")
 
         source = _read_source(filepath)
         violations = _scan_for_patterns(source, _MESHCORE_SDK_IMPORTS)
-        assert violations == [], (
-            f"{filepath.name} contains banned meshcore SDK imports:\n"
-            + "\n".join(violations)
+        assert (
+            violations == []
+        ), f"{filepath.name} contains banned meshcore SDK imports:\n" + "\n".join(
+            violations
         )
 
     def test_compat_defines_has_meshcore(self) -> None:
@@ -209,9 +208,10 @@ class TestMeshCoreCrossTransportBoundary:
         """MeshCore modules must not import LXMF, Matrix, or Meshtastic."""
         source = _read_source(filepath)
         violations = _scan_for_patterns(source, _CROSS_TRANSPORT_PREFIXES)
-        assert violations == [], (
-            f"{filepath.name} contains cross-transport imports:\n"
-            + "\n".join(violations)
+        assert (
+            violations == []
+        ), f"{filepath.name} contains cross-transport imports:\n" + "\n".join(
+            violations
         )
 
 
@@ -261,15 +261,14 @@ class TestMeshCoreFakeAdapterOperability:
 
         sdk_names = ("meshcore",)
         # Import fresh to detect side-effects.
-        import importlib
 
         importlib.import_module("medre.adapters.fake_meshcore")
         for sdk in sdk_names:
             if sdk in _SESSION_BASELINE_SDK_MODULES:
                 continue  # SDK was loaded before this test session.
-            assert sdk not in sys.modules, (
-                f"Importing FakeMeshCoreAdapter leaked '{sdk}' into sys.modules"
-            )
+            assert (
+                sdk not in sys.modules
+            ), f"Importing FakeMeshCoreAdapter leaked '{sdk}' into sys.modules"
 
     def test_fake_adapter_instantiation(self) -> None:
         """FakeMeshCoreAdapter can be instantiated with fake config.
@@ -406,12 +405,16 @@ class TestMeshCoreDiagnosticSafety:
                     # Check if the line is inside a docstring by looking at
                     # surrounding context — simplified: only flag lines that
                     # look like dict key assignments or return values.
-                    if any(
-                        kw in stripped
-                        for kw in ("return", "=", "yield", "[", "{")
-                    ) and '"""' not in stripped and "'''" not in stripped:
+                    if (
+                        any(kw in stripped for kw in ("return", "=", "yield", "[", "{"))
+                        and '"""' not in stripped
+                        and "'''" not in stripped
+                    ):
                         # Exclude comments about what NOT to expose
-                        if "no " not in stripped.lower() and "must not" not in stripped.lower():
+                        if (
+                            "no " not in stripped.lower()
+                            and "must not" not in stripped.lower()
+                        ):
                             pytest.fail(
                                 f"{filepath.name}:{i}: potential secret leak: {stripped}"
                             )

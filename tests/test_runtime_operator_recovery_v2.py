@@ -31,30 +31,18 @@ No live transports, SDKs, or network required.
 
 from __future__ import annotations
 
-import asyncio
 import io
 import os
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock
 
 import pytest
 
-from medre.core.contracts.adapter import (
-    AdapterCapabilities,
-    AdapterContext,
-    AdapterDeliveryResult,
-    AdapterInfo,
-    AdapterRole,
-    AdapterContract,
-)
 from medre.cli import main
 from medre.config.errors import (
-    ConfigError,
     ConfigFileError,
-    ConfigNotFoundError,
     ConfigValidationError,
 )
 from medre.config.loader import load_config
@@ -71,37 +59,38 @@ from medre.config.model import (
     StorageConfig,
 )
 from medre.config.paths import MedrePaths, MedrePathsError, resolve
+from medre.core.contracts.adapter import (
+    AdapterCapabilities,
+    AdapterContext,
+    AdapterContract,
+    AdapterDeliveryResult,
+    AdapterInfo,
+    AdapterRole,
+)
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.events.kinds import EventKind
 from medre.core.events.metadata import EventMetadata
 from medre.core.lifecycle.states import AdapterState
-from medre.core.routing.stats import RouteStats
-from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.runtime.supervision import (
     RuntimeHealth,
     StartupOutcome,
     classify_runtime_health,
     classify_startup_outcome,
-    runtime_supervision_snapshot,
 )
 from medre.core.storage.sqlite import SQLiteStorage
-from medre.runtime.boot_summary import BootSummary, build_boot_summary
+from medre.runtime.app import MedreApp, RuntimeState
+from medre.runtime.boot_summary import build_boot_summary
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.capacity import CapacityController
 from medre.runtime.errors import RuntimeStartupError
 from medre.runtime.route_engine import (
     RouteValidationError,
-    build_runtime_routes,
     validate_route_adapter_refs,
 )
 from medre.runtime.routes import (
-    BridgePolicy,
     RouteConfig,
     RouteConfigSet,
-    RouteDirectionality,
 )
-from medre.runtime.app import MedreApp, RuntimeState
-
 
 # ---------------------------------------------------------------------------
 # TOML config snippets
@@ -633,9 +622,7 @@ class TestStartupDegradedRecoveryCombined:
     """
 
     @pytest.mark.asyncio
-    async def test_three_transition_cycles(
-        self, tmp_paths: MedrePaths
-    ) -> None:
+    async def test_three_transition_cycles(self, tmp_paths: MedrePaths) -> None:
         """Cycle 1: healthy → degraded. Cycle 2: degraded → healthy.
         Cycle 3: healthy → degraded → healthy."""
 
@@ -725,9 +712,7 @@ class TestReplayAfterRestartMultiAdapter:
     """
 
     @pytest.mark.asyncio
-    async def test_events_survive_two_adapter_restart(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_events_survive_two_adapter_restart(self, tmp_path: Path) -> None:
         """Events written in first 2-adapter session survive to second."""
         db_path = str(tmp_path / "v2_multi_replay.db")
 
@@ -784,9 +769,7 @@ class TestReplayAfterRestartMultiAdapter:
             await app2.stop()
 
     @pytest.mark.asyncio
-    async def test_three_adapter_restart_preserves_events(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_three_adapter_restart_preserves_events(self, tmp_path: Path) -> None:
         """Events survive across restarts with 3-adapter config."""
         db_path = str(tmp_path / "v2_three_adapter.db")
 
@@ -821,9 +804,7 @@ class TestAdapterDisableEnableRapidCycling:
     """
 
     @pytest.mark.asyncio
-    async def test_three_disable_enable_cycles(
-        self, tmp_paths: MedrePaths
-    ) -> None:
+    async def test_three_disable_enable_cycles(self, tmp_paths: MedrePaths) -> None:
         """3 cycles: 2 adapters → 1 adapter → 2 adapters → 1 adapter → 2 adapters."""
         config_two = _config_with_two_fake_adapters()
         config_one = _config_with_one_fake_adapter()
@@ -958,18 +939,14 @@ class TestRouteValidationRepairMultiHop:
         )
 
         # All fixed: validate the full chain.
-        fixed_rcs = RouteConfigSet(
-            routes=(hop1_fixed, hop2_fixed, hop3_fixed)
-        )
+        fixed_rcs = RouteConfigSet(routes=(hop1_fixed, hop2_fixed, hop3_fixed))
         validate_route_adapter_refs(fixed_rcs, known_adapters)
 
     def test_cli_multi_hop_route_validation(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """CLI routes validate with multi-hop bad refs → fix → valid."""
-        cfg_path = _write_config(
-            tmp_path / "config.toml", CONFIG_MULTI_HOP_ROUTES_BAD
-        )
+        cfg_path = _write_config(tmp_path / "config.toml", CONFIG_MULTI_HOP_ROUTES_BAD)
         monkeypatch.setenv("MEDRE_CONFIG", str(cfg_path))
 
         # Step 1: bad routes show warnings.
@@ -1045,9 +1022,7 @@ class TestContainerRestartWorkflow:
     """
 
     @pytest.mark.asyncio
-    async def test_full_restart_workflow(
-        self, tmp_paths: MedrePaths
-    ) -> None:
+    async def test_full_restart_workflow(self, tmp_paths: MedrePaths) -> None:
         """Stop → verify STOPPED → reconfig with 3 adapters → start → verify."""
         # Phase 1: start with 1 adapter.
         config1 = _config_with_one_fake_adapter()
@@ -1113,9 +1088,7 @@ class TestContainerRestartWorkflow:
             await app2.stop()
 
     @pytest.mark.asyncio
-    async def test_restart_capacity_reset(
-        self, tmp_paths: MedrePaths
-    ) -> None:
+    async def test_restart_capacity_reset(self, tmp_paths: MedrePaths) -> None:
         """Capacity controller is fresh after container restart."""
         config = _config_with_one_fake_adapter()
         limits = RuntimeLimits(
@@ -1341,9 +1314,9 @@ class TestBootSummaryConsistencyAcrossRestarts:
         ]
         for key in static_keys:
             values = [s[key] for s in summaries]
-            assert len(set(map(str, values))) == 1, (
-                f"Boot summary key {key!r} not consistent: {values}"
-            )
+            assert (
+                len(set(map(str, values))) == 1
+            ), f"Boot summary key {key!r} not consistent: {values}"
 
     @pytest.mark.asyncio
     async def test_three_restarts_degraded_consistent(
@@ -1371,9 +1344,9 @@ class TestBootSummaryConsistencyAcrossRestarts:
         ]
         for key in static_keys:
             values = [s[key] for s in summaries]
-            assert len(set(map(str, values))) == 1, (
-                f"Degraded boot summary key {key!r} not consistent: {values}"
-            )
+            assert (
+                len(set(map(str, values))) == 1
+            ), f"Degraded boot summary key {key!r} not consistent: {values}"
 
     def test_build_boot_summary_deterministic_keys(self) -> None:
         """build_boot_summary produces alphabetically sorted keys."""
@@ -1403,15 +1376,41 @@ class TestBootSummaryConsistencyAcrossRestarts:
         """classify_runtime_health consistent for all possible inputs."""
         assert classify_runtime_health([]) == RuntimeHealth.FAILED
         assert classify_runtime_health([AdapterState.FAILED]) == RuntimeHealth.FAILED
-        assert classify_runtime_health([AdapterState.READY, AdapterState.FAILED]) == RuntimeHealth.DEGRADED
+        assert (
+            classify_runtime_health([AdapterState.READY, AdapterState.FAILED])
+            == RuntimeHealth.DEGRADED
+        )
         assert classify_runtime_health([AdapterState.READY]) == RuntimeHealth.HEALTHY
-        assert classify_runtime_health([AdapterState.READY, AdapterState.READY]) == RuntimeHealth.HEALTHY
-        assert classify_runtime_health([AdapterState.READY, AdapterState.READY, AdapterState.FAILED]) == RuntimeHealth.DEGRADED
+        assert (
+            classify_runtime_health([AdapterState.READY, AdapterState.READY])
+            == RuntimeHealth.HEALTHY
+        )
+        assert (
+            classify_runtime_health(
+                [AdapterState.READY, AdapterState.READY, AdapterState.FAILED]
+            )
+            == RuntimeHealth.DEGRADED
+        )
 
     def test_classify_startup_outcome_all_states(self) -> None:
         """classify_startup_outcome consistent for all possible inputs."""
-        assert classify_startup_outcome(started=0, failed=0, total=0) == StartupOutcome.TOTAL_FAILURE
-        assert classify_startup_outcome(started=0, failed=1, total=1) == StartupOutcome.TOTAL_FAILURE
-        assert classify_startup_outcome(started=1, failed=1, total=2) == StartupOutcome.PARTIAL
-        assert classify_startup_outcome(started=2, failed=0, total=2) == StartupOutcome.SUCCESS
-        assert classify_startup_outcome(started=3, failed=1, total=4) == StartupOutcome.PARTIAL
+        assert (
+            classify_startup_outcome(started=0, failed=0, total=0)
+            == StartupOutcome.TOTAL_FAILURE
+        )
+        assert (
+            classify_startup_outcome(started=0, failed=1, total=1)
+            == StartupOutcome.TOTAL_FAILURE
+        )
+        assert (
+            classify_startup_outcome(started=1, failed=1, total=2)
+            == StartupOutcome.PARTIAL
+        )
+        assert (
+            classify_startup_outcome(started=2, failed=0, total=2)
+            == StartupOutcome.SUCCESS
+        )
+        assert (
+            classify_startup_outcome(started=3, failed=1, total=4)
+            == StartupOutcome.PARTIAL
+        )

@@ -33,7 +33,7 @@ Public symbols
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Mapping, Sequence
+from typing import Any, Sequence
 
 from medre.core.runtime.health import normalize_adapter_health
 
@@ -144,17 +144,19 @@ class RuntimeSnapshot:
         All list and sub-dict outputs are sorted by key for stable
         serialisation with ``json.dumps(sort_keys=True)``.
         """
-        return _sorted_dict({
-            "adapters": [self._normalised_adapter(a) for a in self.adapters],
-            "renderer_registry": _sorted_dict(self.renderer_registry),
-            "event_bus_status": _sorted_dict(self.event_bus_status),
-            "storage_backend_status": _sorted_dict(self.storage_backend_status),
-            "replay_backend_status": _sorted_dict(self.replay_backend_status),
-            "route_topology": _sorted_dict(self.route_topology),
-            "queue_status": _sorted_dict(self.queue_status),
-            "backpressure_status": _sorted_dict(self.backpressure_status),
-            "task_status": _sorted_dict(self.task_status),
-        })
+        return _sorted_dict(
+            {
+                "adapters": [self._normalised_adapter(a) for a in self.adapters],
+                "renderer_registry": _sorted_dict(self.renderer_registry),
+                "event_bus_status": _sorted_dict(self.event_bus_status),
+                "storage_backend_status": _sorted_dict(self.storage_backend_status),
+                "replay_backend_status": _sorted_dict(self.replay_backend_status),
+                "route_topology": _sorted_dict(self.route_topology),
+                "queue_status": _sorted_dict(self.queue_status),
+                "backpressure_status": _sorted_dict(self.backpressure_status),
+                "task_status": _sorted_dict(self.task_status),
+            }
+        )
 
     @staticmethod
     def _normalised_adapter(adapter_dict: dict[str, Any]) -> dict[str, Any]:
@@ -248,8 +250,12 @@ def capture_runtime_snapshot(
         bus_summary = dict(_NOT_YET_IMPLEMENTED)
 
     # -- Storage / replay placeholders --------------------------------------
-    storage_summary = storage_status if storage_status is not None else dict(_NOT_YET_IMPLEMENTED)
-    replay_summary = replay_status if replay_status is not None else dict(_NOT_YET_IMPLEMENTED)
+    storage_summary = (
+        storage_status if storage_status is not None else dict(_NOT_YET_IMPLEMENTED)
+    )
+    replay_summary = (
+        replay_status if replay_status is not None else dict(_NOT_YET_IMPLEMENTED)
+    )
 
     # -- Route topology -----------------------------------------------------
     if router is not None:
@@ -396,9 +402,7 @@ def capture_route_topology(
             "source": source_dict,
             "targets": target_dicts,
             "target_count": len(targets),
-            "target_adapters": sorted(
-                a for a in target_adapters if a is not None
-            ),
+            "target_adapters": sorted(a for a in target_adapters if a is not None),
             "delivered": delivered,
             "failed": failed,
             "skipped": skipped,
@@ -430,15 +434,17 @@ def capture_route_topology(
             "target_of": sorted(entry["target_of"]),
         }
 
-    return _sorted_dict({
-        "routes": per_route,
-        "route_health_summary": {
-            "enabled": enabled_count,
-            "disabled": disabled_count,
-            "total": enabled_count + disabled_count,
-        },
-        "adapter_route_map": sorted_adapter_map,
-    })
+    return _sorted_dict(
+        {
+            "routes": per_route,
+            "route_health_summary": {
+                "enabled": enabled_count,
+                "disabled": disabled_count,
+                "total": enabled_count + disabled_count,
+            },
+            "adapter_route_map": sorted_adapter_map,
+        }
+    )
 
 
 # ---------------------------------------------------------------------------

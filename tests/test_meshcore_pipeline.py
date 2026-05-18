@@ -8,23 +8,21 @@ from __future__ import annotations
 import asyncio
 import logging
 import tempfile
-import os
 from datetime import datetime, timezone
-
-import pytest
+from typing import Any
 
 from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
-from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.adapters.meshcore.renderer import MeshCoreRenderer
+from medre.config.adapters.meshcore import MeshCoreConfig
+from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.events.bus import EventBus
 from medre.core.planning.fallback_resolution import FallbackResolver
 from medre.core.planning.relation_resolution import RelationResolver
 from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite import SQLiteStorage
-from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 
 
 def _make_contact_packet(
@@ -103,11 +101,10 @@ async def _make_pipeline(
     return runner
 
 
-def _make_adapter_context_for_pipeline(
-    adapter_id: str, runner: PipelineRunner
-) -> Any:
+def _make_adapter_context_for_pipeline(adapter_id: str, runner: PipelineRunner) -> Any:
     """Create an AdapterContext wired to a PipelineRunner's ingress handler."""
     from medre.core.contracts.adapter import AdapterContext
+
     return AdapterContext(
         adapter_id=adapter_id,
         event_bus=None,
@@ -204,9 +201,7 @@ class TestMeshCorePipelineIntegration:
         event = inbound_collector.events[0]
         assert event.event_kind == "message.created"
 
-    async def test_outbound_delivery_uses_meshcore_renderer(
-        self, temp_storage
-    ) -> None:
+    async def test_outbound_delivery_uses_meshcore_renderer(self, temp_storage) -> None:
         """Outbound delivery to MeshCore IDs uses MeshCoreRenderer,
         not TextRenderer. Proves can_render selection via platform registry."""
         in_adapter = FakeMeshCoreAdapter(MeshCoreConfig(adapter_id="mc-in"))
@@ -228,15 +223,17 @@ class TestMeshCorePipelineIntegration:
         rp.register_adapter_platform("local-mesh", "meshcore")
         rp.register(TextRenderer(), priority=100)
 
-        runner = PipelineRunner(PipelineConfig(
-            storage=temp_storage,
-            router=router,
-            fallback_resolver=FallbackResolver(),
-            relation_resolver=RelationResolver(storage=temp_storage),
-            adapters={"mc-in": in_adapter, "local-mesh": out_adapter},
-            event_bus=EventBus(),
-            rendering_pipeline=rp,
-        ))
+        runner = PipelineRunner(
+            PipelineConfig(
+                storage=temp_storage,
+                router=router,
+                fallback_resolver=FallbackResolver(),
+                relation_resolver=RelationResolver(storage=temp_storage),
+                adapters={"mc-in": in_adapter, "local-mesh": out_adapter},
+                event_bus=EventBus(),
+                rendering_pipeline=rp,
+            )
+        )
 
         ctx = _make_adapter_context_for_pipeline("mc-in", runner)
         await in_adapter.start(ctx)
@@ -262,9 +259,7 @@ class TestMeshCorePipelineIntegration:
 class TestMeshCoreNativeRefPersistence:
     """Pipeline integration tests for native ref persistence."""
 
-    async def test_inbound_native_ref_persisted(
-        self, temp_storage
-    ) -> None:
+    async def test_inbound_native_ref_persisted(self, temp_storage) -> None:
         """Inbound MeshCore event → pipeline store → NativeMessageRef(direction="inbound")."""
         config = MeshCoreConfig(adapter_id="meshcore-inbound")
         adapter = FakeMeshCoreAdapter(config)
@@ -281,15 +276,17 @@ class TestMeshCoreNativeRefPersistence:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        runner = PipelineRunner(PipelineConfig(
-            storage=temp_storage,
-            router=router,
-            fallback_resolver=FallbackResolver(),
-            relation_resolver=RelationResolver(storage=temp_storage),
-            adapters={"meshcore-inbound": adapter},
-            event_bus=EventBus(),
-            rendering_pipeline=rp,
-        ))
+        runner = PipelineRunner(
+            PipelineConfig(
+                storage=temp_storage,
+                router=router,
+                fallback_resolver=FallbackResolver(),
+                relation_resolver=RelationResolver(storage=temp_storage),
+                adapters={"meshcore-inbound": adapter},
+                event_bus=EventBus(),
+                rendering_pipeline=rp,
+            )
+        )
 
         ctx = _make_adapter_context_for_pipeline("meshcore-inbound", runner)
         await adapter.start(ctx)
@@ -306,9 +303,7 @@ class TestMeshCoreNativeRefPersistence:
         assert resolved is not None
         assert resolved == adapter.inbound_events[0].event_id
 
-    async def test_outbound_native_ref_persisted(
-        self, temp_storage
-    ) -> None:
+    async def test_outbound_native_ref_persisted(self, temp_storage) -> None:
         """Outbound FakeMeshCoreAdapter deliver → pipeline store → NativeMessageRef(direction="outbound")."""
         in_config = MeshCoreConfig(adapter_id="meshcore-in")
         out_config = MeshCoreConfig(adapter_id="meshcore-out")
@@ -331,20 +326,24 @@ class TestMeshCoreNativeRefPersistence:
         rp.register_adapter_platform("meshcore-out", "meshcore")
         rp.register(TextRenderer(), priority=100)
 
-        runner = PipelineRunner(PipelineConfig(
-            storage=temp_storage,
-            router=router,
-            fallback_resolver=FallbackResolver(),
-            relation_resolver=RelationResolver(storage=temp_storage),
-            adapters={"meshcore-in": in_adapter, "meshcore-out": out_adapter},
-            event_bus=EventBus(),
-            rendering_pipeline=rp,
-        ))
+        runner = PipelineRunner(
+            PipelineConfig(
+                storage=temp_storage,
+                router=router,
+                fallback_resolver=FallbackResolver(),
+                relation_resolver=RelationResolver(storage=temp_storage),
+                adapters={"meshcore-in": in_adapter, "meshcore-out": out_adapter},
+                event_bus=EventBus(),
+                rendering_pipeline=rp,
+            )
+        )
 
         ctx = _make_adapter_context_for_pipeline("meshcore-in", runner)
         await in_adapter.start(ctx)
 
-        packet = _make_channel_packet(text="outbound test", timestamp=11111, channel_idx=0)
+        packet = _make_channel_packet(
+            text="outbound test", timestamp=11111, channel_idx=0
+        )
         await in_adapter.simulate_inbound(packet)
 
         # Verify outbound native ref persisted via resolve_native_ref
@@ -357,9 +356,7 @@ class TestMeshCoreNativeRefPersistence:
         assert resolved is not None
         assert resolved == in_adapter.inbound_events[0].event_id
 
-    async def test_failed_delivery_no_outbound_native_ref(
-        self, temp_storage
-    ) -> None:
+    async def test_failed_delivery_no_outbound_native_ref(self, temp_storage) -> None:
         """Failed deliver → no outbound native ref in storage."""
         in_config = MeshCoreConfig(adapter_id="meshcore-fail-in")
         out_config = MeshCoreConfig(adapter_id="meshcore-fail-out")
@@ -383,15 +380,20 @@ class TestMeshCoreNativeRefPersistence:
         rp.register_adapter_platform("meshcore-fail-out", "meshcore")
         rp.register(TextRenderer(), priority=100)
 
-        runner = PipelineRunner(PipelineConfig(
-            storage=temp_storage,
-            router=router,
-            fallback_resolver=FallbackResolver(),
-            relation_resolver=RelationResolver(storage=temp_storage),
-            adapters={"meshcore-fail-in": in_adapter, "meshcore-fail-out": out_adapter},
-            event_bus=EventBus(),
-            rendering_pipeline=rp,
-        ))
+        runner = PipelineRunner(
+            PipelineConfig(
+                storage=temp_storage,
+                router=router,
+                fallback_resolver=FallbackResolver(),
+                relation_resolver=RelationResolver(storage=temp_storage),
+                adapters={
+                    "meshcore-fail-in": in_adapter,
+                    "meshcore-fail-out": out_adapter,
+                },
+                event_bus=EventBus(),
+                rendering_pipeline=rp,
+            )
+        )
 
         ctx = _make_adapter_context_for_pipeline("meshcore-fail-in", runner)
         await in_adapter.start(ctx)
@@ -415,9 +417,7 @@ class TestMeshCoreNativeRefPersistence:
         )
         assert inbound_resolved is not None
 
-    async def test_duplicate_inbound_native_ref_idempotent(
-        self, temp_storage
-    ) -> None:
+    async def test_duplicate_inbound_native_ref_idempotent(self, temp_storage) -> None:
         """Duplicate inbound native refs are idempotent (INSERT OR IGNORE)."""
         config = MeshCoreConfig(adapter_id="meshcore-dup")
         adapter = FakeMeshCoreAdapter(config)
@@ -434,15 +434,17 @@ class TestMeshCoreNativeRefPersistence:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        runner = PipelineRunner(PipelineConfig(
-            storage=temp_storage,
-            router=router,
-            fallback_resolver=FallbackResolver(),
-            relation_resolver=RelationResolver(storage=temp_storage),
-            adapters={"meshcore-dup": adapter},
-            event_bus=EventBus(),
-            rendering_pipeline=rp,
-        ))
+        runner = PipelineRunner(
+            PipelineConfig(
+                storage=temp_storage,
+                router=router,
+                fallback_resolver=FallbackResolver(),
+                relation_resolver=RelationResolver(storage=temp_storage),
+                adapters={"meshcore-dup": adapter},
+                event_bus=EventBus(),
+                rendering_pipeline=rp,
+            )
+        )
 
         ctx = _make_adapter_context_for_pipeline("meshcore-dup", runner)
         await adapter.start(ctx)
@@ -451,9 +453,10 @@ class TestMeshCoreNativeRefPersistence:
         await adapter.simulate_inbound(packet)
 
         # Manually store a duplicate native ref — should be idempotent
-        from medre.core.events.canonical import NativeMessageRef
         import uuid as _uuid
         from datetime import timezone as _tz
+
+        from medre.core.events.canonical import NativeMessageRef
 
         event = adapter.inbound_events[0]
         dup_ref = NativeMessageRef(
@@ -489,9 +492,7 @@ class TestMeshCorePlatformRendererSelection:
     """Prove platform-aware renderer selection works for MeshCore
     via the pipeline's platform registry."""
 
-    async def test_platform_aware_renderer_selection(
-        self, temp_storage
-    ) -> None:
+    async def test_platform_aware_renderer_selection(self, temp_storage) -> None:
         """A realistic MeshCore adapter ID that does NOT start with 'meshcore'
         still selects MeshCoreRenderer through the pipeline's platform registry.
 
@@ -524,15 +525,17 @@ class TestMeshCorePlatformRendererSelection:
         rp.register(TextRenderer(), priority=100)
 
         # 4. PipelineRunner — start() calls _populate_renderer_platforms()
-        runner = PipelineRunner(PipelineConfig(
-            storage=temp_storage,
-            router=router,
-            fallback_resolver=FallbackResolver(),
-            relation_resolver=RelationResolver(storage=temp_storage),
-            adapters={"field-node": in_adapter, "field-out": out_adapter},
-            event_bus=EventBus(),
-            rendering_pipeline=rp,
-        ))
+        runner = PipelineRunner(
+            PipelineConfig(
+                storage=temp_storage,
+                router=router,
+                fallback_resolver=FallbackResolver(),
+                relation_resolver=RelationResolver(storage=temp_storage),
+                adapters={"field-node": in_adapter, "field-out": out_adapter},
+                event_bus=EventBus(),
+                rendering_pipeline=rp,
+            )
+        )
         await runner.start()
 
         # 5. Wire inbound adapter
@@ -540,7 +543,9 @@ class TestMeshCorePlatformRendererSelection:
         await in_adapter.start(ctx)
 
         # 6. Send inbound packet
-        packet = _make_channel_packet(text="platform dispatch test", channel_idx=0, timestamp=99999)
+        packet = _make_channel_packet(
+            text="platform dispatch test", channel_idx=0, timestamp=99999
+        )
         await in_adapter.simulate_inbound(packet)
 
         # 7. Assertions

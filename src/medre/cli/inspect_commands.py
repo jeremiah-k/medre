@@ -4,6 +4,7 @@ Supports augmented inspection via ``--timeline``, ``--evidence``, and ``--recove
 flags on ``inspect event``, and an ``inspect replay`` subcommand — all read-only,
 all deterministic JSON, no runtime start, no storage mutation.
 """
+
 from __future__ import annotations
 
 import json
@@ -16,7 +17,7 @@ from medre.runtime import timeline as _timeline
 from medre.runtime.evidence import collect_evidence_bundle
 from medre.runtime.trace import timeline_to_json
 
-from .exit_codes import EXIT_NOT_FOUND, EXIT_CONFIG, EXIT_BUILD
+from .exit_codes import EXIT_CONFIG, EXIT_NOT_FOUND
 from .json import _struct_to_json
 from .storage_helpers import _open_readonly_storage
 

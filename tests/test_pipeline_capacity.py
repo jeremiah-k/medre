@@ -13,13 +13,11 @@ from medre.adapters.fake_transport import FakeTransportAdapter
 from medre.config.model import RuntimeLimits
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.planning.delivery_plan import DeliveryFailureKind
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.storage import SQLiteStorage
 from medre.runtime.capacity import CapacityController
-
 from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -93,9 +91,7 @@ class TestCapacityRejectionTaxonomy:
             outcomes = await runner.handle_ingress(event)
             assert len(outcomes) == 1
             assert outcomes[0].status == "permanent_failure"
-            assert (
-                outcomes[0].failure_kind is DeliveryFailureKind.CAPACITY_REJECTION
-            )
+            assert outcomes[0].failure_kind is DeliveryFailureKind.CAPACITY_REJECTION
             assert outcomes[0].error == "delivery_capacity_exceeded"
 
             # Semantics: capacity rejection occurs before delivery stage,
@@ -105,9 +101,9 @@ class TestCapacityRejectionTaxonomy:
                 "SELECT * FROM delivery_receipts WHERE event_id = ?",
                 ("cap-001",),
             )
-            assert len(receipt_rows) == 0, (
-                "capacity rejection must not persist any delivery receipt"
-            )
+            assert (
+                len(receipt_rows) == 0
+            ), "capacity rejection must not persist any delivery receipt"
 
             # Accounting: capacity_rejections incremented.
             assert accounting.counters().capacity_rejections == 1
@@ -155,9 +151,7 @@ class TestCapacityRejectionTaxonomy:
             outcomes = await runner.handle_ingress(event)
             assert len(outcomes) == 1
             assert outcomes[0].status == "permanent_failure"
-            assert (
-                outcomes[0].failure_kind is DeliveryFailureKind.SHUTDOWN_REJECTION
-            )
+            assert outcomes[0].failure_kind is DeliveryFailureKind.SHUTDOWN_REJECTION
             assert outcomes[0].error == "delivery_rejected_shutdown"
 
             # Semantics: shutdown rejection occurs before delivery stage,
@@ -167,9 +161,9 @@ class TestCapacityRejectionTaxonomy:
                 "SELECT * FROM delivery_receipts WHERE event_id = ?",
                 ("shutdown-001",),
             )
-            assert len(receipt_rows) == 0, (
-                "shutdown rejection must not persist any delivery receipt"
-            )
+            assert (
+                len(receipt_rows) == 0
+            ), "shutdown rejection must not persist any delivery receipt"
 
             # Accounting: capacity_rejections incremented.
             assert accounting.counters().capacity_rejections == 1

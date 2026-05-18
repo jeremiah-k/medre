@@ -12,7 +12,6 @@ The current unified architecture is intentional. It keeps beta simple. The bound
 
 This is an analysis document. No packaging redesign, package splitting, adapter redesign, runtime redesign, subprocess isolation, or service boundary work is proposed.
 
-
 ## 1. Scope
 
 - Current single-package (`medre`) structure and what ships where.
@@ -32,14 +31,13 @@ This is an analysis document. No packaging redesign, package splitting, adapter 
 - Redesigning the runtime to support distribution.
 - Recommending any of the deferred paths for current work.
 
-
 ## 3. Current Packaging Structure
 
 ### 3.1 Single distribution: `medre`
 
 medre ships as one Python package. Everything lives under `src/medre/`:
 
-```
+```text
 src/medre/
     __init__.py          (empty)
     cli.py               (CLI entry point: medre run, config check, config sample)
@@ -83,19 +81,18 @@ The core event model (`CanonicalEvent`, `EventKind`, `EventRelation`, `NativeRef
 
 The only required dependency is `msgspec==0.21.1` (used by the canonical event model and schema validation). Everything else is optional.
 
-
 ## 4. Optional Extras
 
 ### 4.1 Current extras in `pyproject.toml`
 
-| Extra | What it pulls | Import guarded by |
-|-------|--------------|-------------------|
-| `dev` | pytest, pytest-asyncio | N/A (test-only) |
-| `matrix` | `mindroom-nio>=0.25.3` | `medre.adapters.matrix.compat.HAS_NIO` |
-| `matrix-e2e` | `mindroom-nio[e2e]>=0.25.3` (adds vodozemac) | `medre.adapters.matrix.compat.HAS_E2EE` |
-| `meshtastic` | `mtjk>=2.7.8`, `PyPubSub>=4.0` | `medre.adapters.meshtastic.compat.HAS_MESHTASTIC` |
-| `meshcore` | `meshcore>=2.3.7` | `medre.adapters.meshcore.compat.HAS_MESHCORE` |
-| `lxmf` | `lxmf>=0.9.6` (implies Reticulum) | `medre.adapters.lxmf.compat.HAS_LXMF` |
+| Extra        | What it pulls                                | Import guarded by                                 |
+| ------------ | -------------------------------------------- | ------------------------------------------------- |
+| `dev`        | pytest, pytest-asyncio                       | N/A (test-only)                                   |
+| `matrix`     | `mindroom-nio>=0.25.3`                       | `medre.adapters.matrix.compat.HAS_NIO`            |
+| `matrix-e2e` | `mindroom-nio[e2e]>=0.25.3` (adds vodozemac) | `medre.adapters.matrix.compat.HAS_E2EE`           |
+| `meshtastic` | `mtjk>=2.7.8`, `PyPubSub>=4.0`               | `medre.adapters.meshtastic.compat.HAS_MESHTASTIC` |
+| `meshcore`   | `meshcore>=2.3.7`                            | `medre.adapters.meshcore.compat.HAS_MESHCORE`     |
+| `lxmf`       | `lxmf>=0.9.6` (implies Reticulum)            | `medre.adapters.lxmf.compat.HAS_LXMF`             |
 
 A user who only needs Matrix installs `pip install medre[matrix]`. They get the nio client library but not meshtastic, meshcore, or lxmf. Each extra is independent. No extra pulls another extra.
 
@@ -113,22 +110,21 @@ Extras don't prevent code from being importable. `from medre.adapters.lxmf impor
 
 This is a feature, not a bug. It means tests can import adapter modules without installing SDKs, as long as they use fake mode.
 
-
 ## 5. Fake Adapters
 
 ### 5.1 Current fake adapters
 
 medre ships six fake adapters in the top-level `adapters/` directory:
 
-| Fake Adapter | Real Adapter It Mirrors | Primary Use |
-|-------------|------------------------|-------------|
-| `FakeTransportAdapter` | Generic transport base | Unit tests for transport-agnostic code |
-| `FakePresentationAdapter` | Generic presentation base | Unit tests for presentation-agnostic code |
-| `FaultyPresentationAdapter` | Error injection variant | Failure testing |
-| `FakeMatrixAdapter` | `MatrixAdapter` | Matrix-specific tests without nio |
-| `FakeMeshtasticAdapter` | `MeshtasticAdapter` | Meshtastic-specific tests without mtjk |
-| `FakeMeshCoreAdapter` | `MeshCoreAdapter` | MeshCore-specific tests without meshcore |
-| `FakeLxmfAdapter` | `LxmfAdapter` | LXMF-specific tests without lxmf/RNS |
+| Fake Adapter                | Real Adapter It Mirrors   | Primary Use                               |
+| --------------------------- | ------------------------- | ----------------------------------------- |
+| `FakeTransportAdapter`      | Generic transport base    | Unit tests for transport-agnostic code    |
+| `FakePresentationAdapter`   | Generic presentation base | Unit tests for presentation-agnostic code |
+| `FaultyPresentationAdapter` | Error injection variant   | Failure testing                           |
+| `FakeMatrixAdapter`         | `MatrixAdapter`           | Matrix-specific tests without nio         |
+| `FakeMeshtasticAdapter`     | `MeshtasticAdapter`       | Meshtastic-specific tests without mtjk    |
+| `FakeMeshCoreAdapter`       | `MeshCoreAdapter`         | MeshCore-specific tests without meshcore  |
+| `FakeLxmfAdapter`           | `LxmfAdapter`             | LXMF-specific tests without lxmf/RNS      |
 
 ### 5.2 What fake adapters prove
 
@@ -145,7 +141,6 @@ If the adapter/session boundary were not clean, fake adapters would not work. Th
 From a distribution perspective, fake adapters serve a specific role: they let downstream consumers write integration tests against the medre adapter contract without installing any transport SDKs. A downstream project that uses medre as a library can test its own pipeline wiring with `FakeTransportAdapter` and `FakePresentationAdapter` and never install nio, meshtastic, meshcore, or lxmf.
 
 This matters for distribution because it means medre's test surface is usable with just `pip install medre[dev]`. No transport SDKs required.
-
 
 ## 6. Compat Guards
 
@@ -174,12 +169,12 @@ async def start(self, context):
 
 ### 6.2 Per-transport compat modules
 
-| Transport | Compat Module | Flag | Sole import site for |
-|-----------|--------------|------|---------------------|
-| Matrix | `medre.adapters.matrix.compat` | `HAS_NIO`, `HAS_E2EE` | `nio`, `nio.crypto` |
-| Meshtastic | `medre.adapters.meshtastic.compat` | `HAS_MESHTASTIC` | `meshtastic`, `meshtastic.protobuf.portnums_pb2` |
-| MeshCore | `medre.adapters.meshcore.compat` | `HAS_MESHCORE` | `meshcore` |
-| LXMF | `medre.adapters.lxmf.compat` | `HAS_LXMF` | `lxmf`, `RNS` |
+| Transport  | Compat Module                      | Flag                  | Sole import site for                             |
+| ---------- | ---------------------------------- | --------------------- | ------------------------------------------------ |
+| Matrix     | `medre.adapters.matrix.compat`     | `HAS_NIO`, `HAS_E2EE` | `nio`, `nio.crypto`                              |
+| Meshtastic | `medre.adapters.meshtastic.compat` | `HAS_MESHTASTIC`      | `meshtastic`, `meshtastic.protobuf.portnums_pb2` |
+| MeshCore   | `medre.adapters.meshcore.compat`   | `HAS_MESHCORE`        | `meshcore`                                       |
+| LXMF       | `medre.adapters.lxmf.compat`       | `HAS_LXMF`            | `lxmf`, `RNS`                                    |
 
 ### 6.3 What compat guards protect
 
@@ -200,7 +195,6 @@ This two-layer defense (compat guard at module level, deferred import at runtime
 2. Instantiating the adapter never triggers SDK imports.
 3. Only calling `start()` with a real connection type triggers SDK imports.
 4. If the SDK is absent, the error is a clean `ImportError` or `TransportConnectionError`, not an unresolved module error at import time.
-
 
 ## 7. Adapter/Session Boundary
 
@@ -227,19 +221,18 @@ The session boundary today preserves future extraction optionality without requi
 
 Contract 31 documents the extraction boundary explicitly. If a future split happens, the session moves and the adapter gets a thin wrapper. No core changes required.
 
-
 ## 8. Coupling Surface Analysis
 
 ### 8.1 What adapters depend on from core
 
 Every adapter imports from:
 
-| Core module | What adapters use it for |
-|------------|-------------------------|
-| `medre.core.contracts.adapter` | `AdapterContract`, `AdapterContext`, `AdapterInfo`, `AdapterCapabilities`, `AdapterDeliveryResult` |
-| `medre.core.events.canonical` | `CanonicalEvent`, `EventRelation`, `NativeRef` |
-| `medre.core.events.kinds` | `EventKind` |
-| `medre.core.rendering.renderer` | `RenderingResult` |
+| Core module                     | What adapters use it for                                                                           |
+| ------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `medre.core.contracts.adapter`  | `AdapterContract`, `AdapterContext`, `AdapterInfo`, `AdapterCapabilities`, `AdapterDeliveryResult` |
+| `medre.core.events.canonical`   | `CanonicalEvent`, `EventRelation`, `NativeRef`                                                     |
+| `medre.core.events.kinds`       | `EventKind`                                                                                        |
+| `medre.core.rendering.renderer` | `RenderingResult`                                                                                  |
 
 These are the shared types. They are frozen dataclasses with stable shapes. They are not expected to change in breaking ways during beta.
 
@@ -253,7 +246,6 @@ The coupling is unidirectional: adapters depend on core, core does not depend on
 
 This is a deferred concern. The current structure works. The unidirectional dependency means extraction is possible, not that it should happen now.
 
-
 ## 9. Future Split Paths (Deferred)
 
 These paths are analyzed for completeness. None is recommended or planned for beta. They are documented so future maintainers understand what seams exist and what a split would cost.
@@ -263,6 +255,7 @@ These paths are analyzed for completeness. None is recommended or planned for be
 Split each transport adapter into its own `medre-matrix`, `medre-meshtastic`, `medre-meshcore`, `medre-lxmf` package. Core (`medre`) would ship the event model, adapter contract classes, pipeline, routing, rendering, and storage. Each transport package would ship the adapter, session, codec, renderer, config, and compat modules for that transport.
 
 **What makes this possible now:**
+
 - Clean adapter/session boundary (contract 31).
 - Compat guards already isolate SDK imports.
 - Fake adapters prove the base contract is SDK-independent.
@@ -270,6 +263,7 @@ Split each transport adapter into its own `medre-matrix`, `medre-meshtastic`, `m
 - Optional extras already define the dependency grouping.
 
 **What makes this costly later:**
+
 - `AdapterContract` already lives in `medre.core.contracts.adapter` (no relocation needed for extraction).
 - Test suite is integrated. Would need per-package test splitting.
 - Runner imports concrete adapters. Would need a registry or entry point mechanism.
@@ -277,6 +271,7 @@ Split each transport adapter into its own `medre-matrix`, `medre-meshtastic`, `m
 - Release coordination. A core breaking change requires releasing all five packages.
 
 **When this would make sense:**
+
 - Transports have different release cadences.
 - Some transports are stable while others are experimental.
 - Users complain about unnecessary dependencies.
@@ -289,11 +284,13 @@ Split each transport adapter into its own `medre-matrix`, `medre-meshtastic`, `m
 Split into two packages: `medre-core` (event model, pipeline, routing, rendering, storage, observability, adapter contracts) and `medre-adapters` (all four transport adapters, fake adapters). `medre` would become a metapackage that depends on both.
 
 **What makes this possible:**
+
 - Core has no adapter imports.
 - Adapter contract (`AdapterContract`) already lives in `medre.core.contracts.adapter`.
 - Pipeline takes adapters through injection.
 
 **What makes this costly:**
+
 - `AdapterContract` depends on core types (`CanonicalEvent`, `RenderingResult`). It already lives in core, so no relocation needed, but the adapter protocol is part of the core API surface.
 - Fake adapters depend on both core types and adapter base classes. They'd need a home.
 - The current test suite tests adapters against the full pipeline. Splitting packages means splitting test infrastructure.
@@ -305,11 +302,13 @@ Split into two packages: `medre-core` (event model, pipeline, routing, rendering
 Run each transport adapter in its own process, communicating over IPC (stdio, socket, or similar). The main process runs the pipeline and routing. Transport processes run sessions and SDK clients.
 
 **What makes this possible:**
+
 - Adapter/session boundary is already a clean seam.
 - Sessions communicate through a `message_callback` (a plain callable). Replacing a local function call with an IPC message is a local change.
 - Adapter health and diagnostics are already serializable dataclasses.
 
 **What makes this costly:**
+
 - IPC serialization/deserialization for every inbound and outbound message.
 - Process lifecycle management (spawn, health check, restart, kill).
 - Error propagation across process boundaries.
@@ -323,11 +322,13 @@ Run each transport adapter in its own process, communicating over IPC (stdio, so
 Replace the runner's concrete adapter imports with a registry based on Python entry points (`importlib.metadata`). Each transport package registers its adapter class. The runner discovers available adapters at startup.
 
 **What makes this possible:**
+
 - Runner already takes adapters through injection.
 - `AdapterContract` contract is stable.
 - Optional extras already define the grouping.
 
 **What makes this costly:**
+
 - Entry point discovery adds startup complexity.
 - Debugging "why isn't my adapter found" is harder than "I forgot to import it".
 - The runner is optional. Most users wire adapters themselves.
@@ -346,7 +347,6 @@ All four paths share the same reason to defer: no evidence of need.
 
 The seams exist. The boundaries are clean. The optionality is preserved. Acting on that optionality before there is a concrete reason to do so would be overengineering.
 
-
 ## 10. Licensing and Distribution
 
 ### 10.1 Current license
@@ -355,13 +355,13 @@ medre is GPL-3.0-or-later licensed (`pyproject.toml`, contract 42). All code in 
 
 ### 10.2 Transport SDK licenses
 
-| SDK | License | Compatibility with GPL-3.0-or-later |
-|-----|---------|----------------------|
-| mindroom-nio (nio fork) | ISC | Compatible. ISC is permissive. |
-| mtjk (Meshtastic fork) | MIT or Apache 2.0 | Compatible. Both are permissive. |
-| meshcore | MIT | Compatible. |
-| lxmf | MIT | Compatible. |
-| RNS (Reticulum) | MIT | Compatible. |
+| SDK                     | License           | Compatibility with GPL-3.0-or-later |
+| ----------------------- | ----------------- | ----------------------------------- |
+| mindroom-nio (nio fork) | ISC               | Compatible. ISC is permissive.      |
+| mtjk (Meshtastic fork)  | MIT or Apache 2.0 | Compatible. Both are permissive.    |
+| meshcore                | MIT               | Compatible.                         |
+| lxmf                    | MIT               | Compatible.                         |
+| RNS (Reticulum)         | MIT               | Compatible.                         |
 
 All transport SDKs are permissively licensed. None creates a licensing incompatibility with medre's GPL-3.0-or-later license. None requires special handling in distribution.
 
@@ -371,19 +371,18 @@ Contract 42 documents the relicensing posture: the project maintainer can relice
 
 If the project license ever changes (to Apache 2.0, GPLv3, or a dual-license arrangement), the change affects the entire repository uniformly. Transport SDK licenses are all compatible with common open source licenses. No SDK would need to be isolated into a separate package for licensing reasons.
 
-
 ## 11. Summary
 
-| Dimension | Current state | Future optionality |
-|-----------|--------------|-------------------|
-| Package structure | Single `medre` package | Clean seams for per-transport extraction |
-| Optional extras | 6 groups, independent | Already define the natural split boundaries |
-| Fake adapters | 6 adapters, no SDK deps | Prove adapter/session boundary is real |
-| Compat guards | 4 modules, sole import sites | SDK imports isolated, extraction-ready |
-| Runtime imports | Deferred to `start()` call | Two-layer defense, clean errors |
-| Adapter/session boundary | Formalized (contract 31) | Natural extraction seam, no core deps in sessions |
-| Core coupling | Unidirectional (adapters depend on core) | Core could ship independently |
-| Licensing | All permissive, no conflicts | No licensing-driven restructuring needed |
+| Dimension                | Current state                            | Future optionality                                |
+| ------------------------ | ---------------------------------------- | ------------------------------------------------- |
+| Package structure        | Single `medre` package                   | Clean seams for per-transport extraction          |
+| Optional extras          | 6 groups, independent                    | Already define the natural split boundaries       |
+| Fake adapters            | 6 adapters, no SDK deps                  | Prove adapter/session boundary is real            |
+| Compat guards            | 4 modules, sole import sites             | SDK imports isolated, extraction-ready            |
+| Runtime imports          | Deferred to `start()` call               | Two-layer defense, clean errors                   |
+| Adapter/session boundary | Formalized (contract 31)                 | Natural extraction seam, no core deps in sessions |
+| Core coupling            | Unidirectional (adapters depend on core) | Core could ship independently                     |
+| Licensing                | All permissive, no conflicts             | No licensing-driven restructuring needed          |
 
 **The current architecture intentionally remains unified for beta simplicity.** The boundaries documented here already preserve optionality for future splits, extractions, or service boundaries. Acting on that optionality before there is evidence of need would add complexity without benefit.
 

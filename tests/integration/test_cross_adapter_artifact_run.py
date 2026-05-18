@@ -1,4 +1,4 @@
-"""Cross-adapter artifact run test: Matrix → Meshtastic delivery.
+r"""Cross-adapter artifact run test: Matrix → Meshtastic delivery.
 
 Docker-gated integration test proving real Matrix adapter ingress through
 PipelineRunner to real Meshtastic adapter outbound delivery with structured
@@ -56,35 +56,34 @@ from typing import Any, cast
 
 import pytest
 
-from medre.core.contracts.adapter import AdapterContext
 from medre.adapters.fake_matrix import FakeMatrixAdapter
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.compat import HAS_NIO
-from medre.config.adapters.matrix import MatrixConfig
 from medre.adapters.matrix.renderer import MatrixRenderer
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.adapters.meshtastic.compat import HAS_MESHTASTIC
-from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
+from medre.config.adapters.matrix import MatrixConfig
+from medre.config.adapters.meshtastic import MeshtasticConfig
+from medre.core.contracts.adapter import AdapterContext
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.events.bus import EventBus
 from medre.core.planning import FallbackResolver, RelationResolver
 from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.storage import SQLiteStorage
 from medre.core.storage.backend import StorageBackend
 
 from .conftest import (
+    _RUN_ARTIFACT_DIR,
     MeshtasticdEnvironment,
     SynapseEnvironment,
-    _RUN_ARTIFACT_DIR,
     _write_artifact_json,
     _write_run_metadata,
 )
 from .test_synapse_bridge_smoke import (
-    IngressResult,
     _INBOUND_FALLBACK,
     _INBOUND_SYNC_LOOP,
     _wait_for_sync_or_fallback,
@@ -100,20 +99,15 @@ pytestmark = pytest.mark.docker
 
 _SKIP_REASONS: list[str] = []
 if not HAS_NIO:
-    _SKIP_REASONS.append(
-        "mindroom-nio not installed; run: pip install '.[matrix]'"
-    )
+    _SKIP_REASONS.append("mindroom-nio not installed; run: pip install '.[matrix]'")
 if not HAS_MESHTASTIC:
-    _SKIP_REASONS.append(
-        "mtjk not installed; run: pip install '.[meshtastic]'"
-    )
+    _SKIP_REASONS.append("mtjk not installed; run: pip install '.[meshtastic]'")
 
 if _SKIP_REASONS:
     pytestmark = [
         pytest.mark.docker,
         pytest.mark.skip(
-            reason="Cross-adapter requires both SDKs: "
-                   + "; ".join(_SKIP_REASONS)
+            reason="Cross-adapter requires both SDKs: " + "; ".join(_SKIP_REASONS)
         ),
     ]
 
@@ -236,7 +230,8 @@ class TestCrossAdapterArtifactRun:
         # FakeMatrixAdapter as monitoring target so _wait_for_sync_or_fallback
         # can poll delivered_payloads for ingress path detection.
         fake_monitor = FakeMatrixAdapter(
-            "cross-fake-monitor", channel="ch-monitor",
+            "cross-fake-monitor",
+            channel="ch-monitor",
         )
 
         # -- 2. Route: matrix-source → [mesh-target, fake-monitor] ------
@@ -321,9 +316,9 @@ class TestCrossAdapterArtifactRun:
                     "send_one() should return a result when queue is non-empty "
                     "and session is connected"
                 )
-                assert send_result.native_message_id is not None, (
-                    "send_one() should return a real packet ID from meshtasticd"
-                )
+                assert (
+                    send_result.native_message_id is not None
+                ), "send_one() should return a real packet ID from meshtasticd"
                 logger.info(
                     "Cross-adapter outbound (manual): native_message_id=%s "
                     "native_channel_id=%s",
@@ -344,8 +339,7 @@ class TestCrossAdapterArtifactRun:
                 native_message_id=native_event_id,
             )
             assert canonical_id is not None, (
-                f"Expected inbound native ref for Matrix event "
-                f"{native_event_id!r}"
+                f"Expected inbound native ref for Matrix event " f"{native_event_id!r}"
             )
 
             receipts = await temp_storage.list_receipts_for_event(
@@ -353,8 +347,7 @@ class TestCrossAdapterArtifactRun:
             )
             receipt_count = len(receipts)
             assert receipt_count >= 1, (
-                f"Expected at least one delivery receipt for "
-                f"event {canonical_id!r}"
+                f"Expected at least one delivery receipt for " f"event {canonical_id!r}"
             )
 
             # Count total native refs (inbound Matrix + outbound Mesh).

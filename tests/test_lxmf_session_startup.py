@@ -17,19 +17,18 @@ Covered scenarios
 * Reticulum singleton raises ``OSError`` on second ``Reticulum()``
 * Missing ``storage_path`` in reticulum mode raises ``LxmfConfigError``
 """
+
 from __future__ import annotations
 
-import asyncio
 from typing import Any
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from medre.config.adapters.lxmf import LxmfConfig
-from medre.config.adapters.errors import LxmfConfigError
 from medre.adapters.lxmf.errors import LxmfConnectionError
 from medre.adapters.lxmf.session import LxmfSession
-
+from medre.config.adapters.errors import LxmfConfigError
+from medre.config.adapters.lxmf import LxmfConfig
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -103,9 +102,7 @@ class TestIdentityLoadCreate:
         ):
             await session.start()
 
-        mock_rns.Identity.from_file.assert_called_once_with(
-            "/path/to/identity"
-        )
+        mock_rns.Identity.from_file.assert_called_once_with("/path/to/identity")
         # Identity() constructor should NOT have been called.
         mock_rns.Identity.assert_not_called()
         assert session._identity is mock_rns.Identity.from_file.return_value
@@ -234,9 +231,9 @@ class TestRouterConstruction:
             await session.start()
 
         call_kwargs = mock_lxmf.LXMRouter.call_args
-        assert call_kwargs.kwargs.get("identity") is not None, (
-            f"identity not passed: {call_kwargs}"
-        )
+        assert (
+            call_kwargs.kwargs.get("identity") is not None
+        ), f"identity not passed: {call_kwargs}"
         await session.stop()
 
 

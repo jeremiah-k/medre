@@ -52,5 +52,9 @@ class AdapterStartupError(RuntimeStartupError):
 
     def __init__(self, adapter_id: str, message: str = "") -> None:
         self.adapter_id = adapter_id
-        detail = f"adapter {adapter_id!r}: {message}" if message else f"adapter {adapter_id!r}"
+        detail = (
+            f"adapter {adapter_id!r}: {message}"
+            if message
+            else f"adapter {adapter_id!r}"
+        )
         super().__init__(f"Failed to start {detail}")

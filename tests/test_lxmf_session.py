@@ -7,14 +7,11 @@ All tests use fake mode or mocks — no real Reticulum/LXMF dependency required.
 
 from __future__ import annotations
 
-import asyncio
-from datetime import datetime, timezone
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from medre.config.adapters.lxmf import LxmfConfig
 from medre.adapters.lxmf.errors import (
     LxmfConnectionError,
     LxmfSendError,
@@ -26,13 +23,17 @@ from medre.adapters.lxmf.session import (
     _map_delivery_method,
     _map_delivery_state,
 )
+from medre.config.adapters.lxmf import LxmfConfig
 
 
 def _make_config(**overrides: Any) -> LxmfConfig:
     defaults: dict[str, Any] = dict(adapter_id="lxmf-test")
     defaults.update(overrides)
     # storage_path is required when connection_type is reticulum.
-    if defaults.get("connection_type") == "reticulum" and "storage_path" not in defaults:
+    if (
+        defaults.get("connection_type") == "reticulum"
+        and "storage_path" not in defaults
+    ):
         defaults["storage_path"] = "/tmp/medre-test-lxmf-router"
     return LxmfConfig(**defaults)
 
@@ -99,18 +100,14 @@ class TestLxmfSessionRealModeDependencyFailure:
 
     async def test_real_mode_raises_without_sdk(self) -> None:
         session = _make_session(connection_type="reticulum")
-        with patch(
-            "medre.adapters.lxmf.session.HAS_LXMF", False
-        ):
+        with patch("medre.adapters.lxmf.session.HAS_LXMF", False):
             with pytest.raises(LxmfConnectionError, match="not installed"):
                 await session.start()
         assert session.connected is False
 
     async def test_real_mode_never_connects_without_sdk(self) -> None:
         session = _make_session(connection_type="reticulum")
-        with patch(
-            "medre.adapters.lxmf.session.HAS_LXMF", False
-        ):
+        with patch("medre.adapters.lxmf.session.HAS_LXMF", False):
             for _ in range(3):
                 with pytest.raises(LxmfConnectionError):
                     await session.start()
@@ -161,6 +158,7 @@ class TestLxmfSessionInboundNormalisation:
 
     async def test_normalise_inbound_message_converts_bytes(self) -> None:
         """_normalise_inbound_message handles bytes fields correctly."""
+
         class FakeMessage:
             source_hash = b"\xab" * 16
             destination_hash = b"\x00" * 16
@@ -182,6 +180,7 @@ class TestLxmfSessionInboundNormalisation:
 
     async def test_normalise_inbound_message_str_content(self) -> None:
         """_normalise_inbound_message handles str content."""
+
         class FakeMessage:
             source_hash = "abcdef"
             destination_hash = "000000"
@@ -200,6 +199,7 @@ class TestLxmfSessionInboundNormalisation:
 
     async def test_normalise_no_raw_objects(self) -> None:
         """Normalised dict must not contain any LXMF/RNS object types."""
+
         class FakeLXMObject:
             pass
 
@@ -225,9 +225,9 @@ class TestLxmfSessionInboundNormalisation:
                 for i, v in enumerate(obj):
                     _check_plain(v, f"{path}[{i}]")
             else:
-                assert not isinstance(obj, FakeLXMObject), (
-                    f"Raw object leaked at {path}"
-                )
+                assert not isinstance(
+                    obj, FakeLXMObject
+                ), f"Raw object leaked at {path}"
 
         _check_plain(result)
 
@@ -302,8 +302,15 @@ class TestLxmfDeliveryStateModel:
 
     def test_all_states_exist(self) -> None:
         expected = {
-            "generating", "outbound", "sending", "sent",
-            "delivered", "failed", "rejected", "cancelled", "unknown",
+            "generating",
+            "outbound",
+            "sending",
+            "sent",
+            "delivered",
+            "failed",
+            "rejected",
+            "cancelled",
+            "unknown",
         }
         actual = {s.value for s in LxmfDeliveryState}
         assert actual == expected
@@ -389,13 +396,17 @@ class TestLxmfSessionDiagnostics:
 
         diag_dict = diag.__dict__
         forbidden_keys = {
-            "identity", "private_key", "secret", "password",
-            "token", "reticulum", "router", "raw",
+            "identity",
+            "private_key",
+            "secret",
+            "password",
+            "token",
+            "reticulum",
+            "router",
+            "raw",
         }
         for key in diag_dict:
-            assert key not in forbidden_keys, (
-                f"Forbidden key {key!r} in diagnostics"
-            )
+            assert key not in forbidden_keys, f"Forbidden key {key!r} in diagnostics"
 
     async def test_diagnostics_last_message_time_updated(self) -> None:
         received: list[dict[str, Any]] = []
@@ -420,22 +431,26 @@ class TestExtractMessageHash:
     def test_bytes_hash(self) -> None:
         class Msg:
             hash = b"\x01\x02\x03"
+
         assert LxmfSession._extract_message_hash(Msg()) == "010203"
 
     def test_str_hash(self) -> None:
         class Msg:
             hash = "abc123"
+
         assert LxmfSession._extract_message_hash(Msg()) == "abc123"
 
     def test_message_id_fallback(self) -> None:
         class Msg:
             hash = None
             message_id = b"\xff"
+
         assert LxmfSession._extract_message_hash(Msg()) == "ff"
 
     def test_no_hash_returns_none(self) -> None:
         class Msg:
             pass
+
         assert LxmfSession._extract_message_hash(Msg()) is None
 
 
@@ -676,20 +691,22 @@ class TestSendRealFieldsPreservation:
         # The top-level keys should be int field IDs (like 0xFD),
         # not private keys, secrets, or raw identity material.
         for key in result_fields:
-            assert isinstance(key, int), (
-                f"Field key should be int (LXMF field ID), got {type(key)}: {key!r}"
-            )
+            assert isinstance(
+                key, int
+            ), f"Field key should be int (LXMF field ID), got {type(key)}: {key!r}"
 
         # Specifically check envelope content doesn't leak secrets.
         envelope = result_fields[FIELD_MEDRE_ENVELOPE][LXMF_NAMESPACE]
         forbidden = {
-            "private_key", "secret", "password", "token",
-            "identity", "raw_identity",
+            "private_key",
+            "secret",
+            "password",
+            "token",
+            "identity",
+            "raw_identity",
         }
         for word in forbidden:
-            assert word not in envelope, (
-                f"Envelope must not contain {word!r}"
-            )
+            assert word not in envelope, f"Envelope must not contain {word!r}"
         await session.stop()
 
 
@@ -705,7 +722,8 @@ class TestFakeSendReturnsAdapterDeliveryResult:
         session = _make_session(connection_type="fake")
         await session.start()
         native_id, state = await session.send_text(
-            destination_hash="ab" * 16, content="hello",
+            destination_hash="ab" * 16,
+            content="hello",
         )
         assert native_id is not None
         assert isinstance(native_id, str)
@@ -715,7 +733,8 @@ class TestFakeSendReturnsAdapterDeliveryResult:
         session = _make_session(connection_type="fake")
         await session.start()
         _, state = await session.send_text(
-            destination_hash="ab" * 16, content="hello",
+            destination_hash="ab" * 16,
+            content="hello",
         )
         assert state == LxmfDeliveryState.OUTBOUND
         await session.stop()
@@ -726,7 +745,9 @@ class TestFakeSendReturnsAdapterDeliveryResult:
         await session.start()
         fields = {0x01: "test"}
         native_id, state = await session.send_text(
-            destination_hash="ab" * 16, content="hello", fields=fields,
+            destination_hash="ab" * 16,
+            content="hello",
+            fields=fields,
         )
         assert native_id is not None
         assert state == LxmfDeliveryState.OUTBOUND

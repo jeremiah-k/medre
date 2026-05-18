@@ -99,6 +99,7 @@ class BootSummary:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _sorted_dict(d: dict[str, Any]) -> dict[str, Any]:
     """Return a new dict with keys sorted alphabetically (recursive)."""
     result: dict[str, Any] = {}
@@ -107,9 +108,7 @@ def _sorted_dict(d: dict[str, Any]) -> dict[str, Any]:
         if isinstance(val, dict):
             result[key] = _sorted_dict(val)
         elif isinstance(val, (list, tuple)):
-            result[key] = [
-                _sorted_dict(v) if isinstance(v, dict) else v for v in val
-            ]
+            result[key] = [_sorted_dict(v) if isinstance(v, dict) else v for v in val]
         else:
             result[key] = val
     return result

@@ -5,9 +5,8 @@ Matrix events carry relations (replies, reactions, edits) in the
 functions for extracting and building those structures without
 coupling to nio event objects.
 """
-from __future__ import annotations
 
-from typing import Optional
+from __future__ import annotations
 
 
 def extract_reply_target(source: dict) -> str | None:

@@ -4,14 +4,12 @@ Every run-session scenario produces correct report fields.  Each scenario
 is run via ``run_bridge_session`` with persistent storage and the report is
 verified for standardized field shapes.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
 
 import pytest
-
-from tests.test_cli_config_workflows import _run_cli
-
 
 _SCENARIOS = (
     "happy_path",
@@ -50,14 +48,16 @@ class TestScenarioCrossCheck:
             scenario=scenario,
             storage_path=db_path,
         )
-        assert report["status"] == "passed", (
-            f"Scenario {scenario} failed: {report.get('fail_reasons', [])}"
-        )
+        assert (
+            report["status"] == "passed"
+        ), f"Scenario {scenario} failed: {report.get('fail_reasons', [])}"
 
     @pytest.mark.parametrize("scenario", _SCENARIOS)
     @pytest.mark.asyncio
     async def test_command_is_run_session(
-        self, scenario: str, tmp_path: Path,
+        self,
+        scenario: str,
+        tmp_path: Path,
     ) -> None:
         """Report has command='run_session'."""
         from medre.runtime.run_session import run_bridge_session
@@ -73,7 +73,9 @@ class TestScenarioCrossCheck:
     @pytest.mark.parametrize("scenario", _SCENARIOS)
     @pytest.mark.asyncio
     async def test_scenario_category_matches(
-        self, scenario: str, tmp_path: Path,
+        self,
+        scenario: str,
+        tmp_path: Path,
     ) -> None:
         """Report scenario_category matches expected category."""
         from medre.runtime.run_session import (
@@ -96,7 +98,9 @@ class TestScenarioCrossCheck:
     @pytest.mark.parametrize("scenario", _FAILURE_SCENARIOS)
     @pytest.mark.asyncio
     async def test_failure_scenario_simulated(
-        self, scenario: str, tmp_path: Path,
+        self,
+        scenario: str,
+        tmp_path: Path,
     ) -> None:
         """Failure scenarios have simulated=True and simulation_method present."""
         from medre.runtime.run_session import run_bridge_session
@@ -129,7 +133,9 @@ class TestScenarioCrossCheck:
     @pytest.mark.parametrize("scenario", _DELIVERY_FAILURE_SCENARIOS)
     @pytest.mark.asyncio
     async def test_delivery_failure_has_failure_kinds(
-        self, scenario: str, tmp_path: Path,
+        self,
+        scenario: str,
+        tmp_path: Path,
     ) -> None:
         """Delivery failure scenarios have expected/observed failure_kind."""
         from medre.runtime.run_session import run_bridge_session
@@ -147,7 +153,9 @@ class TestScenarioCrossCheck:
     @pytest.mark.parametrize("scenario", _SCENARIOS)
     @pytest.mark.asyncio
     async def test_commands_dict_has_argv_and_text(
-        self, scenario: str, tmp_path: Path,
+        self,
+        scenario: str,
+        tmp_path: Path,
     ) -> None:
         """Report commands dict has commands_argv and commands_text with primary/specialized."""
         from medre.runtime.run_session import run_bridge_session
@@ -163,17 +171,19 @@ class TestScenarioCrossCheck:
         assert "commands_text" in commands, f"Missing commands_text for {scenario}"
         # Each section has primary and specialized sub-dicts.
         for section in ("commands_argv", "commands_text"):
-            assert "primary" in commands[section], (
-                f"Missing {section}['primary'] for {scenario}"
-            )
-            assert "specialized" in commands[section], (
-                f"Missing {section}['specialized'] for {scenario}"
-            )
+            assert (
+                "primary" in commands[section]
+            ), f"Missing {section}['primary'] for {scenario}"
+            assert (
+                "specialized" in commands[section]
+            ), f"Missing {section}['specialized'] for {scenario}"
 
     @pytest.mark.parametrize("scenario", _SCENARIOS)
     @pytest.mark.asyncio
     async def test_commands_argv_are_proper_lists(
-        self, scenario: str, tmp_path: Path,
+        self,
+        scenario: str,
+        tmp_path: Path,
     ) -> None:
         """commands_argv entries are proper lists; read-only use --storage-path, recover uses --config."""
         from medre.runtime.run_session import run_bridge_session
@@ -220,7 +230,9 @@ class TestScenarioCrossCheck:
     @pytest.mark.parametrize("scenario", _SCENARIOS)
     @pytest.mark.asyncio
     async def test_operator_interpretation_present(
-        self, scenario: str, tmp_path: Path,
+        self,
+        scenario: str,
+        tmp_path: Path,
     ) -> None:
         """Report has operator_interpretation (non-empty)."""
         from medre.runtime.run_session import run_bridge_session
@@ -239,7 +251,9 @@ class TestScenarioCrossCheck:
     @pytest.mark.parametrize("scenario", _SCENARIOS)
     @pytest.mark.asyncio
     async def test_errors_list_exists(
-        self, scenario: str, tmp_path: Path,
+        self,
+        scenario: str,
+        tmp_path: Path,
     ) -> None:
         """Report has 'errors' list (may be empty)."""
         from medre.runtime.run_session import run_bridge_session
@@ -256,7 +270,9 @@ class TestScenarioCrossCheck:
     @pytest.mark.parametrize("scenario", _SCENARIOS)
     @pytest.mark.asyncio
     async def test_limitations_list_exists(
-        self, scenario: str, tmp_path: Path,
+        self,
+        scenario: str,
+        tmp_path: Path,
     ) -> None:
         """Report has 'limitations' list."""
         from medre.runtime.run_session import run_bridge_session
@@ -274,7 +290,9 @@ class TestScenarioCrossCheck:
     @pytest.mark.parametrize("scenario", _SCENARIOS)
     @pytest.mark.asyncio
     async def test_report_commands_inspect_first(
-        self, scenario: str, tmp_path: Path,
+        self,
+        scenario: str,
+        tmp_path: Path,
     ) -> None:
         """Report primary commands are inspect-first; specialized are lower-level."""
         from medre.runtime.run_session import run_bridge_session
@@ -291,42 +309,45 @@ class TestScenarioCrossCheck:
         specialized = text_commands.get("specialized", {})
 
         # Inspect-first primary keys present.
-        for key in ("inspect_event", "inspect_timeline", "inspect_receipts",
-                     "inspect_evidence", "inspect_recovery"):
-            assert key in primary, (
-                f"Missing primary[{key!r}] for {scenario}"
-            )
-            assert "medre inspect" in primary[key], (
-                f"{key} should contain 'medre inspect': {primary[key]}"
-            )
+        for key in (
+            "inspect_event",
+            "inspect_timeline",
+            "inspect_receipts",
+            "inspect_evidence",
+            "inspect_recovery",
+        ):
+            assert key in primary, f"Missing primary[{key!r}] for {scenario}"
+            assert (
+                "medre inspect" in primary[key]
+            ), f"{key} should contain 'medre inspect': {primary[key]}"
 
         # Primary commands do NOT start with trace/evidence/recover.
         for key, cmd in primary.items():
-            assert not cmd.startswith("medre trace "), (
-                f"Primary command {key!r} starts with 'medre trace': {cmd}"
-            )
-            assert not cmd.startswith("medre evidence "), (
-                f"Primary command {key!r} starts with 'medre evidence': {cmd}"
-            )
-            assert not cmd.startswith("medre recover "), (
-                f"Primary command {key!r} starts with 'medre recover': {cmd}"
-            )
+            assert not cmd.startswith(
+                "medre trace "
+            ), f"Primary command {key!r} starts with 'medre trace': {cmd}"
+            assert not cmd.startswith(
+                "medre evidence "
+            ), f"Primary command {key!r} starts with 'medre evidence': {cmd}"
+            assert not cmd.startswith(
+                "medre recover "
+            ), f"Primary command {key!r} starts with 'medre recover': {cmd}"
 
         # Specialized keys present: trace_event, evidence_bundle, recover_event.
-        assert "trace_event" in specialized, (
-            f"Missing specialized['trace_event'] for {scenario}"
-        )
-        assert "evidence_bundle" in specialized, (
-            f"Missing specialized['evidence_bundle'] for {scenario}"
-        )
-        assert "recover_event" in specialized, (
-            f"Missing specialized['recover_event'] for {scenario}"
-        )
+        assert (
+            "trace_event" in specialized
+        ), f"Missing specialized['trace_event'] for {scenario}"
+        assert (
+            "evidence_bundle" in specialized
+        ), f"Missing specialized['evidence_bundle'] for {scenario}"
+        assert (
+            "recover_event" in specialized
+        ), f"Missing specialized['recover_event'] for {scenario}"
 
         # Specialized commands use their respective CLI surfaces.
-        assert specialized["trace_event"].startswith("medre trace "), (
-            f"trace_event should start with 'medre trace': {specialized['trace_event']}"
-        )
+        assert specialized["trace_event"].startswith(
+            "medre trace "
+        ), f"trace_event should start with 'medre trace': {specialized['trace_event']}"
         assert specialized["evidence_bundle"].startswith("medre evidence "), (
             f"evidence_bundle should start with 'medre evidence': "
             f"{specialized['evidence_bundle']}"
@@ -353,16 +374,21 @@ class TestStoragePathInCommands:
         assert report["status"] == "passed"
 
         commands_argv = report["commands"]["commands_argv"]["primary"]
-        for key in ("inspect_event", "inspect_timeline", "inspect_receipts",
-                     "inspect_evidence", "inspect_recovery"):
+        for key in (
+            "inspect_event",
+            "inspect_timeline",
+            "inspect_receipts",
+            "inspect_evidence",
+            "inspect_recovery",
+        ):
             argv = commands_argv[key]
-            assert "--storage-path" in argv, (
-                f"primary[{key}] missing --storage-path: {argv}"
-            )
+            assert (
+                "--storage-path" in argv
+            ), f"primary[{key}] missing --storage-path: {argv}"
             sp_idx = argv.index("--storage-path")
-            assert argv[sp_idx + 1] == db_path, (
-                f"primary[{key}] --storage-path value != {db_path}: {argv}"
-            )
+            assert (
+                argv[sp_idx + 1] == db_path
+            ), f"primary[{key}] --storage-path value != {db_path}: {argv}"
 
     @pytest.mark.asyncio
     async def test_specialized_readonly_use_storage_path(self, tmp_path: Path) -> None:
@@ -379,9 +405,9 @@ class TestStoragePathInCommands:
         specialized = report["commands"]["commands_argv"]["specialized"]
         for key in ("trace_event", "evidence_bundle"):
             argv = specialized[key]
-            assert "--storage-path" in argv, (
-                f"specialized[{key}] missing --storage-path: {argv}"
-            )
+            assert (
+                "--storage-path" in argv
+            ), f"specialized[{key}] missing --storage-path: {argv}"
             sp_idx = argv.index("--storage-path")
             assert argv[sp_idx + 1] == db_path
 
@@ -399,9 +425,9 @@ class TestStoragePathInCommands:
 
         argv = report["commands"]["commands_argv"]["specialized"]["recover_event"]
         assert "--config" in argv, f"recover_event missing --config: {argv}"
-        assert "--storage-path" not in argv, (
-            f"recover_event should not have --storage-path: {argv}"
-        )
+        assert (
+            "--storage-path" not in argv
+        ), f"recover_event should not have --storage-path: {argv}"
 
     @pytest.mark.asyncio
     async def test_commands_text_shell_safe_spaces(self, tmp_path: Path) -> None:
@@ -424,11 +450,12 @@ class TestStoragePathInCommands:
 
         # Verify text round-trips through shlex.split.
         import shlex
+
         inspect_text = result["commands_text"]["primary"]["inspect_event"]
         round_tripped = shlex.split(inspect_text)
-        assert space_path in round_tripped, (
-            f"Path with spaces lost in shell round-trip: {inspect_text}"
-        )
+        assert (
+            space_path in round_tripped
+        ), f"Path with spaces lost in shell round-trip: {inspect_text}"
 
         # Verify recover still uses config.
         recover_argv = result["commands_argv"]["specialized"]["recover_event"]
@@ -462,8 +489,8 @@ class TestStoragePathInCommands:
         import io
         from contextlib import redirect_stdout
 
-        from medre.runtime.run_session import run_bridge_session
         from medre.cli.inspect_commands import _inspect_event
+        from medre.runtime.run_session import run_bridge_session
 
         db_path = str(tmp_path / "cli-exec.db")
         report = await run_bridge_session(
@@ -491,6 +518,6 @@ class TestStoragePathInCommands:
             )
 
         output = stdout_buf.getvalue()
-        assert event_id in output, (
-            f"Event ID {event_id!r} not in inspect output: {output[:500]}"
-        )
+        assert (
+            event_id in output
+        ), f"Event ID {event_id!r} not in inspect output: {output[:500]}"

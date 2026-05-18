@@ -8,6 +8,7 @@ Skipped by default.  Requires the following environment variables to be set:
 
 These tests do NOT pollute the standard test run.
 """
+
 from __future__ import annotations
 
 import os
@@ -57,7 +58,7 @@ class TestMatrixAuthLive:
 
         config_path = tmp_path / "test.toml"
         config_path.write_text(
-            '[adapters.matrix.mybot]\n'
+            "[adapters.matrix.mybot]\n"
             'homeserver = ""\n'
             'user_id = ""\n'
             'access_token = ""\n',
@@ -65,7 +66,9 @@ class TestMatrixAuthLive:
         )
 
         update_toml_credentials(
-            config_path, "matrix", "mybot",
+            config_path,
+            "matrix",
+            "mybot",
             homeserver=result.homeserver,
             user_id=result.user_id,
             access_token=result.access_token,

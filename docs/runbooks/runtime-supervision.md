@@ -6,7 +6,6 @@
 
 This runbook describes how operators supervise the MEDRE runtime, interpret persistence behavior, diagnose degraded states, and perform recovery. It is the operator-facing companion to Contract 55 (Runtime Persistence) and Contract 54 (Runtime Shutdown).
 
-
 ## 1. Runtime Supervision Overview
 
 MEDRE is a single-process, multi-adapter runtime. Supervision is the operator's responsibility — there is no external health monitor, watchdog, or orchestrator built into MEDRE.
@@ -15,22 +14,24 @@ MEDRE is a single-process, multi-adapter runtime. Supervision is the operator's 
 
 MEDRE uses four distinct state layers. Understanding which layer you are looking at is essential for correct diagnosis.
 
-| Layer | What It Tracks | Values | Where to Find It |
-|-------|---------------|--------|-----------------|
-| **RuntimeState** | Process lifecycle | `INITIALIZED`, `STARTING`, `RUNNING`, `STOPPING`, `STOPPED`, `FAILED` | `snapshot.lifecycle.runtime_state` |
-| **RuntimeHealth** | Aggregate adapter health | `HEALTHY`, `DEGRADED`, `FAILED` | `snapshot.startup.startup_health.runtime_health` (startup-derived only) |
-| **StartupOutcome** | One-time boot result | `SUCCESS`, `PARTIAL`, `TOTAL_FAILURE` | `snapshot.startup.boot_summary` |
-| **AdapterState** | Per-adapter lifecycle | `INITIALIZING`, `READY`, `DEGRADED`, `BACKPRESSURED`, `DISCONNECTED`, `STOPPING`, `FAILED`, `STOPPED` | `snapshot.lifecycle.adapters.{adapter_id}` |
+| Layer              | What It Tracks           | Values                                                                                                | Where to Find It                                                        |
+| ------------------ | ------------------------ | ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| **RuntimeState**   | Process lifecycle        | `INITIALIZED`, `STARTING`, `RUNNING`, `STOPPING`, `STOPPED`, `FAILED`                                 | `snapshot.lifecycle.runtime_state`                                      |
+| **RuntimeHealth**  | Aggregate adapter health | `HEALTHY`, `DEGRADED`, `FAILED`                                                                       | `snapshot.startup.startup_health.runtime_health` (startup-derived only) |
+| **StartupOutcome** | One-time boot result     | `SUCCESS`, `PARTIAL`, `TOTAL_FAILURE`                                                                 | `snapshot.startup.boot_summary`                                         |
+| **AdapterState**   | Per-adapter lifecycle    | `INITIALIZING`, `READY`, `DEGRADED`, `BACKPRESSURED`, `DISCONNECTED`, `STOPPING`, `FAILED`, `STOPPED` | `snapshot.lifecycle.adapters.{adapter_id}`                              |
 
 **Key point:** `RuntimeState` has no `DEGRADED` value. A runtime in `RUNNING` state can have `DEGRADED` health (some adapters up, some down). Degradation is a health concept, not a lifecycle concept.
 
 **Health is not live-refreshed.** The `startup_health` value is computed once during startup and frozen. It does not reflect post-startup adapter failures. `live_health` is always `null` until active health polling is implemented.
 
 ### 1.2 What MEDRE Provides
+
 - **Health classification** — pure functions (`classify_runtime_health`, `classify_adapter_failure_severity`, `runtime_supervision_snapshot`) that accept adapter states and return deterministic health/severity classifications. These can be called at any time with any adapter state values.
 - **Startup health assessment** — adapter states are classified during startup and recorded in the boot summary.
 
 **What MEDRE does NOT provide (not implemented in this tranche):**
+
 - Active post-start failure detection — MEDRE does not automatically detect adapter failures after startup.
 - Health refresh polling — adapter health is not periodically re-checked at runtime.
 - Automatic runtime state transitions in response to adapter failures — the runtime does not actively transition to DEGRADED or FAILED when an adapter crashes; operators must diagnose and act on failures.
@@ -39,11 +40,11 @@ MEDRE uses four distinct state layers. Understanding which layer you are looking
 
 The operator supervises three categories of runtime state:
 
-| Category | Nature | Source |
-|----------|--------|--------|
-| **Persisted state** | Durable (survives crash) | SQLite database, transport-owned files, logs |
+| Category                | Nature                    | Source                                                                |
+| ----------------------- | ------------------------- | --------------------------------------------------------------------- |
+| **Persisted state**     | Durable (survives crash)  | SQLite database, transport-owned files, logs                          |
 | **Process-local state** | Ephemeral (lost on crash) | CapacityController gauges, RouteStats, adapter health, in-flight work |
-| **Configuration** | Operator-managed | TOML config file |
+| **Configuration**       | Operator-managed          | TOML config file                                                      |
 
 Only persisted state survives a hard crash. Process-local state must be re-observed after restart.
 
@@ -53,61 +54,59 @@ The runtime snapshot (`medre diagnostics` output) carries explicit provenance me
 
 Each section has `scope` and `live_refresh` fields:
 
-| Section | `scope` | `live_refresh` | What It Means for You |
-|---------|---------|----------------|----------------------|
-| `startup` | `"startup"` | `false` | Computed once during startup. **Does not change.** Contains boot summary, build failures, and startup health. |
-| `health` | `"startup"` | `false` | Health assessment from startup. `live_health` is always `null`. **Does not reflect post-startup failures.** |
-| `lifecycle` | `"process_local"` | `false` | Current in-process state at snapshot time. `runtime_state`, adapter lifecycle states, and uptime. |
-| `diagnostics` | `"process_local"` | `true` | Event buffer grows during runtime. Most complete record of what happened after startup. |
-| `routes.build_readiness` | `"build"` | `false` | Route states from build time. Frozen. |
-| `routes.startup_readiness` | `"startup"` | `false` | Route states from startup time. Frozen. |
-| `routes.stats` | (none) | (none) | Live delivery counters. Grows during runtime. |
+| Section                    | `scope`           | `live_refresh` | What It Means for You                                                                                         |
+| -------------------------- | ----------------- | -------------- | ------------------------------------------------------------------------------------------------------------- |
+| `startup`                  | `"startup"`       | `false`        | Computed once during startup. **Does not change.** Contains boot summary, build failures, and startup health. |
+| `health`                   | `"startup"`       | `false`        | Health assessment from startup. `live_health` is always `null`. **Does not reflect post-startup failures.**   |
+| `lifecycle`                | `"process_local"` | `false`        | Current in-process state at snapshot time. `runtime_state`, adapter lifecycle states, and uptime.             |
+| `diagnostics`              | `"process_local"` | `true`         | Event buffer grows during runtime. Most complete record of what happened after startup.                       |
+| `routes.build_readiness`   | `"build"`         | `false`        | Route states from build time. Frozen.                                                                         |
+| `routes.startup_readiness` | `"startup"`       | `false`        | Route states from startup time. Frozen.                                                                       |
+| `routes.stats`             | (none)            | (none)         | Live delivery counters. Grows during runtime.                                                                 |
 
 Per-adapter entries in `adapters` carry a `provenance` field:
 
-| Field | Provenance | Meaning |
-|-------|-----------|---------|
-| `adapters.{id}.health` | `"startup"` | Static health from build/startup. **Not refreshed.** |
-| `adapters.{id}.provenance` | Always `"startup"` | Explicit marker that this data is startup-derived. |
-| `lifecycle.adapters.{id}` | `"process_local"` | Current `AdapterState` at snapshot time. |
+| Field                      | Provenance         | Meaning                                              |
+| -------------------------- | ------------------ | ---------------------------------------------------- |
+| `adapters.{id}.health`     | `"startup"`        | Static health from build/startup. **Not refreshed.** |
+| `adapters.{id}.provenance` | Always `"startup"` | Explicit marker that this data is startup-derived.   |
+| `lifecycle.adapters.{id}`  | `"process_local"`  | Current `AdapterState` at snapshot time.             |
 
 **Key distinction:** `adapters.{id}.health` and `lifecycle.adapters.{id}` can diverge after startup. An adapter may have `health: "healthy"` (startup) but `lifecycle.adapters.{id}: "failed"` (current). Always check `lifecycle.adapters` for current state.
 
 **Where to look for what:**
 
-| Question | Snapshot Path | Provenance |
-|----------|--------------|------------|
-| Did startup succeed? | `startup.boot_summary.startup_outcome` | startup |
-| What's the overall health? | `startup.startup_health.runtime_health` | startup (not live!) |
-| Which adapters are running? | `lifecycle.adapters.{id}` | process-local |
-| Is adapter health current? | `adapters.{id}.provenance` → `"startup"` | startup (stale!) |
-| Which routes are active? | `routes.eligibility.registered` | build |
-| Which routes are degraded? | `routes.startup_readiness.degraded` | startup |
-| What happened after startup? | `diagnostics.runtime_events.events[]` | process-local |
-
+| Question                     | Snapshot Path                            | Provenance          |
+| ---------------------------- | ---------------------------------------- | ------------------- |
+| Did startup succeed?         | `startup.boot_summary.startup_outcome`   | startup             |
+| What's the overall health?   | `startup.startup_health.runtime_health`  | startup (not live!) |
+| Which adapters are running?  | `lifecycle.adapters.{id}`                | process-local       |
+| Is adapter health current?   | `adapters.{id}.provenance` → `"startup"` | startup (stale!)    |
+| Which routes are active?     | `routes.eligibility.registered`          | build               |
+| Which routes are degraded?   | `routes.startup_readiness.degraded`      | startup             |
+| What happened after startup? | `diagnostics.runtime_events.events[]`    | process-local       |
 
 ## 2. What to Monitor
 
 ### 2.1 Persisted State Health
 
-| Signal | How to Check | What It Means |
-|--------|-------------|---------------|
-| Database size | `ls -lh {state}/medre.sqlite` | Growing database is normal (event accumulation). Sudden stops indicate write failures. |
-| Database integrity | `sqlite3 {state}/medre.sqlite "PRAGMA integrity_check;"` | Returns `ok` if healthy. Any other result requires intervention. |
-| Disk space | `df -h` on the volume holding `{state}` | Critical. Full disk stops all persistence. |
+| Signal               | How to Check                                                            | What It Means                                                                                 |
+| -------------------- | ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Database size        | `ls -lh {state}/medre.sqlite`                                           | Growing database is normal (event accumulation). Sudden stops indicate write failures.        |
+| Database integrity   | `sqlite3 {state}/medre.sqlite "PRAGMA integrity_check;"`                | Returns `ok` if healthy. Any other result requires intervention.                              |
+| Disk space           | `df -h` on the volume holding `{state}`                                 | Critical. Full disk stops all persistence.                                                    |
 | Event/receipt counts | `sqlite3 {state}/medre.sqlite "SELECT COUNT(*) FROM canonical_events;"` | Events should exceed receipts (not all events are delivered). Receipts should grow over time. |
 
 ### 2.2 Process-Local State (Ephemeral)
 
-| Signal | How to Check | What It Means |
-|--------|-------------|---------------|
-| Adapter health | `medre diagnostics` | `healthy`, `degraded`, `failed`, or `stopped` per adapter. |
+| Signal            | How to Check                                | What It Means                                                     |
+| ----------------- | ------------------------------------------- | ----------------------------------------------------------------- |
+| Adapter health    | `medre diagnostics`                         | `healthy`, `degraded`, `failed`, or `stopped` per adapter.        |
 | Capacity pressure | `medre diagnostics` → `capacity_rejections` | Growing rejections indicate delivery concurrency is insufficient. |
-| Replay pressure | `medre diagnostics` → `capacity_rejections` | Growing rejections indicate replay concurrency is insufficient. |
-| Log errors | `grep ERROR {state}/logs/medre.log` | Error frequency and patterns indicate systemic issues. |
+| Replay pressure   | `medre diagnostics` → `capacity_rejections` | Growing rejections indicate replay concurrency is insufficient.   |
+| Log errors        | `grep ERROR {state}/logs/medre.log`         | Error frequency and patterns indicate systemic issues.            |
 
 All process-local state resets to zero on every restart. There is no persistent metrics store. If you need historical trends, implement external log aggregation.
-
 
 ## 3. Persistence-Aware Troubleshooting
 
@@ -133,16 +132,19 @@ Interpretation:
 ### 3.2 "What Happened After a Crash?"
 
 1. **Check logs** for the last entries before the crash:
+
    ```bash
    tail -100 {state}/logs/medre.log
    ```
 
 2. **Verify database integrity:**
+
    ```bash
    sqlite3 {state}/medre.sqlite "PRAGMA integrity_check;"
    ```
 
 3. **Find orphaned events** (stored but never delivered):
+
    ```sql
    SELECT e.event_id, e.source_adapter, e.created_at
    FROM canonical_events e
@@ -195,18 +197,19 @@ Then check capacity gauges:
 4. Check logs for adapter errors — `grep "ERROR.*adapter_id" {state}/logs/medre.log`
 5. Verify disk space — full disk prevents receipt writes.
 
-
 ## 4. Crash Recovery Procedures
 
 ### 4.1 Hard Crash Recovery (kill -9, OOM, Power Loss)
 
 **What was lost:**
+
 - All in-flight deliveries (no receipts, no retry).
 - Active replay runs (no resume, must re-initiate).
 - Runtime counters (all reset to zero).
 - Adapter connection states (adapters reconnect from scratch).
 
 **What survived:**
+
 - All events stored before the crash (in SQLite).
 - All receipts written before the crash (in SQLite).
 - Crypto stores, identity files, and logs.
@@ -214,27 +217,32 @@ Then check capacity gauges:
 **Recovery steps:**
 
 1. Verify the environment (disk space, transport connectivity):
+
    ```bash
    df -h
    ls -la /dev/ttyACM0  # for serial Meshtastic
    ```
 
 2. Verify database integrity:
+
    ```bash
    sqlite3 {state}/medre.sqlite "PRAGMA integrity_check;"
    ```
 
 3. Restart the runtime:
+
    ```bash
    medre run --config config.toml
    ```
 
 4. Verify startup — all adapters should report `adapter_started`:
+
    ```bash
    grep "adapter_started" {state}/logs/medre.log | tail -5
    ```
 
 5. Check for orphaned events if delivery continuity is critical:
+
    ```sql
    SELECT COUNT(*) FROM canonical_events e
    LEFT JOIN delivery_receipts r ON e.event_id = r.event_id
@@ -248,6 +256,7 @@ Then check capacity gauges:
 Clean shutdown drains in-flight deliveries and flushes persisted state. Recovery is simpler:
 
 1. Restart the runtime:
+
    ```bash
    medre run --config config.toml
    ```
@@ -282,7 +291,6 @@ If `PRAGMA integrity_check` fails:
    ```
    The runtime creates a fresh database. **All event history is lost.** Crypto stores and identity files are unaffected (separate directories).
 
-
 ## 5. Startup Verification Checklist
 
 After any restart (planned or crash recovery), verify:
@@ -293,7 +301,6 @@ After any restart (planned or crash recovery), verify:
 - [ ] Adapters are connected: `medre diagnostics` shows `healthy` for all adapters
 - [ ] No unexpected errors: `grep ERROR {state}/logs/medre.log | tail -10`
 - [ ] Disk space is adequate: `df -h` on the state volume
-
 
 ## 6. Degraded Runtime Scenarios
 
@@ -331,7 +338,6 @@ When `capacity_rejections` is growing steadily:
 3. For Meshtastic specifically, check if the radio channel throughput is the bottleneck.
 4. Monitor after changes — counter resets on restart, so observe trends from the new baseline.
 
-
 ## 7. Replay and Crash Interaction
 
 ### 7.1 Replay Before a Crash
@@ -348,6 +354,7 @@ If a `BEST_EFFORT` replay was running when the runtime crashed:
 Replay can re-deliver orphaned events after a crash:
 
 1. Identify the time range of orphaned events:
+
    ```sql
    SELECT MIN(e.created_at), MAX(e.created_at) FROM canonical_events e
    LEFT JOIN delivery_receipts r ON e.event_id = r.event_id
@@ -362,22 +369,20 @@ Replay can re-deliver orphaned events after a crash:
 
 Replay is a one-shot operation initiated by the operator or test harness. It is not a persistent queue, not a durable job, and not automatically retried. See Contract 55 §6.
 
-
 ## 8. Persistence Expectations for Operators
 
-| Question | Answer |
-|----------|--------|
-| Do I lose event history on crash? | **No.** Events are in SQLite. |
-| Do I lose delivery receipts on crash? | **No.** Receipts are in SQLite. |
-| Do I lose E2EE sessions on crash? | **No.** Crypto store is on disk. |
-| Do I lose runtime metrics on crash? | **Yes.** All counters reset on restart. |
-| Do I lose in-flight deliveries on crash? | **Yes.** No retry, no recovery. |
-| Do I need to manually replay after crash? | Only if orphaned events need delivery. Not automatic. |
-| Does MEDRE back up its own database? | **No.** Operators handle backup. |
-| Can I query historical delivery state? | **Yes.** Query receipts from SQLite. |
+| Question                                    | Answer                                                                                                       |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Do I lose event history on crash?           | **No.** Events are in SQLite.                                                                                |
+| Do I lose delivery receipts on crash?       | **No.** Receipts are in SQLite.                                                                              |
+| Do I lose E2EE sessions on crash?           | **No.** Crypto store is on disk.                                                                             |
+| Do I lose runtime metrics on crash?         | **Yes.** All counters reset on restart.                                                                      |
+| Do I lose in-flight deliveries on crash?    | **Yes.** No retry, no recovery.                                                                              |
+| Do I need to manually replay after crash?   | Only if orphaned events need delivery. Not automatic.                                                        |
+| Does MEDRE back up its own database?        | **No.** Operators handle backup.                                                                             |
+| Can I query historical delivery state?      | **Yes.** Query receipts from SQLite.                                                                         |
 | Can I tell which receipts came from replay? | **Yes.** Query `WHERE source = 'replay'` on `delivery_receipts`. Use `replay_run_id` to group by replay run. |
-| Can I see historical capacity metrics? | **No.** Counters are process-local only. Implement external monitoring. |
-
+| Can I see historical capacity metrics?      | **No.** Counters are process-local only. Implement external monitoring.                                      |
 
 ## 9. References
 

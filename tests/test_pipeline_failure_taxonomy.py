@@ -17,14 +17,11 @@ from medre.core.engine.pipeline import PipelineRunner
 from medre.core.observability.metrics import Diagnostician, EventMetrics
 from medre.core.planning import FallbackResolver
 from medre.core.planning.delivery_plan import DeliveryPlan, RetryPolicy
-from medre.core.rendering.renderer import RenderingPipeline
+from medre.core.rendering.renderer import RenderingPipeline, RenderingResult
 from medre.core.rendering.text import TextRenderer
-from medre.core.rendering.renderer import RenderingResult
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage import SQLiteStorage
-
 from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -204,9 +201,7 @@ class TestTargetScopedFailures:
         runner = PipelineRunner(config)
         await runner.start()
 
-        event = make_event(
-            event_id="transient-001", source_adapter="src"
-        )
+        event = make_event(event_id="transient-001", source_adapter="src")
 
         try:
             outcomes = await runner.handle_ingress(event)
@@ -219,9 +214,7 @@ class TestTargetScopedFailures:
             assert good.delivered_payloads[0].event_id == "transient-001"
 
             # Flaky adapter classified as transient.
-            assert (
-                by_adapter["transient-broken"].status == "transient_failure"
-            )
+            assert by_adapter["transient-broken"].status == "transient_failure"
             transient_error = by_adapter["transient-broken"].error
             assert transient_error is not None
             assert "ConnectionError" in transient_error
@@ -575,7 +568,10 @@ class TestDeliveryFailureClassification:
             by_adapter = {o.target_adapter: o for o in outcomes}
             assert by_adapter["stable"].status == "success"
             assert by_adapter["flaky"].status == "transient_failure"
-            assert by_adapter["flaky"].failure_kind is DeliveryFailureKind.ADAPTER_TRANSIENT
+            assert (
+                by_adapter["flaky"].failure_kind
+                is DeliveryFailureKind.ADAPTER_TRANSIENT
+            )
         finally:
             await runner.stop()
 

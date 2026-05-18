@@ -8,13 +8,11 @@ This document records observations from auditing how metadata flows through MEDR
 
 This is an audit document, not a design document. No canonical event redesign, bridge policy redesign, or cross-transport orchestration changes are proposed.
 
-
 ## 1. Core Principle
 
 **Transport-rich metadata stays in namespaced envelopes. Canonical events remain transport-agnostic.**
 
 The `CanonicalEvent` model contains no transport-specific types. All transport-native details live in `EventMetadata` namespaces, primarily `metadata.native` and `metadata.transport`. Core and pipeline code never import adapter packages.
-
 
 ## 2. Metadata Architecture
 
@@ -22,14 +20,14 @@ The `CanonicalEvent` model contains no transport-specific types. All transport-n
 
 All event metadata lives in a structured `EventMetadata` object with six namespaces:
 
-| Namespace | Purpose | Transport-Specific? |
-|-----------|---------|---------------------|
+| Namespace   | Purpose                                                           | Transport-Specific?                   |
+| ----------- | ----------------------------------------------------------------- | ------------------------------------- |
 | `transport` | Protocol, gateway, delivery method, encryption, propagation state | Partially (values vary per transport) |
-| `routing` | Matched routes, fanout groups | No (pipeline-owned) |
-| `radio` | Frequency, SNR, RSSI, channel index | Yes (Meshtastic/MeshCore only) |
-| `telemetry` | Battery, voltage, device metrics | Yes (constrained transports only) |
-| `native` | Unnormalized raw fields from the transport | Yes (per-adapter) |
-| `custom` | Plugin/extension data | No (user-defined) |
+| `routing`   | Matched routes, fanout groups                                     | No (pipeline-owned)                   |
+| `radio`     | Frequency, SNR, RSSI, channel index                               | Yes (Meshtastic/MeshCore only)        |
+| `telemetry` | Battery, voltage, device metrics                                  | Yes (constrained transports only)     |
+| `native`    | Unnormalized raw fields from the transport                        | Yes (per-adapter)                     |
+| `custom`    | Plugin/extension data                                             | No (user-defined)                     |
 
 ### 2.2 What Is Canonical
 
@@ -52,7 +50,6 @@ Each adapter's codec produces transport-specific metadata that goes into `metada
 - **LXMF**: source hash, destination hash, message hash, method, signature validated, transport encrypted, fields dict.
 
 These are stored as-is. No cross-transport normalization is attempted.
-
 
 ## 3. Per-Adapter Observations
 
@@ -105,7 +102,6 @@ LXMF's metadata is identity-centric and store-and-forward oriented:
 
 Key asymmetry: LXMF has no native reply, reaction, edit, or threading mechanism. The fields dict is extensible but LXMF does not define reply semantics natively. MEDRE carries reply metadata in the canonical event model, but the LXMF transport will not render it as a threaded reply — it will appear as plain text with an optional quoted prefix.
 
-
 ## 4. Outbound Metadata Embedding
 
 ### 4.1 Pattern
@@ -133,7 +129,6 @@ Only LXMF and Matrix support metadata embedding in outbound messages. Meshtastic
 - A message that carries MEDRE provenance metadata when routed through LXMF or Matrix will lose that metadata when routed through Meshtastic or MeshCore.
 - The pipeline does not guarantee metadata round-tripping across transports.
 - Metadata is best-effort, not contractual.
-
 
 ## 5. Boundary Observations
 
@@ -172,7 +167,6 @@ Confirmed from `docs/contracts/22-delivery-semantics-matrix.md`:
 
 Code that treats these as equivalent is incorrect by contract.
 
-
 ## 6. Gaps and Observations
 
 ### 6.1 No Enrichment Stage
@@ -198,20 +192,19 @@ There is no mechanism to correlate metadata across transports. If the same conce
 
 This is correct behavior for Phase 1. Cross-transport metadata correlation is a future concern.
 
-
 ## 7. Summary
 
-| Observation | Implication |
-|------------|-------------|
-| Transport-rich metadata stays in namespaced envelopes | Clean separation. Core never knows about LXMF/RNS types. |
-| Canonical events remain transport-agnostic | No canonical redesign needed for four-transport support. |
-| Runtime/core must not import adapter packages | Boundary is clean. No violations observed. |
-| No enrichment stage exists | Raw metadata stays in `native`. No runtime normalization. |
-| Metadata embedding is transport-dependent (LXMF/Matrix yes, Meshtastic/MeshCore no) | Metadata round-tripping is best-effort, not contractual. |
-| Diagnostics shapes differ per adapter | No cross-adapter diagnostics normalization. |
-| Delivery semantics are fundamentally asymmetric | No false equivalence. Code that assumes ordered/confirmed delivery will fail on constrained transports. |
-| No canonical redesign warranted | The existing model handles all four transports structurally. |
+| Observation                                                                         | Implication                                                                                             |
+| ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Transport-rich metadata stays in namespaced envelopes                               | Clean separation. Core never knows about LXMF/RNS types.                                                |
+| Canonical events remain transport-agnostic                                          | No canonical redesign needed for four-transport support.                                                |
+| Runtime/core must not import adapter packages                                       | Boundary is clean. No violations observed.                                                              |
+| No enrichment stage exists                                                          | Raw metadata stays in `native`. No runtime normalization.                                               |
+| Metadata embedding is transport-dependent (LXMF/Matrix yes, Meshtastic/MeshCore no) | Metadata round-tripping is best-effort, not contractual.                                                |
+| Diagnostics shapes differ per adapter                                               | No cross-adapter diagnostics normalization.                                                             |
+| Delivery semantics are fundamentally asymmetric                                     | No false equivalence. Code that assumes ordered/confirmed delivery will fail on constrained transports. |
+| No canonical redesign warranted                                                     | The existing model handles all four transports structurally.                                            |
 
 ---
 
-*This document was produced by auditing the metadata flow through all four adapter families. It documents observations, not prescriptions. No code changes are proposed.*
+_This document was produced by auditing the metadata flow through all four adapter families. It documents observations, not prescriptions. No code changes are proposed._

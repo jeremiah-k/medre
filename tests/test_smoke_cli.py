@@ -16,12 +16,10 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
 import pytest
 
 from medre.runtime.smoke import run_fake_bridge_smoke
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -48,6 +46,7 @@ def _clean_path_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def _smoke_config_path() -> str:
     """Return path to the shipped fake-bridge-smoke.toml."""
     from medre.runtime.smoke import _default_smoke_config_path
+
     path = _default_smoke_config_path()
     assert path is not None, "examples/configs/fake-bridge-smoke.toml not found"
     return path
@@ -162,8 +161,7 @@ class TestFakeBridgeSmokeReport:
         assert isinstance(stats, dict)
         # At least one route should have delivered > 0.
         has_delivered = any(
-            v.get("delivered", 0) > 0 for v in stats.values()
-            if isinstance(v, dict)
+            v.get("delivered", 0) > 0 for v in stats.values() if isinstance(v, dict)
         )
         assert has_delivered, f"No route with delivered > 0 in {stats}"
 
@@ -211,23 +209,36 @@ class TestFakeBridgeSmokeReport:
     async def test_smoke_report_deterministic_snapshot(self) -> None:
         """Two runs with frozen clocks produce identical snapshots."""
         config_path = _smoke_config_path()
-        frozen_now = lambda: datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-        frozen_mono = lambda: 0.0
+
+        def frozen_now():
+            return datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+
+        def frozen_mono():
+            return 0.0
+
         report1 = await run_fake_bridge_smoke(
-            config_path, now_fn=frozen_now, monotonic_fn=frozen_mono,
+            config_path,
+            now_fn=frozen_now,
+            monotonic_fn=frozen_mono,
         )
         report2 = await run_fake_bridge_smoke(
-            config_path, now_fn=frozen_now, monotonic_fn=frozen_mono,
+            config_path,
+            now_fn=frozen_now,
+            monotonic_fn=frozen_mono,
         )
         # Snapshots should be structurally identical (event_ids differ).
-        assert report1["snapshot"]["schema_version"] == report2["snapshot"]["schema_version"]
+        assert (
+            report1["snapshot"]["schema_version"]
+            == report2["snapshot"]["schema_version"]
+        )
 
     @pytest.mark.asyncio
     async def test_smoke_report_custom_message(self) -> None:
         """Custom message text is accepted and event is created."""
         config_path = _smoke_config_path()
         report = await run_fake_bridge_smoke(
-            config_path, message_text="custom operator check",
+            config_path,
+            message_text="custom operator check",
         )
         assert report["status"] == "passed"
 
@@ -250,9 +261,9 @@ class TestFakeBridgeSmokeReport:
         # With multiple routes matching (mx_to_mesh, mx_mesh_bidir forward,
         # mx_fanout to 2 targets, mx_filtered), receipts should be > 1.
         receipts = report["delivery_receipts"]
-        assert len(receipts) >= 2, (
-            f"Expected >= 2 receipts from fanout, got {len(receipts)}"
-        )
+        assert (
+            len(receipts) >= 2
+        ), f"Expected >= 2 receipts from fanout, got {len(receipts)}"
 
 
 # ---------------------------------------------------------------------------
@@ -263,10 +274,13 @@ class TestFakeBridgeSmokeReport:
 class TestSmokeCLI:
     """Proves ``medre smoke`` CLI command dispatches correctly."""
 
-    def test_smoke_cli_pass(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_smoke_cli_pass(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """``medre smoke --json`` produces valid JSON with PASS status."""
-        from contextlib import redirect_stdout, redirect_stderr
         import io
+        from contextlib import redirect_stderr, redirect_stdout
+
         from medre.cli import main
 
         config_path = _smoke_config_path()
@@ -282,10 +296,13 @@ class TestSmokeCLI:
         report = json.loads(output)
         assert report["status"] == "passed"
 
-    def test_smoke_cli_human_readable(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_smoke_cli_human_readable(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """``medre smoke`` (no --json) prints human-readable output."""
-        from contextlib import redirect_stdout, redirect_stderr
         import io
+        from contextlib import redirect_stderr, redirect_stdout
+
         from medre.cli import main
 
         config_path = _smoke_config_path()
@@ -303,10 +320,13 @@ class TestSmokeCLI:
         assert "Source:" in output
         assert "Receipts:" in output
 
-    def test_smoke_cli_custom_message(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_smoke_cli_custom_message(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """``medre smoke --message`` accepts custom text."""
-        from contextlib import redirect_stdout, redirect_stderr
         import io
+        from contextlib import redirect_stderr, redirect_stdout
+
         from medre.cli import main
 
         config_path = _smoke_config_path()
@@ -314,7 +334,16 @@ class TestSmokeCLI:
         stdout_capture = io.StringIO()
         with redirect_stdout(stdout_capture), redirect_stderr(io.StringIO()):
             with pytest.raises(SystemExit) as exc_info:
-                main(["smoke", "--config", config_path, "--json", "--message", "check from CLI"])
+                main(
+                    [
+                        "smoke",
+                        "--config",
+                        config_path,
+                        "--json",
+                        "--message",
+                        "check from CLI",
+                    ]
+                )
 
         assert exc_info.value.code == 0
         report = json.loads(stdout_capture.getvalue())

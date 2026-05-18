@@ -24,15 +24,14 @@ from datetime import datetime, timezone
 
 import pytest
 
-from medre.core.contracts.adapter import AdapterPermanentError, AdapterSendError
 from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
-from medre.config.adapters.meshcore import MeshCoreConfig
+from medre.adapters.meshcore.adapter import MeshCoreAdapter
 from medre.adapters.meshcore.codec import MeshCoreCodec
 from medre.adapters.meshcore.compat import HAS_MESHCORE
-from medre.adapters.meshcore.renderer import MeshCoreRenderer
-from medre.adapters.meshcore.adapter import MeshCoreAdapter
 from medre.adapters.meshcore.errors import MeshCoreSendError
-from medre.adapters.meshcore.packet_classifier import MeshCorePacketClassifier
+from medre.adapters.meshcore.renderer import MeshCoreRenderer
+from medre.config.adapters.meshcore import MeshCoreConfig
+from medre.core.contracts.adapter import AdapterPermanentError, AdapterSendError
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.rendering.renderer import RenderingResult
 
@@ -54,18 +53,21 @@ class TestCoreMeshCoreIsolation:
     def test_core_events_does_not_import_meshcore(self) -> None:
         """medre.core.events has no meshcore references."""
         import medre.core.events as events_mod
+
         source = _read_module_source(events_mod)
         assert "meshcore" not in source.lower()
 
     def test_core_rendering_does_not_import_meshcore(self) -> None:
         """medre.core.rendering.renderer has no meshcore references."""
         import medre.core.rendering.renderer as renderer_mod
+
         source = _read_module_source(renderer_mod)
         assert "meshcore" not in source.lower()
 
     def test_core_engine_does_not_import_meshcore(self) -> None:
         """medre.core.engine.pipeline has no meshcore references."""
         import medre.core.engine.pipeline as pipeline_mod
+
         source = _read_module_source(pipeline_mod)
         assert "meshcore" not in source.lower()
 
@@ -80,75 +82,87 @@ class TestMeshCoreMatrixIsolation:
 
     def test_meshcore_adapter_does_not_import_matrix(self) -> None:
         import medre.adapters.meshcore.adapter as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "matrix" not in line.lower(), (
-                f"MeshCore adapter must not import Matrix code; found: {line!r}"
-            )
+            assert (
+                "matrix" not in line.lower()
+            ), f"MeshCore adapter must not import Matrix code; found: {line!r}"
 
     def test_meshcore_codec_does_not_import_matrix(self) -> None:
         import medre.adapters.meshcore.codec as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "matrix" not in line.lower(), (
-                f"MeshCore codec must not import Matrix code; found: {line!r}"
-            )
+            assert (
+                "matrix" not in line.lower()
+            ), f"MeshCore codec must not import Matrix code; found: {line!r}"
 
     def test_meshcore_renderer_does_not_import_matrix(self) -> None:
         import medre.adapters.meshcore.renderer as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "matrix" not in line.lower(), (
-                f"MeshCore renderer must not import Matrix code; found: {line!r}"
-            )
+            assert (
+                "matrix" not in line.lower()
+            ), f"MeshCore renderer must not import Matrix code; found: {line!r}"
 
     def test_meshcore_packet_classifier_does_not_import_matrix(self) -> None:
         import medre.adapters.meshcore.packet_classifier as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "matrix" not in line.lower(), (
-                f"Packet classifier must not import Matrix code; found: {line!r}"
-            )
+            assert (
+                "matrix" not in line.lower()
+            ), f"Packet classifier must not import Matrix code; found: {line!r}"
 
     def test_meshcore_config_does_not_import_matrix(self) -> None:
         import medre.config.adapters.meshcore as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "matrix" not in line.lower(), (
-                f"MeshCore config must not import Matrix code; found: {line!r}"
-            )
+            assert (
+                "matrix" not in line.lower()
+            ), f"MeshCore config must not import Matrix code; found: {line!r}"
 
     def test_meshcore_compat_does_not_import_matrix(self) -> None:
         import medre.adapters.meshcore.compat as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "matrix" not in line.lower(), (
-                f"MeshCore compat must not import Matrix code; found: {line!r}"
-            )
+            assert (
+                "matrix" not in line.lower()
+            ), f"MeshCore compat must not import Matrix code; found: {line!r}"
 
 
 # ===================================================================
@@ -161,87 +175,101 @@ class TestMeshCoreMeshtasticIsolation:
 
     def test_meshcore_adapter_does_not_import_meshtastic(self) -> None:
         import medre.adapters.meshcore.adapter as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "meshtastic" not in line.lower(), (
-                f"MeshCore adapter must not import Meshtastic code; found: {line!r}"
-            )
+            assert (
+                "meshtastic" not in line.lower()
+            ), f"MeshCore adapter must not import Meshtastic code; found: {line!r}"
 
     def test_meshcore_codec_does_not_import_meshtastic(self) -> None:
         import medre.adapters.meshcore.codec as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "meshtastic" not in line.lower(), (
-                f"MeshCore codec must not import Meshtastic code; found: {line!r}"
-            )
+            assert (
+                "meshtastic" not in line.lower()
+            ), f"MeshCore codec must not import Meshtastic code; found: {line!r}"
 
     def test_meshcore_renderer_does_not_import_meshtastic(self) -> None:
         import medre.adapters.meshcore.renderer as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "meshtastic" not in line.lower(), (
-                f"MeshCore renderer must not import Meshtastic code; found: {line!r}"
-            )
+            assert (
+                "meshtastic" not in line.lower()
+            ), f"MeshCore renderer must not import Meshtastic code; found: {line!r}"
 
     def test_meshcore_classifier_does_not_import_meshtastic(self) -> None:
         import medre.adapters.meshcore.packet_classifier as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "meshtastic" not in line.lower(), (
-                f"Packet classifier must not import Meshtastic code; found: {line!r}"
-            )
+            assert (
+                "meshtastic" not in line.lower()
+            ), f"Packet classifier must not import Meshtastic code; found: {line!r}"
 
     def test_fake_meshcore_does_not_import_meshtastic(self) -> None:
         import medre.adapters.fake_meshcore as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "meshtastic" not in line.lower(), (
-                f"FakeMeshCoreAdapter must not import Meshtastic code; found: {line!r}"
-            )
+            assert (
+                "meshtastic" not in line.lower()
+            ), f"FakeMeshCoreAdapter must not import Meshtastic code; found: {line!r}"
 
     def test_meshcore_config_does_not_import_meshtastic(self) -> None:
         import medre.config.adapters.meshcore as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "meshtastic" not in line.lower(), (
-                f"MeshCore config must not import Meshtastic code; found: {line!r}"
-            )
+            assert (
+                "meshtastic" not in line.lower()
+            ), f"MeshCore config must not import Meshtastic code; found: {line!r}"
 
     def test_meshcore_compat_does_not_import_meshtastic(self) -> None:
         import medre.adapters.meshcore.compat as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "meshtastic" not in line.lower(), (
-                f"MeshCore compat must not import Meshtastic code; found: {line!r}"
-            )
+            assert (
+                "meshtastic" not in line.lower()
+            ), f"MeshCore compat must not import Meshtastic code; found: {line!r}"
 
 
 # ===================================================================
@@ -254,63 +282,73 @@ class TestMeshCoreLxmfIsolation:
 
     def test_meshcore_adapter_does_not_import_lxmf(self) -> None:
         import medre.adapters.meshcore.adapter as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "lxmf" not in line.lower(), (
-                f"MeshCore adapter must not import LXMF code; found: {line!r}"
-            )
+            assert (
+                "lxmf" not in line.lower()
+            ), f"MeshCore adapter must not import LXMF code; found: {line!r}"
 
     def test_meshcore_codec_does_not_import_lxmf(self) -> None:
         import medre.adapters.meshcore.codec as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "lxmf" not in line.lower(), (
-                f"MeshCore codec must not import LXMF code; found: {line!r}"
-            )
+            assert (
+                "lxmf" not in line.lower()
+            ), f"MeshCore codec must not import LXMF code; found: {line!r}"
 
     def test_meshcore_renderer_does_not_import_lxmf(self) -> None:
         import medre.adapters.meshcore.renderer as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "lxmf" not in line.lower(), (
-                f"MeshCore renderer must not import LXMF code; found: {line!r}"
-            )
+            assert (
+                "lxmf" not in line.lower()
+            ), f"MeshCore renderer must not import LXMF code; found: {line!r}"
 
     def test_meshcore_classifier_does_not_import_lxmf(self) -> None:
         import medre.adapters.meshcore.packet_classifier as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "lxmf" not in line.lower(), (
-                f"Packet classifier must not import LXMF code; found: {line!r}"
-            )
+            assert (
+                "lxmf" not in line.lower()
+            ), f"Packet classifier must not import LXMF code; found: {line!r}"
 
     def test_fake_meshcore_does_not_import_lxmf(self) -> None:
         import medre.adapters.fake_meshcore as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "lxmf" not in line.lower(), (
-                f"FakeMeshCoreAdapter must not import LXMF code; found: {line!r}"
-            )
+            assert (
+                "lxmf" not in line.lower()
+            ), f"FakeMeshCoreAdapter must not import LXMF code; found: {line!r}"
 
 
 # ===================================================================
@@ -342,6 +380,7 @@ class TestMeshCoreCodecIsolation:
 
     def test_codec_does_not_import_routing(self) -> None:
         import medre.adapters.meshcore.codec as mod
+
         source = _read_module_source(mod)
         assert "routing" not in source
         assert "Router" not in source
@@ -350,6 +389,7 @@ class TestMeshCoreCodecIsolation:
 
     def test_codec_source_has_no_route_or_deliver_definitions(self) -> None:
         import medre.adapters.meshcore.codec as mod
+
         source = _read_module_source(mod)
         method_defs = re.findall(r"def\s+(\w+)", source)
         assert "route" not in method_defs
@@ -376,15 +416,17 @@ class TestMeshCoreRendererIsolation:
 
     def test_renderer_source_does_not_import_deliver(self) -> None:
         import medre.adapters.meshcore.renderer as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "deliver" not in line.lower(), (
-                f"Renderer must not import delivery code; found: {line!r}"
-            )
+            assert (
+                "deliver" not in line.lower()
+            ), f"Renderer must not import delivery code; found: {line!r}"
 
     async def test_renderer_returns_rendering_result_not_delivery(self) -> None:
         renderer = MeshCoreRenderer()
@@ -455,7 +497,9 @@ class TestMeshCoreAdapterDeliveryBoundary:
             payload={"body": "hello"},
             metadata=EventMetadata(),
         )
-        with pytest.raises((TypeError, AdapterPermanentError), match="RenderingResult only"):
+        with pytest.raises(
+            (TypeError, AdapterPermanentError), match="RenderingResult only"
+        ):
             await adapter.deliver(event)
 
     async def test_real_meshcore_rejects_canonical_event(self) -> None:
@@ -475,7 +519,9 @@ class TestMeshCoreAdapterDeliveryBoundary:
             payload={"body": "hello"},
             metadata=EventMetadata(),
         )
-        with pytest.raises((TypeError, AdapterPermanentError), match="RenderingResult only"):
+        with pytest.raises(
+            (TypeError, AdapterPermanentError), match="RenderingResult only"
+        ):
             await adapter.deliver(event)
 
 
@@ -604,7 +650,8 @@ class TestMeshCoreCompatIsolation:
             source = _read_module_source(mod)
             # Look for bare "import meshcore" (not compat)
             lines = [
-                line.strip() for line in source.splitlines()
+                line.strip()
+                for line in source.splitlines()
                 if line.strip().startswith(("import ", "from "))
             ]
             for line in lines:
@@ -616,8 +663,8 @@ class TestMeshCoreCompatIsolation:
                     continue
                 # Reject bare "import meshcore" or "from meshcore import ..."
                 assert not (
-                    line.startswith("import meshcore") or
-                    line.startswith("from meshcore ")
+                    line.startswith("import meshcore")
+                    or line.startswith("from meshcore ")
                 ), (
                     f"{mod_name} must not import meshcore SDK directly "
                     f"(use compat.py); found: {line!r}"
@@ -626,31 +673,37 @@ class TestMeshCoreCompatIsolation:
     def test_config_does_not_import_compat_or_sdk(self) -> None:
         """config.py must not import compat or SDK — it is pure validation."""
         import medre.config.adapters.meshcore as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "compat" not in line, (
-                f"config must not import compat; found: {line!r}"
-            )
-            assert "meshcore" not in line.lower() or "medre.adapters.meshcore.errors" in line or "medre.config.adapters.errors" in line, (
-                f"config must not import meshcore SDK; found: {line!r}"
-            )
+            assert (
+                "compat" not in line
+            ), f"config must not import compat; found: {line!r}"
+            assert (
+                "meshcore" not in line.lower()
+                or "medre.adapters.meshcore.errors" in line
+                or "medre.config.adapters.errors" in line
+            ), f"config must not import meshcore SDK; found: {line!r}"
 
     def test_classifier_does_not_import_compat(self) -> None:
         """packet_classifier is pure — no compat import."""
         import medre.adapters.meshcore.packet_classifier as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "compat" not in line, (
-                f"classifier must not import compat; found: {line!r}"
-            )
+            assert (
+                "compat" not in line
+            ), f"classifier must not import compat; found: {line!r}"
 
 
 # ===================================================================

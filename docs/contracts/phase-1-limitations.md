@@ -11,28 +11,28 @@ This document explicitly records what Phase 1 does **not** implement, what is re
 
 ### What Phase 1 Implements
 
-| Feature | Location | Status |
-|---|---|---|
-| Delivery failure taxonomy | `DeliveryFailureKind` enum | 9 categories: PLANNER_FAILURE, RENDERER_FAILURE, ADAPTER_TRANSIENT, ADAPTER_PERMANENT, ADAPTER_MISSING, TARGET_NOT_FOUND, DEADLINE_EXCEEDED, CAPACITY_REJECTION, SHUTDOWN_REJECTION |
-| RetryExecutor | `RetryExecutor` class | Backoff computation, exhaustion detection, retry/dead-letter receipt construction |
-| Receipt lineage | `DeliveryReceipt.attempt_number`, `parent_receipt_id` | Explicit 1-indexed attempt numbering and parent linkage |
-| Lineage persistence | `delivery_receipts` table columns | `attempt_number INTEGER NOT NULL DEFAULT 1`, `parent_receipt_id TEXT` |
-| Lineage query | `list_receipts_for_plan()` | Returns receipts ordered by attempt_number for a plan+adapter pair |
-| Target-scoped failure | `deliver_to_targets` | Each target classified independently; failure_kind on DeliveryOutcome |
-| Dead-letter receipts | `deliver_to_target` | On retry exhaustion, appends `dead_lettered` receipt after primary receipt |
-| Deadline check | `deliver_to_target` | Checks `plan.deadline` before rendering |
-| Failure classification | `RetryExecutor.classify_failure()` | Static taxonomy classifier used by pipeline |
+| Feature                   | Location                                              | Status                                                                                                                                                                              |
+| ------------------------- | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Delivery failure taxonomy | `DeliveryFailureKind` enum                            | 9 categories: PLANNER_FAILURE, RENDERER_FAILURE, ADAPTER_TRANSIENT, ADAPTER_PERMANENT, ADAPTER_MISSING, TARGET_NOT_FOUND, DEADLINE_EXCEEDED, CAPACITY_REJECTION, SHUTDOWN_REJECTION |
+| RetryExecutor             | `RetryExecutor` class                                 | Backoff computation, exhaustion detection, retry/dead-letter receipt construction                                                                                                   |
+| Receipt lineage           | `DeliveryReceipt.attempt_number`, `parent_receipt_id` | Explicit 1-indexed attempt numbering and parent linkage                                                                                                                             |
+| Lineage persistence       | `delivery_receipts` table columns                     | `attempt_number INTEGER NOT NULL DEFAULT 1`, `parent_receipt_id TEXT`                                                                                                               |
+| Lineage query             | `list_receipts_for_plan()`                            | Returns receipts ordered by attempt_number for a plan+adapter pair                                                                                                                  |
+| Target-scoped failure     | `deliver_to_targets`                                  | Each target classified independently; failure_kind on DeliveryOutcome                                                                                                               |
+| Dead-letter receipts      | `deliver_to_target`                                   | On retry exhaustion, appends `dead_lettered` receipt after primary receipt                                                                                                          |
+| Deadline check            | `deliver_to_target`                                   | Checks `plan.deadline` before rendering                                                                                                                                             |
+| Failure classification    | `RetryExecutor.classify_failure()`                    | Static taxonomy classifier used by pipeline                                                                                                                                         |
 
 ### Phase 1 Delivery Failure Guarantees
 
-| Guarantee | Description |
-|---|---|
-| Failure taxonomy complete | Every delivery failure is classified into one of 6 `DeliveryFailureKind` members |
-| Receipt lineage ordered | Receipts linked by `attempt_number` and `parent_receipt_id`; queryable in order |
-| Target-scoped isolation | One target's failure does not affect sibling targets; each has its own receipt chain |
-| Append-only receipts | Dead-letter receipt appended AFTER primary receipt; ordering preserved |
-| Deterministic classification | Transient vs permanent classification uses exception type taxonomy, not heuristics |
-| Retry decisions are pure | `RetryExecutor` is stateless; no side effects in backoff/exhaustion computation |
+| Guarantee                    | Description                                                                          |
+| ---------------------------- | ------------------------------------------------------------------------------------ |
+| Failure taxonomy complete    | Every delivery failure is classified into one of 6 `DeliveryFailureKind` members     |
+| Receipt lineage ordered      | Receipts linked by `attempt_number` and `parent_receipt_id`; queryable in order      |
+| Target-scoped isolation      | One target's failure does not affect sibling targets; each has its own receipt chain |
+| Append-only receipts         | Dead-letter receipt appended AFTER primary receipt; ordering preserved               |
+| Deterministic classification | Transient vs permanent classification uses exception type taxonomy, not heuristics   |
+| Retry decisions are pure     | `RetryExecutor` is stateless; no side effects in backoff/exhaustion computation      |
 
 ### What Phase 1 Does NOT Implement for Delivery Failure
 
@@ -46,29 +46,29 @@ This document explicitly records what Phase 1 does **not** implement, what is re
 
 ## 0. Replay Determinism (Track 1)
 
-### What Phase 1 Implements
+### Replay Determinism: What Phase 1 Implements
 
 Five replay modes with explicit, testable guarantees:
 
-| Mode | Stages | Side Effects | Error Handling |
-|------|--------|-------------|----------------|
-| `STRICT` | store (verify only) | None | Re-raise |
-| `RE_RENDER` | store, render | None | Re-raise |
-| `RE_ROUTE` | store, route, plan | None | Re-raise |
-| `BEST_EFFORT` | store, route, plan, render, deliver | Adapter delivery | Capture errors |
-| `DRY_RUN` | store, route, plan, render, deliver (skip) | None | Re-raise |
+| Mode          | Stages                                     | Side Effects     | Error Handling |
+| ------------- | ------------------------------------------ | ---------------- | -------------- |
+| `STRICT`      | store (verify only)                        | None             | Re-raise       |
+| `RE_RENDER`   | store, render                              | None             | Re-raise       |
+| `RE_ROUTE`    | store, route, plan                         | None             | Re-raise       |
+| `BEST_EFFORT` | store, route, plan, render, deliver        | Adapter delivery | Capture errors |
+| `DRY_RUN`     | store, route, plan, render, deliver (skip) | None             | Re-raise       |
 
 ### Phase 1 Replay Guarantees
 
-| Guarantee | Description |
-|-----------|-------------|
-| Immutability | Replay never mutates historical `CanonicalEvent` instances |
-| No storage writes (non-BEST_EFFORT) | STRICT, RE_RENDER, RE_ROUTE, DRY_RUN produce zero storage side effects |
-| Deterministic ordering | Results yielded in storage query order or correlation_id list order |
-| Lineage preservation | Every `ReplayResult` carries the source event's lineage tuple |
-| Diagnostician wiring | Optional `Diagnostician` records skips, downgrades, failures |
-| target_adapters filtering | Delivery plans filtered by adapter name; opaque plans passed through |
-| Schema version acceptance | Events with `schema_version >= CURRENT_SCHEMA_VERSION` pass STRICT replay |
+| Guarantee                           | Description                                                               |
+| ----------------------------------- | ------------------------------------------------------------------------- |
+| Immutability                        | Replay never mutates historical `CanonicalEvent` instances                |
+| No storage writes (non-BEST_EFFORT) | STRICT, RE_RENDER, RE_ROUTE, DRY_RUN produce zero storage side effects    |
+| Deterministic ordering              | Results yielded in storage query order or correlation_id list order       |
+| Lineage preservation                | Every `ReplayResult` carries the source event's lineage tuple             |
+| Diagnostician wiring                | Optional `Diagnostician` records skips, downgrades, failures              |
+| target_adapters filtering           | Delivery plans filtered by adapter name; opaque plans passed through      |
+| Schema version acceptance           | Events with `schema_version >= CURRENT_SCHEMA_VERSION` pass STRICT replay |
 
 ### What Phase 1 Does NOT Implement for Replay
 
@@ -102,12 +102,12 @@ A true retry mode requires receipt deduplication, dead-letter queue integration,
 
 ### Contract Guarantees
 
-| Guarantee | Description |
-|-----------|-------------|
-| New fields append with defaults | Future schema versions add fields; existing consumers read `v1` fields normally |
+| Guarantee                                      | Description                                                                                                 |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| New fields append with defaults                | Future schema versions add fields; existing consumers read `v1` fields normally                             |
 | Existing fields may be deprecated, not removed | A deprecated field remains populated for at least one version cycle once a stability guarantee is in effect |
-| Unknown fields preserved | msgspec skips unknown struct fields during decode (forward compatibility) |
-| `schema_version >= 1` | Enforced at construction; the minimum valid version is 1 |
+| Unknown fields preserved                       | msgspec skips unknown struct fields during decode (forward compatibility)                                   |
+| `schema_version >= 1`                          | Enforced at construction; the minimum valid version is 1                                                    |
 
 ### What Phase 1 Does NOT Do
 
@@ -127,18 +127,18 @@ This section documents how the existing canonical event model, metadata namespac
 
 The canonical event model is transport-agnostic by design. Every concept needed for externally initiated adapters maps to an existing field or namespace:
 
-| Concept | Canonical Location | Status | Round-Trip Verified |
-|---------|-------------------|--------|---------------------|
-| Correlation IDs | `CanonicalEvent.trace_id` | Optional `str`, survives JSON/msgpack | Yes |
-| Idempotency keys | `EventMetadata.custom["idempotency_key"]` | Convention, `_FrozenDict`-protected | Yes |
-| Principal/auth context | `EventMetadata.custom["principal"]` | Reserved dict slot, not populated | Yes |
-| Request/response lineage | `CanonicalEvent.parent_event_id` + `lineage` | Mechanism exists, immutable tuples | Yes |
-| Inbound provenance | `CanonicalEvent.source_adapter` + `source_transport_id` | Always populated, extensible for new transports | Yes |
-| Transport protocol | `TransportMetadata.protocol` | Free-form `str`, already used for `"mqtt"`, `"lxmf"`, etc. | Yes |
-| Gateway identity | `TransportMetadata.gateway_id` | Optional `str` for relay/proxy identification | Yes |
-| Native field passthrough | `NativeMetadata.data` | Adapter-specific opaque dict, `_FrozenDict`-protected | Yes |
-| Plugin extensibility | `EventMetadata.custom` | Reverse-DNS namespaced key-value pairs | Yes |
-| Event kind extensibility | `plugin.custom` kind + `KNOWN_KINDS` | Plugin-defined events without schema changes | Yes |
+| Concept                  | Canonical Location                                      | Status                                                     | Round-Trip Verified |
+| ------------------------ | ------------------------------------------------------- | ---------------------------------------------------------- | ------------------- |
+| Correlation IDs          | `CanonicalEvent.trace_id`                               | Optional `str`, survives JSON/msgpack                      | Yes                 |
+| Idempotency keys         | `EventMetadata.custom["idempotency_key"]`               | Convention, `_FrozenDict`-protected                        | Yes                 |
+| Principal/auth context   | `EventMetadata.custom["principal"]`                     | Reserved dict slot, not populated                          | Yes                 |
+| Request/response lineage | `CanonicalEvent.parent_event_id` + `lineage`            | Mechanism exists, immutable tuples                         | Yes                 |
+| Inbound provenance       | `CanonicalEvent.source_adapter` + `source_transport_id` | Always populated, extensible for new transports            | Yes                 |
+| Transport protocol       | `TransportMetadata.protocol`                            | Free-form `str`, already used for `"mqtt"`, `"lxmf"`, etc. | Yes                 |
+| Gateway identity         | `TransportMetadata.gateway_id`                          | Optional `str` for relay/proxy identification              | Yes                 |
+| Native field passthrough | `NativeMetadata.data`                                   | Adapter-specific opaque dict, `_FrozenDict`-protected      | Yes                 |
+| Plugin extensibility     | `EventMetadata.custom`                                  | Reverse-DNS namespaced key-value pairs                     | Yes                 |
+| Event kind extensibility | `plugin.custom` kind + `KNOWN_KINDS`                    | Plugin-defined events without schema changes               | Yes                 |
 
 ### 2.2 Usage Patterns for Future Externally Initiated Adapters
 
@@ -254,30 +254,30 @@ The following do not exist anywhere in Phase 1. This list is exhaustive for Trac
 
 The following existing test coverage validates that the protocol-neutral mechanisms work correctly through construction, serialization, and immutability:
 
-| Test Class | What It Verifies |
-|------------|-----------------|
-| `TestCanonicalEvent.test_construction_with_all_fields` | `trace_id` survives construction |
-| `TestCanonicalEvent.test_default_optional_fields` | `trace_id` defaults to `None` |
-| `TestJsonRoundTrip` | `trace_id`, `metadata.custom`, `lineage` survive JSON encode/decode |
-| `TestMsgpackRoundTrip` | Same fields survive msgpack encode/decode |
-| `TestImmutability` | All protocol-neutral fields are deeply frozen after construction |
-| `TestConstructorInputIsolation` | Mutable inputs (dicts for `custom`, lists for `lineage`) are defensively copied |
-| `TestEventMetadata.test_full_metadata` | All sub-namespaces including `custom` and `native` populate correctly |
-| `TestUnknownMetadataFields` | Unknown keys in `custom` are preserved through round-trip |
+| Test Class                                             | What It Verifies                                                                |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------- |
+| `TestCanonicalEvent.test_construction_with_all_fields` | `trace_id` survives construction                                                |
+| `TestCanonicalEvent.test_default_optional_fields`      | `trace_id` defaults to `None`                                                   |
+| `TestJsonRoundTrip`                                    | `trace_id`, `metadata.custom`, `lineage` survive JSON encode/decode             |
+| `TestMsgpackRoundTrip`                                 | Same fields survive msgpack encode/decode                                       |
+| `TestImmutability`                                     | All protocol-neutral fields are deeply frozen after construction                |
+| `TestConstructorInputIsolation`                        | Mutable inputs (dicts for `custom`, lists for `lineage`) are defensively copied |
+| `TestEventMetadata.test_full_metadata`                 | All sub-namespaces including `custom` and `native` populate correctly           |
+| `TestUnknownMetadataFields`                            | Unknown keys in `custom` are preserved through round-trip                       |
 
 ### 2.5 Custom Namespace Convention for External Adapters
 
 Future externally initiated adapters should namespace their `custom` keys to avoid collisions:
 
-| Key Pattern | Purpose | Example |
-|-------------|---------|---------|
-| `idempotency_key` | Deduplication key from external request | `"req_abc123"` |
-| `principal` | Authenticated caller identity | `{"type": "bearer", "subject": "svc-42"}` |
-| `http.method` | HTTP verb (if applicable) | `"POST"` |
-| `http.path` | URL path (if applicable) | `"/webhooks/alerts"` |
-| `http.headers.*` | Selected inbound headers | `{"content-type": "application/json"}` |
-| `ext.service` | External service name (if applicable) | `"AlertService"` |
-| `ext.method` | External method name (if applicable) | `"SendAlert"` |
+| Key Pattern       | Purpose                                 | Example                                   |
+| ----------------- | --------------------------------------- | ----------------------------------------- |
+| `idempotency_key` | Deduplication key from external request | `"req_abc123"`                            |
+| `principal`       | Authenticated caller identity           | `{"type": "bearer", "subject": "svc-42"}` |
+| `http.method`     | HTTP verb (if applicable)               | `"POST"`                                  |
+| `http.path`       | URL path (if applicable)                | `"/webhooks/alerts"`                      |
+| `http.headers.*`  | Selected inbound headers                | `{"content-type": "application/json"}`    |
+| `ext.service`     | External service name (if applicable)   | `"AlertService"`                          |
+| `ext.method`      | External method name (if applicable)    | `"SendAlert"`                             |
 
 These are conventions, not enforced fields. Adapters populate only what they need. The `custom` dict is frozen at construction and survives all serialization paths.
 
@@ -314,17 +314,17 @@ The following 18 event kinds are the canonical taxonomy for Phase 1:
 
 The initial spec document listed a simplified taxonomy (`telemetry`, `position`, `presence`, `metrics.update`, `channel.announcement`, `plugin.event`, `delivery.receipt`, `transform.output`, `policy.action`). The code taxonomy is more granular:
 
-| Spec Kind | Code Equivalent |
-|-----------|-----------------|
-| `telemetry` | `telemetry.received` |
-| `position` | `telemetry.position` |
-| `presence` | `presence.changed` |
-| `delivery.receipt` | Tracked via `DeliveryReceipt` records, not event kinds |
-| `plugin.event` | `plugin.custom` |
-| `metrics.update` | Not implemented (future) |
-| `channel.announcement` | Not implemented (future) |
-| `transform.output` | Not implemented (future) |
-| `policy.action` | Not implemented (future) |
+| Spec Kind              | Code Equivalent                                        |
+| ---------------------- | ------------------------------------------------------ |
+| `telemetry`            | `telemetry.received`                                   |
+| `position`             | `telemetry.position`                                   |
+| `presence`             | `presence.changed`                                     |
+| `delivery.receipt`     | Tracked via `DeliveryReceipt` records, not event kinds |
+| `plugin.event`         | `plugin.custom`                                        |
+| `metrics.update`       | Not implemented (future)                               |
+| `channel.announcement` | Not implemented (future)                               |
+| `transform.output`     | Not implemented (future)                               |
+| `policy.action`        | Not implemented (future)                               |
 
 ---
 
@@ -349,25 +349,25 @@ The initial spec document listed a simplified taxonomy (`telemetry`, `position`,
 
 ### What Is Validated
 
-| Invariant | Enforced By | Phase |
-|-----------|-------------|-------|
-| `event_id` non-empty string | `CanonicalEvent.__post_init__` | Construction |
-| `event_kind` non-empty string | `CanonicalEvent.__post_init__` | Construction |
-| `schema_version >= 1` | `CanonicalEvent.__post_init__` | Construction |
-| `timestamp` timezone-aware | `CanonicalEvent.__post_init__` | Construction |
-| `depth >= 0` | `CanonicalEvent.__post_init__` | Construction |
-| `lineage` not None | `CanonicalEvent.__post_init__` | Construction |
-| `relations` not None | `CanonicalEvent.__post_init__` | Construction |
+| Invariant                         | Enforced By                    | Phase        |
+| --------------------------------- | ------------------------------ | ------------ |
+| `event_id` non-empty string       | `CanonicalEvent.__post_init__` | Construction |
+| `event_kind` non-empty string     | `CanonicalEvent.__post_init__` | Construction |
+| `schema_version >= 1`             | `CanonicalEvent.__post_init__` | Construction |
+| `timestamp` timezone-aware        | `CanonicalEvent.__post_init__` | Construction |
+| `depth >= 0`                      | `CanonicalEvent.__post_init__` | Construction |
+| `lineage` not None                | `CanonicalEvent.__post_init__` | Construction |
+| `relations` not None              | `CanonicalEvent.__post_init__` | Construction |
 | `lineage` items non-empty strings | `CanonicalEvent.__post_init__` | Construction |
-| `relation_type` in known set | `EventRelation.__post_init__` | Construction |
+| `relation_type` in known set      | `EventRelation.__post_init__`  | Construction |
 
 ### What Is NOT Validated
 
-| Not Validated | Notes |
-|---------------|-------|
-| `event_id` is UUIDv7 | Only checked for non-empty string |
-| `event_kind` is registered | Any non-empty string accepted; `is_registered()` available for optional checking |
-| Payload structure per kind | Payload is opaque at this layer; schema validators registered via `SchemaRegistry` |
-| `parent_event_id` references | No referential integrity check |
-| `lineage` ordering | Items are checked for validity but not for chronological ordering |
-| `lineage` / `parent_event_id` consistency | Not enforced; `parent_event_id` may or may not appear in `lineage` |
+| Not Validated                             | Notes                                                                              |
+| ----------------------------------------- | ---------------------------------------------------------------------------------- |
+| `event_id` is UUIDv7                      | Only checked for non-empty string                                                  |
+| `event_kind` is registered                | Any non-empty string accepted; `is_registered()` available for optional checking   |
+| Payload structure per kind                | Payload is opaque at this layer; schema validators registered via `SchemaRegistry` |
+| `parent_event_id` references              | No referential integrity check                                                     |
+| `lineage` ordering                        | Items are checked for validity but not for chronological ordering                  |
+| `lineage` / `parent_event_id` consistency | Not enforced; `parent_event_id` may or may not appear in `lineage`                 |

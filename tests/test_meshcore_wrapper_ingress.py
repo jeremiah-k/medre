@@ -16,10 +16,9 @@ from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.rendering.renderer import RenderingPipeline, RenderingResult
 from medre.core.rendering.text import TextRenderer
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.storage.sqlite import SQLiteStorage
-
 from tests.helpers.bridge import (
     make_adapter_context,
     make_meshcore_packet,
@@ -42,9 +41,7 @@ class TestMeshCoreWrapperCallbackPath:
                 connection_type="fake",
             )
         )
-        fake_target = FakeMatrixAdapter(
-            "fake-mx-dst", channel="!dst:fake"
-        )
+        fake_target = FakeMatrixAdapter("fake-mx-dst", channel="!dst:fake")
 
         route = Route(
             id="mc-cb-route",
@@ -172,9 +169,7 @@ class TestMeshCoreWrapperCallbackPath:
             assert len(events) == 0
 
             # No delivery receipts
-            receipts = await temp_storage._read_all(
-                "SELECT * FROM delivery_receipts"
-            )
+            receipts = await temp_storage._read_all("SELECT * FROM delivery_receipts")
             assert len(receipts) == 0
 
             # inbound_accepted == 0 (packet was filtered before codec)
@@ -285,9 +280,7 @@ class TestMeshCoreWrapperCallbackPath:
         runner = PipelineRunner(config)
         await runner.start()
 
-        await meshcore_adapter.start(
-            make_adapter_context("mc-malformed-src", runner)
-        )
+        await meshcore_adapter.start(make_adapter_context("mc-malformed-src", runner))
 
         try:
             # Empty dict — classifier returns "unknown" category, not "text"
@@ -329,9 +322,7 @@ class TestMeshCoreWrapperCallbackPath:
                 connection_type="fake",
             )
         )
-        fake_mx = FakeMatrixAdapter(
-            "mx-bridge-dst", channel="!bridge-dst:fake"
-        )
+        fake_mx = FakeMatrixAdapter("mx-bridge-dst", channel="!bridge-dst:fake")
 
         route = Route(
             id="mc-to-mx-bridge",
@@ -340,9 +331,7 @@ class TestMeshCoreWrapperCallbackPath:
                 event_kinds=("message.created",),
                 channel="0",
             ),
-            targets=[
-                RouteTarget(adapter="mx-bridge-dst", channel="!bridge-dst:fake")
-            ],
+            targets=[RouteTarget(adapter="mx-bridge-dst", channel="!bridge-dst:fake")],
         )
         router = Router(routes=[route])
 
@@ -358,9 +347,7 @@ class TestMeshCoreWrapperCallbackPath:
         runner = PipelineRunner(config)
         await runner.start()
 
-        await meshcore_adapter.start(
-            make_adapter_context("mc-bridge-src", runner)
-        )
+        await meshcore_adapter.start(make_adapter_context("mc-bridge-src", runner))
         await fake_mx.start(make_adapter_context("mx-bridge-dst", runner))
 
         try:

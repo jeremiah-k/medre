@@ -26,6 +26,7 @@ matches on that platform string directly.
 **Tranche 1 scope**: text messages only.  No truncation is applied — the
 full message text is passed through unchanged, matching mmrelay behaviour.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -67,15 +68,17 @@ class MeshtasticRenderer:
 
     # Event kinds that have a natural plain-text representation for
     # Meshtastic radio transports.
-    _SUPPORTED_KINDS: frozenset[str] = frozenset({
-        EventKind.MESSAGE_TEXT,
-        EventKind.MESSAGE_CREATED,
-        EventKind.MESSAGE_EDITED,
-        EventKind.MESSAGE_DELETED,
-        EventKind.MESSAGE_REACTED,
-        EventKind.PRESENCE_CHANGED,
-        EventKind.PLUGIN_CUSTOM,
-    })
+    _SUPPORTED_KINDS: frozenset[str] = frozenset(
+        {
+            EventKind.MESSAGE_TEXT,
+            EventKind.MESSAGE_CREATED,
+            EventKind.MESSAGE_EDITED,
+            EventKind.MESSAGE_DELETED,
+            EventKind.MESSAGE_REACTED,
+            EventKind.PRESENCE_CHANGED,
+            EventKind.PLUGIN_CUSTOM,
+        }
+    )
 
     def can_render(
         self,

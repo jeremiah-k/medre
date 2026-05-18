@@ -25,7 +25,6 @@ and the decision tree for choosing the right recovery action.
 - Deduplicate replay deliveries.
 - Auto-retry permanent failures (`ADAPTER_PERMANENT`, `RENDERER_FAILURE`, `PLANNER_FAILURE`, `DEADLINE_EXCEEDED`). Only `ADAPTER_TRANSIENT` failures are auto-retried by the RetryWorker.
 
-
 ## 0. Complete Incident Workflow (End-to-End)
 
 This section describes a coherent end-to-end workflow using the inspect-first
@@ -67,6 +66,7 @@ medre inspect native-ref --adapter <name> --message <native_id> \
 ```
 
 Look for:
+
 - `source` field: `"live"` means original delivery, `"retry"` means automatic
   RetryWorker re-attempt, `"replay"` means re-delivered via replay engine.
 - `replay_run_id`: groups receipts from the same replay run.
@@ -148,7 +148,7 @@ health. Attach this to incident reports or bug filings.
 
 ### Workflow Summary
 
-```
+```bash
 medre smoke --storage-path <db>
   → verifies pipeline, persists evidence
   ↓
@@ -173,10 +173,9 @@ See [Event Tracing](event-tracing.md) for trace command details,
 [Bridge Evidence Bundle](bridge-evidence-bundle.md) for the full evidence
 report shape.
 
-
 ## 1. Recovery Decision Tree
 
-```
+```text
 What happened?
 │
 ├── Runtime crashed (kill -9, OOM, power loss)
@@ -198,26 +197,25 @@ What happened?
     └── See [Runtime Supervision](runtime-supervision.md#34-runtime-is-running-but-not-delivering)
 ```
 
-
 ## 2. Crash Recovery
 
 ### 2.1 What Was Lost
 
 On hard crash (kill -9, OOM, power loss):
 
-| State | Survived? | Notes |
-|-------|-----------|-------|
-| Canonical events | **Yes** | Written to SQLite before delivery. Storage remains durable across crashes. |
-| Delivery receipts | **Yes** | Written after each delivery attempt. SQLite persists. |
-| Native message refs | **Yes** | Persisted in SQLite alongside receipts. |
-| Receipt traceability (`source`, `replay_run_id`) | **Yes** | Stored on receipts in SQLite. Survives crash. |
-| Matrix E2EE crypto keys | **Yes** | On disk under adapter state root |
-| LXMF identity files | **Yes** | On disk under adapter state root |
-| Logs (pre-crash) | **Yes** | Appended to `{log_dir}/medre.log` |
-| In-flight deliveries | **No** | Lost — no receipt, no recovery |
-| Active replay runs | **No** | Lost — must re-initiate manually |
-| Runtime counters (accounting) | **No** | Process-local accounting resets after restart. All `RuntimeAccounting`, `CapacityController`, `RouteStats`, and `Diagnostician` counters reset to zero. |
-| Adapter connection state | **No** | Adapters reconnect from scratch |
+| State                                            | Survived? | Notes                                                                                                                                                   |
+| ------------------------------------------------ | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Canonical events                                 | **Yes**   | Written to SQLite before delivery. Storage remains durable across crashes.                                                                              |
+| Delivery receipts                                | **Yes**   | Written after each delivery attempt. SQLite persists.                                                                                                   |
+| Native message refs                              | **Yes**   | Persisted in SQLite alongside receipts.                                                                                                                 |
+| Receipt traceability (`source`, `replay_run_id`) | **Yes**   | Stored on receipts in SQLite. Survives crash.                                                                                                           |
+| Matrix E2EE crypto keys                          | **Yes**   | On disk under adapter state root                                                                                                                        |
+| LXMF identity files                              | **Yes**   | On disk under adapter state root                                                                                                                        |
+| Logs (pre-crash)                                 | **Yes**   | Appended to `{log_dir}/medre.log`                                                                                                                       |
+| In-flight deliveries                             | **No**    | Lost — no receipt, no recovery                                                                                                                          |
+| Active replay runs                               | **No**    | Lost — must re-initiate manually                                                                                                                        |
+| Runtime counters (accounting)                    | **No**    | Process-local accounting resets after restart. All `RuntimeAccounting`, `CapacityController`, `RouteStats`, and `Diagnostician` counters reset to zero. |
+| Adapter connection state                         | **No**    | Adapters reconnect from scratch                                                                                                                         |
 
 ### 2.2 Crash Recovery Steps
 
@@ -280,7 +278,6 @@ grep "Assembly complete" {state}/logs/medre.log | tail -1
 # No further action needed. Drained deliveries produced receipts.
 # Cancelled deliveries are lost but were logged during shutdown.
 ```
-
 
 ## 3. Adapter Failure Recovery
 
@@ -378,17 +375,16 @@ grep "adapter_started.*adapter_id=<adapter_id>" {state}/logs/medre.log | tail -1
 
 ### 3.4 Adapter Failure Recovery Matrix
 
-| Failure cause | Fix | Replay needed? |
-|--------------|-----|----------------|
-| Network outage | Restore network, restart runtime | Yes — events may have been received by other adapters but not delivered to the affected adapter |
-| Serial device disconnected | Reconnect device, restart runtime | Yes — inbound events from the disconnected adapter were lost |
-| Authentication failure | Renew credentials, restart runtime | No — events from other adapters were still processed |
-| SDK dependency missing | Install SDK, restart runtime | No — events were never received |
-| Adapter bug (crash loop) | Fix code or disable adapter, restart runtime | Partially — events from other adapters to this adapter's targets were lost |
+| Failure cause              | Fix                                          | Replay needed?                                                                                  |
+| -------------------------- | -------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Network outage             | Restore network, restart runtime             | Yes — events may have been received by other adapters but not delivered to the affected adapter |
+| Serial device disconnected | Reconnect device, restart runtime            | Yes — inbound events from the disconnected adapter were lost                                    |
+| Authentication failure     | Renew credentials, restart runtime           | No — events from other adapters were still processed                                            |
+| SDK dependency missing     | Install SDK, restart runtime                 | No — events were never received                                                                 |
+| Adapter bug (crash loop)   | Fix code or disable adapter, restart runtime | Partially — events from other adapters to this adapter's targets were lost                      |
 
 **Key point:** There is no per-adapter restart. Only full runtime stop/start is
 supported. All adapters restart together.
-
 
 ## 4. Orphan Detection and Replay
 
@@ -434,13 +430,13 @@ GROUP BY e.source_adapter;
 
 Not all events without receipts are truly orphaned:
 
-| Scenario | Has receipt? | Action |
-|----------|-------------|--------|
-| Event stored, delivery in progress when crash occurred | No | Replay candidate |
-| Event stored, no routes matched | No | Not an orphan — no routes were configured for this event's source |
-| Event stored, loop prevented delivery | No | Not an orphan — loop prevention worked correctly |
-| Event stored, capacity exceeded | No (permanent failure) | Replay candidate (after increasing capacity limits) |
-| Event stored, delivery sent before crash | Yes (receipt written) | Not an orphan — check receipt status |
+| Scenario                                               | Has receipt?           | Action                                                            |
+| ------------------------------------------------------ | ---------------------- | ----------------------------------------------------------------- |
+| Event stored, delivery in progress when crash occurred | No                     | Replay candidate                                                  |
+| Event stored, no routes matched                        | No                     | Not an orphan — no routes were configured for this event's source |
+| Event stored, loop prevented delivery                  | No                     | Not an orphan — loop prevention worked correctly                  |
+| Event stored, capacity exceeded                        | No (permanent failure) | Replay candidate (after increasing capacity limits)               |
+| Event stored, delivery sent before crash               | Yes (receipt written)  | Not an orphan — check receipt status                              |
 
 To distinguish genuine orphans from expected undelivered events:
 
@@ -511,7 +507,6 @@ sqlite3 {state}/medre.sqlite "
 See [Replay Operation](replay-operation.md) for detailed replay mode
 documentation and [Event Tracing](event-tracing.md) for tracing commands.
 
-
 ## 5. Database Corruption Recovery
 
 If `PRAGMA integrity_check` returns anything other than `ok`:
@@ -544,7 +539,6 @@ medre run --config config.toml
 
 See [Runtime Supervision > Database Corruption Recovery](runtime-supervision.md#43-database-corruption-recovery)
 for the authoritative procedure.
-
 
 ## 6. Investigating Incidents
 
@@ -613,7 +607,7 @@ medre inspect receipts --event evt_abc123 --storage-path /path/to/medre.sqlite
 ### 6.2 Interpreting Replay Receipts vs Live Receipts
 
 Replay receipts are interleaved with live and retry receipts in storage, ordered by
-`sequence` (the auto-increment primary key).  The `source` column distinguishes
+`sequence` (the auto-increment primary key). The `source` column distinguishes
 origin: `"live"` for pipeline deliveries, `"retry"` for RetryWorker-attempted
 deliveries, `"replay"` for replay-attributed deliveries.
 
@@ -645,8 +639,8 @@ medre inspect receipts --event evt_abc123 --storage-path /path/to/medre.sqlite
 ```
 
 Interpretation: the event was first delivered at `sequence=1` (live), then
-re-delivered at `sequence=42` (replay run `replay_xyz789`).  Both deliveries
-produced real outbound messages.  The `replay_run_id` groups all receipts from
+re-delivered at `sequence=42` (replay run `replay_xyz789`). Both deliveries
+produced real outbound messages. The `replay_run_id` groups all receipts from
 the same replay invocation.
 
 To isolate only replay receipts:
@@ -657,11 +651,11 @@ medre inspect receipts --replay-run replay_xyz789 --storage-path /path/to/medre.
 
 **Repeated replays of the same event are traceable through distinct run_ids.**
 Each `medre replay --mode BEST_EFFORT` invocation produces a unique
-`replay_run_id`, even when replaying the same event.  Replaying `evt_abc123`
+`replay_run_id`, even when replaying the same event. Replaying `evt_abc123`
 twice produces two separate sets of replay receipts, each grouped by a different
-`replay_run_id`.  Replay receipts from one run never overwrite or merge with
-replay receipts from a previous run.  All replay receipts are additive: the
-total receipt count grows with each replay invocation.  Use `replay_run_id` to
+`replay_run_id`. Replay receipts from one run never overwrite or merge with
+replay receipts from a previous run. All replay receipts are additive: the
+total receipt count grows with each replay invocation. Use `replay_run_id` to
 isolate a specific run:
 
 ```bash
@@ -712,6 +706,7 @@ medre trace event evt_partial --storage-path /path/to/medre.sqlite
 ```
 
 Key indicators of partial evidence:
+
 - A receipt exists with `route_id` populated (routing matched).
 - `status="failed"` with a non-null `failure_kind` (delivery rejected).
 - No native ref for the failed adapter (the adapter never produced a native
@@ -874,7 +869,6 @@ sqlite3 {state}/medre.sqlite "
 "
 ```
 
-
 ## 7. Retry vs Replay
 
 MEDRE provides two mechanisms for re-delivering events that failed: **retry** (automatic, opt-in) and **replay** (manual). They serve different purposes and have different side effects.
@@ -899,11 +893,11 @@ When a delivery fails with `failure_kind='adapter_transient'` and a `RetryPolicy
 
 **Retry states an operator should distinguish:**
 
-| State | `status` | `next_retry_at` | `failure_kind` | Meaning |
-|-------|----------|-----------------|----------------|---------|
-| Pending retry | `failed` | Set (future time) | `adapter_transient` | RetryWorker will re-attempt on next cycle |
-| Exhausted | `dead_lettered` | `NULL` | `adapter_transient` | Max retries exceeded; manual intervention needed |
-| Successful retry | `sent` or `confirmed` | `NULL` | `NULL` | A retry receipt succeeded; check `parent_receipt_id` to trace back |
+| State            | `status`              | `next_retry_at`   | `failure_kind`      | Meaning                                                            |
+| ---------------- | --------------------- | ----------------- | ------------------- | ------------------------------------------------------------------ |
+| Pending retry    | `failed`              | Set (future time) | `adapter_transient` | RetryWorker will re-attempt on next cycle                          |
+| Exhausted        | `dead_lettered`       | `NULL`            | `adapter_transient` | Max retries exceeded; manual intervention needed                   |
+| Successful retry | `sent` or `confirmed` | `NULL`            | `NULL`              | A retry receipt succeeded; check `parent_receipt_id` to trace back |
 
 ### 7.2 Replay (Manual, New Bridge Execution)
 
@@ -917,13 +911,13 @@ When an operator invokes `medre replay --mode BEST_EFFORT`, events are re-delive
 
 ### 7.3 When to Use Which
 
-| Scenario | Use | Why |
-|----------|-----|-----|
-| Transient adapter failure (timeout, connection reset) | **Retry** (automatic) | RetryWorker handles this. No operator action needed. |
-| Retry exhausted (dead-lettered) | **Replay** (manual) | After fixing the underlying cause, replay the event. |
-| Event never delivered (orphaned by crash) | **Replay** (manual) | No receipt exists, so retry has nothing to chain from. |
-| Permanent failure | **Replay** (manual) | After fixing the underlying cause (e.g., auth, config). |
-| Retry disabled (no RetryPolicy) | **Replay** (manual) | Without a RetryPolicy, the RetryWorker does not pick up transient failures. |
+| Scenario                                              | Use                   | Why                                                                         |
+| ----------------------------------------------------- | --------------------- | --------------------------------------------------------------------------- |
+| Transient adapter failure (timeout, connection reset) | **Retry** (automatic) | RetryWorker handles this. No operator action needed.                        |
+| Retry exhausted (dead-lettered)                       | **Replay** (manual)   | After fixing the underlying cause, replay the event.                        |
+| Event never delivered (orphaned by crash)             | **Replay** (manual)   | No receipt exists, so retry has nothing to chain from.                      |
+| Permanent failure                                     | **Replay** (manual)   | After fixing the underlying cause (e.g., auth, config).                     |
+| Retry disabled (no RetryPolicy)                       | **Replay** (manual)   | Without a RetryPolicy, the RetryWorker does not pick up transient failures. |
 
 ### 7.4 Checking Pending Retries
 
@@ -942,27 +936,26 @@ If `next_retry_at` is in the past and the runtime is running, the RetryWorker sh
 
 ## 8. Recovery Commands Quick Reference
 
-| Scenario | Command | Purpose |
-|----------|---------|---------|
-| Verify database integrity | `sqlite3 {state}/medre.sqlite "PRAGMA integrity_check;"` | Confirm SQLite is healthy |
-| Restart runtime | `medre run --config config.toml` | Resume normal operation |
-| Check adapter health | `medre diagnostics --refresh-health --config config.toml` | Live health snapshot |
-| Inspect an event | `medre inspect event <event_id> --storage-path <db>` | View canonical event record |
-| Inspect with timeline | `medre inspect event <event_id> --timeline --storage-path <db>` | Full event lifecycle (covers trace event) |
-| Inspect with evidence | `medre inspect event <event_id> --evidence --storage-path <db>` | Per-event evidence bundle (covers evidence --event) |
-| Inspect with recovery | `medre inspect event <event_id> --recovery --storage-path <db>` | Recovery guidance (covers recover --event) |
-| Inspect delivery receipts | `medre inspect receipts --event <event_id> --storage-path <db>` | Delivery details, retry chains, replay attribution |
-| Inspect replay receipts | `medre inspect receipts --replay-run <run_id> --storage-path <db>` | Replay run outcome |
-| Count orphaned events | SQL: `SELECT COUNT(*) FROM canonical_events e LEFT JOIN delivery_receipts r ON e.event_id = r.event_id WHERE r.event_id IS NULL;` | Assess recovery scope |
-| Preview replay | `medre replay --mode DRY_RUN --config my-bridge.toml` | See what replay would do |
-| Execute replay | `medre replay --mode BEST_EFFORT --config my-bridge.toml` | Re-deliver orphaned events |
-| Trace a specific event (specialized) | `medre trace event <event_id> --storage-path <db>` | Standalone timeline output |
-| Trace replay results (specialized) | `medre trace replay <run_id> --storage-path <db>` | Standalone replay timeline |
-| Recover a single event (specialized) | `medre recover --event <event_id> --config my-bridge.toml` | Multi-event recovery analysis |
-| Dry-run single event recovery (specialized) | `medre recover --event <event_id> --dry-run --config my-bridge.toml` | Preview without side effects |
-| Check recent errors | `grep ERROR {state}/logs/medre.log \| tail -20` | Scan for failure patterns |
-| Verify startup | `grep "Assembly complete" {state}/logs/medre.log \| tail -1` | Confirm all adapters started |
-
+| Scenario                                    | Command                                                                                                                           | Purpose                                             |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| Verify database integrity                   | `sqlite3 {state}/medre.sqlite "PRAGMA integrity_check;"`                                                                          | Confirm SQLite is healthy                           |
+| Restart runtime                             | `medre run --config config.toml`                                                                                                  | Resume normal operation                             |
+| Check adapter health                        | `medre diagnostics --refresh-health --config config.toml`                                                                         | Live health snapshot                                |
+| Inspect an event                            | `medre inspect event <event_id> --storage-path <db>`                                                                              | View canonical event record                         |
+| Inspect with timeline                       | `medre inspect event <event_id> --timeline --storage-path <db>`                                                                   | Full event lifecycle (covers trace event)           |
+| Inspect with evidence                       | `medre inspect event <event_id> --evidence --storage-path <db>`                                                                   | Per-event evidence bundle (covers evidence --event) |
+| Inspect with recovery                       | `medre inspect event <event_id> --recovery --storage-path <db>`                                                                   | Recovery guidance (covers recover --event)          |
+| Inspect delivery receipts                   | `medre inspect receipts --event <event_id> --storage-path <db>`                                                                   | Delivery details, retry chains, replay attribution  |
+| Inspect replay receipts                     | `medre inspect receipts --replay-run <run_id> --storage-path <db>`                                                                | Replay run outcome                                  |
+| Count orphaned events                       | SQL: `SELECT COUNT(*) FROM canonical_events e LEFT JOIN delivery_receipts r ON e.event_id = r.event_id WHERE r.event_id IS NULL;` | Assess recovery scope                               |
+| Preview replay                              | `medre replay --mode DRY_RUN --config my-bridge.toml`                                                                             | See what replay would do                            |
+| Execute replay                              | `medre replay --mode BEST_EFFORT --config my-bridge.toml`                                                                         | Re-deliver orphaned events                          |
+| Trace a specific event (specialized)        | `medre trace event <event_id> --storage-path <db>`                                                                                | Standalone timeline output                          |
+| Trace replay results (specialized)          | `medre trace replay <run_id> --storage-path <db>`                                                                                 | Standalone replay timeline                          |
+| Recover a single event (specialized)        | `medre recover --event <event_id> --config my-bridge.toml`                                                                        | Multi-event recovery analysis                       |
+| Dry-run single event recovery (specialized) | `medre recover --event <event_id> --dry-run --config my-bridge.toml`                                                              | Preview without side effects                        |
+| Check recent errors                         | `grep ERROR {state}/logs/medre.log \| tail -20`                                                                                   | Scan for failure patterns                           |
+| Verify startup                              | `grep "Assembly complete" {state}/logs/medre.log \| tail -1`                                                                      | Confirm all adapters started                        |
 
 ## 9. Caveats
 
@@ -979,9 +972,9 @@ If `next_retry_at` is in the past and the runtime is running, the RetryWorker sh
    or orchestrator beyond the RetryWorker. Operators must detect non-transient failures externally (logs, process
    supervisors, cron health checks).
 
-  5. **Counters reset on restart.** All runtime counters (capacity_rejections,
-    outbound_failed, RouteStats, retry counters) reset to zero on every startup. There is no
-    persistent metrics store.
+5. **Counters reset on restart.** All runtime counters (capacity_rejections,
+   outbound_failed, RouteStats, retry counters) reset to zero on every startup. There is no
+   persistent metrics store.
 
 6. **Single-machine only.** Recovery operates on the local SQLite database.
    There is no distributed coordination, shared state, or cross-instance
@@ -991,15 +984,14 @@ If `next_retry_at` is in the past and the runtime is running, the RetryWorker sh
    fire-and-forget. A `sent` receipt means the local radio accepted the packet,
    not that any remote node received it. Recovery cannot confirm radio delivery.
 
-  8. **Replay is not a durable job.** Replay runs do not resume after crash.
-     Completed deliveries from a crashed replay run are preserved (receipts in
-     SQLite). Remaining events must be re-replayed manually. Always run
-     DRY_RUN first to preview scope before BEST_EFFORT. Process-local
-     accounting resets after restart; only SQLite data survives.
+8. **Replay is not a durable job.** Replay runs do not resume after crash.
+   Completed deliveries from a crashed replay run are preserved (receipts in
+   SQLite). Remaining events must be re-replayed manually. Always run
+   DRY_RUN first to preview scope before BEST_EFFORT. Process-local
+   accounting resets after restart; only SQLite data survives.
 
 9. **Pre-beta.** Recovery commands, SQL queries, and decision tree may change
    before beta. Always verify against the current code.
-
 
 ## 10. Cross-References
 

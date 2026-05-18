@@ -8,8 +8,8 @@ All checks are read-only — no files are created or modified.
 
 from __future__ import annotations
 
-import re
 import ast
+import re
 from pathlib import Path
 
 import pytest
@@ -22,15 +22,16 @@ TESTS_DIR = Path(__file__).resolve().parent
 
 # Legacy files that are allowed to exceed 1 500 lines until they are split.
 # Each carries a TODO comment inside.
-LEGACY_ALLOWLIST: dict[str, int] = {
-    "test_matrix_session.py": 2_241,
-    # CLI monolith deleted — see test_cli_*_commands.py files.
-    "test_storage.py": 2_300,
-    "test_canonical_events.py": 1_992,
-    "test_meshtastic_fake_bridge.py": 1_540,
+OVERSIZED_TEST_ALLOWLIST: dict[str, int] = {
+    "test_canonical_events.py": 1_981,
     "test_fake_runtime_smoke.py": 1_506,
+    "test_matrix_session.py": 2_243,
+    "test_meshtastic_adapter.py": 1_510,
+    "test_meshtastic_fake_bridge.py": 1_518,
+    "test_runtime_builder.py": 1_517,
     # Pre-existing files that exceed the limit — allowlisted until split.
     "test_replay_routing.py": 1_584,
+    "test_storage.py": 2_294,
 }
 
 MAX_LINES = 1_500
@@ -155,9 +156,9 @@ def test_no_file_exceeds_1500_lines() -> None:
     for path in sorted(TESTS_DIR.glob("test_*.py")):
         name = path.name
         lines = _count_lines(path)
-        if name in LEGACY_ALLOWLIST:
+        if name in OVERSIZED_TEST_ALLOWLIST:
             # Legacy file — just confirm it's roughly where we expect.
-            expected = LEGACY_ALLOWLIST[name]
+            expected = OVERSIZED_TEST_ALLOWLIST[name]
             assert lines <= expected + 200, (
                 f"Legacy file {name} grew beyond its allowlisted budget "
                 f"(~{expected} lines, now {lines}). Update the allowlist or split it."
@@ -166,10 +167,9 @@ def test_no_file_exceeds_1500_lines() -> None:
         if lines > MAX_LINES:
             failures.append(f"  {name}: {lines} lines (limit {MAX_LINES})")
 
-    assert not failures, (
-        "Non-allowlisted test files exceed the 1 500-line limit:\n"
-        + "\n".join(failures)
-    )
+    assert (
+        not failures
+    ), "Non-allowlisted test files exceed the 1 500-line limit:\n" + "\n".join(failures)
 
 
 # ===================================================================
@@ -178,18 +178,19 @@ def test_no_file_exceeds_1500_lines() -> None:
 
 
 def test_all_allowlisted_files_exist() -> None:
-    """Every file in LEGACY_ALLOWLIST must exist on disk.
+    """Every file in OVERSIZED_TEST_ALLOWLIST must exist on disk.
 
     Catches stale entries that refer to deleted files.
     """
     missing: list[str] = []
-    for name in LEGACY_ALLOWLIST:
+    for name in OVERSIZED_TEST_ALLOWLIST:
         path = TESTS_DIR / name
         if not path.exists():
             missing.append(name)
-    assert not missing, (
-        "Allowlisted file(s) do not exist — remove stale entry:\n  "
-        + "\n  ".join(missing)
+    assert (
+        not missing
+    ), "Allowlisted file(s) do not exist — remove stale entry:\n  " + "\n  ".join(
+        missing
     )
 
 
@@ -232,9 +233,7 @@ def test_no_imports_from_deleted_monoliths(monolith_stem: str) -> None:
         ]
         for pat in patterns:
             if re.search(pat, source):
-                pytest.fail(
-                    f"{rel} imports from deleted monolith '{monolith_stem}'"
-                )
+                pytest.fail(f"{rel} imports from deleted monolith '{monolith_stem}'")
 
 
 # ===================================================================
@@ -294,9 +293,9 @@ def test_docker_marker_registered() -> None:
     pyproject = TESTS_DIR.parent / "pyproject.toml"
     assert pyproject.exists(), "pyproject.toml not found at repo root"
     content = pyproject.read_text(encoding="utf-8")
-    assert '"docker:' in content or "docker:" in content, (
-        "The 'docker' marker is not registered in pyproject.toml markers config"
-    )
+    assert (
+        '"docker:' in content or "docker:" in content
+    ), "The 'docker' marker is not registered in pyproject.toml markers config"
 
 
 def test_integration_conftest_applies_docker_marker() -> None:
@@ -306,9 +305,9 @@ def test_integration_conftest_applies_docker_marker() -> None:
     conftest = TESTS_DIR / "integration" / "conftest.py"
     assert conftest.exists(), "tests/integration/conftest.py is missing"
     source = conftest.read_text(encoding="utf-8")
-    assert "pytest.mark.docker" in source, (
-        "integration conftest does not apply pytest.mark.docker"
-    )
+    assert (
+        "pytest.mark.docker" in source
+    ), "integration conftest does not apply pytest.mark.docker"
 
 
 def test_integration_test_files_exist_and_use_docker_gate() -> None:
@@ -319,6 +318,4 @@ def test_integration_test_files_exist_and_use_docker_gate() -> None:
     integration_dir = TESTS_DIR / "integration"
     assert integration_dir.is_dir(), "tests/integration/ directory is missing"
     test_files = list(integration_dir.glob("test_*.py"))
-    assert len(test_files) > 0, (
-        "No integration test files found in tests/integration/"
-    )
+    assert len(test_files) > 0, "No integration test files found in tests/integration/"

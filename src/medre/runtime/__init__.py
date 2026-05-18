@@ -17,6 +17,9 @@ Public symbols
 * :class:`~medre.runtime.routes.RouteConfigSet` — ordered, validated route collection
 """
 
+from medre.runtime.app import MedreApp
+from medre.runtime.builder import AdapterBuildFailure, RuntimeBuilder
+from medre.runtime.capacity import CapacityController
 from medre.runtime.errors import (
     AdapterStartupError,
     RuntimeConfigError,
@@ -24,9 +27,6 @@ from medre.runtime.errors import (
     RuntimeShutdownError,
     RuntimeStartupError,
 )
-from medre.runtime.app import MedreApp
-from medre.runtime.builder import RuntimeBuilder, AdapterBuildFailure
-from medre.runtime.capacity import CapacityController
 from medre.runtime.routes import (
     BridgePolicy,
     RouteConfig,

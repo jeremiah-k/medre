@@ -11,6 +11,7 @@ LXMF messages carry fields like ``content``, ``title``, ``source_hash``,
 The classifier is a pure function: it inspects a packet and returns a
 classification dict.  It has no side effects.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -49,19 +50,13 @@ def normalize_lxmf_text(value: object, field_name: str = "content") -> str:
         try:
             return value.decode("utf-8")
         except UnicodeDecodeError as exc:
-            raise LxmfCodecError(
-                f"invalid UTF-8 in {field_name}: {exc}"
-            ) from exc
+            raise LxmfCodecError(f"invalid UTF-8 in {field_name}: {exc}") from exc
     if isinstance(value, bytearray):
         try:
             return bytes(value).decode("utf-8")
         except UnicodeDecodeError as exc:
-            raise LxmfCodecError(
-                f"invalid UTF-8 in {field_name}: {exc}"
-            ) from exc
-    raise LxmfCodecError(
-        f"unsupported {field_name} type: {type(value).__name__}"
-    )
+            raise LxmfCodecError(f"invalid UTF-8 in {field_name}: {exc}") from exc
+    raise LxmfCodecError(f"unsupported {field_name} type: {type(value).__name__}")
 
 
 class LxmfPacketClassifier:
@@ -124,11 +119,7 @@ class LxmfPacketClassifier:
             else:
                 packet_id = str(message_id)
 
-        has_fields = (
-            fields is not None
-            and isinstance(fields, dict)
-            and len(fields) > 0
-        )
+        has_fields = fields is not None and isinstance(fields, dict) and len(fields) > 0
 
         # Detect content presence (str, bytes, or bytearray)
         raw_content = packet.get("content")
@@ -147,12 +138,8 @@ class LxmfPacketClassifier:
             category = "unsupported"
 
         # Normalize text fields via helper (may raise on bad UTF-8)
-        normalized_content = normalize_lxmf_text(
-            packet.get("content", ""), "content"
-        )
-        normalized_title = normalize_lxmf_text(
-            packet.get("title", ""), "title"
-        )
+        normalized_content = normalize_lxmf_text(packet.get("content", ""), "content")
+        normalized_title = normalize_lxmf_text(packet.get("title", ""), "title")
 
         return {
             "category": category,

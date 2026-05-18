@@ -87,13 +87,13 @@ import json
 import logging
 import os
 import re
-import subprocess
 import shutil
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
-from medre.observability.sanitization import sanitize_for_log, sanitize_error
+from medre.observability.sanitization import sanitize_error, sanitize_for_log
 
 __all__ = [
     "ARTIFACT_PLAN",
@@ -121,7 +121,11 @@ SUPPORTED_SCENARIOS: tuple[str, ...] = (
 _DEFAULT_ARTIFACT_BASE = Path(
     os.environ.get(
         "MEDRE_CI_ARTIFACT_DIR",
-        str(Path(__file__).resolve().parent.parent.parent.parent.parent / ".ci-artifacts" / "docker-bridge-runs"),
+        str(
+            Path(__file__).resolve().parent.parent.parent.parent.parent
+            / ".ci-artifacts"
+            / "docker-bridge-runs"
+        ),
     )
 )
 
@@ -375,7 +379,9 @@ def build_summary(
         "matrix": _redact_strings(matrix_data),
         "meshtastic": _redact_strings(meshtastic_data),
         "medre": {
-            **_redact_strings({k: v for k, v in medre_data.items() if k != "limitations"}),
+            **_redact_strings(
+                {k: v for k, v in medre_data.items() if k != "limitations"}
+            ),
             "limitations": limitations,
         },
         "logs": safe_logs,
@@ -498,9 +504,7 @@ def _write_redacted_config(run_dir: Path, config_data: dict[str, Any]) -> Path |
                     if isinstance(sub_value, str):
                         lines.append(f'{sub_key} = "{sub_value}"')
                     elif isinstance(sub_value, bool):
-                        lines.append(
-                            f'{sub_key} = {"true" if sub_value else "false"}'
-                        )
+                        lines.append(f'{sub_key} = {"true" if sub_value else "false"}')
                     elif isinstance(sub_value, (int, float)):
                         lines.append(f"{sub_key} = {sub_value}")
                     elif sub_value is None:
@@ -579,9 +583,7 @@ async def _export_storage_artifacts_async(
         if receipts:
             import msgspec
 
-            receipts_data = [
-                json.loads(msgspec.json.encode(r)) for r in receipts
-            ]
+            receipts_data = [json.loads(msgspec.json.encode(r)) for r in receipts]
             receipts_path = run_dir / "receipts.json"
             receipts_path.write_text(
                 json.dumps(receipts_data, indent=2, default=str) + "\n",
@@ -593,9 +595,7 @@ async def _export_storage_artifacts_async(
         if native_refs:
             import msgspec
 
-            nrefs_data = [
-                json.loads(msgspec.json.encode(r)) for r in native_refs
-            ]
+            nrefs_data = [json.loads(msgspec.json.encode(r)) for r in native_refs]
             nrefs_path = run_dir / "native-refs.json"
             nrefs_path.write_text(
                 json.dumps(nrefs_data, indent=2, default=str) + "\n",
@@ -769,9 +769,7 @@ def collect_docker_bridge_artifacts(
         run_dir = create_run_directory(base_dir=base_dir, now_fn=_now)
     except Exception as exc:
         errors.append(f"Failed to create run directory: {exc}")
-        run_dir = Path(
-            base_dir or _DEFAULT_ARTIFACT_BASE
-        ) / "failed-run"
+        run_dir = Path(base_dir or _DEFAULT_ARTIFACT_BASE) / "failed-run"
 
     # -- Step 2: Build pytest command ----------------------------------------
     test_selectors = _scenario_test_selectors(scenario)
@@ -782,7 +780,8 @@ def collect_docker_bridge_artifacts(
             f"{', '.join(SUPPORTED_SCENARIOS)}"
         )
     default_args = [
-        "-m", "docker",
+        "-m",
+        "docker",
         "-v",
         "--tb=short",
         "--timeout=300",
@@ -803,7 +802,10 @@ def collect_docker_bridge_artifacts(
     try:
         if _run_pytest is not None:
             returncode, stdout, stderr = _run_pytest(
-                cmd, env, timeout_minutes * 60, os.getcwd(),
+                cmd,
+                env,
+                timeout_minutes * 60,
+                os.getcwd(),
             )
         else:
             result = subprocess.run(
@@ -820,8 +822,16 @@ def collect_docker_bridge_artifacts(
         returncode = -1
         raw_stdout = exc.stdout or b""
         raw_stderr = exc.stderr or b""
-        stdout = raw_stdout.decode("utf-8", errors="replace") if isinstance(raw_stdout, bytes) else raw_stdout
-        stderr = (raw_stderr.decode("utf-8", errors="replace") if isinstance(raw_stderr, bytes) else raw_stderr) + f"\nTimeout after {timeout_minutes} minutes"
+        stdout = (
+            raw_stdout.decode("utf-8", errors="replace")
+            if isinstance(raw_stdout, bytes)
+            else raw_stdout
+        )
+        stderr = (
+            raw_stderr.decode("utf-8", errors="replace")
+            if isinstance(raw_stderr, bytes)
+            else raw_stderr
+        ) + f"\nTimeout after {timeout_minutes} minutes"
         errors.append(f"Pytest timed out after {timeout_minutes} minutes")
     except FileNotFoundError as exc:
         returncode = -1
@@ -857,14 +867,14 @@ def collect_docker_bridge_artifacts(
     storage_path_from_meta: str | None = (
         metadata.get("storage_path") if metadata else None
     )
-    event_id_from_meta: str | None = (
-        metadata.get("event_id") if metadata else None
-    )
+    event_id_from_meta: str | None = metadata.get("event_id") if metadata else None
     if storage_path_from_meta and event_id_from_meta:
         _export_fn = _storage_export_fn or _export_storage_artifacts_sync
         try:
             storage_artifacts = _export_fn(
-                run_dir, storage_path_from_meta, event_id_from_meta,
+                run_dir,
+                storage_path_from_meta,
+                event_id_from_meta,
             )
         except Exception as exc:
             errors.append(f"Storage artifact export failed: {exc}")
@@ -942,13 +952,13 @@ def collect_docker_bridge_artifacts(
 
         meta_meshtastic = metadata.get("meshtastic", {})
         if "packet_ids" in meta_meshtastic and meta_meshtastic["packet_ids"]:
-            meshtastic_evidence.setdefault("outbound", {})[
-                "packet_ids"
-            ] = meta_meshtastic["packet_ids"]
+            meshtastic_evidence.setdefault("outbound", {})["packet_ids"] = (
+                meta_meshtastic["packet_ids"]
+            )
         if "pubsub_proven" in meta_meshtastic:
-            meshtastic_evidence.setdefault("inbound", {})[
-                "pubsub_proven"
-            ] = meta_meshtastic["pubsub_proven"]
+            meshtastic_evidence.setdefault("inbound", {})["pubsub_proven"] = (
+                meta_meshtastic["pubsub_proven"]
+            )
 
     # -- Step 15: Collect artifact manifest -----------------------------------
     plan = get_artifact_plan(scenario)
@@ -1113,9 +1123,13 @@ def _build_meshtastic_evidence(
     return {
         "daemon": env.get("MEDRE_MESHTASTICD_IMAGE", "meshtastic/meshtasticd:2.7.15"),
         "inbound": inbound,
-        "outbound": {
-            "packet_ids": outbound_packet_ids,
-        } if outbound_packet_ids else None,
+        "outbound": (
+            {
+                "packet_ids": outbound_packet_ids,
+            }
+            if outbound_packet_ids
+            else None
+        ),
     }
 
 
@@ -1128,7 +1142,7 @@ def _build_medre_evidence(
     """Build MEDRE runtime evidence from pytest output."""
     # Extract receipt status from output.
     receipt_status: str | None = None
-    if "receipt_status='sent'" in stdout or "receipt_status\": \"sent\"" in stdout:
+    if "receipt_status='sent'" in stdout or 'receipt_status": "sent"' in stdout:
         receipt_status = "sent"
     elif "receipt_status='failed'" in stdout:
         receipt_status = "failed"
@@ -1171,9 +1185,13 @@ def _collect_config_snapshot(
     that can be included in the summary.
     """
     raw: dict[str, Any] = {
-        "synapse_image": env.get("MEDRE_SYNAPSE_IMAGE", "matrixdotorg/synapse:v1.149.0"),
+        "synapse_image": env.get(
+            "MEDRE_SYNAPSE_IMAGE", "matrixdotorg/synapse:v1.149.0"
+        ),
         "synapse_port": env.get("MEDRE_SYNAPSE_PORT", "8008"),
-        "meshtasticd_image": env.get("MEDRE_MESHTASTICD_IMAGE", "meshtastic/meshtasticd:2.7.15"),
+        "meshtasticd_image": env.get(
+            "MEDRE_MESHTASTICD_IMAGE", "meshtastic/meshtasticd:2.7.15"
+        ),
         "meshtasticd_port": env.get("MEDRE_MESHTASTICD_PORT", "4403"),
         "meshtasticd_hwid": env.get("MEDRE_MESHTASTICD_HWID", "11"),
         "ready_timeout": env.get("MEDRE_DOCKER_READY_TIMEOUT", "120"),

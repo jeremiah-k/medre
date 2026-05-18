@@ -31,27 +31,27 @@ echo ""
 
 # Verify Docker is available.
 if ! command -v docker >/dev/null 2>&1; then
-    echo "ERROR: docker is not installed or not in PATH." >&2
-    exit 1
+	echo "ERROR: docker is not installed or not in PATH." >&2
+	exit 1
 fi
 
 if ! docker info >/dev/null 2>&1; then
-    echo "ERROR: Docker daemon is not running." >&2
-    exit 1
+	echo "ERROR: Docker daemon is not running." >&2
+	exit 1
 fi
 
 # Verify Python is available.
 if ! command -v "${PYTHON}" >/dev/null 2>&1; then
-    echo "ERROR: Python runtime '${PYTHON}' is required." >&2
-    exit 1
+	echo "ERROR: Python runtime '${PYTHON}' is required." >&2
+	exit 1
 fi
 
 # Ensure integration extras are installed.
 echo "Checking MEDRE installation..."
 INSTALLED=$("${PYTHON}" -c "import medre; print('ok')" 2>/dev/null || true)
-if [[ "${INSTALLED}" != "ok" ]]; then
-    echo "Installing MEDRE with matrix + meshtastic extras..."
-    "${PYTHON}" -m pip install -e ".[matrix,meshtastic]" --quiet
+if [[ ${INSTALLED} != "ok" ]]; then
+	echo "Installing MEDRE with matrix + meshtastic extras..."
+	"${PYTHON}" -m pip install -e ".[matrix,meshtastic]" --quiet
 fi
 
 echo ""
@@ -62,21 +62,21 @@ echo ""
 # The conftest.py handles Docker container lifecycle.
 set +e
 timeout --foreground "${TIMEOUT_MINUTES}m" \
-    "${PYTHON}" -m pytest \
-    tests/integration/ \
-    -m docker \
-    -v \
-    --tb=short \
-    --timeout=300 \
-    ${PYTEST_EXTRA_ARGS:-}
+	"${PYTHON}" -m pytest \
+	tests/integration/ \
+	-m docker \
+	-v \
+	--tb=short \
+	--timeout=300 \
+	"${PYTEST_EXTRA_ARGS-}"
 TEST_EXIT=$?
 set -e
 
 echo ""
 if [[ ${TEST_EXIT} -eq 0 ]]; then
-    echo "All integration tests passed."
+	echo "All integration tests passed."
 else
-    echo "Integration tests FAILED (exit code ${TEST_EXIT})."
+	echo "Integration tests FAILED (exit code ${TEST_EXIT})."
 fi
 
-exit ${TEST_EXIT}
+exit "${TEST_EXIT}"

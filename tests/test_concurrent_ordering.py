@@ -15,7 +15,6 @@ import os
 import tempfile
 import uuid
 from datetime import datetime, timezone
-from typing import Any
 
 import pytest
 
@@ -27,7 +26,6 @@ from medre.core.events import (
 )
 from medre.core.storage.sqlite import SQLiteStorage
 from tests.helpers.async_utils import wait_until
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -182,9 +180,9 @@ async def test_concurrent_replay_append(
     # All have source="replay"
     for r in receipts:
         assert r.source == "replay", f"Expected source=replay, got {r.source}"
-        assert r.replay_run_id == replay_run_id, (
-            f"Expected replay_run_id={replay_run_id}, got {r.replay_run_id}"
-        )
+        assert (
+            r.replay_run_id == replay_run_id
+        ), f"Expected replay_run_id={replay_run_id}, got {r.replay_run_id}"
 
     # Ordering stable
     seqs = [r.sequence for r in receipts]

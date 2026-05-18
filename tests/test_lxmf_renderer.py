@@ -6,8 +6,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-import pytest
-
 from medre.adapters.lxmf.renderer import LxmfRenderer
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.rendering.renderer import RenderingResult
@@ -49,12 +47,18 @@ class TestLxmfRenderer:
     def test_can_render_non_lxmf(self) -> None:
         renderer = LxmfRenderer()
         event = _make_event()
-        assert renderer.can_render(event, "fake_presentation", target_platform="fake") is False
+        assert (
+            renderer.can_render(event, "fake_presentation", target_platform="fake")
+            is False
+        )
 
     def test_can_render_rejects_matrix(self) -> None:
         renderer = LxmfRenderer()
         event = _make_event()
-        assert renderer.can_render(event, "matrix_instance", target_platform="matrix") is False
+        assert (
+            renderer.can_render(event, "matrix_instance", target_platform="matrix")
+            is False
+        )
 
     def test_can_render_without_platform_returns_false(self) -> None:
         """Without platform info, renderer cannot match (no prefix fallback)."""
@@ -123,6 +127,7 @@ class TestLxmfRenderer:
         result = await renderer.render(event, "lxmf_node")
         fields = result.payload["fields"]
         from medre.adapters.lxmf.fields import FIELD_MEDRE_ENVELOPE, LXMF_NAMESPACE
+
         assert FIELD_MEDRE_ENVELOPE in fields
         envelope = fields[FIELD_MEDRE_ENVELOPE]
         assert LXMF_NAMESPACE in envelope
@@ -134,6 +139,7 @@ class TestLxmfRenderer:
         result = await renderer.render(event, "lxmf_node")
         fields = result.payload["fields"]
         from medre.adapters.lxmf.fields import FIELD_MEDRE_ENVELOPE
+
         assert FIELD_MEDRE_ENVELOPE not in fields
 
     async def test_render_returns_rendering_result(self) -> None:

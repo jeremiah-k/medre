@@ -21,7 +21,6 @@ from pathlib import Path
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
@@ -69,8 +68,7 @@ class TestEvidenceStatusConsistency:
 
         result = _section_ok({"test": True})
         assert result["status"] == "passed", (
-            f"_section_ok() should return status='passed', "
-            f"got '{result['status']}'"
+            f"_section_ok() should return status='passed', " f"got '{result['status']}'"
         )
 
     def test_code_overall_status_uses_passed_not_ok(self) -> None:
@@ -100,9 +98,9 @@ class TestEvidenceStatusConsistency:
     def test_code_section_statuses_are_valid(self) -> None:
         """Verify all section status helper functions return valid values."""
         from medre.runtime.evidence._helpers import (
+            _section_error,
             _section_ok,
             _section_partial,
-            _section_error,
             _section_skipped,
         )
 
@@ -134,7 +132,11 @@ class TestEvidenceStatusConsistency:
                     f"  {line.strip()}"
                 )
             # End evidence section at next step heading.
-            if in_evidence_section and line.startswith("### Step") and "evidence" not in line.lower():
+            if (
+                in_evidence_section
+                and line.startswith("### Step")
+                and "evidence" not in line.lower()
+            ):
                 in_evidence_section = False
 
     def test_bridge_evidence_section_status_not_ok(self) -> None:
@@ -151,9 +153,7 @@ class TestEvidenceStatusConsistency:
             if '"status": "ok"' in line:
                 stale_lines.append((lineno, line.strip()))
         if stale_lines:
-            details = "\n".join(
-                f"  Line {no}: {ln}" for no, ln in stale_lines[:5]
-            )
+            details = "\n".join(f"  Line {no}: {ln}" for no, ln in stale_lines[:5])
             pytest.fail(
                 f"bridge-evidence-bundle.md has {len(stale_lines)} lines with "
                 f'stale "status": "ok". Code returns "passed", not "ok". '
@@ -179,21 +179,19 @@ class TestCommandHelpHints:
 
     def test_read_only_hint_present(self, config_text: str) -> None:
         """CLI section must mention 'read-only' for inspect/trace/evidence."""
-        assert "read-only" in config_text.lower(), (
-            "configuration.md must describe inspect/trace/evidence as read-only."
-        )
+        assert (
+            "read-only" in config_text.lower()
+        ), "configuration.md must describe inspect/trace/evidence as read-only."
 
     def test_runtime_start_hint_present(self, config_text: str) -> None:
         """CLI section must mention 'runtime' for the run command."""
-        assert "medre run" in config_text, (
-            "configuration.md must document 'medre run' for starting the runtime."
-        )
+        assert (
+            "medre run" in config_text
+        ), "configuration.md must document 'medre run' for starting the runtime."
 
     def test_config_hint_present(self, config_text: str) -> None:
         """CLI section must mention --config for config-dependent commands."""
-        assert "--config" in config_text, (
-            "configuration.md must mention --config flag."
-        )
+        assert "--config" in config_text, "configuration.md must mention --config flag."
 
     def test_storage_path_hint_present(self, config_text: str) -> None:
         """CLI section must mention --storage-path for read-only commands."""
@@ -212,52 +210,55 @@ class TestCommandHelpHints:
     def test_replay_rejects_storage_path_hint(self, config_text: str) -> None:
         """CLI section must note replay rejects --storage-path."""
         # The replay line should indicate it requires --config (not --storage-path).
-        assert "reject" in config_text.lower() or "requires --config" in config_text.lower(), (
+        assert (
+            "reject" in config_text.lower()
+            or "requires --config" in config_text.lower()
+        ), (
             "configuration.md must note that replay requires --config "
             "and does not accept --storage-path."
         )
 
     def test_inspect_documented(self, config_text: str) -> None:
         """configuration.md must document 'medre inspect'."""
-        assert "medre inspect" in config_text, (
-            "configuration.md must document the inspect command."
-        )
+        assert (
+            "medre inspect" in config_text
+        ), "configuration.md must document the inspect command."
 
     def test_trace_documented(self, config_text: str) -> None:
         """configuration.md must document 'medre trace'."""
-        assert "medre trace" in config_text, (
-            "configuration.md must document the trace command."
-        )
+        assert (
+            "medre trace" in config_text
+        ), "configuration.md must document the trace command."
 
     def test_evidence_documented(self, config_text: str) -> None:
         """configuration.md must document 'medre evidence'."""
-        assert "medre evidence" in config_text, (
-            "configuration.md must document the evidence command."
-        )
+        assert (
+            "medre evidence" in config_text
+        ), "configuration.md must document the evidence command."
 
     def test_replay_documented(self, config_text: str) -> None:
         """configuration.md must document 'medre replay'."""
-        assert "medre replay" in config_text, (
-            "configuration.md must document the replay command."
-        )
+        assert (
+            "medre replay" in config_text
+        ), "configuration.md must document the replay command."
 
     def test_recover_documented(self, config_text: str) -> None:
         """configuration.md must document 'medre recover'."""
-        assert "medre recover" in config_text, (
-            "configuration.md must document the recover command."
-        )
+        assert (
+            "medre recover" in config_text
+        ), "configuration.md must document the recover command."
 
     def test_diagnostics_documented(self, config_text: str) -> None:
         """configuration.md must document 'medre diagnostics'."""
-        assert "medre diagnostics" in config_text, (
-            "configuration.md must document the diagnostics command."
-        )
+        assert (
+            "medre diagnostics" in config_text
+        ), "configuration.md must document the diagnostics command."
 
     def test_config_command_documented(self, config_text: str) -> None:
         """configuration.md must document 'medre config'."""
-        assert "medre config" in config_text, (
-            "configuration.md must document the config command."
-        )
+        assert (
+            "medre config" in config_text
+        ), "configuration.md must document the config command."
 
 
 # ===========================================================================
@@ -319,9 +320,19 @@ class TestCommandSurfaceMatchesParser:
         """Parser must have all top-level commands from configuration.md."""
         parser_commands = self._get_parser_commands()
         required = {
-            "run", "config", "paths", "version", "adapters",
-            "diagnostics", "routes", "smoke", "inspect", "trace",
-            "evidence", "replay", "recover",
+            "run",
+            "config",
+            "paths",
+            "version",
+            "adapters",
+            "diagnostics",
+            "routes",
+            "smoke",
+            "inspect",
+            "trace",
+            "evidence",
+            "replay",
+            "recover",
         }
         missing = required - parser_commands
         assert not missing, (
@@ -335,18 +346,50 @@ class TestCommandSurfaceMatchesParser:
 
         parser = _build_parser()
         # Parse "inspect" to get its subcommands.
-        args = parser.parse_args(["inspect", "event", "--storage-path", "/dev/null", "fake-id"])
+        parser.parse_args(
+            ["inspect", "event", "--storage-path", "/dev/null", "fake-id"]
+        )
         # If we get here, "event" is accepted. Try others.
         for subcmd in ("event", "receipts", "native-ref", "replay"):
             try:
                 if subcmd == "event":
-                    parser.parse_args(["inspect", subcmd, "--storage-path", "/dev/null", "fake-id"])
+                    parser.parse_args(
+                        ["inspect", subcmd, "--storage-path", "/dev/null", "fake-id"]
+                    )
                 elif subcmd == "receipts":
-                    parser.parse_args(["inspect", subcmd, "--event", "fake-id", "--storage-path", "/dev/null"])
+                    parser.parse_args(
+                        [
+                            "inspect",
+                            subcmd,
+                            "--event",
+                            "fake-id",
+                            "--storage-path",
+                            "/dev/null",
+                        ]
+                    )
                 elif subcmd == "native-ref":
-                    parser.parse_args(["inspect", subcmd, "--adapter", "fake", "--message", "fake", "--storage-path", "/dev/null"])
+                    parser.parse_args(
+                        [
+                            "inspect",
+                            subcmd,
+                            "--adapter",
+                            "fake",
+                            "--message",
+                            "fake",
+                            "--storage-path",
+                            "/dev/null",
+                        ]
+                    )
                 elif subcmd == "replay":
-                    parser.parse_args(["inspect", subcmd, "--storage-path", "/dev/null", "fake-run-id"])
+                    parser.parse_args(
+                        [
+                            "inspect",
+                            subcmd,
+                            "--storage-path",
+                            "/dev/null",
+                            "fake-run-id",
+                        ]
+                    )
             except SystemExit:
                 pytest.fail(
                     f"Parser rejects 'inspect {subcmd}' but it is "
@@ -360,7 +403,9 @@ class TestCommandSurfaceMatchesParser:
         parser = _build_parser()
         for subcmd in ("event", "replay"):
             try:
-                parser.parse_args(["trace", subcmd, "--storage-path", "/dev/null", "fake-id"])
+                parser.parse_args(
+                    ["trace", subcmd, "--storage-path", "/dev/null", "fake-id"]
+                )
             except SystemExit:
                 pytest.fail(
                     f"Parser rejects 'trace {subcmd}' but it is "
@@ -379,7 +424,7 @@ class TestNoStaleClaims:
 
     def test_no_medre_cli_old_paths(self) -> None:
         """No docs reference old private CLI module paths."""
-        text = _all_doc_text()
+        _all_doc_text()
         patterns = [
             re.compile(r"\bfrom\s+medre\.cli\._"),
             re.compile(r"\bimport\s+medre\.cli\._"),
@@ -410,7 +455,10 @@ class TestNoStaleClaims:
         text = _all_doc_text()
         # Look for "dedup" or "de-dup" claims that suggest medre provides
         # deduplication rather than just noting its absence.
-        pattern = re.compile(r"(?:provides|offers|supports|includes)\s+duplicate?\s*(?:detection|prevention|elimination)", re.IGNORECASE)
+        pattern = re.compile(
+            r"(?:provides|offers|supports|includes)\s+duplicate?\s*(?:detection|prevention|elimination)",
+            re.IGNORECASE,
+        )
         match = pattern.search(text)
         assert match is None, (
             "Found claim that medre provides deduplication. "
@@ -419,7 +467,7 @@ class TestNoStaleClaims:
 
     def test_no_stale_rest_api_claims(self) -> None:
         """Docs must not reference REST API endpoints (they don't exist)."""
-        text = _all_doc_text()
+        _all_doc_text()
         for pattern_str in [
             r"/api/v1/",
             r"HTTP endpoint",
@@ -442,7 +490,7 @@ class TestNoStaleClaims:
 
     def test_no_webhook_claims(self) -> None:
         """Docs must not reference webhooks (they don't exist)."""
-        text = _all_doc_text()
+        _all_doc_text()
         for doc_path in TARGET_DOCS:
             if not doc_path.exists():
                 continue
@@ -463,13 +511,17 @@ class TestNoStaleClaims:
             if not doc_path.exists():
                 continue
             doc_text = _read(doc_path)
-            for lineno, line in enumerate(doc_text.splitlines(), start=1):
+            for _lineno, line in enumerate(doc_text.splitlines(), start=1):
                 if "kubernetes" in line.lower() or "docker-compose" in line.lower():
                     # Allow mentions in context of MEDRE_HOME for Docker.
                     if "MEDRE_HOME" in line:
                         continue
                     # Allow docker-compose.integration.yaml reference.
-                    if "docker-compose" in line and "integration" in text[max(0, text.find(line) - 200):text.find(line) + 200]:
+                    if (
+                        "docker-compose" in line
+                        and "integration"
+                        in text[max(0, text.find(line) - 200) : text.find(line) + 200]
+                    ):
                         continue
                     # Allow negative claims ("no deployment tooling").
                     if "no " in line.lower() or "not " in line.lower():
@@ -495,7 +547,7 @@ class TestStatusVocabulary:
         """Smoke command JSON report status is 'passed', not 'ok'."""
         import io
         import json
-        from contextlib import redirect_stdout, redirect_stderr
+        from contextlib import redirect_stderr, redirect_stdout
 
         from medre.cli import main
 
@@ -503,22 +555,25 @@ class TestStatusVocabulary:
         stderr_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
             with pytest.raises(SystemExit) as exc_info:
-                main([
-                    "smoke",
-                    "--config", str(_ROOT / "examples" / "configs" / "fake-bridge-smoke.toml"),
-                    "--json",
-                ])
+                main(
+                    [
+                        "smoke",
+                        "--config",
+                        str(_ROOT / "examples" / "configs" / "fake-bridge-smoke.toml"),
+                        "--json",
+                    ]
+                )
         assert exc_info.value.code == 0
         report = json.loads(stdout_buf.getvalue())
-        assert report["status"] == "passed", (
-            f"Smoke report status should be 'passed', got '{report['status']}'"
-        )
+        assert (
+            report["status"] == "passed"
+        ), f"Smoke report status should be 'passed', got '{report['status']}'"
 
     def test_evidence_bundle_uses_passed_not_ok(self, tmp_path: Path) -> None:
         """Evidence bundle overall status is 'passed' or 'partial', never 'ok'."""
         import io
         import json
-        from contextlib import redirect_stdout, redirect_stderr
+        from contextlib import redirect_stderr, redirect_stdout
 
         from medre.cli import main
 
@@ -527,24 +582,32 @@ class TestStatusVocabulary:
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             with pytest.raises(SystemExit) as exc_info:
-                main([
-                    "smoke",
-                    "--config", str(_ROOT / "examples" / "configs" / "fake-bridge-smoke.toml"),
-                    "--storage-path", str(db_path),
-                    "--json",
-                ])
+                main(
+                    [
+                        "smoke",
+                        "--config",
+                        str(_ROOT / "examples" / "configs" / "fake-bridge-smoke.toml"),
+                        "--storage-path",
+                        str(db_path),
+                        "--json",
+                    ]
+                )
         assert exc_info.value.code == 0
         event_id = json.loads(stdout_buf.getvalue())["event_id"]
 
         # Collect evidence bundle.
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
-            main([
-                "evidence",
-                "--event", event_id,
-                "--storage-path", str(db_path),
-                "--json",
-            ])
+            main(
+                [
+                    "evidence",
+                    "--event",
+                    event_id,
+                    "--storage-path",
+                    str(db_path),
+                    "--json",
+                ]
+            )
 
         bundle = json.loads(stdout_buf.getvalue())
         assert bundle["status"] in ("passed", "partial"), (
@@ -619,7 +682,11 @@ class TestStatusVocabulary:
                 if "pragma" in stripped.lower() and "integrity" in stripped.lower():
                     continue
                 # Skip lines about external tools returning ok (e.g. fsck, PRAGMA).
-                if re.search(r"returns?\s+anything\s+other\s+than\s+`?ok`?", stripped, re.IGNORECASE):
+                if re.search(
+                    r"returns?\s+anything\s+other\s+than\s+`?ok`?",
+                    stripped,
+                    re.IGNORECASE,
+                ):
                     continue
                 # Catch bare "ok" as a status value in tables or prose.
                 # Pattern: backtick-wrapped "ok" in a status vocabulary context,
@@ -725,9 +792,9 @@ class TestCommandSurfaceUtilityCategory:
 
     def test_utility_section_exists(self, surface_text: str) -> None:
         """The utility commands section must exist."""
-        assert "Utility" in surface_text, (
-            "operator-command-surface.md must have a utility commands section."
-        )
+        assert (
+            "Utility" in surface_text
+        ), "operator-command-surface.md must have a utility commands section."
 
     @pytest.mark.parametrize(
         "command",
@@ -749,10 +816,14 @@ class TestCommandSurfaceUtilityCategory:
             # for these commands.
             pass
         # Check the decision table role column for each command
-        for lineno, line in enumerate(surface_text.splitlines(), start=1):
+        for _lineno, line in enumerate(surface_text.splitlines(), start=1):
             if f"`{command}`" in line and "utility" in line.lower():
                 return  # Found as utility
-            if command == "config sample" and "`config sample`" in line and "utility" in line.lower():
+            if (
+                command == "config sample"
+                and "`config sample`" in line
+                and "utility" in line.lower()
+            ):
                 return
         # If not found in per-command section, check the decision table
         # (the table uses backtick-wrapped command names)
@@ -760,7 +831,7 @@ class TestCommandSurfaceUtilityCategory:
         if command == "config sample":
             command_variants = ["config sample"]
         for cv in command_variants:
-            for lineno, line in enumerate(surface_text.splitlines(), start=1):
+            for _lineno, line in enumerate(surface_text.splitlines(), start=1):
                 if f"| `{cv}`" in line and "utility" in line.lower():
                     return
         pytest.fail(

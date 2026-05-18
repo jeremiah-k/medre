@@ -142,9 +142,7 @@ class Diagnostician:
         self.planner_failures[event_id] += 1
         diagnostic_event(event_id, "planner_failure", error)
 
-    def record_renderer_failure(
-        self, event_id: str, target: str, error: str
-    ) -> None:
+    def record_renderer_failure(self, event_id: str, target: str, error: str) -> None:
         """Record a failure during message rendering.
 
         Parameters
@@ -159,9 +157,7 @@ class Diagnostician:
         self.renderer_failures[target] += 1
         diagnostic_event(event_id, "renderer_failure", error, target=target)
 
-    def record_storage_failure(
-        self, event_id: str, operation: str, error: str
-    ) -> None:
+    def record_storage_failure(self, event_id: str, operation: str, error: str) -> None:
         """Record a failure during a storage operation.
 
         Parameters
@@ -174,13 +170,9 @@ class Diagnostician:
             Description of the storage failure.
         """
         self.storage_failures[operation] += 1
-        diagnostic_event(
-            event_id, "storage_failure", error, operation=operation
-        )
+        diagnostic_event(event_id, "storage_failure", error, operation=operation)
 
-    def record_adapter_failure(
-        self, event_id: str, adapter: str, error: str
-    ) -> None:
+    def record_adapter_failure(self, event_id: str, adapter: str, error: str) -> None:
         """Record a failure during adapter delivery.
 
         Parameters
@@ -231,9 +223,7 @@ class Diagnostician:
             fallback_mode=fallback_mode,
         )
 
-    def record_correlation_miss(
-        self, event_id: str, native_ref: str
-    ) -> None:
+    def record_correlation_miss(self, event_id: str, native_ref: str) -> None:
         """Record a native-reference correlation miss.
 
         Parameters

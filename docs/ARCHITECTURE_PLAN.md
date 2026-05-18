@@ -7,6 +7,7 @@
 ### 0.1 Core Adapter Contracts — `medre.core.contracts.adapter`
 
 Exports:
+
 - `AdapterContract` (protocol for all adapter implementations)
 - `AdapterRole`
 - `AdapterCodec`
@@ -17,20 +18,25 @@ Exports:
 - `AdapterSendError`
 - `AdapterPermanentError`
 
-The following old modules **do not exist** and must not be imported:
-- `medre.core.ports` (merged into `medre.core.contracts.adapter`)
-- `medre.core.adapter_base` (merged into `medre.core.contracts.adapter`)
-- `medre.adapters.base` (merged into `medre.core.contracts.adapter`)
+The following module names are noncanonical and must not be imported:
+
+- `medre.core.ports` — does not exist
+- `medre.core.adapter_base` — does not exist
+- `medre.adapters.base` — does not exist
+
+Use `medre.core.contracts.adapter` instead.
 
 ### 0.2 Adapter Configuration — `medre.config.adapters.*`
 
 Config dataclasses live in:
+
 - `medre.config.adapters.matrix.MatrixConfig`
 - `medre.config.adapters.meshtastic.MeshtasticConfig`
 - `medre.config.adapters.meshcore.MeshCoreConfig`
 - `medre.config.adapters.lxmf.LxmfConfig`
 
 Config validation errors live in `medre.config.adapters.errors`:
+
 - `AdapterConfigError(ValueError)`
 - `MatrixConfigError`
 - `MeshtasticConfigError`
@@ -42,6 +48,7 @@ Config errors are `ValueError` subclasses — they are NOT runtime adapter error
 ### 0.3 Matrix Credential Sidecar — `medre.config.adapters.matrix_credentials`
 
 Canonical home for credential sidecar file operations:
+
 - `get_credentials_path()` -> Path
 - `load_credentials_json(path=None)` -> dict | None
 - `write_credentials_json(data, path=None)` -> Path
@@ -51,12 +58,14 @@ Canonical home for credential sidecar file operations:
 ### 0.4 Adapter Implementations — `medre.adapters.*`
 
 Concrete adapter implementations live in `medre.adapters.*`:
+
 - `medre.adapters.matrix.*`
 - `medre.adapters.meshtastic.*`
 - `medre.adapters.meshcore.*`
 - `medre.adapters.lxmf.*`
 
 Runtime/session/network/protocol errors live in `medre.adapters.*.errors`:
+
 - `medre.adapters.matrix.errors.MatrixError` (etc.)
 - `medre.adapters.meshtastic.errors.MeshtasticError` (etc.)
 
@@ -64,11 +73,11 @@ These are adapter runtime errors — NOT config validation errors.
 
 ## 1. Layer Ownership Rules
 
-| Layer | May Import From | Must Not Import From |
-|---|---|---|
-| `medre.core` | `medre.core` only (documented exceptions: `observability/sanitization`) | `medre.adapters`, `medre.config` |
-| `medre.config` | `medre.config` (including `config.adapters`) | `medre.adapters` |
-| `medre.adapters` | `medre.core.contracts.adapter`, `medre.config.adapters.*`, `medre.core.*` | — |
+| Layer            | May Import From                                                           | Must Not Import From             |
+| ---------------- | ------------------------------------------------------------------------- | -------------------------------- |
+| `medre.core`     | `medre.core` only (documented exceptions: `observability/sanitization`)   | `medre.adapters`, `medre.config` |
+| `medre.config`   | `medre.config` (including `config.adapters`)                              | `medre.adapters`                 |
+| `medre.adapters` | `medre.core.contracts.adapter`, `medre.config.adapters.*`, `medre.core.*` | —                                |
 
 - Concrete adapters depend inward on core contracts and config models.
 - `medre.config.adapters.matrix_credentials` is the canonical owner of credential file operations.
@@ -79,23 +88,23 @@ These are adapter runtime errors — NOT config validation errors.
 
 **Documented runtime exceptions** (core -> outside core):
 
-| Source | Import | Reason |
-|---|---|---|
+| Source                          | Import                                                  | Reason                                |
+| ------------------------------- | ------------------------------------------------------- | ------------------------------------- |
 | `core/observability/logging.py` | `sanitize_for_log` from `observability/sanitization.py` | Pure function, no I/O or SDK coupling |
-| `core/routing/stats.py` | `sanitize_error` from `observability/sanitization.py` | Pure function, no I/O or SDK coupling |
+| `core/routing/stats.py`         | `sanitize_error` from `observability/sanitization.py`   | Pure function, no I/O or SDK coupling |
 
 Both exceptions import the same pure-function module (`observability/sanitization.py`). They are the only runtime core->external dependencies.
 
 **Type-only coupling** (acceptable, no runtime dependency):
 
-| Source | Import | Guard |
-|---|---|---|
+| Source                    | Import                                       | Guard                     |
+| ------------------------- | -------------------------------------------- | ------------------------- |
 | `core/engine/pipeline.py` | `CapacityController` from `runtime.capacity` | `if TYPE_CHECKING:` block |
-| `core/storage/replay.py` | `CapacityController` from `runtime.capacity` | `if TYPE_CHECKING:` block |
+| `core/storage/replay.py`  | `CapacityController` from `runtime.capacity` | `if TYPE_CHECKING:` block |
 
 ## 2. Package Tree
 
-```
+```text
 medre/
 ├── __init__.py              # empty
 ├── __main__.py              # delegates to cli:main
@@ -156,47 +165,24 @@ medre/
                              # evidence/, run_session/
 ```
 
-## 3. Implemented Decisions
+## 3. Architectural Decisions
 
-- MEDRE is pre-release; removed imports were not preserved with shims
-- `BaseAdapter` → `AdapterContract`
-- `medre.core.ports` merged into `medre.core.contracts.adapter`
-- `medre.core.adapter_base` merged into `medre.core.contracts.adapter`
-- `medre.adapters.base` deleted
-- All `medre.adapters.*.config` modules deleted (configs moved to `medre.config.adapters.*`)
-- Config validation errors are `ValueError` subclasses, not adapter runtime error subclasses
-- Matrix credential sidecar helpers owned by config layer for testability
-- `core/runtime/` NOT renamed (Tranche 3 deferred — the rename would eliminate naming collision with `runtime/`)
+- Config validation errors are `ValueError` subclasses, not adapter runtime error subclasses.
+- Matrix credential sidecar helpers are owned by the config layer for testability.
+- `medre.core.runtime/` is distinct from top-level `medre.runtime/`.
+
+The following modules do not exist and must not be imported:
+
+- `medre.adapters.base` does not exist.
+- `medre.core.ports` does not exist.
+- `medre.core.adapter_base` does not exist.
+- `medre.adapters.*.config` modules do not exist.
 
 ## 4. Remaining Follow-Up Work
 
 - Rename `core/runtime/` → `core/supervision/` to eliminate naming collision with top-level `runtime/`
 - Move fake adapters to `medre.adapters.fakes/` subdirectory
-- Decide disposition of remaining contract/docs documents (audit records vs current specifications)
+- Decide disposition of remaining contract/doc documents (audit records vs current specifications)
 - Evaluate merging `core/diagnostics/` into `core/observability/`
 - Deduplicate `_SECRET_KEY_PATTERNS` between `core/runtime/diagnostic_contract.py` and `observability/sanitization.py`
 - Delete empty packages `core/policies/` and `core/transforms/`
-
-## 5. Architectural History
-
-### Tranche 1 (Port Extraction)
-
-Extracted adapter interface types from `adapters/base.py` into core, splitting pure value types into `core/ports.py` and the behavioral `BaseAdapter` ABC into `core/adapter_base.py`. This introduced the core→adapters dependency inversion (later resolved by Tranche 3).
-
-### Tranche 2 (Config Decoupling)
-
-Moved adapter config dataclasses from `medre.adapters.*.config` to `medre.config.adapters.*` so the global config layer no longer imports concrete adapter packages at module level.
-
-### Tranche 3 (Canonicalization)
-
-Merged `core/ports.py` and `core/adapter_base.py` into a single canonical module `core/contracts/adapter.py`. Renamed `BaseAdapter` to `AdapterContract`. Deleted removed files (`core/ports.py`, `core/adapter_base.py`, `adapters/base.py`, `adapters/*/config.py`). Centralized config validation errors in `config/adapters/errors.py`. Moved Matrix credential sidecar helpers to `config/adapters/matrix_credentials.py`. All source and test imports updated to use canonical paths. No shims retained because the project is pre-release.
-
-### Tranche 4 (Plugin Foundation Audit)
-
-Informational only. Verified existing plugin scaffolding (`Plugin` protocol, `PluginCapability` enum, `validate_plugin_payload`). No code changes needed.
-
-### Deferred Work
-
-- Tranche 3 also proposed renaming `core/runtime/` → `core/supervision/` but this was deferred to a follow-up.
-- Consolidation of `core/diagnostics/` into `core/observability/` was proposed but deferred.
-- Fake adapter reorganization (move to `adapters/fakes/` subdirectory) was proposed but deferred.

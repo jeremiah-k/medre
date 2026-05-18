@@ -7,7 +7,6 @@ This runbook describes how to run the Meshtastic live smoke tests against
 a real Meshtastic radio node, what the tests cover, and what they do not
 cover.
 
-
 ## Purpose
 
 The live smoke harness provides **two distinct categories** of tests, which
@@ -16,7 +15,7 @@ must not be conflated:
 ### Category A: Raw `mtjk` API Smoke Tests
 
 These tests exercise the **raw** `meshtastic` (mtjk) library directly —
-without going through the MEDRE adapter.  They validate that:
+without going through the MEDRE adapter. They validate that:
 
 - The `mtjk` package is installed and importable as `meshtastic`.
 - A `TCPInterface` (or `SerialInterface`) can connect to a real node.
@@ -26,7 +25,7 @@ without going through the MEDRE adapter.  They validate that:
 - Received packets have the expected shape (`decoded`, `id`, `portnum`).
 
 **These tests do NOT exercise the MEDRE adapter's connection, codec, or
-send pipeline.**  They prove that the underlying `mtjk` library works
+send pipeline.** They prove that the underlying `mtjk` library works
 against real hardware.
 
 ### Category B: MEDRE Adapter Lifecycle Smoke Tests
@@ -39,7 +38,7 @@ These tests exercise the **MEDRE** `MeshtasticAdapter` against a real node:
 - `stop()` closes the client and unsubscribes cleanly.
 
 **These tests do NOT exercise full MEDRE adapter `send_one` / `deliver`
-integration.**  The adapter lifecycle (connect → health → disconnect) is
+integration.** The adapter lifecycle (connect → health → disconnect) is
 tested, but outbound delivery through the MEDRE queue + `send_one` path
 against real hardware is deferred to a future harness.
 
@@ -55,9 +54,8 @@ against real hardware is deferred to a future harness.
 - Production-grade reconnection handling.
 - BLE connectivity (documented but not exercised in this harness).
 
-The harness is **optional** and **skipped by default**.  Default `pytest`
+The harness is **optional** and **skipped by default**. Default `pytest`
 runs remain fake-only.
-
 
 ## Dependency Installation
 
@@ -70,12 +68,12 @@ pip install mtjk
 **Important notes:**
 
 - **Distribution name:** `mtjk` on PyPI.
-- **Import namespace:** `meshtastic` (not `mtjk`).  The package is a
+- **Import namespace:** `meshtastic` (not `mtjk`). The package is a
   drop-in fork of the upstream Meshtastic Python library.
 - **Source:** Fork maintained at `github.com/jeremiah-k/mtjk`.
-- **Version:** 2.7.8.post2+ verified.  The upstream/fork master `pyproject`
+- **Version:** 2.7.8.post2+ verified. The upstream/fork master `pyproject`
   name is `meshtastic` v2.7.8.
-- **Optional:** Core MEDRE tests pass without `mtjk`.  Only live smoke
+- **Optional:** Core MEDRE tests pass without `mtjk`. Only live smoke
   tests require it.
 
 All Meshtastic dependencies (including `PyPubSub` for callbacks) are pulled
@@ -84,7 +82,6 @@ automatically by the `[meshtastic]` extra:
 ```bash
 pip install -e ".[meshtastic]"
 ```
-
 
 ## Connection Types
 
@@ -165,21 +162,19 @@ iface = meshtastic.ble_interface.BLEInterface(
 - **Not exercised in the current live harness** — added for documentation
   completeness.
 
-
 ## Required Environment Variables
 
-| Variable                      | Required for | Example                   | Description                         |
-|-------------------------------|-------------|---------------------------|-------------------------------------|
-| `MESHTASTIC_CONNECTION_TYPE`  | All         | `tcp`                     | Connection mode: `tcp`, `serial`, `ble` |
-| `MESHTASTIC_HOST`             | TCP         | `meshtastic.local`        | Node hostname or IP address         |
-| `MESHTASTIC_PORT`             | TCP         | `4403`                    | TCP port (default `4403`)           |
-| `MESHTASTIC_SERIAL_PORT`      | Serial      | `/dev/ttyUSB0`            | Serial device path                  |
-| `MESHTASTIC_BLE_ADDRESS`      | BLE         | `AA:BB:CC:DD:EE:FF`       | BLE MAC address                     |
-| `MESHTASTIC_CHANNEL_INDEX`    | All         | `0`                       | Channel for test messages (default `0`) |
+| Variable                     | Required for | Example             | Description                             |
+| ---------------------------- | ------------ | ------------------- | --------------------------------------- |
+| `MESHTASTIC_CONNECTION_TYPE` | All          | `tcp`               | Connection mode: `tcp`, `serial`, `ble` |
+| `MESHTASTIC_HOST`            | TCP          | `meshtastic.local`  | Node hostname or IP address             |
+| `MESHTASTIC_PORT`            | TCP          | `4403`              | TCP port (default `4403`)               |
+| `MESHTASTIC_SERIAL_PORT`     | Serial       | `/dev/ttyUSB0`      | Serial device path                      |
+| `MESHTASTIC_BLE_ADDRESS`     | BLE          | `AA:BB:CC:DD:EE:FF` | BLE MAC address                         |
+| `MESHTASTIC_CHANNEL_INDEX`   | All          | `0`                 | Channel for test messages (default `0`) |
 
 If any required variable is unset, all live tests skip with a descriptive
 message.
-
 
 ## Running the Tests
 
@@ -203,7 +198,7 @@ pytest -m ""
 
 ### Expected Output (successful run)
 
-```
+```text
 tests/test_meshtastic_live.py::TestMeshtasticLiveSmoke::test_tcp_interface_connects PASSED
 tests/test_meshtastic_live.py::TestMeshtasticLiveSmoke::test_adapter_starts_and_reports_healthy PASSED
 tests/test_meshtastic_live.py::TestMeshtasticLiveSmoke::test_send_text_via_raw_interface PASSED
@@ -216,52 +211,49 @@ tests/test_meshtastic_live.py::TestMeshtasticLiveSmoke::test_sendtext_returns_pa
 
 ### Expected Output (missing env vars — skip behavior)
 
-```
+```text
 tests/test_meshtastic_live.py::TestMeshtasticLiveSmoke::test_tcp_interface_connects SKIPPED
 tests/test_meshtastic_live.py::TestMeshtasticLiveSmoke::test_adapter_starts_and_reports_healthy SKIPPED
 ...
 8 skipped in X.XXs
 ```
 
-With reason: *"Set MESHTASTIC_CONNECTION_TYPE (tcp/serial/ble) to run
-live Meshtastic tests"*
-
+With reason: _"Set MESHTASTIC_CONNECTION_TYPE (tcp/serial/ble) to run
+live Meshtastic tests"_
 
 ## Common Failures
 
-| Symptom | Cause | Fix |
-|---------|-------|-----|
-| `ImportError: No module named 'meshtastic'` | `mtjk` not installed | `pip install mtjk` |
-| `ConnectionRefusedError` or timeout | Node unreachable, wrong host/port | Verify hostname/IP; check node is powered on; try `ping meshtastic.local` |
-| `sendText` returns `None` or empty packet | Node firmware issue | Update node firmware; try with `meshtastic` CLI tool first |
-| All tests SKIP | Env vars not set | Set `MESHTASTIC_CONNECTION_TYPE` and corresponding connection params |
-| `OSError: [Errno 13] Permission denied` on serial port | User not in `dialout` group | `sudo usermod -aG dialout $USER`; re-login |
-| BLE connection fails | BlueZ not running or address wrong | Verify `bluetoothctl scan on` sees the device; check MAC format |
-| Pubsub callback never fires | Mesh is silent | Send a message from another node or use self-receive test |
-| `MeshtasticConnectionError: mtjk library not installed` | `mtjk` missing but `connection_type != "fake"` | `pip install mtjk` or use `connection_type="fake"` |
-
+| Symptom                                                 | Cause                                          | Fix                                                                       |
+| ------------------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------- |
+| `ImportError: No module named 'meshtastic'`             | `mtjk` not installed                           | `pip install mtjk`                                                        |
+| `ConnectionRefusedError` or timeout                     | Node unreachable, wrong host/port              | Verify hostname/IP; check node is powered on; try `ping meshtastic.local` |
+| `sendText` returns `None` or empty packet               | Node firmware issue                            | Update node firmware; try with `meshtastic` CLI tool first                |
+| All tests SKIP                                          | Env vars not set                               | Set `MESHTASTIC_CONNECTION_TYPE` and corresponding connection params      |
+| `OSError: [Errno 13] Permission denied` on serial port  | User not in `dialout` group                    | `sudo usermod -aG dialout $USER`; re-login                                |
+| BLE connection fails                                    | BlueZ not running or address wrong             | Verify `bluetoothctl scan on` sees the device; check MAC format           |
+| Pubsub callback never fires                             | Mesh is silent                                 | Send a message from another node or use self-receive test                 |
+| `MeshtasticConnectionError: mtjk library not installed` | `mtjk` missing but `connection_type != "fake"` | `pip install mtjk` or use `connection_type="fake"`                        |
 
 ## Safety Notes
 
 1. **Radio traffic.** Tests send a small number of text messages (2-3) on
-   the configured channel.  Ensure the channel is not used for critical or
+   the configured channel. Ensure the channel is not used for critical or
    emergency communications during testing.
 
 2. **Message identification.** All test messages are prefixed with
    `MEDRE live smoke` for easy identification and cleanup.
 
 3. **Frequency regulations.** Meshtastic operates on license-free bands
-   (primarily 868 MHz EU / 915 MHz US).  Ensure your node is configured
-   for your regional regulations.  The tests do not modify radio settings.
+   (primarily 868 MHz EU / 915 MHz US). Ensure your node is configured
+   for your regional regulations. The tests do not modify radio settings.
 
-4. **Duty cycle.** Tests send a minimal number of packets.  No stress
+4. **Duty cycle.** Tests send a minimal number of packets. No stress
    testing or high-volume transmission is performed.
 
 5. **Firmware compatibility.** `mtjk` v2.7.8.post2 has been verified
-   against the source code.  Actual firmware compatibility depends on
-   the node's firmware version.  If you encounter protocol errors,
+   against the source code. Actual firmware compatibility depends on
+   the node's firmware version. If you encounter protocol errors,
    update both the node firmware and the `mtjk` package.
-
 
 ## sendText / sendData Findings
 
@@ -311,23 +303,22 @@ iface.sendData(
 - The exact timing of when the `id` is assigned (client-side vs.
   firmware-confirmed) has not been verified with hardware captures.
 - The `onResponse` callback mechanism for ACK/NAK tracking has not been
-  tested.  It is documented as receiving the routing response packet.
+  tested. It is documented as receiving the routing response packet.
 - `hopLimit` behavior (default value, interaction with firmware defaults)
   is not verified beyond the source code.
-
 
 ## What It Proves / Does Not Prove
 
 ### Proves
 
-- `mtjk` installs correctly and imports as `meshtastic`.  (Category A)
-- TCP/serial connection to a real node works.  (Category A)
-- `sendText` and `sendData` return packets with IDs.  (Category A)
-- Pubsub callbacks fire for received packets.  (Category A)
-- Packet shape includes expected fields (`decoded`, `id`, `portnum`).  (Category A)
-- MEDRE `MeshtasticAdapter.start()` connects to a real node.  (Category B)
-- MEDRE `health_check()` reports `"healthy"` after start.  (Category B)
-- MEDRE `stop()` disconnects cleanly.  (Category B)
+- `mtjk` installs correctly and imports as `meshtastic`. (Category A)
+- TCP/serial connection to a real node works. (Category A)
+- `sendText` and `sendData` return packets with IDs. (Category A)
+- Pubsub callbacks fire for received packets. (Category A)
+- Packet shape includes expected fields (`decoded`, `id`, `portnum`). (Category A)
+- MEDRE `MeshtasticAdapter.start()` connects to a real node. (Category B)
+- MEDRE `health_check()` reports `"healthy"` after start. (Category B)
+- MEDRE `stop()` disconnects cleanly. (Category B)
 
 ### Does Not Prove
 
@@ -343,16 +334,15 @@ iface.sendData(
 - Real-time performance under load.
 - Compatibility with all firmware versions.
 
-
 ## Cleanup
 
 After running tests:
 
-1. **No persistent state is created.**  Test messages are sent to the
+1. **No persistent state is created.** Test messages are sent to the
    radio channel but no files, databases, or configuration are written.
 
-2. **Test messages remain on the mesh.**  Meshtastic does not support
-   message deletion.  Messages are prefixed with `MEDRE live smoke` for
+2. **Test messages remain on the mesh.** Meshtastic does not support
+   message deletion. Messages are prefixed with `MEDRE live smoke` for
    identification.
 
 3. **Unset environment variables** if running in a shared environment:
@@ -363,7 +353,6 @@ After running tests:
    ```
 
 4. **Disconnect the node** if it was powered on only for testing.
-
 
 ## Live Validation Evidence
 
@@ -395,7 +384,6 @@ After running tests:
 - **Destructive operations:** None. No admin packets, firmware changes, or config writes.
 - **Second-node inbound:** **NOT EXECUTED** — requires a second Meshtastic node not present.
 - **Soak test result:** **NOT EXECUTED** (see `tests/test_soak.py::TestMeshtasticSoak`)
-
 
 ## Explicit Scope Exclusions
 

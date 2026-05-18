@@ -3,7 +3,6 @@
 > Contract version: 3
 > Last updated: 2026-05-09
 
-
 ## Overview
 
 This is a constrained radio transport adapter. The Meshtastic adapter declares `AdapterRole.TRANSPORT` and uses the `mtjk` library (distribution name `mtjk`, import name `meshtastic`) as an optional dependency. Tranche 1 validates that the MEDRE runtime's decode/render/deliver pipeline works against a radio transport with short text messages, channel-based routing, and protocol-native packet IDs.
@@ -11,7 +10,6 @@ This is a constrained radio transport adapter. The Meshtastic adapter declares `
 The adapter does not route, does not plan, and does not render fallback text. It decodes inbound Meshtastic text packets into canonical events and delivers outbound rendered content. The pipeline owns receipts, relation resolution, and storage. Adapters transport messages and report native delivery metadata back to the pipeline. The Meshtastic-specific renderer lives inside the adapter package (`medre.adapters.meshtastic.renderer`), not in core. Core owns the generic rendering protocol and pipeline machinery. Core never imports from the Meshtastic adapter package.
 
 Meshtastic capabilities in tranche 1 are limited to text message ingress and egress over named channels. Telemetry, node database caching, position data, E2EE, and production hardware connections are all deferred.
-
 
 ## Supported Features
 
@@ -25,7 +23,6 @@ Meshtastic capabilities in tranche 1 are limited to text message ingress and egr
 - **Background tasks.** `MeshtasticAdapter._on_packet()` is synchronous. It schedules async publishing via `asyncio.create_task`, tracking each task in `_background_tasks`. All tracked tasks are cancelled and awaited in `stop()`.
 - **Fake adapter for tests.** `FakeMeshtasticAdapter` is a full adapter (not a client-facing test utility) that mirrors the real adapter's lifecycle and inbound/outbound flow. It uses an internal `FakeMeshtasticClient` that generates sequential deterministic packet IDs starting from 1 and tracks all sent packets in `sent_packets`. The fake adapter's `deliver()` returns an `AdapterDeliveryResult` with the deterministic packet ID. `set_deliver_failure(True)` triggers an `AdapterSendError` (transient) on the next delivery for error testing. No real hardware, no `mtjk` dependency, no network required.
 - **Optional dependency handling.** The `mtjk` package is guarded by `HAS_MESHTASTIC` in `medre.adapters.meshtastic.compat`. When `mtjk` is not installed, the flag is `False`. The adapter's `start()` raises `MeshtasticConnectionError` for non-fake connection types when the library is missing. Core tests pass without `mtjk`. Adapter tests use `FakeMeshtasticAdapter` and do not require `mtjk`.
-
 
 ## Architecture Boundaries
 
@@ -41,7 +38,6 @@ These boundaries are enforced by design, not by convention. Tests verify them.
 - The adapter owns outbound queueing. The queue owns pacing. The pipeline does not sleep for Meshtastic.
 - Storage remains the authoritative source for event correlation. The pipeline owns receipts and persistence. Adapters transport and report native delivery metadata.
 - No real hardware or network is required for default tests. `FakeMeshtasticAdapter` simulates the full cycle.
-
 
 ## Capability Declaration
 
@@ -65,25 +61,23 @@ AdapterCapabilities(
 
 This is an honest declaration. The adapter does what it says and nothing more. `max_text_bytes=512` and `max_text_chars=512` advertise the transport's willingness to handle payloads up to that size. The renderer does not enforce truncation in tranche 1. `direct_messages=False` means outbound DM delivery is not supported, even though inbound DM metadata is preserved in `metadata.native.data`.
 
-
 ## Configuration (MeshtasticConfig)
 
 `MeshtasticConfig` is a frozen dataclass with a `validate()` method that checks field constraints. Invalid configuration raises `MeshtasticConfigError` before the adapter starts.
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `adapter_id` | `str` | Yes | Unique adapter instance ID. Must be non-empty. |
-| `connection_type` | `Literal["fake", "tcp", "serial", "ble"]` | No | Connection mode. Defaults to `"fake"` for testing without hardware. |
-| `host` | `str \| None` | No | Hostname or IP for TCP connections. Required when `connection_type="tcp"`. |
-| `port` | `int \| None` | No | Port number for TCP connections. |
-| `serial_port` | `str \| None` | No | Serial device path for serial connections. |
-| `meshnet_name` | `str` | No | Human-readable meshnet name. Informational. Defaults to `""`. |
-| `default_channel` | `int` | No | Default radio channel index for outbound messages. Defaults to `0`. Must be >= 0. |
-| `channel_mapping` | `dict[int, str]` | No | Mapping of channel index to human-readable channel name. Defaults to empty dict. |
-| `message_delay_seconds` | `float` | No | Minimum delay between outbound messages (pacing). Defaults to `0.5`. Must be >= 0. |
-| `startup_backlog_suppress_seconds` | `float` | No | Seconds after start to suppress stale backlog packets. Defaults to `5.0`. |
-| `sync_timeout_ms` | `int` | No | Timeout in milliseconds for sync operations. Defaults to `30000`. |
-
+| Field                              | Type                                      | Required | Description                                                                        |
+| ---------------------------------- | ----------------------------------------- | -------- | ---------------------------------------------------------------------------------- |
+| `adapter_id`                       | `str`                                     | Yes      | Unique adapter instance ID. Must be non-empty.                                     |
+| `connection_type`                  | `Literal["fake", "tcp", "serial", "ble"]` | No       | Connection mode. Defaults to `"fake"` for testing without hardware.                |
+| `host`                             | `str \| None`                             | No       | Hostname or IP for TCP connections. Required when `connection_type="tcp"`.         |
+| `port`                             | `int \| None`                             | No       | Port number for TCP connections.                                                   |
+| `serial_port`                      | `str \| None`                             | No       | Serial device path for serial connections.                                         |
+| `meshnet_name`                     | `str`                                     | No       | Human-readable meshnet name. Informational. Defaults to `""`.                      |
+| `default_channel`                  | `int`                                     | No       | Default radio channel index for outbound messages. Defaults to `0`. Must be >= 0.  |
+| `channel_mapping`                  | `dict[int, str]`                          | No       | Mapping of channel index to human-readable channel name. Defaults to empty dict.   |
+| `message_delay_seconds`            | `float`                                   | No       | Minimum delay between outbound messages (pacing). Defaults to `0.5`. Must be >= 0. |
+| `startup_backlog_suppress_seconds` | `float`                                   | No       | Seconds after start to suppress stale backlog packets. Defaults to `5.0`.          |
+| `sync_timeout_ms`                  | `int`                                     | No       | Timeout in milliseconds for sync operations. Defaults to `30000`.                  |
 
 ## Reply Relation Flow
 
@@ -120,7 +114,6 @@ Relation resolution is pipeline-owned. The adapter and codec do not query storag
 2. The real adapter enqueues the payload via `MeshtasticOutboundQueue.enqueue()`.
 3. `deliver()` returns `None` in tranche 1 (scaffolded). No outbound native ref is persisted.
 
-
 ## Relation and Reply Behavior
 
 Meshtastic's text message protocol in tranche 1 carries an optional `replyId` field in the decoded payload. When present, the codec creates an `EventRelation` with `relation_type="reply"`, `target_event_id=None`, and a `target_native_ref` pointing at the referenced packet's native ID. This is an unresolved relation. The pipeline must resolve `target_native_ref` to a `target_event_id` later.
@@ -128,7 +121,6 @@ Meshtastic's text message protocol in tranche 1 carries an optional `replyId` fi
 The adapter declares `replies="unsupported"` in its capabilities. The adapter does not participate in relation resolution beyond producing the `EventRelation` from the native packet data.
 
 Outbound reply delivery (sending a reply that references a previous message) is not supported. Future tranches may add structured reply metadata in the text payload or handle a Meshtastic reply portnum if one is added.
-
 
 ## Telemetry Deferral
 
@@ -138,17 +130,15 @@ The packet classifier recognizes telemetry, position, and nodeinfo portnums and 
 
 No `TelemetryMetadata` or `RadioMetadata` is populated in tranche 1. When telemetry support is added in a future tranche, the codec will decode telemetry portnums into canonical telemetry events with structured metadata. No schema changes are required: the metadata namespaces already exist.
 
-
 ## Queue and Pacing Ownership
 
 `MeshtasticOutboundQueue` owns the delay between outbound messages (`delay_between_messages` property, sourced from `MeshtasticConfig.message_delay_seconds`). The pipeline must not perform Meshtastic-specific sleeping. The queue is the sole owner of transmit pacing.
 
 In tranche 1, the queue is scaffolding. `enqueue()` appends payloads to an internal deque. `dequeue()` returns the next item. `process_one()` dequeues one item but performs no real send and returns `None`. The real Meshtastic adapter's `deliver()` enqueues and returns `None`. The fake adapter bypasses the queue entirely and sends immediately through `FakeMeshtasticClient`.
 
-
 ## Dependency
 
-```
+```bash
 pip install medre[meshtastic]
 ```
 
@@ -174,7 +164,6 @@ except ImportError:
     HAS_MESHTASTIC = False
 ```
 
-
 ## Testing Approach
 
 - **FakeMeshtasticAdapter.** No real hardware, no `mtjk` dependency, no network. Uses `FakeMeshtasticClient` internally for deterministic sequential packet IDs and `sent_packets` tracking. `set_deliver_failure()` triggers errors for pipeline error handling tests.
@@ -189,6 +178,7 @@ except ImportError:
 Tranche 1.5 is a fixture hardening and realism audit pass, not a feature expansion. It makes the existing MEDRE contract tests more faithful to real Meshtastic packet behaviour without adding production connection support.
 
 Changes in this pass:
+
 - Centralised fixture corpus at `tests/fixtures/meshtastic_packets.py` with named factories for all packet shapes
 - Fixture corpus covers both MEDRE-normalized portnums and real symbolic values such as `TEXT_MESSAGE_APP`, `TELEMETRY_APP`, `POSITION_APP`, `NODEINFO_APP`, `ADMIN_APP`, and `ROUTING_APP`
 - Explicit `normalize_portnum()` helper normalizes real symbolic portnums without claiming full protobuf enum coverage
@@ -206,6 +196,7 @@ Changes in this pass:
 Tranche 2 is a source-of-truth audit and connection boundary preparation pass. It does not add production connection support, telemetry decoding, or any new real adapter functionality.
 
 Changes in this pass:
+
 - Source audit document at `docs/contracts/10-meshtastic-source-audit.md` covering MMRelay behavioral facts, mtjk callback shapes, PortNum enum verification, and send-result analysis
 - Connection boundary design note at `docs/contracts/11-meshtastic-connection-boundary.md` for future real connection implementation
 - Optional dependency verified: `mtjk` v2.7.8.post2 installed, imports as `meshtastic`, protobuf PortNum enum accessible at `meshtastic.protobuf.portnums_pb2.PortNum`
@@ -222,6 +213,7 @@ and comprehensive documentation. It does not add production connection
 support or any new adapter functionality.
 
 Changes in this pass:
+
 - Fixture provenance labels added to every factory in
   `tests/fixtures/meshtastic_packets.py`: mtjk-derived, MMRelay-derived,
   synthetic scaffold, unverified
@@ -240,7 +232,6 @@ Changes in this pass:
 - Pytest `live` marker description updated to cover all services
 - No MMRelay compatibility mode implemented, no hardware/network required
   in default tests, no production connectivity added
-
 
 ## Non-Goals (This Tranche)
 
@@ -262,7 +253,6 @@ These are explicitly out of scope for tranche 1:
 - **Remote hardware portnum.** No remote hardware control.
 - **Renderer truncation enforcement.** The renderer notes Meshtastic payload size limits but does not truncate in tranche 1.
 
-
 ---
 
-*This contract describes the implemented Meshtastic adapter tranche 1. If the implementation diverges from this document, the document should be updated to match the implementation's actual behavior.*
+_This contract describes the implemented Meshtastic adapter tranche 1. If the implementation diverges from this document, the document should be updated to match the implementation's actual behavior._

@@ -12,7 +12,6 @@ for two scenarios:
 2. **With optional transport extras** (Matrix, Meshtastic, MeshCore, or LXMF
    SDKs). Add these when you have the corresponding hardware or server access.
 
-
 ## Prerequisites
 
 - Python >= 3.11
@@ -20,7 +19,6 @@ for two scenarios:
 - (Optional) Docker, for integration test configs that reference containerized
   Synapse or meshtasticd instances. Docker is not required for the basic
   fake-only path.
-
 
 ## 1. Install
 
@@ -77,16 +75,15 @@ Combine as needed: `pip install -e ".[matrix,meshtastic,dev]"`.
 
 Platform notes for optional extras:
 
-| Extra | Notes |
-|-------|-------|
+| Extra        | Notes                                                          |
+| ------------ | -------------------------------------------------------------- |
 | `matrix-e2e` | `vodozemac` needs a Rust toolchain on Alpine and ARM platforms |
-| `meshtastic` | Serial access requires `dialout` group on Linux |
-| `meshcore` | Serial access requires `dialout` group on Linux |
-| `lxmf` | Reticulum uses a non-OSI license; review before distribution |
+| `meshtastic` | Serial access requires `dialout` group on Linux                |
+| `meshcore`   | Serial access requires `dialout` group on Linux                |
+| `lxmf`       | Reticulum uses a non-OSI license; review before distribution   |
 
 See the [Developer Environment Guide](developer-environment.md) for detailed
 platform-specific setup per transport.
-
 
 ## 2. Verify the install
 
@@ -108,7 +105,6 @@ medre adapters
 # Expected: all transports show "not installed" (core-only install).
 # Fake adapters work regardless of SDK status.
 ```
-
 
 ## 3. Generate and validate a config
 
@@ -157,7 +153,6 @@ Config file locations:
 
 See the [Configuration Runbook](configuration.md) for the full TOML schema.
 
-
 ## 4. Run a smoke test
 
 `medre smoke` builds a runtime from a config, injects a test message through
@@ -200,7 +195,6 @@ Without `--config`, `medre smoke` looks for `examples/configs/fake-bridge-smoke.
 relative to the source tree. This works in development checkouts but not from
 an installed package. Use `--config` explicitly in that case.
 
-
 ## 5. Inspect results
 
 After a smoke test, use inspect commands to examine what happened. These are
@@ -216,7 +210,6 @@ medre inspect receipts --event <event_id> --storage-path /tmp/medre-alpha.db
 
 See the [Alpha Walkthrough](alpha-walkthrough.md) for the full inspect and
 investigation workflow.
-
 
 ## 6. Optional: Validate example configs (source checkout only)
 
@@ -240,18 +233,17 @@ medre config check --config examples/configs/meshtastic-serial.toml
 
 Available example configs:
 
-| Config | Purpose | Requires SDKs? |
-|--------|---------|----------------|
-| `fake-multi-adapter.toml` | All four fake adapters with routes | No |
-| `fake-bridge-smoke.toml` | Cross-adapter bridge patterns | No |
-| `fake-retry-smoke.toml` | Retry worker with fake adapters | No |
-| `matrix.toml` | Real Matrix adapter (credential placeholder) | Yes (matrix) |
-| `meshtastic-serial.toml` | Real Meshtastic serial adapter | Yes (meshtastic) |
-| `mixed-matrix-meshtastic.toml` | Mixed real Matrix + Meshtastic | Yes (both) |
-| `docker-matrix-bridge.toml` | Docker Synapse + Meshtastic integration | Yes + Docker |
-| `docker-meshtastic-bridge.toml` | Docker meshtasticd + Matrix integration | Yes + Docker |
-| `docker-bridge-smoke.toml` | Docker integration smoke test | Yes + Docker |
-
+| Config                          | Purpose                                      | Requires SDKs?   |
+| ------------------------------- | -------------------------------------------- | ---------------- |
+| `fake-multi-adapter.toml`       | All four fake adapters with routes           | No               |
+| `fake-bridge-smoke.toml`        | Cross-adapter bridge patterns                | No               |
+| `fake-retry-smoke.toml`         | Retry worker with fake adapters              | No               |
+| `matrix.toml`                   | Real Matrix adapter (credential placeholder) | Yes (matrix)     |
+| `meshtastic-serial.toml`        | Real Meshtastic serial adapter               | Yes (meshtastic) |
+| `mixed-matrix-meshtastic.toml`  | Mixed real Matrix + Meshtastic               | Yes (both)       |
+| `docker-matrix-bridge.toml`     | Docker Synapse + Meshtastic integration      | Yes + Docker     |
+| `docker-meshtastic-bridge.toml` | Docker meshtasticd + Matrix integration      | Yes + Docker     |
+| `docker-bridge-smoke.toml`      | Docker integration smoke test                | Yes + Docker     |
 
 ## 7. Docker validation (optional)
 
@@ -273,7 +265,6 @@ docker compose -f docker-compose.integration.yaml down
 ```
 
 Docker is not required for the basic install or the fake-only smoke path.
-
 
 ## Quick reference
 

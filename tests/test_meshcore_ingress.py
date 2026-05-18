@@ -5,15 +5,14 @@ make_text_event, metadata namespacing for inbound, and session _on_sdk_event.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
 
 import pytest
 
 from medre.adapters import FakeMeshCoreAdapter
 from medre.adapters.meshcore.adapter import MeshCoreAdapter
-from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.adapters.meshcore.session import MeshCoreSession
-from medre.core.events import CanonicalEvent, EventMetadata
+from medre.config.adapters.meshcore import MeshCoreConfig
+from medre.core.events import CanonicalEvent
 
 
 def _make_config(**overrides) -> MeshCoreConfig:
@@ -93,7 +92,9 @@ class TestFakeMeshCoreAdapterSimulateInbound:
         with pytest.raises(RuntimeError, match="has not been started"):
             await adapter.simulate_inbound(packet)
 
-    async def test_simulate_inbound_ignores_non_text(self, make_adapter_context) -> None:
+    async def test_simulate_inbound_ignores_non_text(
+        self, make_adapter_context
+    ) -> None:
         adapter = FakeMeshCoreAdapter()
         ctx = make_adapter_context("meshcore-1")
         await adapter.start(ctx)
@@ -198,9 +199,7 @@ class TestMeshCoreAdapterTaskScheduling:
         # Task should have been discarded after completion
         assert len(adapter._background_tasks) == 0
 
-    async def test_stop_cancels_background_tasks(
-        self, make_adapter_context
-    ) -> None:
+    async def test_stop_cancels_background_tasks(self, make_adapter_context) -> None:
         config = _make_config(connection_type="fake")
         adapter = MeshCoreAdapter(config)
         ctx = make_adapter_context("meshcore-1")
@@ -220,6 +219,7 @@ class TestMeshCoreAdapterTaskScheduling:
     async def test_no_ensure_future(self) -> None:
         """Verify _on_message does not use asyncio.ensure_future."""
         import inspect
+
         source = inspect.getsource(MeshCoreAdapter._on_message)
         assert "ensure_future" not in source
         assert "create_task" in source
@@ -366,6 +366,7 @@ class TestMeshCoreSessionOnSdkEvent:
         assert session._message_callback is None
 
         from types import SimpleNamespace
+
         sdk_event = SimpleNamespace(
             type="CONTACT_MSG_RECV",
             payload={"text": "should not crash"},

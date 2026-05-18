@@ -18,12 +18,13 @@ from unittest.mock import AsyncMock
 import pytest
 
 from medre.config.model import RuntimeLimits
-from medre.core.events import CanonicalEvent, EventMetadata, RoutingMetadata
+from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.planning import FallbackResolver
-from medre.core.rendering import RenderingPipeline, TextRenderer
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.rendering import RenderingPipeline
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.routing.stats import RouteStats
-from medre.core.storage import EventFilter, SQLiteStorage
+from medre.core.runtime.accounting import RuntimeAccounting
+from medre.core.storage import SQLiteStorage
 from medre.core.storage.backend import StorageBackend
 from medre.core.storage.replay import (
     ReplayEngine,
@@ -37,8 +38,6 @@ from medre.core.storage.replay import (
     collect_replay_summary,
 )
 from medre.runtime.capacity import CapacityController
-from medre.core.runtime.accounting import RuntimeAccounting
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -91,7 +90,8 @@ class _StubPipeline:
         return None
 
     async def route_event(
-        self, event: CanonicalEvent,
+        self,
+        event: CanonicalEvent,
     ) -> list[tuple[Any, list[Any]]]:
         if self._router is None:
             return []
@@ -107,11 +107,9 @@ class _StubPipeline:
         routes: list[tuple[Any, list[Any]]],
     ) -> list[Any]:
         plans: list[Any] = []
-        for route, targets in routes:
+        for _route, targets in routes:
             for target in targets:
-                plan = self._fallback_resolver.resolve_fallback(
-                    event, target, {}
-                )
+                plan = self._fallback_resolver.resolve_fallback(event, target, {})
                 plans.append(plan)
         return plans
 
@@ -193,8 +191,10 @@ class TestReplayCancellation:
         accounting = RuntimeAccounting()
 
         engine = _make_engine(
-            temp_storage, pipeline=pipeline,
-            capacity_controller=cc, accounting=accounting,
+            temp_storage,
+            pipeline=pipeline,
+            capacity_controller=cc,
+            accounting=accounting,
         )
         request = ReplayRequest(mode=ReplayMode.BEST_EFFORT)
 
@@ -482,8 +482,10 @@ class TestReplayShutdown:
         # First 2 should have succeeded (or been in-flight before stop)
         # Remaining should have capacity errors
         rejected_errors = [
-            r for r in deliver_results
-            if r.status == "error" and (
+            r
+            for r in deliver_results
+            if r.status == "error"
+            and (
                 "replay_rejected_shutdown" in (r.error or "")
                 or "replay_capacity_exceeded" in (r.error or "")
             )
@@ -544,7 +546,7 @@ class TestReplayRepeatedCycles:
 
         for i in range(1, 5):
             assert len(all_runs[0]) == len(all_runs[i])
-            for r1, r2 in zip(all_runs[0], all_runs[i]):
+            for r1, r2 in zip(all_runs[0], all_runs[i], strict=False):
                 assert r1.event_id == r2.event_id
                 assert r1.stage == r2.stage
                 assert r1.status == r2.status
@@ -576,7 +578,10 @@ class TestReplayRepeatedCycles:
             assert summaries[i].skipped_count == summaries[0].skipped_count
             assert summaries[i].by_status == summaries[0].by_status
             assert summaries[i].by_route == summaries[0].by_route
-            assert summaries[i].route_resolution_count == summaries[0].route_resolution_count
+            assert (
+                summaries[i].route_resolution_count
+                == summaries[0].route_resolution_count
+            )
 
     async def test_loop_warnings_deterministic_across_cycles(
         self,
@@ -713,7 +718,7 @@ class TestObservabilityConsistency:
         trace_lengths: list[int] = []
         for _ in range(10):
             results = [r async for r in engine.replay(request)]
-            route_result = results[1]
+            results[1]
             # The route output contains the enriched event (via real pipeline)
             # or the stub returns (route, targets).  The stored event is not
             # mutated, so route_trace should stay bounded.
@@ -727,9 +732,9 @@ class TestObservabilityConsistency:
         # Since replay is read-only and doesn't mutate storage, the stored
         # event's route_trace should be 0 (or the original value) across
         # all replays — it should NOT grow linearly.
-        assert all(t == trace_lengths[0] for t in trace_lengths), (
-            f"route_trace length changed across replays: {trace_lengths}"
-        )
+        assert all(
+            t == trace_lengths[0] for t in trace_lengths
+        ), f"route_trace length changed across replays: {trace_lengths}"
         assert trace_lengths[0] <= 2  # original event has no routing
 
     async def test_replay_state_matches_summary(

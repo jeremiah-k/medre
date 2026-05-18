@@ -10,7 +10,6 @@ Every agent or document that references MEDRE cancellation behavior, stop semant
 
 **Evidence separation (Track 9):** Cancellation behavior in this contract is backed by S-tier (simulated/fake) evidence from deterministic unit tests (`test_runtime_cancellation.py`, `test_runtime_hygiene.py`, `test_runtime_recovery.py`). No R-tier (real-live-runtime) evidence for cancellation under live transport conditions has been collected. Cancellation under real network latency, adapter reconnect during shutdown, and transport SDK cancellation propagation are NOT EXECUTED at R-tier. See Contract 61 §5.1 for evidence scores.
 
-
 ## 1. Scope
 
 This contract specifies how the MEDRE runtime cancels work. It covers:
@@ -22,12 +21,11 @@ This contract specifies how the MEDRE runtime cancels work. It covers:
 - Idempotency of `stop()`.
 - What cancellation does **not** guarantee.
 
-
 ## 2. RuntimeState and Cancellation
 
 The `RuntimeState` enum has six states:
 
-```
+```text
 INITIALIZED → STARTING → RUNNING → STOPPING → STOPPED
                                  ↘ FAILED
 ```
@@ -37,7 +35,6 @@ Cancellation is relevant in the `STOPPING` state. The runtime transitions from `
 The runtime transitions to `FAILED` if any subsystem fails during shutdown.
 
 There are no substates within `STOPPING` for individual shutdown phases. Phase-level progress is observable through structured logging, not through state transitions.
-
 
 ## 3. CapacityController Cancellation
 
@@ -55,7 +52,7 @@ When `CapacityController.stop_accepting()` is called (during `MedreApp.stop()`):
 
 The `acquire_delivery()` and `acquire_replay()` methods follow this flow:
 
-```
+```python
 acquire():
   if not accepting_work:
     increment rejection counter
@@ -84,21 +81,20 @@ acquire():
 - It does **not** release held semaphore slots. In-flight work that already acquired a slot continues to hold it until the work completes or is cancelled by the pipeline teardown.
 - It does **not** close transport connections. That happens during adapter `stop()`.
 
-
 ## 4. Shutdown Cancellation Sequence
 
 When `MedreApp.stop()` is called, cancellation proceeds through these ordered steps:
 
 ### Step 1: Stop Accepting New Work
 
-```
+```yaml
 RuntimeState: RUNNING → STOPPING
 capacity_controller.stop_accepting()   # No new deliveries or replay admitted
 ```
 
 ### Step 2: Drain In-Flight Work
 
-```
+```python
 drain_deadline = now + shutdown_drain_timeout_seconds
 while now < drain_deadline:
     snap = capacity_controller.snapshot()
@@ -110,13 +106,14 @@ else:
 ```
 
 During the drain phase:
+
 - In-flight deliveries and replay events **continue executing**. They are not cancelled during the drain.
 - If both `delivery_current` and `replay_current` reach zero before the deadline, the drain is successful.
 - If the deadline expires with work remaining, the drain times out. The remaining work is abandoned — it will be cancelled when adapters are stopped (their tasks are cancelled) or when the pipeline runner is stopped.
 
 ### Step 3: Signal Shutdown
 
-```
+```text
 shutdown_event.set()                   # Notifies adapters and waiters
 ```
 
@@ -136,14 +133,13 @@ Adapter receive loops and sync loops respond to task cancellation (asyncio `Canc
 
 `Storage.close()` flushes SQLite WAL buffers and releases the connection.
 
-
 ## 5. Cancellation During Delivery
 
 ### 5.1 Per-Target Delivery Cancellation
 
 Each per-target delivery acquires a `CapacityController` slot in a `try/finally` block:
 
-```
+```python
 async def _deliver_to_target(...):
     if not await capacity_controller.acquire_delivery():
         return DeliveryOutcome(status="permanent_failure", error="delivery_capacity_exceeded", failure_kind=CAPACITY_REJECTION)
@@ -164,14 +160,13 @@ When a delivery fans out to multiple targets, each target's delivery is an indep
 
 If a delivery completes (success or failure) before the drain timeout expires, it is not affected by shutdown. The delivery receipt is written to storage. The capacity slot is released normally.
 
-
 ## 6. Cancellation During Replay
 
 ### 6.1 Replay Capacity Gating
 
 Replay deliveries acquire a replay slot via `acquire_replay()`:
 
-```
+```python
 async def _stage_deliver(...):
     if not await capacity_controller.acquire_replay():
         return ReplayResult(status="error", error="replay_capacity_exceeded")
@@ -195,7 +190,6 @@ The `ReplayEngine` does not have its own `stop()` method. Replay cancellation re
 ### 6.3 Non-Delivery Replay Modes Are Not Cancelled
 
 Replay modes that do not involve delivery (`RE_RENDER`, `RE_ROUTE`, `DRY_RUN`) do not acquire replay capacity slots. They are read-only operations that complete normally. They do not participate in the drain or cancellation logic.
-
 
 ## 7. Stop During Startup
 
@@ -225,7 +219,6 @@ If startup fails (total failure or core subsystem error):
 4. `RuntimeStartupError` is raised.
 5. Callers do **not** need to call `stop()` after a startup failure — cleanup is performed before the exception propagates.
 
-
 ## 8. Task Hygiene
 
 ### 8.1 No Leaked Tasks After Stop
@@ -248,7 +241,6 @@ Adapters and the pipeline runner use standard asyncio cancellation:
 
 This is the standard Python asyncio cancellation model. MEDRE does not use shielded tasks, timeout shields, or custom cancellation logic.
 
-
 ## 9. Explicit Non-Guarantees
 
 The following are explicitly **not** guaranteed by the cancellation system:
@@ -260,26 +252,24 @@ The following are explicitly **not** guaranteed by the cancellation system:
 - **Per-delivery cancellation tracking.** The runtime does not track which individual deliveries were cancelled. It logs the count of abandoned deliveries at drain timeout, but not their identities.
 - **Cancellation recovery.** Cancelled deliveries are not retried. Cancelled replay runs are not resumed. The operator must re-initiate replay manually if needed.
 
-
 ## 10. Test Coverage
 
 Cancellation behavior is covered by the following test files:
 
-| Test file | Coverage |
-|-----------|----------|
+| Test file                            | Coverage                                                                                                                                                                                                                                 |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `tests/test_runtime_cancellation.py` | Repeated cancellation cycles, task leak checks, cancellation under load, shutdown during replay, shutdown during capacity wait, shutdown during delivery fanout, stop during startup, repeated stop races, cleanup timeout observability |
-| `tests/test_runtime_recovery.py` | Classification correctness for degraded/failed states, partial adapter startup, replay availability after restart, capacity reset on restart, SQLite persistence across restart |
-| `tests/test_runtime_hygiene.py` | Task hygiene after stop, adapter state transitions, runtime state transitions |
+| `tests/test_runtime_recovery.py`     | Classification correctness for degraded/failed states, partial adapter startup, replay availability after restart, capacity reset on restart, SQLite persistence across restart                                                          |
+| `tests/test_runtime_hygiene.py`      | Task hygiene after stop, adapter state transitions, runtime state transitions                                                                                                                                                            |
 
 These tests use fake adapters only and do not require live transport dependencies.
 
-
 ## 11. Cross-References
 
-| Topic | Contract |
-|-------|----------|
-| CapacityController, delivery/replay capacity bounds, acquire/release flow | Contract 53 (Resource Control) |
-| Shutdown ordering, drain phases, timeout behavior | Contract 54 (Runtime Shutdown) |
-| Durability semantics, what survives crash, process-local vs persisted | Contract 59 (Runtime Durability) |
-| Runtime assembly, `RuntimeState` lifecycle, startup classification | Contract 47 (Runtime Assembly) |
-| Persistence timing, WAL consistency, receipt durability | Contract 55 (Runtime Persistence) |
+| Topic                                                                     | Contract                          |
+| ------------------------------------------------------------------------- | --------------------------------- |
+| CapacityController, delivery/replay capacity bounds, acquire/release flow | Contract 53 (Resource Control)    |
+| Shutdown ordering, drain phases, timeout behavior                         | Contract 54 (Runtime Shutdown)    |
+| Durability semantics, what survives crash, process-local vs persisted     | Contract 59 (Runtime Durability)  |
+| Runtime assembly, `RuntimeState` lifecycle, startup classification        | Contract 47 (Runtime Assembly)    |
+| Persistence timing, WAL consistency, receipt durability                   | Contract 55 (Runtime Persistence) |

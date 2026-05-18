@@ -6,7 +6,6 @@
 
 This document defines the canonical event log semantics, event record taxonomy, replay interface, replay constraints, raw native archive mode, and future backend considerations. An implementer should be able to build the replay engine (`core/storage/replay.py`) and archive module (`core/storage/archive.py`) from this contract alone.
 
-
 ## 1. Canonical Event Log Semantics
 
 The canonical event log is the single source of truth for all event history. Three invariants hold:
@@ -21,22 +20,20 @@ Storage is authoritative over any metadata embedded in external platforms (Matri
 
 The Phase 1 backend is SQLite with WAL mode for concurrent reads. The storage interface is abstracted so backends can be swapped without changing replay logic.
 
-
 ## 2. Event Record Taxonomy
 
 Not every record in the pipeline has the same semantic weight. The runtime distinguishes four classes:
 
-| Record Class | Purpose | Storage Location |
-|---|---|---|
-| **Source Event** | Initial canonical event produced by an adapter codec from raw native data. Primary record of what happened on a transport. | Always stored in `canonical_events`. |
-| **Derived Event** | Produced by enrichment, transform, or policy stages. References parent via `parent_event_id`, carries a full `lineage` tuple. | Stored in `canonical_events` if semantically meaningful (e.g., a telemetry-to-message transform that downstream systems act on). Transient intermediates may be stored or discarded based on configuration. |
-| **Delivery Artifact** | Target-specific rendering of an event for a particular adapter (Matrix HTML with embedded metadata, MeshCore 160-byte truncated text, LXMF fields dict). | Stored as a rendered payload record attached to the delivery plan. Not a canonical event. Adapter-specific, not semantically independent. |
-| **Receipt Event** | Records the outcome of a delivery attempt. | Phase 1: rows in `delivery_receipts` table (not canonical events). Future: may optionally mirror as canonical `delivery.receipt` events for audit. Receipts are semantically meaningful but live in a separate table. |
+| Record Class          | Purpose                                                                                                                                                  | Storage Location                                                                                                                                                                                                      |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Source Event**      | Initial canonical event produced by an adapter codec from raw native data. Primary record of what happened on a transport.                               | Always stored in `canonical_events`.                                                                                                                                                                                  |
+| **Derived Event**     | Produced by enrichment, transform, or policy stages. References parent via `parent_event_id`, carries a full `lineage` tuple.                            | Stored in `canonical_events` if semantically meaningful (e.g., a telemetry-to-message transform that downstream systems act on). Transient intermediates may be stored or discarded based on configuration.           |
+| **Delivery Artifact** | Target-specific rendering of an event for a particular adapter (Matrix HTML with embedded metadata, MeshCore 160-byte truncated text, LXMF fields dict). | Stored as a rendered payload record attached to the delivery plan. Not a canonical event. Adapter-specific, not semantically independent.                                                                             |
+| **Receipt Event**     | Records the outcome of a delivery attempt.                                                                                                               | Phase 1: rows in `delivery_receipts` table (not canonical events). Future: may optionally mirror as canonical `delivery.receipt` events for audit. Receipts are semantically meaningful but live in a separate table. |
 
 **Storage guidance for replay:** The canonical event log holds source events and semantically meaningful derived events. Delivery receipts live in `delivery_receipts`. Target-specific renderings live as payload records on delivery plans. If a rendering is semantically meaningful (e.g., an edited message produces a new canonical event with edit semantics), it is a derived event, not a rendering artifact.
 
 **Receipt append-only rule:** Receipts are append-only. Every delivery attempt produces a new `DeliveryReceipt` row. Existing rows are never updated or deleted. A delivery that retried three times produces four receipt rows. The "current status" of a delivery is a projection: the latest receipt for a given `(event_id, delivery_plan_id, target_adapter)` tuple, provided by the `delivery_status` view.
-
 
 ## 3. ReplayMode Enum and Stage Guarantees
 
@@ -53,44 +50,49 @@ class ReplayMode(Enum):
 
 ### 3.1 Mode Stage Matrix
 
-| Mode | Store | Route | Plan | Render | Deliver | Side Effects |
-|------|-------|-------|------|--------|---------|-------------|
-| **STRICT** | verify | -- | -- | -- | -- | None (read-only) |
-| **RE_RENDER** | verify | -- | -- | capture | -- | None (read-only) |
-| **RE_ROUTE** | verify | route | plan | -- | -- | None (read-only) |
-| **BEST_EFFORT** | verify | route | plan | render | **deliver** | Adapter delivery |
-| **DRY_RUN** | verify | route | plan | capture | skip | None (read-only) |
+| Mode            | Store  | Route | Plan | Render  | Deliver     | Side Effects     |
+| --------------- | ------ | ----- | ---- | ------- | ----------- | ---------------- |
+| **STRICT**      | verify | --    | --   | --      | --          | None (read-only) |
+| **RE_RENDER**   | verify | --    | --   | capture | --          | None (read-only) |
+| **RE_ROUTE**    | verify | route | plan | --      | --          | None (read-only) |
+| **BEST_EFFORT** | verify | route | plan | render  | **deliver** | Adapter delivery |
+| **DRY_RUN**     | verify | route | plan | capture | skip        | None (read-only) |
 
 ### 3.2 Per-Mode Guarantees
 
-**STRICT**
+#### STRICT
+
 - Verifies event existence and integrity (event_id non-empty, event_kind registered).
 - No pipeline stages invoked. No side effects.
 - Re-raises unexpected exceptions.
 - Use for: integrity checks, migration validation, audit verification.
 
-**RE_RENDER**
+#### RE_RENDER
+
 - Re-runs transforms and rendering pipeline. Captures rendering output in `ReplayResult.output`.
 - Does **not** invoke routing, planning, or delivery.
 - No side effects. No storage mutations.
 - Re-raises unexpected exceptions.
 - Use for: testing new renderers, metadata evolution, rendering preview.
 
-**RE_ROUTE**
+#### RE_ROUTE
+
 - Re-runs routing and planning with current route configuration.
 - Does **not** invoke rendering or delivery.
 - No side effects. No storage mutations.
 - Re-raises unexpected exceptions.
 - Use for: testing route changes, planning changes, route coverage analysis.
 
-**BEST_EFFORT**
+#### BEST_EFFORT
+
 - Full re-processing including adapter delivery. Only mode with side effects.
 - Individual event failures are captured as `"error"` results without crashing the replay.
 - Failures are recorded via the `Diagnostician` (adapter_failures, planner_failures, renderer_failures).
 - Results are yielded in storage query order for deterministic iteration.
 - Use for: migration, adapter testing with real data, retry of failed deliveries.
 
-**DRY_RUN**
+#### DRY_RUN
+
 - Executes all pipeline stages through rendering but **skips delivery**.
 - Delivery stage result is always `"skipped"` with reason `"dry_run: delivery suppressed"`.
 - No side effects. No storage mutations.
@@ -103,7 +105,6 @@ class ReplayMode(Enum):
 2. **No storage writes (non-BEST_EFFORT):** STRICT, RE_RENDER, RE_ROUTE, and DRY_RUN modes produce no storage side effects. Event count before and after replay is identical.
 3. **Deterministic ordering:** For a given stored dataset and pipeline configuration, the sequence of `(event_id, stage, status)` tuples is deterministic. Events are processed in storage query order (timestamp ascending) or correlation_id list order.
 4. **Lineage preservation:** Every `ReplayResult` carries the `lineage` tuple from the source event, enabling derivation ancestry tracking across replay.
-
 
 ## 4. ReplayRequest Interface
 
@@ -125,16 +126,16 @@ class ReplayRequest:
 
 **Fields explained:**
 
-| Field | Type | Description |
-|---|---|---|
-| `time_start` | `datetime \| None` | Earliest event timestamp to include (inclusive). `None` = no lower bound. |
-| `time_end` | `datetime \| None` | Latest event timestamp to include (inclusive). `None` = no upper bound. |
-| `event_kinds` | `list[str] \| None` | Restrict to these event kind strings. `None` = all kinds. |
-| `source_adapters` | `list[str] \| None` | Restrict to events from these adapters. `None` = all adapters. |
-| `target_stages` | `list[str] \| None` | Pipeline stages to replay (subset of mode-allowed stages). `None` = all stages for the mode. Valid values: `"store"`, `"route"`, `"plan"`, `"render"`, `"deliver"`. |
-| `correlation_ids` | `list[str] \| None` | Restrict to events whose `event_id` appears in this list. When set, events are fetched by individual ID; remaining filters applied as post-filters. |
-| `mode` | `ReplayMode` | The replay behavioural mode. Default: `STRICT`. |
-| `limit` | `int` | Maximum number of events to replay. Default: 1000. |
+| Field             | Type                | Description                                                                                                                                                                                                |
+| ----------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `time_start`      | `datetime \| None`  | Earliest event timestamp to include (inclusive). `None` = no lower bound.                                                                                                                                  |
+| `time_end`        | `datetime \| None`  | Latest event timestamp to include (inclusive). `None` = no upper bound.                                                                                                                                    |
+| `event_kinds`     | `list[str] \| None` | Restrict to these event kind strings. `None` = all kinds.                                                                                                                                                  |
+| `source_adapters` | `list[str] \| None` | Restrict to events from these adapters. `None` = all adapters.                                                                                                                                             |
+| `target_stages`   | `list[str] \| None` | Pipeline stages to replay (subset of mode-allowed stages). `None` = all stages for the mode. Valid values: `"store"`, `"route"`, `"plan"`, `"render"`, `"deliver"`.                                        |
+| `correlation_ids` | `list[str] \| None` | Restrict to events whose `event_id` appears in this list. When set, events are fetched by individual ID; remaining filters applied as post-filters.                                                        |
+| `mode`            | `ReplayMode`        | The replay behavioural mode. Default: `STRICT`.                                                                                                                                                            |
+| `limit`           | `int`               | Maximum number of events to replay. Default: 1000.                                                                                                                                                         |
 | `target_adapters` | `list[str] \| None` | Restrict delivery to these adapter names. Only meaningful for BEST_EFFORT and DRY_RUN modes. Plans targeting adapters not in this list have their deliver stage set to `"skipped"`. `None` = all adapters. |
 
 **EventFilter conversion:** `time_start`, `time_end`, `event_kinds`, `source_adapters`, and `limit` are converted to an `EventFilter` for storage queries. `correlation_ids`, `target_stages`, and `target_adapters` are handled directly by the replay engine.
@@ -144,7 +145,6 @@ class ReplayRequest:
 When `target_adapters` is set, delivery plans are filtered before the deliver stage. Plans whose `target.adapter` attribute matches an entry in `target_adapters` are included; others are excluded. If no plans remain after filtering, the deliver stage result is `"skipped"` with reason `"No delivery plans matched target_adapters filter"`.
 
 Plans with opaque structure (no `target.adapter` attribute) are included conservatively.
-
 
 ## 5. Replay Constraints
 
@@ -164,7 +164,6 @@ These constraints protect the system from unintended side effects during replay:
    - `record_renderer_failure`: Rendering pipeline raised an exception.
    - `record_adapter_failure`: BEST_EFFORT delivery failed or unexpected exception caught.
    - `record_planner_failure`: Routing or planning raised an exception.
-
 
 ## 6. Retry Semantics (Dead-Letter / Failed Delivery Replay)
 
@@ -186,27 +185,26 @@ This approach is honest about what Phase 1 provides: replay with delivery, scope
 - **No replay progress tracking or resumption.** Replay runs to completion or failure without intermediate checkpoints.
 
 **Why not a RETRY mode?** A true retry mode requires:
+
 - Receipt deduplication (skip deliveries that already succeeded).
 - Dead-letter queue integration (select events from dead-letter state).
 - Retry budget/rate limiting per adapter.
 - These belong in Track 3 (delivery failure executor), not Track 1 (replay determinism).
 
-
 ## 7. Replay Use Cases
 
-| Use Case | Mode | target_stages | Notes |
-|---|---|---|---|
-| **Integrity check** | `STRICT` | default | Verify events exist and event_kinds are registered. No pipeline stages. |
-| **Renderer testing** | `RE_RENDER` | default | Test new renderers against historical events. Captures output. |
-| **Route change preview** | `RE_ROUTE` | default | Evaluate current routing against historical events. Plans captured, no delivery. |
-| **Migration delivery** | `BEST_EFFORT` | default | Full re-processing with adapter delivery. Use for adapter migration. |
-| **Dry-run preview** | `DRY_RUN` | default | Preview what BEST_EFFORT would do without side effects. |
-| **Failed delivery retry** | `BEST_EFFORT` | default | Scope to failed events via `correlation_ids` from `delivery_receipts`. |
-| **Targeted adapter replay** | `BEST_EFFORT` | default | Set `target_adapters` to limit delivery to specific adapters. |
-| **Stage-specific debugging** | any | `["store", "render"]` | Re-run only specific stages within the mode's allowed set. |
+| Use Case                     | Mode          | target_stages         | Notes                                                                            |
+| ---------------------------- | ------------- | --------------------- | -------------------------------------------------------------------------------- |
+| **Integrity check**          | `STRICT`      | default               | Verify events exist and event_kinds are registered. No pipeline stages.          |
+| **Renderer testing**         | `RE_RENDER`   | default               | Test new renderers against historical events. Captures output.                   |
+| **Route change preview**     | `RE_ROUTE`    | default               | Evaluate current routing against historical events. Plans captured, no delivery. |
+| **Migration delivery**       | `BEST_EFFORT` | default               | Full re-processing with adapter delivery. Use for adapter migration.             |
+| **Dry-run preview**          | `DRY_RUN`     | default               | Preview what BEST_EFFORT would do without side effects.                          |
+| **Failed delivery retry**    | `BEST_EFFORT` | default               | Scope to failed events via `correlation_ids` from `delivery_receipts`.           |
+| **Targeted adapter replay**  | `BEST_EFFORT` | default               | Set `target_adapters` to limit delivery to specific adapters.                    |
+| **Stage-specific debugging** | any           | `["store", "render"]` | Re-run only specific stages within the mode's allowed set.                       |
 
 **Correlation ID replay:** When `correlation_ids` is set, only events matching those IDs are replayed. This is useful for debugging a specific event chain or reprocessing a failed delivery.
-
 
 ## 8. Raw Native Archive Mode
 
@@ -241,14 +239,14 @@ CREATE TABLE native_archive (
 storage:
   native_archive:
     enabled: true
-    compression: gzip          # "gzip" or "zstd"
+    compression: gzip # "gzip" or "zstd"
     retention:
       max_age_days: 30
       max_count: 100000
     adapters:
       meshcore-radio-1: true
       mqtt-bridge: true
-      matrix-home: false       # Don't archive Matrix raw data
+      matrix-home: false # Don't archive Matrix raw data
 ```
 
 ### 8.4 StorageBackend Archive Method (Future)
@@ -262,7 +260,6 @@ async def archive_raw(self, event_id: str, adapter: str, data: bytes) -> None:
 ```
 
 The archive would be written at ingress time, before the event enters the pipeline. Only adapters with `native_archive.adapters.<name>: true` would produce archive entries.
-
 
 ## 9. Storage Backend Protocol
 
@@ -295,17 +292,16 @@ class StorageBackend(Protocol):
 
 The `query` method is the primary entry point for replay. It returns an `AsyncIterator[CanonicalEvent]` matching the filter, ordered by timestamp. The replay engine consumes this iterator and feeds events into the requested pipeline stages.
 
-
 ## 10. Future Backend Considerations
 
 The storage abstraction is designed so the replay interface stays the same regardless of backend.
 
-| Backend | Use Case | Replay Mechanism |
-|---|---|---|
-| **PostgreSQL** | High-volume deployments with concurrent writers. Better concurrency for multi-writer scenarios. | SQL query with time-range and kind predicates. Same `StorageBackend` interface. |
-| **NATS JetStream** | Real-time event streaming with built-in replay. Subscribe to a subject, replay from a specific sequence number. | NATS consumer starting at the sequence corresponding to `time_start`. |
-| **Redis Streams** | Low-latency short-window replay. Events expire from Redis after a configurable retention period, so replay is bounded. | `XREAD` from a consumer group starting at a specific stream ID. Suitable for recent-event replay (minutes to hours). |
-| **Apache Kafka** | Large-scale distributed deployments. Partitions provide parallelism. Consumer groups track offsets. | Consume from topic partitions starting at an offset derived from `time_start`. |
+| Backend            | Use Case                                                                                                               | Replay Mechanism                                                                                                     |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| **PostgreSQL**     | High-volume deployments with concurrent writers. Better concurrency for multi-writer scenarios.                        | SQL query with time-range and kind predicates. Same `StorageBackend` interface.                                      |
+| **NATS JetStream** | Real-time event streaming with built-in replay. Subscribe to a subject, replay from a specific sequence number.        | NATS consumer starting at the sequence corresponding to `time_start`.                                                |
+| **Redis Streams**  | Low-latency short-window replay. Events expire from Redis after a configurable retention period, so replay is bounded. | `XREAD` from a consumer group starting at a specific stream ID. Suitable for recent-event replay (minutes to hours). |
+| **Apache Kafka**   | Large-scale distributed deployments. Partitions provide parallelism. Consumer groups track offsets.                    | Consume from topic partitions starting at an offset derived from `time_start`.                                       |
 
 **Backend swap considerations:**
 
@@ -313,7 +309,6 @@ The storage abstraction is designed so the replay interface stays the same regar
 - The `append` method is idempotent in the sense that writing the same `event_id` twice must not duplicate data (upsert semantics or primary key enforcement).
 - Receipt append semantics (`delivery_receipts` table) must be preserved across backends: every attempt produces a new row, current status is a projection.
 - The `native_archive` table schema is backend-agnostic. A streaming backend may store raw blobs in object storage (S3, local filesystem) rather than a database column, but the `archive_raw` interface stays the same.
-
 
 ## 11. Key Storage Schema for Replay
 
@@ -399,7 +394,6 @@ CREATE TABLE native_message_refs (
 ```
 
 Full schema including identity tables and plugin state is in the master spec, Section 12.3.
-
 
 ## 12. References
 

@@ -33,10 +33,8 @@ from __future__ import annotations
 import importlib
 import re
 from pathlib import Path
-from typing import Any
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Shared helpers (reused from test_operational_boundaries.py)
@@ -198,10 +196,7 @@ def _scan_source_for_pattern(
 
 def _all_source_py_files(root: Path) -> list[Path]:
     """Return all .py files under root, excluding __pycache__."""
-    return sorted(
-        p for p in root.rglob("*.py")
-        if "__pycache__" not in p.parts
-    )
+    return sorted(p for p in root.rglob("*.py") if "__pycache__" not in p.parts)
 
 
 # ===================================================================
@@ -295,9 +290,7 @@ class TestNoTransportSdkInRuntimeCore:
         lines = _import_lines(source)
 
         banned = _banned_imports(lines, _SDK_PACKAGES)
-        assert banned == [], (
-            f"{module_name} imports transport SDKs: {banned}"
-        )
+        assert banned == [], f"{module_name} imports transport SDKs: {banned}"
 
     @pytest.mark.parametrize(
         "module_name",
@@ -317,9 +310,9 @@ class TestNoTransportSdkInRuntimeCore:
         lines = _import_lines(source)
 
         banned = _banned_imports(lines, _ADAPTER_PREFIXES)
-        assert banned == [], (
-            f"{module_name} imports concrete adapter packages: {banned}"
-        )
+        assert (
+            banned == []
+        ), f"{module_name} imports concrete adapter packages: {banned}"
 
 
 # ===================================================================
@@ -348,9 +341,9 @@ class TestNoLiveTestsByDefault:
         """``pyproject.toml`` must register the ``live`` marker."""
         pyproject = _TESTS_DIR.parent / "pyproject.toml"
         content = _file_source(pyproject)
-        assert "live:" in content, (
-            "pyproject.toml must register 'live' marker in markers list"
-        )
+        assert (
+            "live:" in content
+        ), "pyproject.toml must register 'live' marker in markers list"
 
 
 # ===================================================================
@@ -402,10 +395,9 @@ class TestNoAdminSubsystem:
                         rel = path.relative_to(_SRC_ROOT)
                         violations.append(f"{rel}:{i}: {stripped}")
                         break
-        assert violations == [], (
-            "Found admin subsystem classes in source:\n"
-            + "\n".join(violations)
-        )
+        assert (
+            violations == []
+        ), "Found admin subsystem classes in source:\n" + "\n".join(violations)
 
     def test_no_admin_framework_imports(self) -> None:
         """No source file imports admin framework packages."""
@@ -413,34 +405,35 @@ class TestNoAdminSubsystem:
         for path in _all_source_py_files(_SRC_ROOT):
             source = _file_source(path)
             lines = _import_lines(source)
-            found = _banned_imports(lines, tuple(
-                p.split()[-1].split(".")[-1].rstrip("'\"")
-                for p in self._ADMIN_IMPORT_PATTERNS
-                if "import" in p
-            ))
+            found = _banned_imports(
+                lines,
+                tuple(
+                    p.split()[-1].split(".")[-1].rstrip("'\"")
+                    for p in self._ADMIN_IMPORT_PATTERNS
+                    if "import" in p
+                ),
+            )
             for line in found:
                 rel = path.relative_to(_SRC_ROOT)
                 violations.append(f"{rel}: {line}")
-        assert violations == [], (
-            "Found admin framework imports in source:\n"
-            + "\n".join(violations)
-        )
+        assert (
+            violations == []
+        ), "Found admin framework imports in source:\n" + "\n".join(violations)
 
     def test_no_admin_source_files(self) -> None:
         """No dedicated admin source files exist."""
         admin_files = [
-            p for p in _all_source_py_files(_SRC_ROOT)
+            p
+            for p in _all_source_py_files(_SRC_ROOT)
             if "admin" in p.name.lower()
             and "admin" in _file_source(p).lower()
             and p.name != "__init__.py"
             # Exclude adapter data-plane files that use "admin" as a
             # packet type name (e.g. Meshtastic ADMIN_APP portnum).
-            and "packet_classifier" not in p.name
-            and "compat" not in str(p)
+            and "packet_classifier" not in p.name and "compat" not in str(p)
         ]
-        assert admin_files == [], (
-            "Found dedicated admin source files:\n"
-            + "\n".join(str(f.relative_to(_SRC_ROOT)) for f in admin_files)
+        assert admin_files == [], "Found dedicated admin source files:\n" + "\n".join(
+            str(f.relative_to(_SRC_ROOT)) for f in admin_files
         )
 
 
@@ -466,13 +459,12 @@ class TestNoWebhookSubsystem:
     def test_no_webhook_source_files(self) -> None:
         """No dedicated webhook source files exist."""
         webhook_files = [
-            p for p in _all_source_py_files(_SRC_ROOT)
-            if "webhook" in p.name.lower()
-            and p.name != "__init__.py"
+            p
+            for p in _all_source_py_files(_SRC_ROOT)
+            if "webhook" in p.name.lower() and p.name != "__init__.py"
         ]
-        assert webhook_files == [], (
-            "Found webhook source files:\n"
-            + "\n".join(str(f.relative_to(_SRC_ROOT)) for f in webhook_files)
+        assert webhook_files == [], "Found webhook source files:\n" + "\n".join(
+            str(f.relative_to(_SRC_ROOT)) for f in webhook_files
         )
 
     def test_no_webhook_patterns_in_source(self) -> None:
@@ -486,10 +478,9 @@ class TestNoWebhookSubsystem:
                 self._WEBHOOK_PATTERNS,
             )
             violations.extend(found)
-        assert violations == [], (
-            "Found webhook subsystem patterns in source:\n"
-            + "\n".join(violations)
-        )
+        assert (
+            violations == []
+        ), "Found webhook subsystem patterns in source:\n" + "\n".join(violations)
 
 
 # ===================================================================
@@ -524,13 +515,12 @@ class TestNoPluginRuntime:
         """No plugin loader/manager source files exist under plugins/."""
         plugins_dir = _SRC_ROOT / "plugins"
         plugin_files = [
-            p for p in sorted(plugins_dir.glob("*.py"))
-            if p.name != "__init__.py"
-            and p.name != "__pycache__"
+            p
+            for p in sorted(plugins_dir.glob("*.py"))
+            if p.name != "__init__.py" and p.name != "__pycache__"
         ]
-        assert plugin_files == [], (
-            "Found non-scaffolding plugin files:\n"
-            + "\n".join(f.name for f in plugin_files)
+        assert plugin_files == [], "Found non-scaffolding plugin files:\n" + "\n".join(
+            f.name for f in plugin_files
         )
 
     def test_plugins_init_is_scaffolding_only(self) -> None:
@@ -538,13 +528,15 @@ class TestNoPluginRuntime:
         source = _source_of("medre.plugins")
 
         # Must contain the expected scaffolding symbols.
-        assert "class Plugin" in source, "plugins/__init__.py must define Plugin protocol"
-        assert "class PluginCapability" in source, (
-            "plugins/__init__.py must define PluginCapability enum"
-        )
-        assert "validate_plugin_payload" in source, (
-            "plugins/__init__.py must define validate_plugin_payload"
-        )
+        assert (
+            "class Plugin" in source
+        ), "plugins/__init__.py must define Plugin protocol"
+        assert (
+            "class PluginCapability" in source
+        ), "plugins/__init__.py must define PluginCapability enum"
+        assert (
+            "validate_plugin_payload" in source
+        ), "plugins/__init__.py must define validate_plugin_payload"
 
         # Must NOT contain runtime/loader patterns.
         violations: list[str] = []
@@ -557,9 +549,10 @@ class TestNoPluginRuntime:
                     violations.append(f"plugins/__init__.py:{i}: {stripped}")
                     break
 
-        assert violations == [], (
-            "plugins/__init__.py contains plugin runtime patterns:\n"
-            + "\n".join(violations)
+        assert (
+            violations == []
+        ), "plugins/__init__.py contains plugin runtime patterns:\n" + "\n".join(
+            violations
         )
 
     def test_no_plugin_loader_imports(self) -> None:
@@ -572,9 +565,8 @@ class TestNoPluginRuntime:
                 if "plugin_loader" in line or "plugin_manager" in line:
                     rel = path.relative_to(_SRC_ROOT)
                     violations.append(f"{rel}: {line}")
-        assert violations == [], (
-            "Found plugin loader/manager imports:\n"
-            + "\n".join(violations)
+        assert violations == [], "Found plugin loader/manager imports:\n" + "\n".join(
+            violations
         )
 
 
@@ -591,9 +583,7 @@ class TestNoDistributedDependencies:
     """
 
     _BANNED_IMPORT_PREFIXES: tuple[str, ...] = tuple(
-        prefix + pkg
-        for prefix in ("import ", "from ")
-        for pkg in _DISTRIBUTED_PACKAGES
+        prefix + pkg for prefix in ("import ", "from ") for pkg in _DISTRIBUTED_PACKAGES
     )
 
     def test_no_distributed_imports_in_source(self) -> None:
@@ -608,9 +598,8 @@ class TestNoDistributedDependencies:
                         rel = path.relative_to(_SRC_ROOT)
                         violations.append(f"{rel}: {line}")
                         break
-        assert violations == [], (
-            "Found distributed dependency imports:\n"
-            + "\n".join(violations)
+        assert violations == [], "Found distributed dependency imports:\n" + "\n".join(
+            violations
         )
 
     def test_no_distributed_deps_in_pyproject(self) -> None:
@@ -627,10 +616,9 @@ class TestNoDistributedDependencies:
                 if re.search(rf"\b{re.escape(pkg)}\b", stripped):
                     violations.append(f"pyproject.toml:{i}: {stripped}")
                     break
-        assert violations == [], (
-            "pyproject.toml references distributed packages:\n"
-            + "\n".join(violations)
-        )
+        assert (
+            violations == []
+        ), "pyproject.toml references distributed packages:\n" + "\n".join(violations)
 
 
 # ===================================================================
@@ -670,10 +658,9 @@ class TestNoPersistentQueues:
                 self._QUEUE_PATTERNS,
             )
             violations.extend(found)
-        assert violations == [], (
-            "Found persistent queue patterns in source:\n"
-            + "\n".join(violations)
-        )
+        assert (
+            violations == []
+        ), "Found persistent queue patterns in source:\n" + "\n".join(violations)
 
     def test_no_persistent_queue_imports(self) -> None:
         """No source file imports persistent queue packages."""
@@ -695,9 +682,8 @@ class TestNoPersistentQueues:
                         rel = path.relative_to(_SRC_ROOT)
                         violations.append(f"{rel}: {line}")
                         break
-        assert violations == [], (
-            "Found persistent queue imports:\n"
-            + "\n".join(violations)
+        assert violations == [], "Found persistent queue imports:\n" + "\n".join(
+            violations
         )
 
 
@@ -745,10 +731,9 @@ class TestNoReplayDeduplication:
                     if re.search(pattern, stripped):
                         violations.append(f"{rel}:{i}: {stripped}")
                         break
-        assert violations == [], (
-            "Found deduplication engine patterns in source:\n"
-            + "\n".join(violations)
-        )
+        assert (
+            violations == []
+        ), "Found deduplication engine patterns in source:\n" + "\n".join(violations)
 
     def test_replay_module_no_dedup_logic(self) -> None:
         """replay.py must not implement deduplication beyond run_id tracking."""
@@ -845,10 +830,9 @@ class TestNoDynamicReload:
                             continue
                         violations.append(f"{rel}:{i}: {stripped}")
                         break
-        assert violations == [], (
-            "Found dynamic reload patterns in source:\n"
-            + "\n".join(violations)
-        )
+        assert (
+            violations == []
+        ), "Found dynamic reload patterns in source:\n" + "\n".join(violations)
 
     def test_no_file_watch_imports(self) -> None:
         """No source file imports file-watch libraries for config reload."""
@@ -863,10 +847,9 @@ class TestNoDynamicReload:
                         rel = path.relative_to(_SRC_ROOT)
                         violations.append(f"{rel}: {line}")
                         break
-        assert violations == [], (
-            "Found file-watch imports for config reload:\n"
-            + "\n".join(violations)
-        )
+        assert (
+            violations == []
+        ), "Found file-watch imports for config reload:\n" + "\n".join(violations)
 
 
 # ===================================================================
@@ -894,9 +877,8 @@ class TestNoPackageSplit:
         for pattern in ("**/pyproject.toml", "**/setup.py", "**/setup.cfg"):
             for path in (_TESTS_DIR.parent / "src").rglob(pattern):
                 nested.append(path.relative_to(_TESTS_DIR.parent))
-        assert nested == [], (
-            "Found nested build files (package split):\n"
-            + "\n".join(str(f) for f in nested)
+        assert nested == [], "Found nested build files (package split):\n" + "\n".join(
+            str(f) for f in nested
         )
 
     def test_no_namespace_package_declaration(self) -> None:
@@ -923,24 +905,24 @@ class TestNoPackageSplit:
         # The observability/__init__.py has "namespace" in a docstring
         # — filter out that specific false positive.
         real_violations = [
-            v for v in violations
+            v
+            for v in violations
             if not re.match(r".*\d+:.*#.*", v)
-            and 'obtain a child logger in the framework namespace' not in v
-            and 'logging namespace' not in v
+            and "obtain a child logger in the framework namespace" not in v
+            and "logging namespace" not in v
         ]
-        assert real_violations == [], (
-            "Found namespace package declarations:\n"
-            + "\n".join(real_violations)
-        )
+        assert (
+            real_violations == []
+        ), "Found namespace package declarations:\n" + "\n".join(real_violations)
 
     def test_single_package_name(self) -> None:
         """pyproject.toml must define a single medre package."""
         pyproject = _TESTS_DIR.parent / "pyproject.toml"
         content = _file_source(pyproject)
         # Verify the package name is "medre".
-        assert re.search(r'^name\s*=\s*["\']medre["\']', content, re.MULTILINE), (
-            "pyproject.toml must declare package name as 'medre'"
-        )
+        assert re.search(
+            r'^name\s*=\s*["\']medre["\']', content, re.MULTILINE
+        ), "pyproject.toml must declare package name as 'medre'"
 
 
 # ===================================================================
@@ -970,10 +952,9 @@ class TestNoCanonicalEventRedesign:
                     continue
                 if "class CanonicalEvent" in stripped:
                     violations.append(f"{rel}:{i}: {stripped}")
-        assert violations == [], (
-            "CanonicalEvent defined outside canonical.py:\n"
-            + "\n".join(violations)
-        )
+        assert (
+            violations == []
+        ), "CanonicalEvent defined outside canonical.py:\n" + "\n".join(violations)
 
     def test_no_competing_event_models(self) -> None:
         """No alternative event envelope classes (V2, Unified, etc.)."""
@@ -1000,22 +981,19 @@ class TestNoCanonicalEventRedesign:
                     if pattern in stripped:
                         violations.append(f"{rel}:{i}: {stripped}")
                         break
-        assert violations == [], (
-            "Found competing event envelope classes:\n"
-            + "\n".join(violations)
-        )
+        assert (
+            violations == []
+        ), "Found competing event envelope classes:\n" + "\n".join(violations)
 
     def test_canonical_event_file_exists_and_stable(self) -> None:
         """core/events/canonical.py must exist and define CanonicalEvent."""
         source = _source_of("medre.core.events.canonical")
-        assert "class CanonicalEvent" in source, (
-            "medre.core.events.canonical must define CanonicalEvent"
-        )
+        assert (
+            "class CanonicalEvent" in source
+        ), "medre.core.events.canonical must define CanonicalEvent"
         # Must use msgspec.Struct as base (stable design).
-        assert "msgspec.Struct" in source, (
-            "CanonicalEvent must use msgspec.Struct as base"
-        )
+        assert (
+            "msgspec.Struct" in source
+        ), "CanonicalEvent must use msgspec.Struct as base"
         # Must be frozen (immutable).
-        assert "frozen=True" in source, (
-            "CanonicalEvent must be frozen=True (immutable)"
-        )
+        assert "frozen=True" in source, "CanonicalEvent must be frozen=True (immutable)"

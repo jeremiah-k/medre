@@ -7,10 +7,10 @@ publishing, or storage.
 The classifier is a pure function: it inspects a packet and returns a
 classification dict.  It has no side effects.
 """
+
 from __future__ import annotations
 
 from typing import Any
-
 
 # **FIxTURE-SCAFFOLD ONLY** — This numeric map is NOT derived from the real
 # Meshtastic protobuf PortNum enum.  It is a MEDRE test fixture approximation
@@ -23,20 +23,20 @@ from typing import Any
 # `get_portnum_table()` which returns real values when the dependency is
 # installed, or None otherwise.
 _NUMERIC_PORTNUM_MAP: dict[int, str] = {
-    0: "routing",           # Fixture scaffold only — real: UNKNOWN_APP
-    1: "text_message",      # TEXT_MESSAGE_APP
+    0: "routing",  # Fixture scaffold only — real: UNKNOWN_APP
+    1: "text_message",  # TEXT_MESSAGE_APP
     2: "text_message_ack",  # Fixture scaffold only — real: REMOTE_HARDWARE_APP
-    3: "position",          # POSITION_APP
-    4: "nodeinfo",          # NODEINFO_APP
-    5: "telemetry",         # Fixture scaffold only — real: ROUTING_APP
-    6: "store_forward",     # Fixture scaffold only — real: ADMIN_APP
-    7: "waypoint",          # Fixture scaffold only — real: TEXT_MESSAGE_COMPRESSED_APP
-    9: "audio",             # AUDIO_APP
+    3: "position",  # POSITION_APP
+    4: "nodeinfo",  # NODEINFO_APP
+    5: "telemetry",  # Fixture scaffold only — real: ROUTING_APP
+    6: "store_forward",  # Fixture scaffold only — real: ADMIN_APP
+    7: "waypoint",  # Fixture scaffold only — real: TEXT_MESSAGE_COMPRESSED_APP
+    9: "audio",  # AUDIO_APP
     10: "remote_hardware",  # Fixture scaffold only — real: DETECTION_SENSOR_APP
-    11: "private",          # Fixture scaffold only — real: ALERT_APP
-    68: "paxcounter",       # Fixture scaffold only — real: ZPS_APP
-    71: "neighbor_info",    # NEIGHBORINFO_APP
-    72: "traceroute",       # TRACEROUTE_APP
+    11: "private",  # Fixture scaffold only — real: ALERT_APP
+    68: "paxcounter",  # Fixture scaffold only — real: ZPS_APP
+    71: "neighbor_info",  # NEIGHBORINFO_APP
+    72: "traceroute",  # TRACEROUTE_APP
 }
 
 _SYMBOLIC_PORTNUM_MAP: dict[str, str] = {

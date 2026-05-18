@@ -24,13 +24,13 @@ References
 XDG Base Directory Specification:
     https://specifications.freedesktop.org/basedir-spec/latest/
 """
+
 from __future__ import annotations
 
 import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Self
 
 __all__ = ["MedrePaths", "MedrePathsError", "resolve"]
 
@@ -183,8 +183,7 @@ class MedrePaths:
             If *value* contains an unrecognised placeholder.
         """
         config_root = (
-            self.config_dir if self.config_dir is not None
-            else self.config_file.parent
+            self.config_dir if self.config_dir is not None else self.config_file.parent
         )
 
         placeholder_map: dict[str, Path] = {
@@ -198,9 +197,7 @@ class MedrePaths:
         def _replace(match: re.Match[str]) -> str:
             name = match.group(1)
             if name not in _VALID_PLACEHOLDERS:
-                raise MedrePathsError(
-                    f"unknown path placeholder: {{{name}}}"
-                )
+                raise MedrePathsError(f"unknown path placeholder: {{{name}}}")
             return str(placeholder_map[name])
 
         expanded = _PLACEHOLDER_RE.sub(_replace, value)
@@ -229,6 +226,7 @@ class MedrePaths:
 # ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------
+
 
 def _xdg_dir(xdg_var: str, default_suffix: str) -> Path:
     """Resolve a single XDG base directory.

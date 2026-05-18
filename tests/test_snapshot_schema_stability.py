@@ -33,25 +33,24 @@ from typing import Any
 import pytest
 
 from medre.config.model import RuntimeLimits
-from medre.core.diagnostics.replay_metrics import ReplayMetrics, ReplayRouteCounters
+from medre.core.diagnostics.replay_metrics import ReplayMetrics
 from medre.core.diagnostics.snapshot import build_diagnostics_snapshot
 from medre.core.routing.stats import RouteStats
-from medre.observability.sanitization import sanitize_error as _sanitize_error
 from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.runtime.diagnostic_contract import (
     COMMON_DIAGNOSTIC_KEYS,
     normalize_diagnostics,
 )
+from medre.observability.sanitization import sanitize_error as _sanitize_error
 from medre.runtime.capacity import CapacityController
 from medre.runtime.snapshot import (
-    SCHEMA_VERSION,
     _MAX_ADAPTERS,
     _MAX_BUILD_FAILURES,
     _MAX_ERROR_DETAIL_LEN,
     _MAX_ROUTES,
+    SCHEMA_VERSION,
     build_runtime_snapshot,
 )
-
 
 # ---------------------------------------------------------------------------
 # Reusable fakes (follows test_runtime_snapshot.py conventions)
@@ -351,9 +350,9 @@ class TestRouteStatsSchemaConsistency:
         rs.record_skipped("gamma")
         snap = rs.snapshot()
         for route_id, entry in snap.items():
-            assert _EXPECTED_ROUTE_ENTRY_KEYS <= set(entry.keys()), (
-                f"route {route_id} missing expected keys"
-            )
+            assert _EXPECTED_ROUTE_ENTRY_KEYS <= set(
+                entry.keys()
+            ), f"route {route_id} missing expected keys"
 
 
 class TestReplayMetricsSchemaConsistency:
@@ -393,7 +392,9 @@ class TestReplayMetricsSchemaConsistency:
         for key in _EXPECTED_REPLAY_GLOBAL_KEYS:
             val = global_snap[key]
             if key == "last_cancelled_at":
-                assert val is None or isinstance(val, float), f"{key} should be float|None"
+                assert val is None or isinstance(
+                    val, float
+                ), f"{key} should be float|None"
             else:
                 assert isinstance(val, int), f"{key} should be int"
 
@@ -471,7 +472,9 @@ class TestRuntimeSnapshotSchemaConsistency:
         fixed_mono = 1000.0
         app = _make_fake_app(
             adapters={"a1": _FakeAdapter()},
-            route_stats=_FakeRouteStats({"r1": {"delivered": 1, "failed": 0, "skipped": 0, "loop_prevented": 0}}),
+            route_stats=_FakeRouteStats(
+                {"r1": {"delivered": 1, "failed": 0, "skipped": 0, "loop_prevented": 0}}
+            ),
             capacity_controller=_FakeCapacityController(),
             replay_engine=_FakeReplayEngine(),
             diagnostics_collector=_FakeDiagnosticsCollector({"global": {}}),
@@ -506,7 +509,10 @@ class TestRuntimeSnapshotSchemaConsistency:
             health_state={"overall": "degraded", "adapters": 2},
         )
         snap = build_runtime_snapshot(app)
-        assert snap["startup"]["startup_health"] == {"overall": "degraded", "adapters": 2}
+        assert snap["startup"]["startup_health"] == {
+            "overall": "degraded",
+            "adapters": 2,
+        }
 
     def test_startup_health_null_when_absent(self) -> None:
         """startup_health is null when no health state is wired."""
@@ -567,10 +573,14 @@ class TestDeterministicOrdering:
             startup_monotonic=4999.0,
         )
         snap1 = build_runtime_snapshot(
-            app, now_fn=lambda: fixed_dt, monotonic_fn=lambda: fixed_mono,
+            app,
+            now_fn=lambda: fixed_dt,
+            monotonic_fn=lambda: fixed_mono,
         )
         snap2 = build_runtime_snapshot(
-            app, now_fn=lambda: fixed_dt, monotonic_fn=lambda: fixed_mono,
+            app,
+            now_fn=lambda: fixed_dt,
+            monotonic_fn=lambda: fixed_mono,
         )
         assert snap1 == snap2
 
@@ -663,6 +673,7 @@ class _BrokenAdapter:
 
 class _MinimalObject:
     """Object with no adapter attributes at all."""
+
     pass
 
 
@@ -755,8 +766,12 @@ class TestReplayConsistency:
         g = snap["global"]
 
         total_processed = sum(e["events_processed"] for e in snap["by_route"].values())
-        total_attempted = sum(e["deliveries_attempted"] for e in snap["by_route"].values())
-        total_succeeded = sum(e["deliveries_succeeded"] for e in snap["by_route"].values())
+        total_attempted = sum(
+            e["deliveries_attempted"] for e in snap["by_route"].values()
+        )
+        total_succeeded = sum(
+            e["deliveries_succeeded"] for e in snap["by_route"].values()
+        )
         total_failed = sum(e["deliveries_failed"] for e in snap["by_route"].values())
         total_filter = sum(e["skipped_by_filter"] for e in snap["by_route"].values())
         total_loop = sum(e["skipped_by_loop"] for e in snap["by_route"].values())
@@ -995,7 +1010,9 @@ class TestJsonSafeExports:
     def test_runtime_snapshot_is_json_safe(self) -> None:
         app = _make_fake_app(
             adapters={"a1": _FakeAdapter()},
-            route_stats=_FakeRouteStats({"r1": {"delivered": 1, "failed": 0, "skipped": 0, "loop_prevented": 0}}),
+            route_stats=_FakeRouteStats(
+                {"r1": {"delivered": 1, "failed": 0, "skipped": 0, "loop_prevented": 0}}
+            ),
             capacity_controller=_FakeCapacityController(),
             replay_engine=_FakeReplayEngine(),
             diagnostics_collector=_FakeDiagnosticsCollector({"global": {}}),
@@ -1006,20 +1023,24 @@ class TestJsonSafeExports:
         json.dumps(snap, sort_keys=True)
 
     def test_normalize_diagnostics_produces_json_safe_output(self) -> None:
-        result = normalize_diagnostics({
-            "connected": True,
-            "health": "healthy",
-            "extra": [1, 2, 3],
-        })
+        result = normalize_diagnostics(
+            {
+                "connected": True,
+                "health": "healthy",
+                "extra": [1, 2, 3],
+            }
+        )
         _assert_json_safe(result)
         json.dumps(result)
 
     def test_normalize_diagnostics_replaces_unsafe_types(self) -> None:
         """Exceptions and raw objects should be replaced with type-name strings."""
-        result = normalize_diagnostics({
-            "connected": True,
-            "custom_obj": ValueError("oops"),
-        })
+        result = normalize_diagnostics(
+            {
+                "connected": True,
+                "custom_obj": ValueError("oops"),
+            }
+        )
         assert isinstance(result["transport_specific"]["custom_obj"], str)
         # Should be something like "<ValueError>"
         assert "ValueError" in result["transport_specific"]["custom_obj"]
@@ -1028,10 +1049,22 @@ class TestJsonSafeExports:
         """Full round-trip: json.dumps(sort_keys=True) must not raise."""
         app = _make_fake_app(
             adapters={"z": _FakeAdapter("z"), "a": _FakeAdapter("a")},
-            route_stats=_FakeRouteStats({
-                "r2": {"delivered": 0, "failed": 1, "skipped": 0, "loop_prevented": 0},
-                "r1": {"delivered": 5, "failed": 0, "skipped": 2, "loop_prevented": 0},
-            }),
+            route_stats=_FakeRouteStats(
+                {
+                    "r2": {
+                        "delivered": 0,
+                        "failed": 1,
+                        "skipped": 0,
+                        "loop_prevented": 0,
+                    },
+                    "r1": {
+                        "delivered": 5,
+                        "failed": 0,
+                        "skipped": 2,
+                        "loop_prevented": 0,
+                    },
+                }
+            ),
             capacity_controller=_FakeCapacityController(),
             accounting=RuntimeAccounting(),
         )
@@ -1102,10 +1135,12 @@ class TestNoSecretLeakage:
         ],
     )
     def test_normalize_diagnostics_drops_secret_keys(self, secret_key: str) -> None:
-        result = normalize_diagnostics({
-            "connected": True,
-            secret_key: "super_secret_value_12345",
-        })
+        result = normalize_diagnostics(
+            {
+                "connected": True,
+                secret_key: "super_secret_value_12345",
+            }
+        )
         # The secret key should not appear at top level
         assert secret_key not in result
         # And not in transport_specific either
@@ -1136,11 +1171,13 @@ class TestNoSecretLeakage:
 
     def test_normalize_diagnostics_case_insensitive_secret_keys(self) -> None:
         """Secret detection should be case-insensitive."""
-        result = normalize_diagnostics({
-            "connected": True,
-            "Password": "secret_val",
-            "API_KEY": "key_val",
-        })
+        result = normalize_diagnostics(
+            {
+                "connected": True,
+                "Password": "secret_val",
+                "API_KEY": "key_val",
+            }
+        )
         assert "Password" not in result
         assert "API_KEY" not in result
 

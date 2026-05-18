@@ -7,7 +7,6 @@ This document defines everything an adapter implementer needs. Build an adapter 
 
 Adapters never call other adapters. They never bypass the pipeline. All inter-adapter communication flows through the event pipeline. If you find yourself importing from another adapter package, something is wrong.
 
-
 ## 1. Adapter Roles
 
 Every adapter declares a role. The role is inferred from the adapter type at configuration load time; operators do not set it manually.
@@ -19,14 +18,13 @@ class AdapterRole(str, Enum):
     HYBRID = "hybrid"
 ```
 
-| Role | Responsibility | Examples |
-|---|---|---|
-| **TRANSPORT** | Moves data to/from a physical or logical transport. Handles protocol specifics, connection management, and raw data encoding/decoding. | Meshtastic, MeshCore, LXMF, MQTT, TCP serial bridge, AX.25 |
-| **PRESENTATION** | Presents events to human users. Handles formatting, rich content, threading, reactions, and user interaction. | Matrix, Discord, Telegram, Slack, Web UI |
-| **HYBRID** | Both transports and presents. Can act as a message source and a display target simultaneously. | IRC, XMPP |
+| Role             | Responsibility                                                                                                                         | Examples                                                   |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| **TRANSPORT**    | Moves data to/from a physical or logical transport. Handles protocol specifics, connection management, and raw data encoding/decoding. | Meshtastic, MeshCore, LXMF, MQTT, TCP serial bridge, AX.25 |
+| **PRESENTATION** | Presents events to human users. Handles formatting, rich content, threading, reactions, and user interaction.                          | Matrix, Discord, Telegram, Slack, Web UI                   |
+| **HYBRID**       | Both transports and presents. Can act as a message source and a display target simultaneously.                                         | IRC, XMPP                                                  |
 
 TRANSPORT adapters typically ingest raw protocol data and produce canonical events. PRESENTATION adapters receive delivery plans and render events for human consumption. HYBRID adapters do both. The role determines which pipeline stages the adapter participates in and how the routing engine treats it.
-
 
 ## 2. Adapter Protocol
 
@@ -117,7 +115,6 @@ async def deliver(self, result: RenderingResult) -> None:
     await self._send(result.payload)
 ```
 
-
 ## 3. AdapterContext
 
 Each adapter receives an `AdapterContext` on startup. This is the adapter's only window into the runtime. Adapters do not get direct access to other adapters.
@@ -141,14 +138,14 @@ class AdapterContext:
 
 ### 3.1 What Each Field Provides
 
-| Field | Purpose |
-|---|---|
-| `adapter_id` | Unique identifier for this adapter instance. |
-| `event_bus` | Opaque reference to the framework's internal event bus. Adapters should prefer `publish_inbound` over direct bus interaction. |
+| Field             | Purpose                                                                                                                                                                     |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `adapter_id`      | Unique identifier for this adapter instance.                                                                                                                                |
+| `event_bus`       | Opaque reference to the framework's internal event bus. Adapters should prefer `publish_inbound` over direct bus interaction.                                               |
 | `publish_inbound` | The ingress point. Call this with a `CanonicalEvent` to inject it into the pipeline. The event passes through ingress policy, storage, enrichment, transforms, and routing. |
-| `logger` | A pre-configured `logging.Logger` scoped to the adapter. Use this for all logging. |
-| `clock` | Callable returning current UTC `datetime`. Use this instead of `datetime.utcnow()` for deterministic testing. |
-| `shutdown_event` | An `asyncio.Event` that the framework sets when a graceful shutdown is requested. |
+| `logger`          | A pre-configured `logging.Logger` scoped to the adapter. Use this for all logging.                                                                                          |
+| `clock`           | Callable returning current UTC `datetime`. Use this instead of `datetime.utcnow()` for deterministic testing.                                                               |
+| `shutdown_event`  | An `asyncio.Event` that the framework sets when a graceful shutdown is requested.                                                                                           |
 
 ### 3.2 What Adapters Cannot Do
 
@@ -156,7 +153,6 @@ class AdapterContext:
 - Bypass the pipeline to send events straight to another transport.
 - Modify events after they have been published via `publish_inbound`.
 - Access the event bus, routing engine, or policy pipeline.
-
 
 ## 4. AdapterCodec
 
@@ -226,7 +222,6 @@ It should:
 - Set `source_channel_id` to the native channel/room/topic where the event originated.
 - Populate `metadata.transport`, `metadata.radio`, `metadata.telemetry`, and `metadata.native` as appropriate.
 - Preserve native message references for correlation (the adapter stores these via `ctx.storage.store_native_ref`).
-
 
 ## 5. Adapter Capabilities
 
@@ -345,7 +340,6 @@ The `capability_fallback.py` module (Spec Section 8.3) uses adapter capabilities
 
 Adapters report their capabilities via `AdapterInfo` (Section 6). The runtime never asks the adapter at delivery time; it reads from the cached info.
 
-
 ## 6. AdapterInfo and AdapterHealth
 
 ### 6.1 AdapterInfo
@@ -395,7 +389,6 @@ class RateLimitConfig:
     delivery_concurrency: int              # Max concurrent deliveries (default: 1)
 ```
 
-
 ## 7. Adapter Lifecycle States
 
 ### 7.1 Lifecycle State Enum
@@ -411,7 +404,7 @@ class AdapterLifecycleState(str, Enum):
 
 ### 7.2 State Transitions
 
-```
+```text
 INITIALIZING --> RUNNING
 RUNNING       --> DEGRADED
 DEGRADED      --> RUNNING           (recovered)
@@ -423,13 +416,13 @@ any           --> STOPPED           (forced, e.g., timeout during drain)
 
 ### 7.3 Behavior per State
 
-| State | Ingress | Delivery | Notes |
-|---|---|---|---|
-| **INITIALIZING** | Buffer | Buffer | Connection not yet established. `start()` has not returned. |
-| **RUNNING** | Accept | Queue and deliver | Normal operation. |
-| **DEGRADED** | Accept | Queue, delay, may fallback | Connection unstable. Queue events for later delivery. |
-| **DRAINING** | Reject | Complete in-flight only | Graceful shutdown. Reject new work. |
-| **STOPPED** | Reject | None | Terminal state. No further activity. |
+| State            | Ingress | Delivery                   | Notes                                                       |
+| ---------------- | ------- | -------------------------- | ----------------------------------------------------------- |
+| **INITIALIZING** | Buffer  | Buffer                     | Connection not yet established. `start()` has not returned. |
+| **RUNNING**      | Accept  | Queue and deliver          | Normal operation.                                           |
+| **DEGRADED**     | Accept  | Queue, delay, may fallback | Connection unstable. Queue events for later delivery.       |
+| **DRAINING**     | Reject  | Complete in-flight only    | Graceful shutdown. Reject new work.                         |
+| **STOPPED**      | Reject  | None                       | Terminal state. No further activity.                        |
 
 ### 7.4 State Transition Events
 
@@ -452,7 +445,7 @@ Every state change emits a `system.lifecycle` canonical event:
 
 Some adapters require more granular lifecycle states than the generic five-state model. For example, a transport adapter with a complex connection handshake (authentication, syncing) may define internal substates:
 
-```
+```text
 DISCONNECTED --> CONNECTING --> AUTHENTICATING --> SYNCING --> READY
      ^              |              |                 |          |
      |              v              v                 v          v
@@ -466,16 +459,15 @@ DISCONNECTED --> CONNECTING --> AUTHENTICATING --> SYNCING --> READY
 
 These internal substates map to the generic lifecycle states as follows:
 
-| Internal State | Maps To | Rationale |
-|---|---|---|
-| DISCONNECTED, CONNECTING, AUTHENTICATING, SYNCING | `INITIALIZING` or `DEGRADED` | Not yet fully operational |
-| READY | `RUNNING` | Fully operational |
-| DEGRADED | `DEGRADED` | Partially functional |
-| DRAINING | `DRAINING` | Graceful shutdown |
-| STOPPING | `DRAINING` or `STOPPED` | Force stop in progress or complete |
+| Internal State                                    | Maps To                      | Rationale                          |
+| ------------------------------------------------- | ---------------------------- | ---------------------------------- |
+| DISCONNECTED, CONNECTING, AUTHENTICATING, SYNCING | `INITIALIZING` or `DEGRADED` | Not yet fully operational          |
+| READY                                             | `RUNNING`                    | Fully operational                  |
+| DEGRADED                                          | `DEGRADED`                   | Partially functional               |
+| DRAINING                                          | `DRAINING`                   | Graceful shutdown                  |
+| STOPPING                                          | `DRAINING` or `STOPPED`      | Force stop in progress or complete |
 
 The adapter reports its internal state via `AdapterHealth.details` for observability. The lifecycle manager only tracks the generic states. See Spec Section 15 for a concrete example (MeshCore).
-
 
 ## 8. Delivery Method
 
@@ -536,7 +528,6 @@ Phase 1 does not define a `DeliveryStatus` enum in code. Receipt status is a str
 
 If the send fails, raise an exception. The pipeline handles retry logic and receipt recording based on the delivery plan's retry policy.
 
-
 ## 9. Adapter Registry
 
 ### 9.1 Registry Interface
@@ -586,23 +577,22 @@ Adapter type determines the role. The operator does not set `role` manually.
 ```yaml
 adapters:
   meshcore-radio-1:
-    type: meshcore              # role: TRANSPORT (inferred)
+    type: meshcore # role: TRANSPORT (inferred)
     connection: { ... }
     channels: { ... }
 
   matrix-home:
-    type: matrix                # role: PRESENTATION (inferred)
+    type: matrix # role: PRESENTATION (inferred)
     homeserver: "https://matrix.example.com"
     rooms: { ... }
 
   irc-bridge:
-    type: irc                   # role: HYBRID (inferred)
+    type: irc # role: HYBRID (inferred)
     server: "irc.example.com"
     channels: ["#mesh"]
 ```
 
 The `type` field maps to a Python class path resolved by the adapter registry. Built-in types resolve to `adapters/<type>/adapter.py`. Custom adapter types may specify a `class` field explicitly.
-
 
 ## 10. Metadata Contract
 
@@ -619,28 +609,27 @@ class EventMetadata:
     custom: dict                            # Plugin/extension metadata
 ```
 
-| Namespace | Purpose | Example Fields |
-|---|---|---|
-| `transport` | Transport layer details | `protocol`, `gateway_id`, `received_at`, `encoding` |
-| `routing` | Routing context | `matched_routes`, `fanout_group`, `bridge_id` |
-| `radio` | Radio-specific data | `frequency`, `modulation`, `snr`, `rssi`, `hop_limit`, `channel_index` |
-| `telemetry` | Device state at event time | `battery_percent`, `voltage_mv`, `uptime_seconds`, `air_util_tx` |
-| `native` | Unnormalized native fields | Adapter-specific raw fields not yet mapped to canonical fields |
-| `custom` | Plugin/extension data | Key-value pairs using reverse-DNS namespacing |
+| Namespace   | Purpose                    | Example Fields                                                         |
+| ----------- | -------------------------- | ---------------------------------------------------------------------- |
+| `transport` | Transport layer details    | `protocol`, `gateway_id`, `received_at`, `encoding`                    |
+| `routing`   | Routing context            | `matched_routes`, `fanout_group`, `bridge_id`                          |
+| `radio`     | Radio-specific data        | `frequency`, `modulation`, `snr`, `rssi`, `hop_limit`, `channel_index` |
+| `telemetry` | Device state at event time | `battery_percent`, `voltage_mv`, `uptime_seconds`, `air_util_tx`       |
+| `native`    | Unnormalized native fields | Adapter-specific raw fields not yet mapped to canonical fields         |
+| `custom`    | Plugin/extension data      | Key-value pairs using reverse-DNS namespacing                          |
 
 The codec should map native fields into the correct namespace during `decode()`. The enrichment stage may further normalize `native` fields into their proper namespaces.
-
 
 ## 11. Embedding Metadata in Outbound Events
 
 When delivering to presentation adapters, metadata may be embedded in the native event content. The embedding mode is configurable per adapter:
 
-| Mode | What Gets Embedded | Use Case |
-|---|---|---|
-| `off` | Nothing | Pure display surface. All correlation through storage. |
-| `minimal` | `event_id`, `source_transport_id` | Limited context, less exposure on redaction. |
-| `safe` | Normalized metadata (event kind, source adapter, transport protocol, radio metrics, telemetry). No secrets or raw payloads. | Recommended default. |
-| `full` | All metadata | Maximum context. All metadata lost on platform redaction. |
+| Mode      | What Gets Embedded                                                                                                          | Use Case                                                  |
+| --------- | --------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| `off`     | Nothing                                                                                                                     | Pure display surface. All correlation through storage.    |
+| `minimal` | `event_id`, `source_transport_id`                                                                                           | Limited context, less exposure on redaction.              |
+| `safe`    | Normalized metadata (event kind, source adapter, transport protocol, radio metrics, telemetry). No secrets or raw payloads. | Recommended default.                                      |
+| `full`    | All metadata                                                                                                                | Maximum context. All metadata lost on platform redaction. |
 
 Regardless of mode, the following are never embedded:
 
@@ -666,7 +655,6 @@ For TRANSPORT adapters that support metadata fields (like LXMF's `fields` dict),
 
 The `org.medre` namespace is a placeholder and will be updated when the project is named.
 
-
 ## 12. Complete Protocol Summary
 
 ### 12.1 What You Must Implement
@@ -680,42 +668,40 @@ To build an adapter, provide:
 
 ### 12.2 What the Runtime Provides
 
-| Concern | Provided By |
-|---|---|
-| Routing | `core/routing/` |
-| Delivery planning | `core/planning/` |
-| Fallback resolution | `core/planning/fallback_resolution.py` |
-| Relation resolution | `core/planning/relation_resolution.py` |
+| Concern              | Provided By                            |
+| -------------------- | -------------------------------------- |
+| Routing              | `core/routing/`                        |
+| Delivery planning    | `core/planning/`                       |
+| Fallback resolution  | `core/planning/fallback_resolution.py` |
+| Relation resolution  | `core/planning/relation_resolution.py` |
 | Capability downgrade | `core/planning/capability_fallback.py` |
-| Target rendering | `core/rendering/` |
-| Policy evaluation | `core/policies/` |
-| Storage | `core/storage/` |
-| Identity resolution | `core/identity/` |
-| Observability | `core/observability/` |
-| Lifecycle management | `core/lifecycle/` |
+| Target rendering     | `core/rendering/`                      |
+| Policy evaluation    | `core/policies/`                       |
+| Storage              | `core/storage/`                        |
+| Identity resolution  | `core/identity/`                       |
+| Observability        | `core/observability/`                  |
+| Lifecycle management | `core/lifecycle/`                      |
 
 ### 12.3 Data Flow Summary
 
-```
-Inbound:
-  Transport --> raw data
-             --> adapter listener loop
-             --> codec.decode(NativeEvent)
-             --> CanonicalEvent
-             --> ctx.publish_inbound(event)
-             --> ingress policy
-             --> storage
-             --> enrichment
-             --> transforms
-             --> event policy
-             --> routing
-             --> route policy
-             --> delivery planning
-             --> delivery policy / rendering
-             --> adapter.deliver(DeliveryPlan)
+```yaml
+Inbound: Transport --> raw data
+  --> adapter listener loop
+  --> codec.decode(NativeEvent)
+  --> CanonicalEvent
+  --> ctx.publish_inbound(event)
+  --> ingress policy
+  --> storage
+  --> enrichment
+  --> transforms
+  --> event policy
+  --> routing
+  --> route policy
+  --> delivery planning
+  --> delivery policy / rendering
+  --> adapter.deliver(DeliveryPlan)
 
-Outbound:
-  DeliveryPlan
+Outbound: DeliveryPlan
   --> adapter.deliver(plan)
   --> codec.encode(event, plan)
   --> NativeOutbound
@@ -745,7 +731,6 @@ from core.adapter import (
 from core.lifecycle.registry import AdapterRegistry
 ```
 
-
 ---
 
-*This contract is extracted from the [Modular Event Communications Runtime Specification](../spec/modular-event-engine-spec.md). If this document conflicts with the spec, the spec takes precedence. Report discrepancies.*
+_This contract is extracted from the [Modular Event Communications Runtime Specification](../spec/modular-event-engine-spec.md). If this document conflicts with the spec, the spec takes precedence. Report discrepancies._

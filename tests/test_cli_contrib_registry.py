@@ -7,8 +7,6 @@ import sys
 import types
 from unittest import mock
 
-import pytest
-
 from medre.cli.contrib import (
     ALLOWED_NAMESPACES,
     DISALLOWED_TOPLEVEL,
@@ -23,11 +21,18 @@ def test_register_builtin_contributors_creates_auth_parser() -> None:
     subparsers = parser.add_subparsers(dest="command")
     register_builtin_contributors(subparsers)
 
-    args = parser.parse_args([
-        "adapter", "matrix", "auth", "login",
-        "--homeserver", "https://x.org",
-        "--user", "@x:x.org",
-    ])
+    args = parser.parse_args(
+        [
+            "adapter",
+            "matrix",
+            "auth",
+            "login",
+            "--homeserver",
+            "https://x.org",
+            "--user",
+            "@x:x.org",
+        ]
+    )
     assert args.command == "adapter"
     assert args.adapter_command == "matrix"
     assert args.adapter_matrix_command == "auth"
@@ -71,6 +76,7 @@ def test_no_sdk_import_during_parser_build() -> None:
     sys.modules.pop("mindroom_nio", None)
 
     from medre.cli.main import _build_parser
+
     _build_parser()
 
     assert "mindroom_nio" not in sys.modules

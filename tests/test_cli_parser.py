@@ -58,12 +58,22 @@ def test_auth_not_toplevel() -> None:
 def test_adapter_abbrev_rejected_in_auth_login() -> None:
     """--adapter must not be accepted as abbreviation for --adapter-id in auth login."""
     from medre.cli.main import _build_parser
+
     parser = _build_parser()
     with pytest.raises(SystemExit):
-        parser.parse_args([
-            "adapter", "matrix", "auth", "login",
-            "--config", "/tmp/x.toml",
-            "--adapter", "m",
-            "--homeserver", "https://x.org",
-            "--user", "@x:x.org",
-        ])
+        parser.parse_args(
+            [
+                "adapter",
+                "matrix",
+                "auth",
+                "login",
+                "--config",
+                "/tmp/x.toml",
+                "--adapter",
+                "m",
+                "--homeserver",
+                "https://x.org",
+                "--user",
+                "@x:x.org",
+            ]
+        )

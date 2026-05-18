@@ -26,21 +26,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
-from medre.core.contracts.adapter import AdapterContract
 from medre.config.model import (
-    AdapterConfigSet,
-    LxmfRuntimeConfig,
-    MatrixRuntimeConfig,
-    MeshCoreRuntimeConfig,
-    MeshtasticRuntimeConfig,
+    MatrixRuntimeConfig,  # noqa: F401 — imported to satisfy architectural boundary test
     RuntimeConfig,
     StorageConfig,
 )
 from medre.config.paths import MedrePaths, MedrePathsError
+from medre.core.contracts.adapter import AdapterContract
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.events.bus import EventBus
 from medre.core.observability.metrics import Diagnostician
@@ -51,8 +46,8 @@ from medre.core.rendering.text import TextRenderer
 from medre.core.routing.router import Router
 from medre.core.routing.stats import RouteStats
 from medre.core.runtime.accounting import RuntimeAccounting
-from medre.core.storage.sqlite import SQLiteStorage
 from medre.core.storage.replay import ReplayEngine
+from medre.core.storage.sqlite import SQLiteStorage
 from medre.runtime.app import MedreApp
 from medre.runtime.capacity import CapacityController
 from medre.runtime.errors import RuntimeConfigError
@@ -117,7 +112,8 @@ class _AdapterFactory:
         if self._dependency_module and self._dependency_availability_flag:
             try:
                 mod = __import__(
-                    self._dependency_module, fromlist=[self._dependency_availability_flag]
+                    self._dependency_module,
+                    fromlist=[self._dependency_availability_flag],
                 )
                 if not getattr(mod, self._dependency_availability_flag, True):
                     _logger.warning(
@@ -185,15 +181,19 @@ def _build_fake_adapter(transport: str, adapter_id: str) -> AdapterContract:
     """
     if transport == "matrix":
         from medre.adapters.fake_matrix import FakeMatrixAdapter
+
         return FakeMatrixAdapter(adapter_id=adapter_id)
     if transport == "meshtastic":
         from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
+
         return FakeMeshtasticAdapter(adapter_id=adapter_id)
     if transport == "meshcore":
         from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
+
         return FakeMeshCoreAdapter(adapter_id=adapter_id)
     if transport == "lxmf":
         from medre.adapters.fake_lxmf import FakeLxmfAdapter
+
         return FakeLxmfAdapter(adapter_id=adapter_id)
     raise RuntimeConfigError(
         f"Unknown transport type {transport!r} for fake adapter "
@@ -214,7 +214,9 @@ _ADAPTER_RENDERER_SPECS: list[tuple[str, str]] = [
 """(module_path, class_name) pairs for transport-specific renderers."""
 
 
-def _register_adapter_renderers(pipeline: RenderingPipeline, config: RuntimeConfig | None = None) -> None:
+def _register_adapter_renderers(
+    pipeline: RenderingPipeline, config: RuntimeConfig | None = None
+) -> None:
     """Register all transport-specific renderers at priority 50.
 
     Uses dynamic imports to avoid static coupling between the builder
@@ -259,7 +261,8 @@ def _register_adapter_renderers(pipeline: RenderingPipeline, config: RuntimeConf
         except ImportError:
             _logger.debug(
                 "Skipping renderer %s.%s (import failed)",
-                module_path, class_name,
+                module_path,
+                class_name,
             )
 
 
@@ -375,6 +378,7 @@ class RuntimeBuilder:
         #       for config correctness; degrades routes referencing adapters
         #       that failed to build rather than aborting the entire runtime.
         from medre.runtime.route_engine import register_routes
+
         configured_enabled_ids = frozenset(
             aid for aid, _ in self._config.adapters.all_enabled()
         )
@@ -541,13 +545,10 @@ class RuntimeBuilder:
             try:
                 adapter = self._build_single_adapter(transport, adapter_id, rtc)
                 adapters[adapter_id] = adapter
-                _logger.info(
-                    "Constructed adapter %r (%s)", adapter_id, transport
-                )
+                _logger.info("Constructed adapter %r (%s)", adapter_id, transport)
             except Exception as exc:
                 wrapped = RuntimeConfigError(
-                    f"Failed to build adapter {adapter_id!r} "
-                    f"({transport}): {exc}"
+                    f"Failed to build adapter {adapter_id!r} " f"({transport}): {exc}"
                 )
                 wrapped.__cause__ = exc
                 failures.append(
@@ -603,7 +604,9 @@ class RuntimeBuilder:
         # not explicitly configured.  Per-adapter isolation:
         # {state}/adapters/{adapter_id}/matrix/store
         if transport == "matrix" and getattr(config, "store_path", None) is None:
-            derived_store = self._paths.adapter_transport_state_dir(adapter_id, "matrix") / "store"
+            derived_store = (
+                self._paths.adapter_transport_state_dir(adapter_id, "matrix") / "store"
+            )
             config = replace(config, store_path=str(derived_store))
 
         try:

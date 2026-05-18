@@ -12,7 +12,6 @@ This document captures the findings from a read-only audit of `mindroom-nio` (v0
 
 Every factual claim is labeled **[CONFIRMED]**, **[INFERRED]**, **[UNKNOWN]**, or **[DEFERRED]**. **[CONFIRMED]** items have been verified against source code and, where noted, confirmed from runtime behavior with the installed `mindroom-nio[e2e]` package.
 
-
 ## 1. Package & Dependency Topology
 
 ### 1.1 mindroom-nio base package [CONFIRMED]
@@ -32,12 +31,12 @@ Every factual claim is labeled **[CONFIRMED]**, **[INFERRED]**, **[UNKNOWN]**, o
 
 The `[e2e]` optional-dependency group adds:
 
-| Dependency | Version constraint | Purpose |
-|---|---|---|
-| `atomicwrites` | `~=1.4` | Atomic file writes for key store |
-| `cachetools` | `~=5.3` | In-memory caching for key/device lookups |
-| `peewee` | `~=3.14` | SQLite ORM for persistent key/device store |
-| `vodozemac` | `~=0.9` | Olm/Megolm implementation (Rust) |
+| Dependency     | Version constraint | Purpose                                    |
+| -------------- | ------------------ | ------------------------------------------ |
+| `atomicwrites` | `~=1.4`            | Atomic file writes for key store           |
+| `cachetools`   | `~=5.3`            | In-memory caching for key/device lookups   |
+| `peewee`       | `~=3.14`           | SQLite ORM for persistent key/device store |
+| `vodozemac`    | `~=0.9`            | Olm/Megolm implementation (Rust)           |
 
 **Critical gate**: `vodozemac` is the hard gate for all E2EE. Without it, `nio.crypto.ENCRYPTION_ENABLED` is `False` and every crypto API becomes inert.
 
@@ -61,9 +60,9 @@ All crypto module classes (`Olm`, `Session`, `InboundGroupSession`, etc.) are on
 
 The MEDRE `pyproject.toml` defines two Matrix optional-dependency groups:
 
-| Extra | Dependency | Purpose |
-|---|---|---|
-| `matrix` | `mindroom-nio>=0.25` | Plaintext alpha. No E2EE crypto libraries. |
+| Extra        | Dependency                | Purpose                                                                                  |
+| ------------ | ------------------------- | ---------------------------------------------------------------------------------------- |
+| `matrix`     | `mindroom-nio>=0.25`      | Plaintext alpha. No E2EE crypto libraries.                                               |
 | `matrix-e2e` | `mindroom-nio[e2e]>=0.25` | Future E2EE production target. Adds `vodozemac`, `peewee`, `atomicwrites`, `cachetools`. |
 
 **Plaintext alpha** installs `pip install -e ".[matrix]"`. This pulls only the base `mindroom-nio` package, meaning `ENCRYPTION_ENABLED=False` at runtime. The adapter operates normally in plaintext rooms.
@@ -71,7 +70,6 @@ The MEDRE `pyproject.toml` defines two Matrix optional-dependency groups:
 **E2EE text alpha** installs `pip install -e ".[matrix-e2e]"`, which adds the `[e2e]` extras (`vodozemac`, `peewee`, etc.) so that `ENCRYPTION_ENABLED=True` and the crypto subsystem initializes. The adapter uses `AsyncClient` with `store_path` and `encryption_enabled=True` (the default when `ENCRYPTION_ENABLED` is `True`). With a valid `store_path` and `device_id`, `restore_login` loads the crypto store, inbound encrypted messages are auto-decrypted during sync, and `room_send` auto-encrypts for encrypted rooms. See §14 for the full alpha scope.
 
 The `matrix-e2e` extra is the target for production Docker images. The `matrix` extra continues to serve plaintext alpha and environments that do not need encryption.
-
 
 ## 2. AsyncClient Constructor & Configuration
 
@@ -97,13 +95,13 @@ All parameters after `homeserver` are optional.
 
 `ClientConfig` (base) controls E2EE behavior:
 
-| Field | Type | Default | E2EE relevance |
-|---|---|---|---|
-| `encryption_enabled` | `bool` | `ENCRYPTION_ENABLED` | Master switch; if `True` but deps missing, raises `ImportWarning` |
-| `store` | `Type[MatrixStore]` or `None` | `DefaultStore` if deps present else `None` | SQLite-backed key store class |
-| `store_name` | `str` | `""` | Database filename override |
-| `pickle_key` | `str` | `"DEFAULT_KEY"` | Passphrase for encrypting stored crypto keys |
-| `store_sync_tokens` | `bool` | `False` | Persist sync tokens for E2EE state continuity |
+| Field                | Type                          | Default                                    | E2EE relevance                                                    |
+| -------------------- | ----------------------------- | ------------------------------------------ | ----------------------------------------------------------------- |
+| `encryption_enabled` | `bool`                        | `ENCRYPTION_ENABLED`                       | Master switch; if `True` but deps missing, raises `ImportWarning` |
+| `store`              | `Type[MatrixStore]` or `None` | `DefaultStore` if deps present else `None` | SQLite-backed key store class                                     |
+| `store_name`         | `str`                         | `""`                                       | Database filename override                                        |
+| `pickle_key`         | `str`                         | `"DEFAULT_KEY"`                            | Passphrase for encrypting stored crypto keys                      |
+| `store_sync_tokens`  | `bool`                        | `False`                                    | Persist sync tokens for E2EE state continuity                     |
 
 `AsyncClientConfig` extends `ClientConfig` with HTTP-level settings (timeouts, backoff, chunk size) — none directly relevant to E2EE.
 
@@ -151,6 +149,7 @@ def restore_login(self, user_id, device_id, access_token):
 ```
 
 `load_store()` then:
+
 1. Validates `user_id`, `device_id`, and `config.store` are all set.
 2. Instantiates the store (e.g., `DefaultStore(user_id, device_id, store_path, pickle_key, store_name)`).
 3. Creates `Olm(user_id, device_id, store)`.
@@ -159,15 +158,14 @@ def restore_login(self, user_id, device_id, access_token):
 
 **[CONFIRMED from installed package]**: This is the exact call path the `MatrixAdapter.start()` uses. When the `[e2e]` extra is installed and `ENCRYPTION_ENABLED` is `True`, `load_store()` is invoked on `restore_login`. The crypto store loads successfully when `store_path`, `device_id`, and `user_id` are all set. `logged_in` is `True` on success. When `ENCRYPTION_ENABLED` is `False` (no `[e2e]` extra), `load_store()` is never invoked.
 
-
 ## 3. Encryption Event Classification
 
 ### 3.1 Inbound encrypted events [CONFIRMED]
 
-| nio event class | Description | Arrives when |
-|---|---|---|
-| `MegolmEvent` | Undecrypted Megolm ciphertext | Room is encrypted + decryption key unavailable |
-| `RoomEncryptionEvent` | `m.room.encryption` state event | Encryption is enabled in a room |
+| nio event class       | Description                     | Arrives when                                   |
+| --------------------- | ------------------------------- | ---------------------------------------------- |
+| `MegolmEvent`         | Undecrypted Megolm ciphertext   | Room is encrypted + decryption key unavailable |
+| `RoomEncryptionEvent` | `m.room.encryption` state event | Encryption is enabled in a room                |
 
 **Decryption flow in `sync_forever`** [CONFIRMED from installed package]:
 
@@ -205,12 +203,12 @@ self._client.add_event_callback(self._on_room_encryption_event, (RoomEncryptionE
 
 `Event` base class carries E2EE-relevant attributes:
 
-| Attribute | Type | Set when |
-|---|---|---|
-| `decrypted` | `bool` | `True` if event was decrypted from a `MegolmEvent` |
-| `verified` | `bool` | `True` if sender device is verified |
-| `sender_key` | `str` or `None` | Sender's curve25519 key (decrypted events only) |
-| `session_id` | `str` or `None` | Megolm session ID used for decryption |
+| Attribute    | Type            | Set when                                           |
+| ------------ | --------------- | -------------------------------------------------- |
+| `decrypted`  | `bool`          | `True` if event was decrypted from a `MegolmEvent` |
+| `verified`   | `bool`          | `True` if sender device is verified                |
+| `sender_key` | `str` or `None` | Sender's curve25519 key (decrypted events only)    |
+| `session_id` | `str` or `None` | Megolm session ID used for decryption              |
 
 These are accessible on the `native_event` object passed to `MatrixCodec.decode()`. The codec currently does not inspect them. **[DEFERRED]**: Future E2EE diagnostics may surface these through canonical event metadata.
 
@@ -222,7 +220,6 @@ These are accessible on the `native_event` object passed to `MatrixCodec.decode(
 - After `load_store()`, previously known encrypted rooms are restored from `store.load_encrypted_rooms()`.
 
 **[CONFIRMED]**: Room encryption status is fully managed by nio internally. MEDRE does not need to track it independently.
-
 
 ## 4. Key Lifecycle
 
@@ -295,7 +292,6 @@ Between sync iterations, `sync_forever` automatically:
 
 **[CONFIRMED from installed package]**: Under normal `sync_forever` operation, room keys are persisted automatically to the SQLite store. The export/import path is for backup/restore scenarios. Incremental saves happen during the sync loop — keys are saved as they arrive. The `close()` call is not required to flush keys; they are persisted incrementally.
 
-
 ## 5. Outbound Encryption in room_send
 
 ### 5.1 Transparent encryption [CONFIRMED]
@@ -328,7 +324,6 @@ Specifically:
 
 Setting `ignore_unverified_devices=True` does not weaken the Olm/Megolm encryption itself — messages remain encrypted in transit. The tradeoff is that there is no cryptographic guarantee that the receiving device is the intended one, because the trust-on-first-use device verification that cross-signing would provide is absent. This is the current operational reality for all nio-based E2EE clients, not a MEDRE-specific shortcut.
 
-
 ## 6. Shutdown & Close Requirements
 
 ### 6.1 AsyncClient.close() [CONFIRMED]
@@ -342,6 +337,7 @@ async def close(self):
 ```
 
 Only closes the HTTP session. Does **not**:
+
 - Export keys
 - Flush crypto state explicitly
 - Close the SQLite store connection (Peewee handles this via GC)
@@ -372,7 +368,6 @@ Diagnostics surfaced by the session boundary (`undecryptable_event_count`, `last
 
 This ensures that log files, health check output, and diagnostic endpoints do not leak cryptographic secrets.
 
-
 ## 7. Future Session Boundary Design
 
 ### 7.1 The session boundary principle
@@ -381,25 +376,25 @@ The current `MatrixAdapter` directly owns the `nio.AsyncClient` lifecycle. For E
 
 **[ACTIVE]**: `src/medre/adapters/matrix/session.py` encapsulates the nio client lifecycle for the E2EE text alpha. The session boundary is now in place alongside the `matrix-e2e` dependency activation. `MatrixConfig` carries an `e2ee_required` field that, when set, instructs the session boundary to refuse startup if `ENCRYPTION_ENABLED` is `False` (i.e., if `mindroom-nio[e2e]` is not installed).
 
-| Responsibility | Owner | Status |
-|---|---|---|
-| AsyncClient construction | Session | Active |
-| AsyncClientConfig creation | Session | Active |
-| store_path resolution & directory creation | Session | Active |
-| restore_login | Session | Active |
-| sync_forever lifecycle | Session | Active |
-| Sync error classification (transient vs permanent) | Session | Active |
-| Reconnect with bounded exponential backoff | Session | Active — transient errors only; permanent errors skip reconnect |
-| Reconnect attempt tracking & budget | Session | Active — `reconnect_attempts` counter, capped maximum |
-| Room-state tracking | Session | Active — `rooms_tracked` count exposed in diagnostics |
-| Delivery retry (max 3, transient-only) | Session | Active — `delivery_attempts`, `delivery_successes`, `delivery_failures` counters |
-| Crypto continuity verification on restart | Session | Active — `crypto_store_loaded` diagnostic; same device_id/store_path preserves identity |
-| E2EE health diagnostics | Session | Active — `undecryptable_event_count`, `last_crypto_error`, `encrypted_room_seen` |
-| MegolmEvent callback (undecryptable events) | Session | Active — counted, logged (event_id/room_id only), not forwarded |
-| RoomEncryptionEvent callback | Session | Active — sets `encrypted_room_seen`, not forwarded |
-| Key export/import | Session (exposed as adapter methods) | Deferred |
-| Unverified device policy | Session (configured at construction) | Deferred |
-| e2ee_required config enforcement | Session (refuse start if E2EE deps missing) | Active |
+| Responsibility                                     | Owner                                       | Status                                                                                  |
+| -------------------------------------------------- | ------------------------------------------- | --------------------------------------------------------------------------------------- |
+| AsyncClient construction                           | Session                                     | Active                                                                                  |
+| AsyncClientConfig creation                         | Session                                     | Active                                                                                  |
+| store_path resolution & directory creation         | Session                                     | Active                                                                                  |
+| restore_login                                      | Session                                     | Active                                                                                  |
+| sync_forever lifecycle                             | Session                                     | Active                                                                                  |
+| Sync error classification (transient vs permanent) | Session                                     | Active                                                                                  |
+| Reconnect with bounded exponential backoff         | Session                                     | Active — transient errors only; permanent errors skip reconnect                         |
+| Reconnect attempt tracking & budget                | Session                                     | Active — `reconnect_attempts` counter, capped maximum                                   |
+| Room-state tracking                                | Session                                     | Active — `rooms_tracked` count exposed in diagnostics                                   |
+| Delivery retry (max 3, transient-only)             | Session                                     | Active — `delivery_attempts`, `delivery_successes`, `delivery_failures` counters        |
+| Crypto continuity verification on restart          | Session                                     | Active — `crypto_store_loaded` diagnostic; same device_id/store_path preserves identity |
+| E2EE health diagnostics                            | Session                                     | Active — `undecryptable_event_count`, `last_crypto_error`, `encrypted_room_seen`        |
+| MegolmEvent callback (undecryptable events)        | Session                                     | Active — counted, logged (event_id/room_id only), not forwarded                         |
+| RoomEncryptionEvent callback                       | Session                                     | Active — sets `encrypted_room_seen`, not forwarded                                      |
+| Key export/import                                  | Session (exposed as adapter methods)        | Deferred                                                                                |
+| Unverified device policy                           | Session (configured at construction)        | Deferred                                                                                |
+| e2ee_required config enforcement                   | Session (refuse start if E2EE deps missing) | Active                                                                                  |
 
 The adapter holds a `MatrixSession` (or similar) instance. The session owns the `nio.AsyncClient`. The codec and renderer remain nio-agnostic.
 
@@ -433,20 +428,19 @@ The MindRoom project demonstrates patterns relevant to session boundary design:
 
 These patterns inform the session boundary design but do not dictate its implementation. MEDRE's adapter architecture (codec/renderer/session separation) will follow its own structural contracts.
 
-
 ## 8. Boundary Preservation Rules
 
 The following invariants must hold before, during, and after E2EE integration:
 
-| Layer | Invariant |
-|---|---|
-| **Core** | No import of `nio` or `nio.crypto`. No awareness of encryption state. |
-| **Runtime** | Event pipeline processes `CanonicalEvent` without knowledge of encryption. |
-| **Renderer** | `MatrixRenderer` produces `m.room.message` dicts. Encryption is applied downstream by `room_send`. |
-| **Codec** | `MatrixCodec` works with duck-typed event objects. Does not import nio. May read `.decrypted`/`.verified` attributes in future but never calls crypto APIs. |
-| **Storage** | Canonical event storage is encryption-agnostic. Encryption metadata (session_id, sender_key) may appear in `NativeMetadata` but the storage layer does not interpret it. |
-| **Adapter** | Owns session boundary. Does not leak nio crypto objects to upstream layers. |
-| **Config** | `MatrixConfig` may gain E2EE-relevant fields in a future tranche, but the current fields (`store_path`, `device_id`) are already present and forward-compatible. |
+| Layer        | Invariant                                                                                                                                                                |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Core**     | No import of `nio` or `nio.crypto`. No awareness of encryption state.                                                                                                    |
+| **Runtime**  | Event pipeline processes `CanonicalEvent` without knowledge of encryption.                                                                                               |
+| **Renderer** | `MatrixRenderer` produces `m.room.message` dicts. Encryption is applied downstream by `room_send`.                                                                       |
+| **Codec**    | `MatrixCodec` works with duck-typed event objects. Does not import nio. May read `.decrypted`/`.verified` attributes in future but never calls crypto APIs.              |
+| **Storage**  | Canonical event storage is encryption-agnostic. Encryption metadata (session_id, sender_key) may appear in `NativeMetadata` but the storage layer does not interpret it. |
+| **Adapter**  | Owns session boundary. Does not leak nio crypto objects to upstream layers.                                                                                              |
+| **Config**   | `MatrixConfig` may gain E2EE-relevant fields in a future tranche, but the current fields (`store_path`, `device_id`) are already present and forward-compatible.         |
 
 ### 8.1 Current forward-compatible fields [CONFIRMED]
 
@@ -470,58 +464,56 @@ The following fields should be introduced only in a future E2EE hardening tranch
 
 **[DEFERRED]**: Adding these now would be speculative. They belong in the implementation PR, not this readiness document.
 
-
 ## 9. Diagnostics
 
 ### 9.1 Operational diagnostics [ACTIVE]
 
 The following operational diagnostics are surfaced through the adapter's `health_check()` return value:
 
-| Indicator | Source | Value | Status |
-|---|---|---|---|
-| `sync_running` | Sync task state | `bool` | **Active** |
-| `reconnecting` | Reconnect cycle flag | `bool` | **Active** |
-| `reconnect_attempts` | Reconnect attempt counter | `int` | **Active** |
-| `last_successful_sync` | Timestamp of last successful sync | `str or None` (ISO 8601) | **Active** |
-| `rooms_tracked` | Number of rooms being tracked | `int` | **Active** |
-| `delivery_attempts` | Cumulative outbound delivery attempts | `int` | **Active** |
-| `delivery_successes` | Cumulative successful deliveries | `int` | **Active** |
-| `delivery_failures` | Cumulative failed deliveries | `int` | **Active** |
-| `crypto_store_loaded` | Whether crypto store was loaded on startup | `bool or None` | **Active** |
+| Indicator              | Source                                     | Value                    | Status     |
+| ---------------------- | ------------------------------------------ | ------------------------ | ---------- |
+| `sync_running`         | Sync task state                            | `bool`                   | **Active** |
+| `reconnecting`         | Reconnect cycle flag                       | `bool`                   | **Active** |
+| `reconnect_attempts`   | Reconnect attempt counter                  | `int`                    | **Active** |
+| `last_successful_sync` | Timestamp of last successful sync          | `str or None` (ISO 8601) | **Active** |
+| `rooms_tracked`        | Number of rooms being tracked              | `int`                    | **Active** |
+| `delivery_attempts`    | Cumulative outbound delivery attempts      | `int`                    | **Active** |
+| `delivery_successes`   | Cumulative successful deliveries           | `int`                    | **Active** |
+| `delivery_failures`    | Cumulative failed deliveries               | `int`                    | **Active** |
+| `crypto_store_loaded`  | Whether crypto store was loaded on startup | `bool or None`           | **Active** |
 
 ### 9.2 E2EE health indicators [PARTIALLY ACTIVE]
 
 When E2EE is active, the following are surfaced through the session boundary as structured diagnostic data:
 
-| Indicator | Source | Value | Status |
-|---|---|---|---|
-| `e2ee_enabled` | `ENCRYPTION_ENABLED` | `bool` | Deferred |
-| `olm_loaded` | `self._client.olm is not None` | `bool` | Deferred |
-| `store_loaded` | `self._client.store is not None` | `bool` | Deferred |
-| `should_upload_keys` | `self._client.should_upload_keys` | `bool` | Deferred |
-| `should_query_keys` | `self._client.should_query_keys` | `bool` | Deferred |
-| `should_claim_keys` | `self._client.should_claim_keys` | `bool` | Deferred |
-| `encrypted_rooms_count` | `len(self._client.encrypted_rooms)` | `int` | Deferred |
-| `device_count` | `len(self._client.device_store)` | `int` | Deferred |
-| `olm_account_shared` | `self._client.olm_account_shared` | `bool` | Deferred |
-| `undecryptable_event_count` | Session counter | `int` | **Active** |
-| `last_crypto_error` | Session error string | `str or None` | **Active** |
-| `encrypted_room_seen` | Session flag | `bool` | **Active** |
+| Indicator                   | Source                              | Value         | Status     |
+| --------------------------- | ----------------------------------- | ------------- | ---------- |
+| `e2ee_enabled`              | `ENCRYPTION_ENABLED`                | `bool`        | Deferred   |
+| `olm_loaded`                | `self._client.olm is not None`      | `bool`        | Deferred   |
+| `store_loaded`              | `self._client.store is not None`    | `bool`        | Deferred   |
+| `should_upload_keys`        | `self._client.should_upload_keys`   | `bool`        | Deferred   |
+| `should_query_keys`         | `self._client.should_query_keys`    | `bool`        | Deferred   |
+| `should_claim_keys`         | `self._client.should_claim_keys`    | `bool`        | Deferred   |
+| `encrypted_rooms_count`     | `len(self._client.encrypted_rooms)` | `int`         | Deferred   |
+| `device_count`              | `len(self._client.device_store)`    | `int`         | Deferred   |
+| `olm_account_shared`        | `self._client.olm_account_shared`   | `bool`        | Deferred   |
+| `undecryptable_event_count` | Session counter                     | `int`         | **Active** |
+| `last_crypto_error`         | Session error string                | `str or None` | **Active** |
+| `encrypted_room_seen`       | Session flag                        | `bool`        | **Active** |
 
 ### 9.3 Per-event decryption diagnostics [PARTIALLY ACTIVE]
 
-| Indicator | Source | Value |
-|---|---|---|
-| `decrypted` | `event.decrypted` | `bool` |
-| `verified` | `event.verified` | `bool` |
-| `sender_key` | `event.sender_key` | `str or None` |
-| `session_id` | `event.session_id` | `str or None` |
-| `was_megolm` | Whether original event was `MegolmEvent` | `bool` |
+| Indicator    | Source                                   | Value         |
+| ------------ | ---------------------------------------- | ------------- |
+| `decrypted`  | `event.decrypted`                        | `bool`        |
+| `verified`   | `event.verified`                         | `bool`        |
+| `sender_key` | `event.sender_key`                       | `str or None` |
+| `session_id` | `event.session_id`                       | `str or None` |
+| `was_megolm` | Whether original event was `MegolmEvent` | `bool`        |
 
 Undecryptable `MegolmEvent` callbacks are now counted and logged (see §3.2). The per-event metadata above (`decrypted`, `verified`, `sender_key`, `session_id`, `was_megolm`) remains **[DEFERRED]** for surfacing into `NativeMetadata` — but note that `session_id` will never be included in logs or diagnostics output (see §6.3).
 
 These flow into `NativeMetadata` on the canonical event, never into core logic. **Note:** `session_id` and `sender_key` will never appear in diagnostic logs or health output — only in per-event metadata on the canonical event itself, if/when wired.
-
 
 ## 10. Live / Manual E2EE Harness Plan
 
@@ -548,34 +540,31 @@ The E2EE text alpha now includes a live harness. See `docs/runbooks/matrix-live-
 
 The live E2EE harness extends the existing live smoke test pattern. Tests are gated behind the `live` pytest marker and require `MATRIX_E2E_ROOM_ID` and `MATRIX_STORE_PATH` environment variables in addition to the base live test vars. See `docs/runbooks/matrix-live-smoke.md` for full instructions.
 
-
 ## 11. Track Coverage Summary
 
 This document addresses findings from the following investigation tracks:
 
-| Track | Topic | Coverage |
-|---|---|---|
-| **Track 1** | Package extra `mindroom-nio[e2e]`, import namespace, crypto deps | §1 (full) |
-| **Track 2** | AsyncClient constructor, config, `encryption_enabled` behavior | §2 (full) |
-| **Track 4** | `device_id` expectations, `restore_login`/crypto store behavior | §2.4, §2.6 (full) |
-| **Track 5** | First sync / encrypted rooms behavior, key upload/query/share | §3, §4 (full) |
-| **Track 7** | Room key persistence, shutdown/close requirements | §4.6, §6 (full) |
-| **Track 8** | Encrypted event classification | §3 (full) |
-| **Track 9** | Session boundary design, reconnect/backoff, diagnostics, harness plan | §7, §9, §10 (full) |
-| **Resilience** | Operational resilience: reconnect/backoff, delivery retry, crypto continuity, room-state tracking, expanded diagnostics | §7.2, §9.1 (full) |
+| Track          | Topic                                                                                                                   | Coverage           |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------- | ------------------ |
+| **Track 1**    | Package extra `mindroom-nio[e2e]`, import namespace, crypto deps                                                        | §1 (full)          |
+| **Track 2**    | AsyncClient constructor, config, `encryption_enabled` behavior                                                          | §2 (full)          |
+| **Track 4**    | `device_id` expectations, `restore_login`/crypto store behavior                                                         | §2.4, §2.6 (full)  |
+| **Track 5**    | First sync / encrypted rooms behavior, key upload/query/share                                                           | §3, §4 (full)      |
+| **Track 7**    | Room key persistence, shutdown/close requirements                                                                       | §4.6, §6 (full)    |
+| **Track 8**    | Encrypted event classification                                                                                          | §3 (full)          |
+| **Track 9**    | Session boundary design, reconnect/backoff, diagnostics, harness plan                                                   | §7, §9, §10 (full) |
+| **Resilience** | Operational resilience: reconnect/backoff, delivery retry, crypto continuity, room-state tracking, expanded diagnostics | §7.2, §9.1 (full)  |
 
 Tracks not listed (Track 3, Track 6) were not part of the original audit scope or are subsumed by the tracks above.
 
-
 ## 12. Summary of Labels
 
-| Label | Meaning |
-|---|---|
-| **[CONFIRMED]** | Directly verified by reading source code of `mindroom-nio`, MindRoom, or MEDRE. No ambiguity. |
-| **[INFERRED]** | Reasonable deduction from confirmed facts. Not directly tested in MEDRE runtime. Should be verified during implementation. |
-| **[UNKNOWN]** | Could not determine from source alone. Requires live testing or additional investigation. |
-| **[DEFERRED]** | Explicitly out of scope for this readiness document. Belongs in the E2EE implementation tranche. |
-
+| Label           | Meaning                                                                                                                    |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| **[CONFIRMED]** | Directly verified by reading source code of `mindroom-nio`, MindRoom, or MEDRE. No ambiguity.                              |
+| **[INFERRED]**  | Reasonable deduction from confirmed facts. Not directly tested in MEDRE runtime. Should be verified during implementation. |
+| **[UNKNOWN]**   | Could not determine from source alone. Requires live testing or additional investigation.                                  |
+| **[DEFERRED]**  | Explicitly out of scope for this readiness document. Belongs in the E2EE implementation tranche.                           |
 
 ## 13. Risks & Open Questions
 
@@ -592,7 +581,6 @@ Tracks not listed (Track 3, Track 6) were not part of the original audit scope o
 6. **[CONFIRMED from live testing]**: Encrypted-room join and detection work. Initial outbound encrypted send failed with `OlmUnverifiedDeviceError` when `ignore_unverified_devices=False` (two send attempts against encrypted room on matrix.org). After applying `ignore_unverified_devices=True` in the adapter, the full E2EE live suite (`test_matrix_e2ee_live.py -m live`) passed 7/7 (0 failed, 0 skipped) in 3.73s against room `!rnmyZMhUoraPwZUDPP:matrix.org`. Previously failing `test_send_encrypted_text` and `test_restart_send_encrypted` now pass. Encrypted delivery is confirmed working under the nio-limited alpha policy. Full timeline documented in `docs/runbooks/operational-evidence.md` §1.3.
 
 7. **[GUIDANCE]**: `meshtastic-matrix-relay` (mmrelay) SHOULD be used as a practical behavioral reference for Matrix client workflows and E2EE handling patterns. It is a working Meshtastic-to-Matrix bridge that demonstrates real-world nio usage, login flows, encrypted-room handling, and error recovery. However, mmrelay should NOT be copied architecturally or line-for-line — MEDRE's architecture (MEDRE event engine, canonical events, adapter isolation, pipeline stages) remains authoritative. See `docs/spec/modular-event-engine-spec.md` §26 for the full set of architectural lessons from mmrelay.
-
 
 ## 14. E2EE Text Alpha Scope
 
@@ -611,19 +599,19 @@ When installed with `pip install -e ".[matrix-e2e]"` and configured with `store_
 
 The following are explicitly **unsupported** in the E2EE text alpha. They are deferred to future tranches:
 
-| Feature | Status | Notes |
-|---------|--------|-------|
-| Reactions (`m.annotation`) | Not supported | No callback registered for reaction events |
-| Edits (`m.replace`) | Not supported | Edited messages appear as new messages |
-| Media / attachments | Not supported | Text only |
-| Cross-signing | Not supported | nio does not implement cross-signing (MSC1756); see §5.2 for policy implications |
-| Key backup | Not supported | `export_keys`/`import_keys` not wired |
-| Interactive device verification (emoji/QR) | Not supported | `Sas` class exists but not wired |
-| Undecryptable event logging | Implemented | `MegolmEvent` callback counts events, logs warning (event_id/room_id only), not forwarded |
-| Redactions / deletes | Not supported | Not handled |
-| Read receipts | Not supported | Not sent or tracked |
-| Typing notifications | Not supported | Not sent or received |
-| Unverified device policy | Active | `ignore_unverified_devices=True` is the intended/required operational posture (see §5.2). Nio default of `False` causes `OlmUnverifiedDeviceError` in encrypted rooms. No admin-facing config toggle exists yet. |
+| Feature                                    | Status        | Notes                                                                                                                                                                                                            |
+| ------------------------------------------ | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Reactions (`m.annotation`)                 | Not supported | No callback registered for reaction events                                                                                                                                                                       |
+| Edits (`m.replace`)                        | Not supported | Edited messages appear as new messages                                                                                                                                                                           |
+| Media / attachments                        | Not supported | Text only                                                                                                                                                                                                        |
+| Cross-signing                              | Not supported | nio does not implement cross-signing (MSC1756); see §5.2 for policy implications                                                                                                                                 |
+| Key backup                                 | Not supported | `export_keys`/`import_keys` not wired                                                                                                                                                                            |
+| Interactive device verification (emoji/QR) | Not supported | `Sas` class exists but not wired                                                                                                                                                                                 |
+| Undecryptable event logging                | Implemented   | `MegolmEvent` callback counts events, logs warning (event_id/room_id only), not forwarded                                                                                                                        |
+| Redactions / deletes                       | Not supported | Not handled                                                                                                                                                                                                      |
+| Read receipts                              | Not supported | Not sent or tracked                                                                                                                                                                                              |
+| Typing notifications                       | Not supported | Not sent or received                                                                                                                                                                                             |
+| Unverified device policy                   | Active        | `ignore_unverified_devices=True` is the intended/required operational posture (see §5.2). Nio default of `False` causes `OlmUnverifiedDeviceError` in encrypted rooms. No admin-facing config toggle exists yet. |
 
 ### 14.3 Plaintext alpha remains primary
 

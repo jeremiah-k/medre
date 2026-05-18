@@ -26,32 +26,29 @@ Scenarios covered:
 18. Invalid directionality
 19. Duplicate dest_adapters entries
 """
+
 from __future__ import annotations
 
-import asyncio
 import io
 import os
 import sys
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import redirect_stderr
 from pathlib import Path
-from typing import Any
-from unittest.mock import patch
 
 import pytest
 
-from medre.config.errors import (
-    ConfigError,
-    ConfigFileError,
-    ConfigNotFoundError,
-    ConfigValidationError,
-)
 from medre.config.env import (
+    _SECRET_ENV_NAMES,
     EnvProvenance,
     MedreEnvConfig,
     _coerce_bool,
     _coerce_float,
     _coerce_int,
-    _SECRET_ENV_NAMES,
+)
+from medre.config.errors import (
+    ConfigFileError,
+    ConfigNotFoundError,
+    ConfigValidationError,
 )
 from medre.config.loader import load_config
 from medre.config.model import (
@@ -78,10 +75,8 @@ from medre.runtime.routes import (
     BridgePolicy,
     RouteConfig,
     RouteConfigSet,
-    RouteDirectionality,
     _validate_route_id,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -118,7 +113,9 @@ def _write_config(path: Path, content: str) -> Path:
 class TestConfigErrors:
     """Config errors produce deterministic, actionable messages."""
 
-    def test_config_not_found_suggests_sample(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_config_not_found_suggests_sample(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """ConfigNotFoundError mentions search paths and 'medre config sample'."""
         monkeypatch.delenv("MEDRE_HOME", raising=False)
         monkeypatch.delenv("MEDRE_CONFIG", raising=False)
@@ -140,7 +137,9 @@ class TestConfigErrors:
         assert "Config file not found" in msg
         assert "specified explicitly" in msg
 
-    def test_invalid_toml_syntax(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_invalid_toml_syntax(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """ConfigFileError for TOML that cannot be parsed."""
         cfg = _write_config(
             tmp_path / "config.toml",
@@ -224,12 +223,20 @@ class TestDuplicateAdapters:
             serial_port="/dev/ttyACM0",
         )
         adapters = AdapterConfigSet(
-            matrix={"main": MatrixRuntimeConfig(
-                adapter_id="shared_id", enabled=True, config=matrix_cfg,
-            )},
-            meshtastic={"radio": MeshtasticRuntimeConfig(
-                adapter_id="shared_id", enabled=True, config=mesh_cfg,
-            )},
+            matrix={
+                "main": MatrixRuntimeConfig(
+                    adapter_id="shared_id",
+                    enabled=True,
+                    config=matrix_cfg,
+                )
+            },
+            meshtastic={
+                "radio": MeshtasticRuntimeConfig(
+                    adapter_id="shared_id",
+                    enabled=True,
+                    config=mesh_cfg,
+                )
+            },
         )
         with pytest.raises(ConfigValidationError) as exc_info:
             adapters.validate()
@@ -273,7 +280,9 @@ class TestStartupPartialFailure:
     """Builder records AdapterBuildFailure with clear attribution."""
 
     def test_missing_sdk_produces_build_failure(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Enabled real adapter with missing SDK produces AdapterBuildFailure."""
         from medre.config.adapters.matrix import MatrixConfig
@@ -290,9 +299,13 @@ class TestStartupPartialFailure:
             encryption_mode="plaintext",
         )
         adapters = AdapterConfigSet(
-            matrix={"main": MatrixRuntimeConfig(
-                adapter_id="main", enabled=True, config=matrix_cfg,
-            )},
+            matrix={
+                "main": MatrixRuntimeConfig(
+                    adapter_id="main",
+                    enabled=True,
+                    config=matrix_cfg,
+                )
+            },
         )
         config = RuntimeConfig(
             runtime=RuntimeOptions(),
@@ -323,7 +336,9 @@ class TestStartupPartialFailure:
 class TestInvalidPlaceholders:
     """Unknown path placeholders produce MedrePathsError with the placeholder name."""
 
-    def test_unknown_placeholder(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_unknown_placeholder(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
         paths = resolve()
         with pytest.raises(MedrePathsError) as exc_info:
@@ -332,7 +347,9 @@ class TestInvalidPlaceholders:
         assert "unknown path placeholder" in msg
         assert "totally_bogus" in msg
 
-    def test_partial_placeholder(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_partial_placeholder(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
         paths = resolve()
         with pytest.raises(MedrePathsError) as exc_info:
@@ -395,20 +412,26 @@ class TestRouteOverlap:
     def test_self_route_overlap(self) -> None:
         """from_toml_dict rejects source/dest adapter overlap."""
         with pytest.raises(ConfigValidationError) as exc_info:
-            RouteConfig.from_toml_dict("loop", {
-                "source_adapters": ["a", "b"],
-                "dest_adapters": ["b", "c"],
-            })
+            RouteConfig.from_toml_dict(
+                "loop",
+                {
+                    "source_adapters": ["a", "b"],
+                    "dest_adapters": ["b", "c"],
+                },
+            )
         msg = str(exc_info.value)
         assert "overlap" in msg
         assert "'b'" in msg
 
     def test_pure_self_route(self) -> None:
         with pytest.raises(ConfigValidationError) as exc_info:
-            RouteConfig.from_toml_dict("selfloop", {
-                "source_adapters": ["x"],
-                "dest_adapters": ["x"],
-            })
+            RouteConfig.from_toml_dict(
+                "selfloop",
+                {
+                    "source_adapters": ["x"],
+                    "dest_adapters": ["x"],
+                },
+            )
         msg = str(exc_info.value)
         assert "overlap" in msg
         assert "must not bridge an adapter to itself" in msg
@@ -440,7 +463,9 @@ class TestMalformedEnvOverrides:
 
     def test_malformed_float(self) -> None:
         with pytest.raises(ConfigValidationError) as exc_info:
-            _coerce_float("not_a_number", "MEDRE_RUNTIME_DELIVERY_ACQUIRE_TIMEOUT_SECONDS")
+            _coerce_float(
+                "not_a_number", "MEDRE_RUNTIME_DELIVERY_ACQUIRE_TIMEOUT_SECONDS"
+            )
         msg = str(exc_info.value)
         assert "MEDRE_RUNTIME_DELIVERY_ACQUIRE_TIMEOUT_SECONDS" in msg
         assert "must be a number" in msg
@@ -471,7 +496,9 @@ class TestMalformedEnvOverrides:
 class TestStorageFailures:
     """Storage construction produces clear errors for misconfiguration."""
 
-    def test_unsupported_storage_backend(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_unsupported_storage_backend(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """RuntimeConfigError for unsupported storage backend with supported list."""
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
         paths = resolve()
@@ -479,6 +506,7 @@ class TestStorageFailures:
             storage=StorageConfig(backend="postgres"),
         )
         from medre.runtime.builder import RuntimeBuilder
+
         builder = RuntimeBuilder(config, paths)
         with pytest.raises(RuntimeConfigError) as exc_info:
             builder._build_storage()
@@ -525,8 +553,11 @@ class TestUnsupportedPolicyFields:
         policy = BridgePolicy(sender_allowlist=("alice",))
         with pytest.raises(ConfigValidationError) as exc_info:
             from medre.runtime.routes import _reject_unsupported_policy_fields
+
             _reject_unsupported_policy_fields(
-                policy, route_id="test", section_path="routes.test",
+                policy,
+                route_id="test",
+                section_path="routes.test",
             )
         msg = str(exc_info.value)
         assert "sender_allowlist" in msg
@@ -536,28 +567,37 @@ class TestUnsupportedPolicyFields:
     def test_room_allowlist_rejected(self) -> None:
         policy = BridgePolicy(room_allowlist=("!room:t",))
         from medre.runtime.routes import _reject_unsupported_policy_fields
+
         with pytest.raises(ConfigValidationError) as exc_info:
             _reject_unsupported_policy_fields(
-                policy, route_id="test", section_path="routes.test",
+                policy,
+                route_id="test",
+                section_path="routes.test",
             )
         assert "room_allowlist" in str(exc_info.value)
 
     def test_channel_allowlist_rejected(self) -> None:
         policy = BridgePolicy(channel_allowlist=("ch1",))
         from medre.runtime.routes import _reject_unsupported_policy_fields
+
         with pytest.raises(ConfigValidationError) as exc_info:
             _reject_unsupported_policy_fields(
-                policy, route_id="test", section_path="routes.test",
+                policy,
+                route_id="test",
+                section_path="routes.test",
             )
         assert "channel_allowlist" in str(exc_info.value)
 
     def test_allowed_event_types_accepted(self) -> None:
         """The one supported policy field should not raise."""
         from medre.runtime.routes import _reject_unsupported_policy_fields
+
         policy = BridgePolicy(allowed_event_types=("message",))
         # Should not raise.
         _reject_unsupported_policy_fields(
-            policy, route_id="test", section_path="routes.test",
+            policy,
+            route_id="test",
+            section_path="routes.test",
         )
 
 
@@ -572,6 +612,7 @@ class TestRouteLoopWarnings:
     def test_direct_loop_detection(self) -> None:
         """A↔B direct loop is detected."""
         from medre.core.routing.models import Route, RouteSource, RouteTarget
+
         routes = [
             Route(
                 id="fwd",
@@ -586,14 +627,15 @@ class TestRouteLoopWarnings:
         ]
         loops = check_route_loops(routes)
         assert len(loops) >= 1
-        assert any("Direct routing loop" in l for l in loops)
-        direct_loop = [l for l in loops if "Direct routing loop" in l][0]
+        assert any("Direct routing loop" in line for line in loops)
+        direct_loop = [line for line in loops if "Direct routing loop" in line][0]
         assert "'A'" in direct_loop
         assert "'B'" in direct_loop
 
     def test_multi_hop_cycle_detection(self) -> None:
         """X→Y→Z→X multi-hop cycle is detected."""
         from medre.core.routing.models import Route, RouteSource, RouteTarget
+
         routes = [
             Route(
                 id="x_y",
@@ -613,11 +655,12 @@ class TestRouteLoopWarnings:
         ]
         loops = check_route_loops(routes)
         assert len(loops) >= 1
-        assert any("Route cycle detected" in l for l in loops)
+        assert any("Route cycle detected" in line for line in loops)
 
     def test_no_false_positive_linear_chain(self) -> None:
         """A→B→C linear chain produces no loop warnings."""
         from medre.core.routing.models import Route, RouteSource, RouteTarget
+
         routes = [
             Route(
                 id="a_b",
@@ -658,12 +701,14 @@ class TestSecretRedaction:
         assert "api_key" not in sanitized
 
     def test_sanitize_private_key(self) -> None:
-        sanitized = sanitize_for_log({
-            "private_key": "PEM_DATA",
-            "signing_key": "SIG",
-            "identity_key": "ID",
-            "normal": "ok",
-        })
+        sanitized = sanitize_for_log(
+            {
+                "private_key": "PEM_DATA",
+                "signing_key": "SIG",
+                "identity_key": "ID",
+                "normal": "ok",
+            }
+        )
         assert "normal" in sanitized
         assert "private_key" not in sanitized
         assert "signing_key" not in sanitized
@@ -680,10 +725,12 @@ class TestSecretRedaction:
         assert level_entry == ["DEBUG"]
 
     def test_env_config_redacted_repr(self) -> None:
-        env = MedreEnvConfig.from_environ({
-            "MEDRE_MATRIX_ACCESS_TOKEN": "s3cret",
-            "MEDRE_LOG_LEVEL": "INFO",
-        })
+        env = MedreEnvConfig.from_environ(
+            {
+                "MEDRE_MATRIX_ACCESS_TOKEN": "s3cret",
+                "MEDRE_LOG_LEVEL": "INFO",
+            }
+        )
         repr_str = env.redacted_repr()
         assert "***REDACTED***" in repr_str
         assert "s3cret" not in repr_str
@@ -703,12 +750,18 @@ class TestCLINoTraceback:
     """CLI commands exit cleanly (no traceback) on expected misuse."""
 
     def test_cli_config_check_bad_file_exits_cleanly(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """'medre config check --config /nonexistent' exits nonzero, no traceback."""
         from medre.cli import main
 
-        monkeypatch.setattr(sys, "argv", ["medre", "config", "check", "--config", str(tmp_path / "nope.toml")])
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["medre", "config", "check", "--config", str(tmp_path / "nope.toml")],
+        )
         buf = io.StringIO()
         with pytest.raises(SystemExit) as exc_info:
             with redirect_stderr(buf):
@@ -720,12 +773,18 @@ class TestCLINoTraceback:
         assert "Config error" in output or "Config file not found" in output
 
     def test_cli_routes_validate_bad_config_exits_cleanly(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """'medre routes validate --config /nonexistent' exits nonzero, no traceback."""
         from medre.cli import main
 
-        monkeypatch.setattr(sys, "argv", ["medre", "routes", "validate", "--config", str(tmp_path / "gone.toml")])
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["medre", "routes", "validate", "--config", str(tmp_path / "gone.toml")],
+        )
         buf = io.StringIO()
         with pytest.raises(SystemExit) as exc_info:
             with redirect_stderr(buf):
@@ -745,11 +804,14 @@ class TestUnsupportedFilterHooks:
 
     def test_filter_hooks_rejected(self) -> None:
         with pytest.raises(ConfigValidationError) as exc_info:
-            RouteConfig.from_toml_dict("hooked", {
-                "source_adapters": ["a"],
-                "dest_adapters": ["b"],
-                "filter_hooks": ["my_hook"],
-            })
+            RouteConfig.from_toml_dict(
+                "hooked",
+                {
+                    "source_adapters": ["a"],
+                    "dest_adapters": ["b"],
+                    "filter_hooks": ["my_hook"],
+                },
+            )
         msg = str(exc_info.value)
         assert "filter_hooks" in msg
         assert "reserved" in msg
@@ -766,11 +828,14 @@ class TestInvalidDirectionality:
 
     def test_bad_directionality(self) -> None:
         with pytest.raises(ConfigValidationError) as exc_info:
-            RouteConfig.from_toml_dict("dirtest", {
-                "source_adapters": ["a"],
-                "dest_adapters": ["b"],
-                "directionality": "sideways",
-            })
+            RouteConfig.from_toml_dict(
+                "dirtest",
+                {
+                    "source_adapters": ["a"],
+                    "dest_adapters": ["b"],
+                    "directionality": "sideways",
+                },
+            )
         msg = str(exc_info.value)
         assert "invalid directionality" in msg
         assert "'sideways'" in msg
@@ -790,19 +855,25 @@ class TestDuplicateDestAdapters:
 
     def test_duplicate_dest(self) -> None:
         with pytest.raises(ConfigValidationError) as exc_info:
-            RouteConfig.from_toml_dict("dupdest", {
-                "source_adapters": ["a"],
-                "dest_adapters": ["b", "b"],
-            })
+            RouteConfig.from_toml_dict(
+                "dupdest",
+                {
+                    "source_adapters": ["a"],
+                    "dest_adapters": ["b", "b"],
+                },
+            )
         msg = str(exc_info.value)
         assert "duplicate entries in 'dest_adapters'" in msg
 
     def test_duplicate_source(self) -> None:
         with pytest.raises(ConfigValidationError) as exc_info:
-            RouteConfig.from_toml_dict("dupsrc", {
-                "source_adapters": ["a", "a"],
-                "dest_adapters": ["b"],
-            })
+            RouteConfig.from_toml_dict(
+                "dupsrc",
+                {
+                    "source_adapters": ["a", "a"],
+                    "dest_adapters": ["b"],
+                },
+            )
         msg = str(exc_info.value)
         assert "duplicate entries in 'source_adapters'" in msg
 
@@ -817,12 +888,15 @@ class TestRoomChannelAliasConflict:
 
     def test_source_room_channel_conflict(self) -> None:
         with pytest.raises(ConfigValidationError) as exc_info:
-            RouteConfig.from_toml_dict("alias_conflict", {
-                "source_adapters": ["a"],
-                "dest_adapters": ["b"],
-                "source_room": "!room1:test",
-                "source_channel": "!room2:test",
-            })
+            RouteConfig.from_toml_dict(
+                "alias_conflict",
+                {
+                    "source_adapters": ["a"],
+                    "dest_adapters": ["b"],
+                    "source_room": "!room1:test",
+                    "source_channel": "!room2:test",
+                },
+            )
         msg = str(exc_info.value)
         assert "source_room" in msg
         assert "source_channel" in msg
@@ -830,12 +904,15 @@ class TestRoomChannelAliasConflict:
 
     def test_dest_room_channel_conflict(self) -> None:
         with pytest.raises(ConfigValidationError) as exc_info:
-            RouteConfig.from_toml_dict("alias_conflict2", {
-                "source_adapters": ["a"],
-                "dest_adapters": ["b"],
-                "dest_room": "ch1",
-                "dest_channel": "ch2",
-            })
+            RouteConfig.from_toml_dict(
+                "alias_conflict2",
+                {
+                    "source_adapters": ["a"],
+                    "dest_adapters": ["b"],
+                    "dest_room": "ch1",
+                    "dest_channel": "ch2",
+                },
+            )
         msg = str(exc_info.value)
         assert "dest_room" in msg
         assert "dest_channel" in msg
@@ -843,12 +920,15 @@ class TestRoomChannelAliasConflict:
 
     def test_room_channel_same_value_ok(self) -> None:
         """When source_room == source_channel, no error (alias accepted)."""
-        rc = RouteConfig.from_toml_dict("alias_ok", {
-            "source_adapters": ["a"],
-            "dest_adapters": ["b"],
-            "source_room": "!room:test",
-            "source_channel": "!room:test",
-        })
+        rc = RouteConfig.from_toml_dict(
+            "alias_ok",
+            {
+                "source_adapters": ["a"],
+                "dest_adapters": ["b"],
+                "source_room": "!room:test",
+                "source_channel": "!room:test",
+            },
+        )
         assert rc.source_channel == "!room:test"
 
 
@@ -862,32 +942,44 @@ class TestMissingRequiredRouteFields:
 
     def test_missing_source_adapters(self) -> None:
         with pytest.raises(ConfigValidationError) as exc_info:
-            RouteConfig.from_toml_dict("nosrc", {
-                "dest_adapters": ["b"],
-            })
+            RouteConfig.from_toml_dict(
+                "nosrc",
+                {
+                    "dest_adapters": ["b"],
+                },
+            )
         assert "missing required 'source_adapters'" in str(exc_info.value)
 
     def test_missing_dest_adapters(self) -> None:
         with pytest.raises(ConfigValidationError) as exc_info:
-            RouteConfig.from_toml_dict("nodest", {
-                "source_adapters": ["a"],
-            })
+            RouteConfig.from_toml_dict(
+                "nodest",
+                {
+                    "source_adapters": ["a"],
+                },
+            )
         assert "missing required 'dest_adapters'" in str(exc_info.value)
 
     def test_empty_source_adapters(self) -> None:
         with pytest.raises(ConfigValidationError) as exc_info:
-            RouteConfig.from_toml_dict("emptysrc", {
-                "source_adapters": [],
-                "dest_adapters": ["b"],
-            })
+            RouteConfig.from_toml_dict(
+                "emptysrc",
+                {
+                    "source_adapters": [],
+                    "dest_adapters": ["b"],
+                },
+            )
         assert "must not be empty" in str(exc_info.value)
 
     def test_empty_dest_adapters(self) -> None:
         with pytest.raises(ConfigValidationError) as exc_info:
-            RouteConfig.from_toml_dict("emptydest", {
-                "source_adapters": ["a"],
-                "dest_adapters": [],
-            })
+            RouteConfig.from_toml_dict(
+                "emptydest",
+                {
+                    "source_adapters": ["a"],
+                    "dest_adapters": [],
+                },
+            )
         assert "must not be empty" in str(exc_info.value)
 
 
@@ -945,8 +1037,11 @@ class TestRouteTableTypeValidation:
 class TestEnvRuntimeLimitsValidation:
     """Env overrides for runtime limits are validated through the same path."""
 
-    def test_apply_env_overrides_bad_int_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_apply_env_overrides_bad_int_raises(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         from medre.config.env import apply_env_overrides
+
         monkeypatch.setenv("MEDRE_RUNTIME_MAX_INFLIGHT_DELIVERIES", "not_an_int")
         config = RuntimeConfig()
         with pytest.raises(ConfigValidationError) as exc_info:
@@ -955,8 +1050,11 @@ class TestEnvRuntimeLimitsValidation:
         assert "MEDRE_RUNTIME_MAX_INFLIGHT_DELIVERIES" in msg
         assert "must be an integer" in msg
 
-    def test_apply_env_overrides_bad_float_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_apply_env_overrides_bad_float_raises(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         from medre.config.env import apply_env_overrides
+
         monkeypatch.setenv("MEDRE_RUNTIME_DELIVERY_ACQUIRE_TIMEOUT_SECONDS", "xyz")
         config = RuntimeConfig()
         with pytest.raises(ConfigValidationError) as exc_info:
@@ -965,8 +1063,11 @@ class TestEnvRuntimeLimitsValidation:
         assert "MEDRE_RUNTIME_DELIVERY_ACQUIRE_TIMEOUT_SECONDS" in msg
         assert "must be a number" in msg
 
-    def test_apply_env_overrides_bad_bool_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_apply_env_overrides_bad_bool_raises(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         from medre.config.env import apply_env_overrides
+
         monkeypatch.setenv("MEDRE_MATRIX_ENABLED", "maybe")
         config = RuntimeConfig()
         with pytest.raises(ConfigValidationError) as exc_info:

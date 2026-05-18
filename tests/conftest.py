@@ -9,10 +9,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, AsyncGenerator
+from unittest.mock import patch
 
 import pytest
 
@@ -26,9 +28,10 @@ from medre.core.events import (
     RoutingMetadata,
     TransportMetadata,
 )
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.rendering import RenderingPipeline, TextRenderer
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite import SQLiteStorage
-
+from tests.helpers.matrix import build_mock_nio_module
 
 # ---------------------------------------------------------------------------
 # Event fixtures
@@ -134,6 +137,7 @@ async def temp_storage() -> AsyncGenerator[SQLiteStorage, None]:
         ad = Path(artifact_dir)
         ad.mkdir(parents=True, exist_ok=True)
         import uuid
+
         db_path = str(ad / f"storage-{uuid.uuid4().hex[:12]}.db")
     else:
         f = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
@@ -211,3 +215,167 @@ def make_adapter_context(inbound_collector: _InboundCollector):
         )
 
     return _make
+
+
+# ---------------------------------------------------------------------------
+# CLI config fixtures (shared across test_cli_* and test_replay_* modules)
+# ---------------------------------------------------------------------------
+
+CONFIG_FAKE_MULTI = """\
+[runtime]
+name = "workflow-test"
+shutdown_timeout_seconds = 5
+
+[runtime.limits]
+max_inflight_deliveries = 50
+max_inflight_replay_events = 25
+shutdown_drain_timeout_seconds = 3
+delivery_acquire_timeout_seconds = 0.5
+
+[logging]
+level = "INFO"
+format = "text"
+
+[storage]
+backend = "memory"
+
+[adapters.matrix.fake_matrix]
+enabled = true
+adapter_kind = "fake"
+homeserver = "https://fake.local"
+user_id = "@bot:fake.local"
+access_token = "fake_tok"
+room_allowlist = ["!room:fake.local"]
+encryption_mode = "plaintext"
+
+[adapters.meshtastic.fake_mesh]
+enabled = true
+adapter_kind = "fake"
+connection_type = "fake"
+meshnet_name = "TestMesh"
+
+[routes.matrix_to_mesh]
+source_adapters = ["fake_matrix"]
+dest_adapters = ["fake_mesh"]
+directionality = "source_to_dest"
+enabled = true
+source_room = "!room:fake.local"
+dest_channel = "1"
+
+[routes.mesh_to_matrix]
+source_adapters = ["fake_mesh"]
+dest_adapters = ["fake_matrix"]
+directionality = "source_to_dest"
+enabled = false
+
+[routes.bidirectional_bridge]
+source_adapters = ["fake_matrix"]
+dest_adapters = ["fake_mesh"]
+directionality = "bidirectional"
+enabled = true
+
+[routes.bidirectional_bridge.policy]
+allowed_event_types = ["message"]
+"""
+
+CONFIG_MINIMAL_MEMORY = """\
+[runtime]
+name = "minimal-workflow"
+
+[storage]
+backend = "memory"
+"""
+
+CONFIG_SINGLE_ADAPTER = """\
+[runtime]
+name = "single-adapter"
+
+[storage]
+backend = "memory"
+
+[adapters.matrix.solo]
+enabled = true
+adapter_kind = "fake"
+homeserver = "https://fake.local"
+user_id = "@bot:fake.local"
+access_token = "tok_single"
+room_allowlist = ["!room:fake.local"]
+encryption_mode = "plaintext"
+"""
+
+
+@pytest.fixture()
+def config_fake_multi(tmp_path: Path) -> Path:
+    p = tmp_path / "config.toml"
+    p.write_text(CONFIG_FAKE_MULTI)
+    return p
+
+
+@pytest.fixture()
+def config_minimal(tmp_path: Path) -> Path:
+    p = tmp_path / "config.toml"
+    p.write_text(CONFIG_MINIMAL_MEMORY)
+    return p
+
+
+@pytest.fixture()
+def config_single(tmp_path: Path) -> Path:
+    p = tmp_path / "config.toml"
+    p.write_text(CONFIG_SINGLE_ADAPTER)
+    return p
+
+
+@pytest.fixture()
+def tmp_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Set MEDRE_HOME to a temp dir and return it."""
+    monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
+    return tmp_path
+
+
+# ---------------------------------------------------------------------------
+# Docker artifact fixtures (shared across test_docker_artifact_core.py)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def tmp_base(tmp_path: Path) -> Path:
+    """Provide a temporary base directory for artifact runs."""
+    return tmp_path / "bridge-runs"
+
+
+# ---------------------------------------------------------------------------
+# Replay engine fixtures (shared across test_replay_* modules)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def rendering_pipeline() -> RenderingPipeline:
+    """RenderingPipeline with TextRenderer registered."""
+    pipeline = RenderingPipeline()
+    pipeline.register(TextRenderer(), priority=100)
+    return pipeline
+
+
+# ---------------------------------------------------------------------------
+# Matrix mock fixtures (shared across test_wrapper_multi_callback.py)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def mock_nio() -> Any:
+    """Inject a mock nio module into sys.modules and patch HAS_NIO."""
+    mock = build_mock_nio_module()
+    saved_nio = sys.modules.get("nio")
+    saved_nio_events = sys.modules.get("nio.events")
+    sys.modules["nio"] = mock
+    sys.modules["nio.events"] = mock.events
+    with patch("medre.adapters.matrix.adapter.HAS_NIO", True):
+        yield mock
+    if saved_nio is None:
+        sys.modules.pop("nio", None)
+    else:
+        sys.modules["nio"] = saved_nio
+    if saved_nio_events is None:
+        sys.modules.pop("nio.events", None)
+    else:
+        sys.modules["nio.events"] = saved_nio_events

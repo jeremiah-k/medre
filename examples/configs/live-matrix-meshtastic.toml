@@ -18,15 +18,15 @@
 
 [runtime]
 name = "live-matrix-meshtastic"
-shutdown_timeout_seconds = 30          # give adapters time to drain on Ctrl-C
+shutdown_timeout_seconds = 30   # give adapters time to drain on Ctrl-C
 
 [logging]
-level = "INFO"                         # use DEBUG for bring-up visibility
-format = "text"                        # "text" for humans, "json" for log aggregation
+level = "INFO"  # use DEBUG for bring-up visibility
+format = "text" # "text" for humans, "json" for log aggregation
 
 [storage]
 backend = "sqlite"
-path = "{state}/medre.sqlite"          # {state} resolves to XDG state dir
+path = "{state}/medre.sqlite" # {state} resolves to XDG state dir
 
 # ---------------------------------------------------------------------------
 # Matrix transport
@@ -51,9 +51,9 @@ encryption_mode = "plaintext"          # plaintext | e2ee_optional | e2ee_requir
 enabled = true
 connection_type = "serial"
 serial_port = "/dev/ttyACM0"
-meshnet_name = "medre-radio"           # human-readable name in logs and mesh announcements
-matrix_relay_prefix = "[{longname}/{meshnet_name}]: "  # Meshtastic→Matrix: prepend sender info (default)
-radio_relay_prefix = "{shortname5}[M]: "                # Matrix→Meshtastic: prepend short name (default)
+meshnet_name = "medre-radio"                          # human-readable name in logs and mesh announcements
+matrix_relay_prefix = "[{longname}/{meshnet_name}]: " # Meshtastic→Matrix: prepend sender info (default)
+radio_relay_prefix = "{shortname5}[M]: "              # Matrix→Meshtastic: prepend short name (default)
 # matrix_relay_prefix = "[{longname}/{shortname}]: "    # alternative: long name + short name
 # radio_relay_prefix = ""                               # empty = no prefix for radio direction
 # mmrelay_compatibility = true                    # embed mmrelay-compatible metadata in Matrix payloads
@@ -94,7 +94,7 @@ source_adapters = ["matrix"]
 dest_adapters = ["radio"]
 directionality = "bidirectional"
 enabled = true
-source_room = "!room:example.com"           # Matrix room to listen on (forward); delivered to in reverse
-dest_channel = "0"                          # Meshtastic channel index (forward dest; reverse source)
+source_room = "!room:example.com" # Matrix room to listen on (forward); delivered to in reverse
+dest_channel = "0"                # Meshtastic channel index (forward dest; reverse source)
 
 # Retry disabled for bring-up simplicity

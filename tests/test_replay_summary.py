@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 from typing import Any, Literal
-from unittest.mock import AsyncMock
 
 import pytest
 
@@ -25,7 +24,6 @@ from medre.core.storage.replay import (
     collect_replay_summary,
 )
 from medre.core.storage.sqlite import SQLiteStorage
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -214,10 +212,17 @@ class TestBuildSummary:
     def test_stage_and_status_counts(self) -> None:
         results = [
             _result(event_id="e1", stage="store", status="passed"),
-            _result(event_id="e1", stage="route", status="passed", output=[("r", ["t1", "t2"])]),
+            _result(
+                event_id="e1",
+                stage="route",
+                status="passed",
+                output=[("r", ["t1", "t2"])],
+            ),
             _result(event_id="e1", stage="plan", status="passed"),
             _result(event_id="e2", stage="store", status="failed", error="not found"),
-            _result(event_id="e2", stage="route", status="skipped", error="upstream failed"),
+            _result(
+                event_id="e2", stage="route", status="skipped", error="upstream failed"
+            ),
         ]
         summary = _build_summary(results, events_scanned=3)
 
@@ -435,8 +440,9 @@ class TestReplaySummaryIntegration:
         temp_storage: SQLiteStorage,
         sample_event: CanonicalEvent,
     ) -> None:
-        from medre.core.storage import ReplayEngine, ReplayRequest
         from typing import cast
+
+        from medre.core.storage import ReplayEngine, ReplayRequest
 
         await temp_storage.append(sample_event)
 
@@ -467,8 +473,9 @@ class TestReplaySummaryIntegration:
         self,
         temp_storage: SQLiteStorage,
     ) -> None:
-        from medre.core.storage import ReplayEngine, ReplayRequest
         from typing import cast
+
+        from medre.core.storage import ReplayEngine, ReplayRequest
 
         engine = ReplayEngine(storage=cast(StorageBackend, temp_storage))
         request = ReplayRequest(
@@ -494,9 +501,9 @@ class TestReplaySummaryIntegration:
         sample_event: CanonicalEvent,
     ) -> None:
         from datetime import datetime, timezone
+        from typing import cast
 
         from medre.core.storage import ReplayEngine, ReplayRequest
-        from typing import cast
 
         await temp_storage.append(sample_event)
 
@@ -538,11 +545,12 @@ class TestReplaySummaryIntegration:
         temp_storage: SQLiteStorage,
         sample_event: CanonicalEvent,
     ) -> None:
+        from typing import cast
+
         from medre.core.planning import FallbackResolver
         from medre.core.rendering import RenderingPipeline, TextRenderer
-        from medre.core.routing import Route, RouteSource, RouteTarget, Router
+        from medre.core.routing import Route, Router, RouteSource, RouteTarget
         from medre.core.storage import ReplayEngine, ReplayRequest
-        from typing import cast
 
         route = Route(
             id="test-route",
@@ -575,7 +583,7 @@ class TestReplaySummaryIntegration:
             async def plan_delivery(self, event, routes):
                 resolver = FallbackResolver()
                 plans = []
-                for r, targets in routes:
+                for _r, targets in routes:
                     for t in targets:
                         plans.append(resolver.resolve_fallback(event, t, {}))
                 return plans

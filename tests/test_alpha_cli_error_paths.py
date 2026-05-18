@@ -6,18 +6,15 @@ Split from the original test_alpha_walkthrough_cli.py monolith.
 from __future__ import annotations
 
 import io
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import redirect_stderr
 from pathlib import Path
 
 import pytest
 
 from medre.cli import main
-
 from tests.helpers.alpha_cli import (
-    clean_path_env,
     smoke_config_path,
 )
-
 
 # ---------------------------------------------------------------------------
 # Test: no tracebacks on invalid inputs
@@ -42,11 +39,17 @@ class TestAlphaNoTracebacks:
         stderr_buf = io.StringIO()
         with redirect_stderr(stderr_buf):
             with pytest.raises(SystemExit):
-                main([
-                    "replay",
-                    "--config", smoke_config_path(),
-                    "--mode", "dry_run",
-                    "--event", "evt-1",
-                    "--storage-path", str(tmp_path / "test.db"),
-                ])
+                main(
+                    [
+                        "replay",
+                        "--config",
+                        smoke_config_path(),
+                        "--mode",
+                        "dry_run",
+                        "--event",
+                        "evt-1",
+                        "--storage-path",
+                        str(tmp_path / "test.db"),
+                    ]
+                )
         assert "not supported for replay" in stderr_buf.getvalue()

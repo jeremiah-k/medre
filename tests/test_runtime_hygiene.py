@@ -19,12 +19,10 @@ from __future__ import annotations
 
 import asyncio
 import json
-import time as _time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -39,7 +37,7 @@ from medre.core.runtime.supervision import (
     classify_runtime_health,
     classify_startup_outcome,
 )
-from medre.runtime.boot_summary import BootSummary, build_boot_summary
+from medre.runtime.boot_summary import build_boot_summary
 from medre.runtime.capacity import CapacityController
 from medre.runtime.observability import DiagnosticsCollector
 from medre.runtime.snapshot import (
@@ -49,7 +47,6 @@ from medre.runtime.snapshot import (
     _MAX_ROUTES,
     build_runtime_snapshot,
 )
-
 
 # =====================================================================
 # Fakes (no SDK imports)
@@ -151,9 +148,7 @@ class _FakeDiagnosticsCollector:
 
 
 class _FakeBuildFailure:
-    def __init__(
-        self, adapter_id: str = "bad-adapter", error: str = "boom"
-    ) -> None:
+    def __init__(self, adapter_id: str = "bad-adapter", error: str = "boom") -> None:
         self.adapter_id = adapter_id
         self.error = error
 
@@ -259,9 +254,7 @@ class TestSnapshotAdapterCap:
 
     def test_adapters_below_cap_unchanged(self) -> None:
         """When fewer than cap adapters exist, all are included."""
-        adapters = {
-            f"a-{i}": _FakeAdapter(adapter_id=f"a-{i}") for i in range(10)
-        }
+        adapters = {f"a-{i}": _FakeAdapter(adapter_id=f"a-{i}") for i in range(10)}
         app = _make_fake_app(adapters=adapters)
         snap = build_runtime_snapshot(app)
         assert len(snap["adapters"]) == 10
@@ -284,8 +277,7 @@ class TestSnapshotRouteCap:
     def test_routes_capped_at_max(self) -> None:
         """When more than _MAX_ROUTES routes exist, snapshot is capped."""
         route_data = {
-            f"route-{i:04d}": {"delivered": i}
-            for i in range(_MAX_ROUTES + 50)
+            f"route-{i:04d}": {"delivered": i} for i in range(_MAX_ROUTES + 50)
         }
         app = _make_fake_app(route_stats=_FakeRouteStats(data=route_data))
         snap = build_runtime_snapshot(app)
@@ -346,9 +338,7 @@ class TestSnapshotDeterminism:
             monotonic_fn=lambda: 200.0,
         )
         assert snap1 == snap2
-        assert json.dumps(snap1, sort_keys=True) == json.dumps(
-            snap2, sort_keys=True
-        )
+        assert json.dumps(snap1, sort_keys=True) == json.dumps(snap2, sort_keys=True)
 
     def test_snapshot_json_safe(self) -> None:
         app = _make_fake_app(adapters={"a1": _FakeAdapter()})
@@ -816,9 +806,7 @@ class TestPartialAdapterStartCleanup:
     async def test_all_fail_nothing_to_cleanup(self) -> None:
         """If all adapters fail to start, nothing needs cleanup."""
         adapters = {
-            f"bad-{i}": _FakeAdapter(
-                adapter_id=f"bad-{i}", raise_on_start=True
-            )
+            f"bad-{i}": _FakeAdapter(adapter_id=f"bad-{i}", raise_on_start=True)
             for i in range(3)
         }
         started: list[str] = []
@@ -844,9 +832,7 @@ class TestSupervisionDeterminism:
     def test_health_classification_idempotent(self) -> None:
         states = [AdapterState.READY, AdapterState.FAILED]
         for _ in range(10):
-            assert (
-                classify_runtime_health(states) == RuntimeHealth.DEGRADED
-            )
+            assert classify_runtime_health(states) == RuntimeHealth.DEGRADED
 
     def test_startup_outcome_idempotent(self) -> None:
         for _ in range(10):

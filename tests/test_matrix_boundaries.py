@@ -6,7 +6,6 @@ reply resolution; delivery contract; and nio response hardening.
 from __future__ import annotations
 
 import asyncio
-import logging
 import sys
 from datetime import datetime, timezone
 from typing import Any
@@ -15,16 +14,17 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from medre.adapters import FakeMatrixAdapter, FakePresentationAdapter
-from medre.core.contracts.adapter import AdapterDeliveryResult, AdapterPermanentError, AdapterSendError
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.codec import MatrixCodec
-from medre.adapters.matrix.compat import HAS_NIO
-from medre.config.adapters.matrix import MatrixConfig
 from medre.adapters.matrix.errors import MatrixSendError
-from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
-from medre.adapters.matrix.relations import MatrixRelationHandler
 from medre.adapters.matrix.renderer import MatrixRenderer
-from medre.core.events import CanonicalEvent, EventMetadata, NativeRef
+from medre.config.adapters.matrix import MatrixConfig
+from medre.core.contracts.adapter import (
+    AdapterDeliveryResult,
+    AdapterPermanentError,
+    AdapterSendError,
+)
+from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.rendering.renderer import RenderingResult
 from tests.fixtures.matrix_packets import (
     make_room_send_error,
@@ -44,10 +44,12 @@ class TestMatrixBoundaries:
 
         # No core module should contain "matrix" in its name at all.
         # MatrixRenderer is now owned by the adapter package.
-        core_modules = [k for k in sys.modules if k.startswith("medre.core.") and "matrix" in k]
-        assert len(core_modules) == 0, (
-            f"Core modules must not reference matrix: {core_modules}"
-        )
+        core_modules = [
+            k for k in sys.modules if k.startswith("medre.core.") and "matrix" in k
+        ]
+        assert (
+            len(core_modules) == 0
+        ), f"Core modules must not reference matrix: {core_modules}"
 
     def test_matrix_does_not_import_other_adapters(self) -> None:
         """Matrix adapter package does not import other adapter modules."""
@@ -59,9 +61,9 @@ class TestMatrixBoundaries:
         for mod in (adapter_mod, codec_mod, renderer_mod, config_mod):
             assert mod.__file__ is not None
             source = open(mod.__file__).read()
-            assert "meshtastic" not in source.lower(), (
-                f"{mod.__name__} references meshtastic"
-            )
+            assert (
+                "meshtastic" not in source.lower()
+            ), f"{mod.__name__} references meshtastic"
 
     def test_matrix_adapter_does_not_route(self) -> None:
         """FakeMatrixAdapter has no route matching or routing methods."""
@@ -91,6 +93,7 @@ class TestMatrixBoundaries:
     def test_matrix_renderer_lives_outside_core(self) -> None:
         """MatrixRenderer is in the adapter package, not core."""
         from medre.adapters.matrix.renderer import MatrixRenderer
+
         assert "adapters.matrix" in MatrixRenderer.__module__
 
     async def test_fake_matrix_rejects_raw_canonical_event(self) -> None:
@@ -112,7 +115,7 @@ class TestMatrixBoundaries:
         )
         # Intentionally pass a CanonicalEvent to verify runtime guard.
         # Use getattr to avoid a static signature mismatch.
-        deliver_fn = getattr(adapter, "deliver")
+        deliver_fn = adapter.deliver
         with pytest.raises(AdapterPermanentError, match="RenderingResult only"):
             await deliver_fn(event)
 
@@ -135,7 +138,7 @@ class TestMatrixBoundaries:
         )
         # Intentionally pass a CanonicalEvent to verify runtime guard.
         # Use getattr to avoid a static signature mismatch.
-        deliver_fn = getattr(adapter, "deliver")
+        deliver_fn = adapter.deliver
         with pytest.raises(TypeError, match="RenderingResult only"):
             await deliver_fn(event)
 
@@ -164,10 +167,11 @@ class TestMatrixBoundaries:
         from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
         from medre.core.events.bus import EventBus
         from medre.core.planning import FallbackResolver, RelationResolver
-        from medre.core.routing import Route, RouteSource, RouteTarget, Router
+        from medre.core.routing import Route, Router, RouteSource, RouteTarget
 
         adapter = FaultyPresentationAdapter(
-            adapter_id="failing_matrix", failure_mode="always_fail",
+            adapter_id="failing_matrix",
+            failure_mode="always_fail",
         )
         route = Route(
             id="fail-route",
@@ -265,7 +269,9 @@ class TestMatrixDeliveryHygiene:
         # room_send was called
         assert mock_client.room_send.called
         call_kwargs = mock_client.room_send.call_args
-        sent_content = call_kwargs.kwargs.get("content") or call_kwargs[1].get("content", {})
+        sent_content = call_kwargs.kwargs.get("content") or call_kwargs[1].get(
+            "content", {}
+        )
         assert "room_id" not in sent_content
         assert sent_content["body"] == "hello"
 
@@ -307,7 +313,9 @@ class TestMatrixDeliveryHygiene:
             target_channel=None,
             payload={"msgtype": "m.text", "body": "hello"},
         )
-        with pytest.raises((MatrixSendError, AdapterPermanentError), match="no room_id"):
+        with pytest.raises(
+            (MatrixSendError, AdapterPermanentError), match="no room_id"
+        ):
             await adapter.deliver(result)
 
     async def test_deliver_does_not_mutate_original_payload(self) -> None:
@@ -347,40 +355,41 @@ class TestMatrixDeliveryHygiene:
 class TestMatrixBoundaryCrossImports:
     """Matrix package must not import meshtastic, meshcore, or lxmf."""
 
-    @pytest.fixture(params=[
-        "medre.adapters.matrix.adapter",
-        "medre.adapters.matrix.codec",
-        "medre.adapters.matrix.renderer",
-        "medre.config.adapters.matrix",
-        "medre.adapters.matrix.relations",
-        "medre.adapters.matrix.metadata",
-        "medre.adapters.matrix.compat",
-        "medre.adapters.matrix.errors",
-    ])
+    @pytest.fixture(
+        params=[
+            "medre.adapters.matrix.adapter",
+            "medre.adapters.matrix.codec",
+            "medre.adapters.matrix.renderer",
+            "medre.config.adapters.matrix",
+            "medre.adapters.matrix.relations",
+            "medre.adapters.matrix.metadata",
+            "medre.adapters.matrix.compat",
+            "medre.adapters.matrix.errors",
+        ]
+    )
     def matrix_module_file(self, request) -> str:
         """Parametrized fixture yielding the file path of each Matrix module."""
         import importlib
+
         mod = importlib.import_module(request.param)
         assert mod.__file__ is not None
         return mod.__file__
 
     def test_no_meshtastic_import(self, matrix_module_file: str) -> None:
         source = open(matrix_module_file).read()
-        assert "meshtastic" not in source.lower(), (
-            f"{matrix_module_file} references meshtastic"
-        )
+        assert (
+            "meshtastic" not in source.lower()
+        ), f"{matrix_module_file} references meshtastic"
 
     def test_no_meshcore_import(self, matrix_module_file: str) -> None:
         source = open(matrix_module_file).read()
-        assert "meshcore" not in source.lower(), (
-            f"{matrix_module_file} references meshcore"
-        )
+        assert (
+            "meshcore" not in source.lower()
+        ), f"{matrix_module_file} references meshcore"
 
     def test_no_lxmf_import(self, matrix_module_file: str) -> None:
         source = open(matrix_module_file).read()
-        assert "lxmf" not in source.lower(), (
-            f"{matrix_module_file} references lxmf"
-        )
+        assert "lxmf" not in source.lower(), f"{matrix_module_file} references lxmf"
 
 
 class TestMatrixCodecBoundaryMethods:
@@ -674,7 +683,9 @@ class TestMatrixCancelledErrorPropagation:
         with pytest.raises(AdapterPermanentError, match="not connected"):
             await adapter.deliver(result)
 
-    async def test_matrix_send_error_transient_converted_to_adapter_send_error(self) -> None:
+    async def test_matrix_send_error_transient_converted_to_adapter_send_error(
+        self,
+    ) -> None:
         """MatrixSendError(transient=True) is converted to AdapterSendError at boundary."""
         config = _make_matrix_config()
         adapter = MatrixAdapter(config)
@@ -695,7 +706,9 @@ class TestMatrixCancelledErrorPropagation:
             await adapter.deliver(result)
         assert exc_info.value.transient is True
 
-    async def test_matrix_send_error_permanent_converted_to_adapter_permanent(self) -> None:
+    async def test_matrix_send_error_permanent_converted_to_adapter_permanent(
+        self,
+    ) -> None:
         """MatrixSendError(transient=False) is converted to AdapterPermanentError at boundary."""
         config = _make_matrix_config()
         adapter = MatrixAdapter(config)

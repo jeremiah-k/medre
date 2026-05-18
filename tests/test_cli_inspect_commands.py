@@ -15,7 +15,6 @@ from tests.helpers.cli import (
     _run_cli_both,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -39,6 +38,7 @@ def _seed_inspect_db(
     """Synchronously seed an inspect test database with an event + receipt + native ref."""
     import asyncio
     from datetime import datetime, timezone
+
     from medre.core.events import (
         CanonicalEvent,
         DeliveryReceipt,
@@ -142,7 +142,8 @@ def config_inspect_with_replay(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
 
 @pytest.fixture()
 def config_inspect_with_native_ref(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> Path:
     """Config with sqlite storage and seeded native ref."""
     monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
@@ -162,7 +163,8 @@ def config_inspect_with_native_ref(
 
 @pytest.fixture()
 def config_inspect_native_null_channel(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> Path:
     """Config with sqlite storage and native ref with null channel."""
     monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
@@ -206,11 +208,18 @@ class TestInspectParser:
 
     def test_inspect_receipts_event_and_replay_run_exclusive(self) -> None:
         with pytest.raises(SystemExit):
-            main([
-                "inspect", "receipts",
-                "--event", "evt-1", "--replay-run", "run-1",
-                "--config", "/nonexistent/config.toml",
-            ])
+            main(
+                [
+                    "inspect",
+                    "receipts",
+                    "--event",
+                    "evt-1",
+                    "--replay-run",
+                    "run-1",
+                    "--config",
+                    "/nonexistent/config.toml",
+                ]
+            )
 
     def test_inspect_native_ref_requires_adapter_and_message(self) -> None:
         with pytest.raises(SystemExit):
@@ -218,11 +227,16 @@ class TestInspectParser:
 
     def test_inspect_native_ref_adapter_only_is_insufficient(self) -> None:
         with pytest.raises(SystemExit):
-            main([
-                "inspect", "native-ref",
-                "--adapter", "matrix",
-                "--config", "/nonexistent/config.toml",
-            ])
+            main(
+                [
+                    "inspect",
+                    "native-ref",
+                    "--adapter",
+                    "matrix",
+                    "--config",
+                    "/nonexistent/config.toml",
+                ]
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -235,8 +249,11 @@ class TestInspectEvent:
 
     def test_event_found_returns_json(self, config_inspect_sqlite: Path) -> None:
         output = _run_cli(
-            "inspect", "event", "evt-inspect-1",
-            "--config", str(config_inspect_sqlite),
+            "inspect",
+            "event",
+            "evt-inspect-1",
+            "--config",
+            str(config_inspect_sqlite),
         )
         parsed = json.loads(output)
         assert parsed["event_id"] == "evt-inspect-1"
@@ -244,56 +261,76 @@ class TestInspectEvent:
         assert parsed["payload"]["text"] == "inspect test message"
 
     def test_event_json_is_deterministic(
-        self, config_inspect_sqlite: Path,
+        self,
+        config_inspect_sqlite: Path,
     ) -> None:
         output = _run_cli(
-            "inspect", "event", "evt-inspect-1",
-            "--config", str(config_inspect_sqlite),
+            "inspect",
+            "event",
+            "evt-inspect-1",
+            "--config",
+            str(config_inspect_sqlite),
         )
         parsed = json.loads(output)
         keys = list(parsed.keys())
         assert keys == sorted(keys)
 
     def test_event_not_found_exits_not_found(
-        self, config_inspect_sqlite: Path,
+        self,
+        config_inspect_sqlite: Path,
     ) -> None:
         from medre.cli import EXIT_NOT_FOUND
 
         with pytest.raises(SystemExit) as exc_info:
             _run_cli(
-                "inspect", "event", "nonexistent-event",
-                "--config", str(config_inspect_sqlite),
+                "inspect",
+                "event",
+                "nonexistent-event",
+                "--config",
+                str(config_inspect_sqlite),
             )
         assert exc_info.value.code == EXIT_NOT_FOUND
 
     def test_event_not_found_stderr_message(
-        self, config_inspect_sqlite: Path,
+        self,
+        config_inspect_sqlite: Path,
     ) -> None:
         stdout, stderr = _run_cli_both(
-            "inspect", "event", "nonexistent-event",
-            "--config", str(config_inspect_sqlite),
+            "inspect",
+            "event",
+            "nonexistent-event",
+            "--config",
+            str(config_inspect_sqlite),
         )
         assert "event not found" in stderr
         assert "nonexistent-event" in stderr
 
     def test_event_memory_backend_exits_config(
-        self, config_inspect_memory: Path,
+        self,
+        config_inspect_memory: Path,
     ) -> None:
         from medre.cli import EXIT_CONFIG
 
         with pytest.raises(SystemExit) as exc_info:
             _run_cli(
-                "inspect", "event", "evt-1",
-                "--config", str(config_inspect_memory),
+                "inspect",
+                "event",
+                "evt-1",
+                "--config",
+                str(config_inspect_memory),
             )
         assert exc_info.value.code == EXIT_CONFIG
 
     def test_event_memory_backend_stderr_message(
-        self, config_inspect_memory: Path,
+        self,
+        config_inspect_memory: Path,
     ) -> None:
         stdout, stderr = _run_cli_both(
-            "inspect", "event", "evt-1",
-            "--config", str(config_inspect_memory),
+            "inspect",
+            "event",
+            "evt-1",
+            "--config",
+            str(config_inspect_memory),
         )
         assert "memory" in stderr
 
@@ -307,11 +344,16 @@ class TestInspectReceipts:
     """Tests for 'medre inspect receipts' command."""
 
     def test_receipts_by_event_found(
-        self, config_inspect_sqlite: Path,
+        self,
+        config_inspect_sqlite: Path,
     ) -> None:
         output = _run_cli(
-            "inspect", "receipts", "--event", "evt-inspect-1",
-            "--config", str(config_inspect_sqlite),
+            "inspect",
+            "receipts",
+            "--event",
+            "evt-inspect-1",
+            "--config",
+            str(config_inspect_sqlite),
         )
         parsed = json.loads(output)
         assert isinstance(parsed, list)
@@ -321,22 +363,32 @@ class TestInspectReceipts:
         assert parsed[0]["status"] == "sent"
 
     def test_receipts_by_event_empty_list(
-        self, config_inspect_sqlite: Path,
+        self,
+        config_inspect_sqlite: Path,
     ) -> None:
         output = _run_cli(
-            "inspect", "receipts", "--event", "nonexistent-event",
-            "--config", str(config_inspect_sqlite),
+            "inspect",
+            "receipts",
+            "--event",
+            "nonexistent-event",
+            "--config",
+            str(config_inspect_sqlite),
         )
         parsed = json.loads(output)
         assert isinstance(parsed, list)
         assert len(parsed) == 0
 
     def test_receipts_by_replay_run_found(
-        self, config_inspect_with_replay: Path,
+        self,
+        config_inspect_with_replay: Path,
     ) -> None:
         output = _run_cli(
-            "inspect", "receipts", "--replay-run", "run-42",
-            "--config", str(config_inspect_with_replay),
+            "inspect",
+            "receipts",
+            "--replay-run",
+            "run-42",
+            "--config",
+            str(config_inspect_with_replay),
         )
         parsed = json.loads(output)
         assert isinstance(parsed, list)
@@ -345,22 +397,32 @@ class TestInspectReceipts:
         assert parsed[0]["replay_run_id"] == "run-42"
 
     def test_receipts_by_replay_run_empty_list(
-        self, config_inspect_sqlite: Path,
+        self,
+        config_inspect_sqlite: Path,
     ) -> None:
         output = _run_cli(
-            "inspect", "receipts", "--replay-run", "nonexistent-run",
-            "--config", str(config_inspect_sqlite),
+            "inspect",
+            "receipts",
+            "--replay-run",
+            "nonexistent-run",
+            "--config",
+            str(config_inspect_sqlite),
         )
         parsed = json.loads(output)
         assert isinstance(parsed, list)
         assert len(parsed) == 0
 
     def test_receipts_json_is_deterministic(
-        self, config_inspect_sqlite: Path,
+        self,
+        config_inspect_sqlite: Path,
     ) -> None:
         output = _run_cli(
-            "inspect", "receipts", "--event", "evt-inspect-1",
-            "--config", str(config_inspect_sqlite),
+            "inspect",
+            "receipts",
+            "--event",
+            "evt-inspect-1",
+            "--config",
+            str(config_inspect_sqlite),
         )
         parsed = json.loads(output)
         receipt = parsed[0]
@@ -368,14 +430,19 @@ class TestInspectReceipts:
         assert keys == sorted(keys)
 
     def test_receipts_memory_backend_exits_config(
-        self, config_inspect_memory: Path,
+        self,
+        config_inspect_memory: Path,
     ) -> None:
         from medre.cli import EXIT_CONFIG
 
         with pytest.raises(SystemExit) as exc_info:
             _run_cli(
-                "inspect", "receipts", "--event", "evt-1",
-                "--config", str(config_inspect_memory),
+                "inspect",
+                "receipts",
+                "--event",
+                "evt-1",
+                "--config",
+                str(config_inspect_memory),
             )
         assert exc_info.value.code == EXIT_CONFIG
 
@@ -389,14 +456,20 @@ class TestInspectNativeRef:
     """Tests for 'medre inspect native-ref' command."""
 
     def test_native_ref_found_returns_event(
-        self, config_inspect_with_native_ref: Path,
+        self,
+        config_inspect_with_native_ref: Path,
     ) -> None:
         output = _run_cli(
-            "inspect", "native-ref",
-            "--adapter", "matrix",
-            "--channel", "!room:test",
-            "--message", "$native-msg-1",
-            "--config", str(config_inspect_with_native_ref),
+            "inspect",
+            "native-ref",
+            "--adapter",
+            "matrix",
+            "--channel",
+            "!room:test",
+            "--message",
+            "$native-msg-1",
+            "--config",
+            str(config_inspect_with_native_ref),
         )
         parsed = json.loads(output)
         assert parsed["event_id"] == "evt-nref-1"
@@ -406,68 +479,94 @@ class TestInspectNativeRef:
         assert parsed["event"]["event_id"] == "evt-nref-1"
 
     def test_native_ref_null_channel(
-        self, config_inspect_native_null_channel: Path,
+        self,
+        config_inspect_native_null_channel: Path,
     ) -> None:
         output = _run_cli(
-            "inspect", "native-ref",
-            "--adapter", "meshtastic",
-            "--message", "radio-msg-42",
-            "--config", str(config_inspect_native_null_channel),
+            "inspect",
+            "native-ref",
+            "--adapter",
+            "meshtastic",
+            "--message",
+            "radio-msg-42",
+            "--config",
+            str(config_inspect_native_null_channel),
         )
         parsed = json.loads(output)
         assert parsed["event_id"] == "evt-nref-nullch"
         assert parsed["native_channel_id"] is None
 
     def test_native_ref_not_found_exits_not_found(
-        self, config_inspect_sqlite: Path,
+        self,
+        config_inspect_sqlite: Path,
     ) -> None:
         from medre.cli import EXIT_NOT_FOUND
 
         with pytest.raises(SystemExit) as exc_info:
             _run_cli(
-                "inspect", "native-ref",
-                "--adapter", "nonexistent",
-                "--message", "nonexistent-msg",
-                "--config", str(config_inspect_sqlite),
+                "inspect",
+                "native-ref",
+                "--adapter",
+                "nonexistent",
+                "--message",
+                "nonexistent-msg",
+                "--config",
+                str(config_inspect_sqlite),
             )
         assert exc_info.value.code == EXIT_NOT_FOUND
 
     def test_native_ref_not_found_stderr_message(
-        self, config_inspect_sqlite: Path,
+        self,
+        config_inspect_sqlite: Path,
     ) -> None:
         stdout, stderr = _run_cli_both(
-            "inspect", "native-ref",
-            "--adapter", "nonexistent",
-            "--message", "nonexistent-msg",
-            "--config", str(config_inspect_sqlite),
+            "inspect",
+            "native-ref",
+            "--adapter",
+            "nonexistent",
+            "--message",
+            "nonexistent-msg",
+            "--config",
+            str(config_inspect_sqlite),
         )
         assert "native ref not found" in stderr
 
     def test_native_ref_json_is_deterministic(
-        self, config_inspect_with_native_ref: Path,
+        self,
+        config_inspect_with_native_ref: Path,
     ) -> None:
         output = _run_cli(
-            "inspect", "native-ref",
-            "--adapter", "matrix",
-            "--channel", "!room:test",
-            "--message", "$native-msg-1",
-            "--config", str(config_inspect_with_native_ref),
+            "inspect",
+            "native-ref",
+            "--adapter",
+            "matrix",
+            "--channel",
+            "!room:test",
+            "--message",
+            "$native-msg-1",
+            "--config",
+            str(config_inspect_with_native_ref),
         )
         parsed = json.loads(output)
         keys = list(parsed.keys())
         assert keys == sorted(keys)
 
     def test_native_ref_memory_backend_exits_config(
-        self, config_inspect_memory: Path,
+        self,
+        config_inspect_memory: Path,
     ) -> None:
         from medre.cli import EXIT_CONFIG
 
         with pytest.raises(SystemExit) as exc_info:
             _run_cli(
-                "inspect", "native-ref",
-                "--adapter", "matrix",
-                "--message", "msg-1",
-                "--config", str(config_inspect_memory),
+                "inspect",
+                "native-ref",
+                "--adapter",
+                "matrix",
+                "--message",
+                "msg-1",
+                "--config",
+                str(config_inspect_memory),
             )
         assert exc_info.value.code == EXIT_CONFIG
 
@@ -480,7 +579,9 @@ class TestInspectNativeRef:
 class TestInspectReadOnly:
     """Verify that inspect commands never create DB files or mutate storage."""
 
-    def test_missing_db_exits_build(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_missing_db_exits_build(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """inspect event with non-existent DB exits EXIT_BUILD (3)."""
         from medre.cli import EXIT_BUILD
 
@@ -499,13 +600,18 @@ path = "{state}/no_such_file.db"
 
         with pytest.raises(SystemExit) as exc_info:
             _run_cli(
-                "inspect", "event", "evt-1",
-                "--config", str(cfg),
+                "inspect",
+                "event",
+                "evt-1",
+                "--config",
+                str(cfg),
             )
         assert exc_info.value.code == EXIT_BUILD
 
     def test_missing_db_not_created(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """inspect does not create the missing DB file."""
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
@@ -527,13 +633,18 @@ path = "{state}/missing.db"
 
         with pytest.raises(SystemExit):
             _run_cli(
-                "inspect", "event", "evt-1",
-                "--config", str(cfg),
+                "inspect",
+                "event",
+                "evt-1",
+                "--config",
+                str(cfg),
             )
         assert not db_path.exists()
 
     def test_missing_db_stderr_has_storage_error(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Missing DB error message mentions storage or does not exist."""
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
@@ -551,13 +662,18 @@ path = "{state}/missing.db"
         cfg.write_text(config_text)
 
         stdout, stderr = _run_cli_both(
-            "inspect", "event", "evt-1",
-            "--config", str(cfg),
+            "inspect",
+            "event",
+            "evt-1",
+            "--config",
+            str(cfg),
         )
         assert "Storage error" in stderr or "does not exist" in stderr
 
     def test_missing_db_receipts_exits_build(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """inspect receipts with non-existent DB also exits EXIT_BUILD."""
         from medre.cli import EXIT_BUILD
@@ -578,13 +694,19 @@ path = "{state}/missing.db"
 
         with pytest.raises(SystemExit) as exc_info:
             _run_cli(
-                "inspect", "receipts", "--event", "evt-1",
-                "--config", str(cfg),
+                "inspect",
+                "receipts",
+                "--event",
+                "evt-1",
+                "--config",
+                str(cfg),
             )
         assert exc_info.value.code == EXIT_BUILD
 
     def test_missing_db_native_ref_exits_build(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """inspect native-ref with non-existent DB also exits EXIT_BUILD."""
         from medre.cli import EXIT_BUILD
@@ -605,8 +727,13 @@ path = "{state}/missing.db"
 
         with pytest.raises(SystemExit) as exc_info:
             _run_cli(
-                "inspect", "native-ref",
-                "--adapter", "matrix", "--message", "$msg",
-                "--config", str(cfg),
+                "inspect",
+                "native-ref",
+                "--adapter",
+                "matrix",
+                "--message",
+                "$msg",
+                "--config",
+                str(cfg),
             )
         assert exc_info.value.code == EXIT_BUILD

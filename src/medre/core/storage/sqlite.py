@@ -12,7 +12,7 @@ import os
 import sqlite3
 import threading
 from datetime import datetime, timezone
-from typing import Any, AsyncGenerator, AsyncIterator
+from typing import Any, AsyncGenerator
 
 import msgspec
 
@@ -198,39 +198,97 @@ updating docs and tests directly; no automatic migrations are provided.
 # ---------------------------------------------------------------------------
 
 _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
-    "canonical_events": frozenset({
-        "event_id", "event_kind", "schema_version", "timestamp",
-        "source_adapter", "source_transport_id", "source_channel_id",
-        "parent_event_id", "lineage", "payload", "metadata", "depth",
-        "trace_id", "source_native_adapter", "source_native_channel_id",
-        "source_native_message_id", "source_native_thread_id",
-        "created_at",
-    }),
-    "event_relations": frozenset({
-        "id", "event_id", "relation_type", "target_event_id",
-        "target_native_adapter", "target_native_channel_id",
-        "target_native_message_id", "target_native_thread_id",
-        "key", "fallback_text", "metadata", "created_at",
-    }),
-    "native_message_refs": frozenset({
-        "id", "event_id", "adapter", "native_channel_id",
-        "native_message_id", "native_thread_id", "native_relation_id",
-        "direction", "metadata", "created_at",
-    }),
-    "delivery_receipts": frozenset({
-        "sequence", "receipt_id", "event_id", "delivery_plan_id",
-        "target_adapter", "target_channel", "route_id", "status", "error", "failure_kind",
-        "adapter_message_id", "next_retry_at", "attempt_number",
-        "parent_receipt_id", "source", "replay_run_id",
-        "retry_max_attempts", "retry_backoff_base", "retry_max_delay", "retry_jitter",
-        "created_at",
-    }),
-    "plugin_state": frozenset({
-        "plugin_id", "key", "value", "updated_at",
-    }),
-    "_medre_schema_meta": frozenset({
-        "key", "value",
-    }),
+    "canonical_events": frozenset(
+        {
+            "event_id",
+            "event_kind",
+            "schema_version",
+            "timestamp",
+            "source_adapter",
+            "source_transport_id",
+            "source_channel_id",
+            "parent_event_id",
+            "lineage",
+            "payload",
+            "metadata",
+            "depth",
+            "trace_id",
+            "source_native_adapter",
+            "source_native_channel_id",
+            "source_native_message_id",
+            "source_native_thread_id",
+            "created_at",
+        }
+    ),
+    "event_relations": frozenset(
+        {
+            "id",
+            "event_id",
+            "relation_type",
+            "target_event_id",
+            "target_native_adapter",
+            "target_native_channel_id",
+            "target_native_message_id",
+            "target_native_thread_id",
+            "key",
+            "fallback_text",
+            "metadata",
+            "created_at",
+        }
+    ),
+    "native_message_refs": frozenset(
+        {
+            "id",
+            "event_id",
+            "adapter",
+            "native_channel_id",
+            "native_message_id",
+            "native_thread_id",
+            "native_relation_id",
+            "direction",
+            "metadata",
+            "created_at",
+        }
+    ),
+    "delivery_receipts": frozenset(
+        {
+            "sequence",
+            "receipt_id",
+            "event_id",
+            "delivery_plan_id",
+            "target_adapter",
+            "target_channel",
+            "route_id",
+            "status",
+            "error",
+            "failure_kind",
+            "adapter_message_id",
+            "next_retry_at",
+            "attempt_number",
+            "parent_receipt_id",
+            "source",
+            "replay_run_id",
+            "retry_max_attempts",
+            "retry_backoff_base",
+            "retry_max_delay",
+            "retry_jitter",
+            "created_at",
+        }
+    ),
+    "plugin_state": frozenset(
+        {
+            "plugin_id",
+            "key",
+            "value",
+            "updated_at",
+        }
+    ),
+    "_medre_schema_meta": frozenset(
+        {
+            "key",
+            "value",
+        }
+    ),
 }
 
 # ---------------------------------------------------------------------------
@@ -474,7 +532,7 @@ def _build_query_sql(filt: EventFilter) -> tuple[str, tuple[Any, ...]]:
         params.append(filt.time_end.isoformat())
 
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
-    sql = f"SELECT * FROM canonical_events{where} ORDER BY timestamp ASC, event_id ASC LIMIT ?"
+    sql = f"SELECT * FROM canonical_events{where} ORDER BY timestamp ASC, event_id ASC LIMIT ?"  # nosec: clauses are hardcoded field names, values via ? parameters
     params.append(filt.limit)
     return sql, tuple(params)
 
@@ -523,8 +581,7 @@ class SQLiteStorage:
         """Return the active connection or raise if not initialised."""
         if self._db is None:
             raise StorageInitializationError(
-                "Storage backend has not been initialised. "
-                "Call initialize() first."
+                "Storage backend has not been initialised. " "Call initialize() first."
             )
         return self._db
 
@@ -587,7 +644,7 @@ class SQLiteStorage:
                 f"Storage schema version is not an integer: {stored_version!r}. "
                 f"Expected {_EXPECTED_SCHEMA_VERSION}. "
                 f"Resolve the mismatch manually — no auto-migration is performed."
-            )
+            ) from None
 
         if stored_int != _EXPECTED_SCHEMA_VERSION:
             raise StorageInitializationError(
@@ -680,7 +737,8 @@ class SQLiteStorage:
 
         if instance._use_aiosqlite:
             db = await aiosqlite.connect(  # type: ignore[union-attr]
-                f"file:{db_path}?mode=ro", uri=True,
+                f"file:{db_path}?mode=ro",
+                uri=True,
             )
             db.row_factory = sqlite3.Row
             instance._db = db
@@ -735,7 +793,7 @@ class SQLiteStorage:
                 f"Storage schema version is not an integer: {stored_version!r}. "
                 f"Expected {_EXPECTED_SCHEMA_VERSION}. "
                 f"Resolve the mismatch manually — no auto-migration is performed."
-            )
+            ) from None
 
         if stored_int != _EXPECTED_SCHEMA_VERSION:
             raise StorageInitializationError(
@@ -852,9 +910,7 @@ class SQLiteStorage:
         except sqlite3.Error as exc:
             raise StorageError(f"Database write failed: {exc}") from exc
 
-    async def _write_batch(
-        self, ops: list[tuple[str, tuple[Any, ...]]]
-    ) -> None:
+    async def _write_batch(self, ops: list[tuple[str, tuple[Any, ...]]]) -> None:
         """Execute multiple write statements in one transaction and commit."""
         db = self._require_db()
         try:
@@ -870,12 +926,9 @@ class SQLiteStorage:
             # violations.  Other IntegrityErrors (FK violations, etc.) are
             # raised as generic StorageError.
             if "canonical_events" in msg and (
-                "UNIQUE constraint failed" in msg
-                or "PRIMARY KEY" in msg.upper()
+                "UNIQUE constraint failed" in msg or "PRIMARY KEY" in msg.upper()
             ):
-                raise DuplicateEventError(
-                    f"Duplicate event: {exc}"
-                ) from exc
+                raise DuplicateEventError(f"Duplicate event: {exc}") from exc
             raise StorageError(f"Batch write failed: {exc}") from exc
         except sqlite3.Error as exc:
             raise StorageError(f"Batch write failed: {exc}") from exc
@@ -996,7 +1049,7 @@ class SQLiteStorage:
         placeholders = ",".join("?" for _ in event_ids)
         rel_sql = (
             "SELECT * FROM event_relations WHERE event_id "
-            f"IN ({placeholders})"
+            f"IN ({placeholders})"  # nosec: placeholders are only ? markers, values passed as params
         )
         rel_rows = await self._read_all(rel_sql, tuple(event_ids))
 
@@ -1085,9 +1138,7 @@ class SQLiteStorage:
             ),
         )
 
-    async def store_relation(
-        self, event_id: str, relation: EventRelation
-    ) -> None:
+    async def store_relation(self, event_id: str, relation: EventRelation) -> None:
         """Persist a single relation for an existing event."""
         sql, params = self._relation_op(event_id, relation)
         await self._write(sql, params)
@@ -1119,9 +1170,7 @@ class SQLiteStorage:
                 receipt.error,
                 receipt.failure_kind,
                 receipt.adapter_message_id,
-                receipt.next_retry_at.isoformat()
-                if receipt.next_retry_at
-                else None,
+                receipt.next_retry_at.isoformat() if receipt.next_retry_at else None,
                 receipt.attempt_number,
                 receipt.parent_receipt_id,
                 receipt.source,
@@ -1129,7 +1178,11 @@ class SQLiteStorage:
                 receipt.retry_max_attempts,
                 receipt.retry_backoff_base,
                 receipt.retry_max_delay,
-                1 if receipt.retry_jitter is True else (0 if receipt.retry_jitter is False else None),
+                (
+                    1
+                    if receipt.retry_jitter is True
+                    else (0 if receipt.retry_jitter is False else None)
+                ),
                 receipt.created_at.isoformat(),
             ),
         )
@@ -1237,7 +1290,9 @@ class SQLiteStorage:
         return row["cnt"] if row else 0
 
     async def update_retry_due(
-        self, receipt_id: str, next_retry_at: datetime,
+        self,
+        receipt_id: str,
+        next_retry_at: datetime,
     ) -> None:
         """Update next_retry_at on a receipt (for capacity rejection backoff)."""
         await self._write(

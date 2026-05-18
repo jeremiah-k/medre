@@ -23,13 +23,15 @@ Usage
 >>> delivery = await adapter.deliver(result)
 >>> assert adapter.delivered_payloads
 """
+
 from __future__ import annotations
 
 import logging
-import uuid
-from datetime import datetime, timezone
 from typing import Any
 
+from medre.adapters.meshtastic.codec import MeshtasticCodec
+from medre.adapters.meshtastic.packet_classifier import MeshtasticPacketClassifier
+from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
@@ -40,11 +42,7 @@ from medre.core.contracts.adapter import (
     AdapterRole,
     AdapterSendError,
 )
-from medre.adapters.meshtastic.codec import MeshtasticCodec
-from medre.config.adapters.meshtastic import MeshtasticConfig
-from medre.adapters.meshtastic.packet_classifier import MeshtasticPacketClassifier
-from medre.core.events.canonical import CanonicalEvent, EventMetadata
-from medre.core.events.kinds import EventKind
+from medre.core.events.canonical import CanonicalEvent
 from medre.core.rendering.renderer import RenderingResult
 
 _logger = logging.getLogger(__name__)
@@ -60,7 +58,8 @@ def _trim(lst: list[Any], maxsize: int = _MAX_FAKE_HISTORY) -> None:
         del lst[:excess]
         _logger.warning(
             "Fake adapter history trimmed %d oldest entries (cap=%d)",
-            excess, maxsize,
+            excess,
+            maxsize,
         )
 
 
@@ -110,13 +109,15 @@ class FakeMeshtasticClient:
         """
         packet_id = self._next_id
         self._next_id += 1
-        self.sent_packets.append({
-            "text": text,
-            "channel_index": channel_index,
-            "meshnet_name": meshnet_name,
-            "dest_id": dest_id,
-            "packet_id": packet_id,
-        })
+        self.sent_packets.append(
+            {
+                "text": text,
+                "channel_index": channel_index,
+                "meshnet_name": meshnet_name,
+                "dest_id": dest_id,
+                "packet_id": packet_id,
+            }
+        )
         _trim(self.sent_packets)
         self.sent_count += 1
         return {"packet_id": packet_id}
@@ -222,9 +223,7 @@ class FakeMeshtasticAdapter(AdapterContract):
         """Mark the adapter as stopped."""
         self._started = False
         if self.ctx is not None:
-            self.ctx.logger.info(
-                "FakeMeshtasticAdapter %s stopped", self.adapter_id
-            )
+            self.ctx.logger.info("FakeMeshtasticAdapter %s stopped", self.adapter_id)
 
     async def health_check(self) -> AdapterInfo:
         """Return a healthy :class:`AdapterInfo` snapshot."""
@@ -289,7 +288,9 @@ class FakeMeshtasticAdapter(AdapterContract):
             )
 
         if self._deliver_failure:
-            raise AdapterSendError("FakeMeshtasticAdapter: simulated send failure", transient=True)
+            raise AdapterSendError(
+                "FakeMeshtasticAdapter: simulated send failure", transient=True
+            )
 
         self.delivered_payloads.append(result)
         _trim(self.delivered_payloads)

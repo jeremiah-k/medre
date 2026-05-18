@@ -1,4 +1,5 @@
 """Smoke CLI command: fake bridge smoke test, drill execution, and run-session."""
+
 from __future__ import annotations
 
 import json as _json
@@ -31,7 +32,10 @@ def _setup_logging(config: object) -> None:
         return
 
     level = getattr(log_cfg, "level", "INFO")
-    fmt = getattr(log_cfg, "format", None) or "%(asctime)s %(levelname)s %(name)s: %(message)s"
+    fmt = (
+        getattr(log_cfg, "format", None)
+        or "%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
     # Map preset names to actual Python format strings.
     _FORMAT_PRESETS = {
         "text": "%(asctime)s %(levelname)-8s %(name)s: %(message)s",
@@ -81,6 +85,7 @@ async def _smoke(
     """
     if drill_name is not None:
         from medre.runtime.drill import run_drill
+
         report = await run_drill(
             drill_name,
             config_path=config_path,
@@ -88,6 +93,7 @@ async def _smoke(
         )
     else:
         from medre.runtime.smoke import run_fake_bridge_smoke
+
         report = await run_fake_bridge_smoke(
             config_path,
             message_text=message_text,
@@ -124,7 +130,9 @@ async def _smoke(
         print(f"  Receipts:    {n_receipts}")
         print(f"  Native refs: {n_refs}")
         if acc:
-            print(f"  Accounting:  inbound={acc.get('inbound_accepted', 0)} delivered={acc.get('outbound_delivered', 0)} failed={acc.get('outbound_failed', 0)}")
+            print(
+                f"  Accounting:  inbound={acc.get('inbound_accepted', 0)} delivered={acc.get('outbound_delivered', 0)} failed={acc.get('outbound_failed', 0)}"
+            )
 
         # Storage info
         sp = report.get("storage_path")
@@ -156,8 +164,11 @@ async def _run_session(
     """
     if storage_path is None:
         import tempfile
+
         tmp = tempfile.NamedTemporaryFile(
-            suffix=".db", prefix="medre-session-", delete=False,
+            suffix=".db",
+            prefix="medre-session-",
+            delete=False,
         )
         storage_path = tmp.name
         tmp.close()
@@ -224,7 +235,8 @@ async def _run_session(
             # commands_text is nested: { primary: {...}, specialized: {...} }
             text_commands = commands.get("commands_text", commands)
             if "primary" in text_commands and isinstance(
-                text_commands["primary"], dict,
+                text_commands["primary"],
+                dict,
             ):
                 for label, cmd in text_commands["primary"].items():
                     print(f"    {label}: {cmd}")

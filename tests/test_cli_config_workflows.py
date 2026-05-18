@@ -8,18 +8,18 @@ helpers from here.  Covers:
 3. ``medre config sample`` expanded validation (all sections, TOML parseable)
 4. Cross-cutting no-traceback guarantee for config-related error paths
 """
+
 from __future__ import annotations
 
 import io
 import os
 import tomllib
-from contextlib import redirect_stdout, redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 import pytest
 
 from medre.cli import main
-
 
 # ---------------------------------------------------------------------------
 # Shared config snippets
@@ -119,34 +119,6 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for key in list(os.environ):
         if key.startswith("MEDRE_") or key.startswith("XDG_"):
             monkeypatch.delenv(key, raising=False)
-
-
-@pytest.fixture()
-def config_fake_multi(tmp_path: Path) -> Path:
-    p = tmp_path / "config.toml"
-    p.write_text(CONFIG_FAKE_MULTI)
-    return p
-
-
-@pytest.fixture()
-def config_minimal(tmp_path: Path) -> Path:
-    p = tmp_path / "config.toml"
-    p.write_text(CONFIG_MINIMAL_MEMORY)
-    return p
-
-
-@pytest.fixture()
-def config_single(tmp_path: Path) -> Path:
-    p = tmp_path / "config.toml"
-    p.write_text(CONFIG_SINGLE_ADAPTER)
-    return p
-
-
-@pytest.fixture()
-def tmp_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Set MEDRE_HOME to a temp dir and return it."""
-    monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
-    return tmp_path
 
 
 # ---------------------------------------------------------------------------
@@ -392,12 +364,12 @@ class TestConfigSampleExpanded:
         parsed = tomllib.loads(output)
         routes = parsed.get("routes", {})
         for route_id, route_data in routes.items():
-            assert "source_adapters" in route_data, (
-                f"sample route {route_id} missing source_adapters"
-            )
-            assert "dest_adapters" in route_data, (
-                f"sample route {route_id} missing dest_adapters"
-            )
+            assert (
+                "source_adapters" in route_data
+            ), f"sample route {route_id} missing source_adapters"
+            assert (
+                "dest_adapters" in route_data
+            ), f"sample route {route_id} missing dest_adapters"
 
     def test_sample_limits_have_defaults(self) -> None:
         """Sample [runtime.limits] has all four limit fields."""
@@ -419,9 +391,9 @@ class TestConfigSampleExpanded:
         output = _run_cli("config", "sample")
         deprecated = ["legacy", "deprecated", "old_config", "v1_config", "compat_mode"]
         for term in deprecated:
-            assert term not in output.lower(), (
-                f"sample contains deprecated term: {term}"
-            )
+            assert (
+                term not in output.lower()
+            ), f"sample contains deprecated term: {term}"
 
     def test_sample_logging_section(self) -> None:
         """Sample includes [logging] with level and format."""

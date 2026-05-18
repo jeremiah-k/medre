@@ -6,7 +6,6 @@
 
 This runbook provides guidance for handling secret material (access tokens, private keys, identity files) when operating MEDRE adapters against real services and hardware.
 
-
 ## 1. Principles
 
 1. **Environment variables for secrets.** All secret material must be provided via environment variables, not command-line arguments, config files checked into version control, or hardcoded strings.
@@ -14,13 +13,12 @@ This runbook provides guidance for handling secret material (access tokens, priv
 3. **Store files outside the repo tree.** If a secret must be stored as a file (e.g., LXMF identity key), store it outside the repository directory or in a path explicitly excluded by `.gitignore`.
 4. **Never log tokens or private keys.** Adapters and tests must not log secret material. Diagnostic output and error messages must exclude raw credentials.
 
-
 ## 2. Per-Transport Guidance
 
 ### 2.1 Matrix
 
-| Secret | Env var | Handling |
-|--------|---------|----------|
+| Secret       | Env var               | Handling                                               |
+| ------------ | --------------------- | ------------------------------------------------------ |
 | Access token | `MATRIX_ACCESS_TOKEN` | Read from env var only. Never logged. Never committed. |
 
 **Device ID and store path:** MEDRE derives the device ID automatically via `whoami()` and uses an internal store path. These are not operator-configured. The crypto store directory contains sensitive key material and should be excluded from version control.
@@ -77,8 +75,8 @@ No secrets are required. Connection parameters (`MESHTASTIC_HOST`, `MESHCORE_HOS
 
 ### 2.3 LXMF
 
-| Secret | Env var | Handling |
-|--------|---------|----------|
+| Secret        | Env var              | Handling                                                                                                                          |
+| ------------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | Identity file | `LXMF_IDENTITY_PATH` | Points to a 64-byte private key file. Must have restrictive file permissions (`chmod 600`). Never committed to git. Never logged. |
 
 **Identity file protection:**
@@ -94,12 +92,11 @@ ls -la /path/to/identity.key
 
 **Never copy identity files between instances.** Each LXMF identity is unique. Sharing or duplicating identity files compromises the Reticulum routing and identity system.
 
-
 ## 3. Git Exclusion
 
 Ensure the following patterns are in `.gitignore`:
 
-```
+```text
 # Credential files
 *.key
 *.pem
@@ -115,7 +112,6 @@ crypto-store/
 
 MEDRE's existing `.gitignore` already excludes common patterns. Verify before adding identity or token files.
 
-
 ## 4. Testing
 
 Live test harnesses (`test_*_live.py`) read secrets exclusively from environment variables. Tests never log token values or identity file contents. The `@require_live` decorator skips tests when required env vars are absent, preventing accidental credential prompts during normal test runs.
@@ -130,7 +126,6 @@ export LXMF_IDENTITY_PATH="/secure/path/identity.key"
 # Run live tests
 pytest tests/test_matrix_live.py -m live -v
 ```
-
 
 ## 5. Docker and Deployment
 

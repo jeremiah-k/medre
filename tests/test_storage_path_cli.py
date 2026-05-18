@@ -12,6 +12,7 @@ database file without needing a config file.  Covers:
 
 Plus negative cases: missing DB, invalid DB shape, mutually exclusive flags.
 """
+
 from __future__ import annotations
 
 import io
@@ -33,7 +34,6 @@ from medre.core.events import (
     NativeMessageRef,
 )
 from medre.core.storage.sqlite import SQLiteStorage
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -94,17 +94,19 @@ def _seed_db(
         )
         await storage.append(event)
 
-        await storage.store_native_ref(NativeMessageRef(
-            id="nref-sp-1",
-            event_id=event_id,
-            adapter="matrix",
-            native_channel_id="!room:test",
-            native_message_id="$sp-msg-1",
-            native_thread_id=None,
-            native_relation_id=None,
-            direction="outbound",
-            created_at=ts,
-        ))
+        await storage.store_native_ref(
+            NativeMessageRef(
+                id="nref-sp-1",
+                event_id=event_id,
+                adapter="matrix",
+                native_channel_id="!room:test",
+                native_message_id="$sp-msg-1",
+                native_thread_id=None,
+                native_relation_id=None,
+                direction="outbound",
+                created_at=ts,
+            )
+        )
 
         rcpt_kwargs: dict[str, Any] = dict(
             receipt_id="rcpt-sp-1",
@@ -143,12 +145,16 @@ def _seed_via_smoke_cli(tmp_path: Path) -> tuple[str, Path]:
     stdout_buf = io.StringIO()
     with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
         with pytest.raises(SystemExit) as exc_info:
-            main([
-                "smoke",
-                "--config", _smoke_config_path(),
-                "--storage-path", str(db_path),
-                "--json",
-            ])
+            main(
+                [
+                    "smoke",
+                    "--config",
+                    _smoke_config_path(),
+                    "--storage-path",
+                    str(db_path),
+                    "--json",
+                ]
+            )
     assert exc_info.value.code == 0
     report = json.loads(stdout_buf.getvalue())
     assert report["status"] == "passed"
@@ -199,8 +205,10 @@ class TestInspectEventStoragePath:
     def test_inspect_event_returns_event_data(self, seeded_db: Path) -> None:
         """inspect event --storage-path prints the stored event."""
         stdout, stderr = _run_cli(
-            "inspect", "event",
-            "--storage-path", str(seeded_db),
+            "inspect",
+            "event",
+            "--storage-path",
+            str(seeded_db),
             "evt-sp-1",
         )
         assert "evt-sp-1" in stdout
@@ -210,8 +218,10 @@ class TestInspectEventStoragePath:
     def test_inspect_event_not_found(self, seeded_db: Path) -> None:
         """inspect event with unknown ID exits EXIT_NOT_FOUND."""
         code, _, stderr = _run_cli_exit(
-            "inspect", "event",
-            "--storage-path", str(seeded_db),
+            "inspect",
+            "event",
+            "--storage-path",
+            str(seeded_db),
             "nonexistent",
         )
         assert code == EXIT_NOT_FOUND
@@ -220,8 +230,10 @@ class TestInspectEventStoragePath:
         """inspect event with non-existent DB exits with error and clear stderr."""
         missing = tmp_path / "missing.db"
         code, _, stderr = _run_cli_exit(
-            "inspect", "event",
-            "--storage-path", str(missing),
+            "inspect",
+            "event",
+            "--storage-path",
+            str(missing),
             "evt-1",
         )
         assert code == EXIT_BUILD
@@ -233,20 +245,27 @@ class TestInspectEventStoragePath:
         bad_db = tmp_path / "corrupt.db"
         bad_db.write_text("not a sqlite database")
         code, _, stderr = _run_cli_exit(
-            "inspect", "event",
-            "--storage-path", str(bad_db),
+            "inspect",
+            "event",
+            "--storage-path",
+            str(bad_db),
             "evt-1",
         )
         assert code == EXIT_BUILD
         assert "storage error" in stderr.lower()
         assert "uninitialised" in stderr.lower() or "schema" in stderr.lower()
 
-    def test_inspect_event_config_and_storage_path_exclusive(self, seeded_db: Path) -> None:
+    def test_inspect_event_config_and_storage_path_exclusive(
+        self, seeded_db: Path
+    ) -> None:
         """--config and --storage-path are mutually exclusive with clear error."""
         code, _, stderr = _run_cli_exit(
-            "inspect", "event",
-            "--config", _smoke_config_path(),
-            "--storage-path", str(seeded_db),
+            "inspect",
+            "event",
+            "--config",
+            _smoke_config_path(),
+            "--storage-path",
+            str(seeded_db),
             "evt-1",
         )
         assert code != 0
@@ -257,8 +276,10 @@ class TestInspectEventStoragePath:
         event_id, db_path = _seed_via_smoke_cli(tmp_path)
 
         stdout, stderr = _run_cli(
-            "inspect", "event",
-            "--storage-path", str(db_path),
+            "inspect",
+            "event",
+            "--storage-path",
+            str(db_path),
             event_id,
         )
         assert event_id in stdout
@@ -268,8 +289,10 @@ class TestInspectEventStoragePath:
         """--storage-path does not create a missing database file."""
         missing = str(tmp_path / "never_created.db")
         _run_cli_exit(
-            "inspect", "event",
-            "--storage-path", missing,
+            "inspect",
+            "event",
+            "--storage-path",
+            missing,
             "evt-1",
         )
         assert not Path(missing).exists(), "DB file must not be created"
@@ -285,9 +308,12 @@ class TestInspectReceiptsStoragePath:
 
     def test_inspect_receipts_returns_receipts(self, seeded_db: Path) -> None:
         stdout, stderr = _run_cli(
-            "inspect", "receipts",
-            "--storage-path", str(seeded_db),
-            "--event", "evt-sp-1",
+            "inspect",
+            "receipts",
+            "--storage-path",
+            str(seeded_db),
+            "--event",
+            "evt-sp-1",
         )
         assert "sent" in stdout
         assert stderr == ""
@@ -295,9 +321,12 @@ class TestInspectReceiptsStoragePath:
     def test_inspect_receipts_missing_db(self, tmp_path: Path) -> None:
         missing = tmp_path / "missing.db"
         code, _, stderr = _run_cli_exit(
-            "inspect", "receipts",
-            "--storage-path", str(missing),
-            "--event", "evt-1",
+            "inspect",
+            "receipts",
+            "--storage-path",
+            str(missing),
+            "--event",
+            "evt-1",
         )
         assert code == EXIT_BUILD
         assert "storage error" in stderr.lower()
@@ -307,9 +336,12 @@ class TestInspectReceiptsStoragePath:
         """--storage-path does not create a missing database file."""
         missing = str(tmp_path / "never_created.db")
         _run_cli_exit(
-            "inspect", "receipts",
-            "--storage-path", missing,
-            "--event", "evt-1",
+            "inspect",
+            "receipts",
+            "--storage-path",
+            missing,
+            "--event",
+            "evt-1",
         )
         assert not Path(missing).exists(), "DB file must not be created"
 
@@ -317,19 +349,28 @@ class TestInspectReceiptsStoragePath:
         event_id, db_path = _seed_via_smoke_cli(tmp_path)
 
         stdout, stderr = _run_cli(
-            "inspect", "receipts",
-            "--storage-path", str(db_path),
-            "--event", event_id,
+            "inspect",
+            "receipts",
+            "--storage-path",
+            str(db_path),
+            "--event",
+            event_id,
         )
         assert "sent" in stdout
 
-    def test_inspect_receipts_config_and_storage_path_exclusive(self, seeded_db: Path) -> None:
+    def test_inspect_receipts_config_and_storage_path_exclusive(
+        self, seeded_db: Path
+    ) -> None:
         """--config and --storage-path are mutually exclusive for receipts."""
         code, _, stderr = _run_cli_exit(
-            "inspect", "receipts",
-            "--config", _smoke_config_path(),
-            "--storage-path", str(seeded_db),
-            "--event", "evt-1",
+            "inspect",
+            "receipts",
+            "--config",
+            _smoke_config_path(),
+            "--storage-path",
+            str(seeded_db),
+            "--event",
+            "evt-1",
         )
         assert code != 0
         assert "not allowed with" in stderr.lower()
@@ -345,21 +386,30 @@ class TestInspectNativeRefStoragePath:
 
     def test_inspect_native_ref_found(self, seeded_db: Path) -> None:
         stdout, stderr = _run_cli(
-            "inspect", "native-ref",
-            "--storage-path", str(seeded_db),
-            "--adapter", "matrix",
-            "--channel", "!room:test",
-            "--message", "$sp-msg-1",
+            "inspect",
+            "native-ref",
+            "--storage-path",
+            str(seeded_db),
+            "--adapter",
+            "matrix",
+            "--channel",
+            "!room:test",
+            "--message",
+            "$sp-msg-1",
         )
         result = json.loads(stdout)
         assert result["event_id"] == "evt-sp-1"
 
     def test_inspect_native_ref_not_found(self, seeded_db: Path) -> None:
         code, _, _ = _run_cli_exit(
-            "inspect", "native-ref",
-            "--storage-path", str(seeded_db),
-            "--adapter", "matrix",
-            "--message", "$nonexistent",
+            "inspect",
+            "native-ref",
+            "--storage-path",
+            str(seeded_db),
+            "--adapter",
+            "matrix",
+            "--message",
+            "$nonexistent",
         )
         assert code == EXIT_NOT_FOUND
 
@@ -367,10 +417,14 @@ class TestInspectNativeRefStoragePath:
         """native-ref with non-existent DB exits with error and clear stderr."""
         missing = tmp_path / "missing.db"
         code, _, stderr = _run_cli_exit(
-            "inspect", "native-ref",
-            "--storage-path", str(missing),
-            "--adapter", "matrix",
-            "--message", "$msg-1",
+            "inspect",
+            "native-ref",
+            "--storage-path",
+            str(missing),
+            "--adapter",
+            "matrix",
+            "--message",
+            "$msg-1",
         )
         assert code == EXIT_BUILD
         assert "storage error" in stderr.lower()
@@ -380,21 +434,32 @@ class TestInspectNativeRefStoragePath:
         """--storage-path does not create a missing database file."""
         missing = str(tmp_path / "never_created.db")
         _run_cli_exit(
-            "inspect", "native-ref",
-            "--storage-path", missing,
-            "--adapter", "matrix",
-            "--message", "$msg-1",
+            "inspect",
+            "native-ref",
+            "--storage-path",
+            missing,
+            "--adapter",
+            "matrix",
+            "--message",
+            "$msg-1",
         )
         assert not Path(missing).exists(), "DB file must not be created"
 
-    def test_inspect_native_ref_config_and_storage_path_exclusive(self, seeded_db: Path) -> None:
+    def test_inspect_native_ref_config_and_storage_path_exclusive(
+        self, seeded_db: Path
+    ) -> None:
         """--config and --storage-path are mutually exclusive for native-ref."""
         code, _, stderr = _run_cli_exit(
-            "inspect", "native-ref",
-            "--config", _smoke_config_path(),
-            "--storage-path", str(seeded_db),
-            "--adapter", "matrix",
-            "--message", "$msg-1",
+            "inspect",
+            "native-ref",
+            "--config",
+            _smoke_config_path(),
+            "--storage-path",
+            str(seeded_db),
+            "--adapter",
+            "matrix",
+            "--message",
+            "$msg-1",
         )
         assert code != 0
         assert "not allowed with" in stderr.lower()
@@ -412,8 +477,10 @@ class TestInspectReplayStoragePath:
         """inspect replay with non-existent DB exits with error and clear stderr."""
         missing = tmp_path / "missing.db"
         code, _, stderr = _run_cli_exit(
-            "inspect", "replay",
-            "--storage-path", str(missing),
+            "inspect",
+            "replay",
+            "--storage-path",
+            str(missing),
             "run-1",
         )
         assert code == EXIT_BUILD
@@ -424,18 +491,25 @@ class TestInspectReplayStoragePath:
         """--storage-path does not create a missing database file."""
         missing = str(tmp_path / "never_created.db")
         _run_cli_exit(
-            "inspect", "replay",
-            "--storage-path", missing,
+            "inspect",
+            "replay",
+            "--storage-path",
+            missing,
             "run-1",
         )
         assert not Path(missing).exists(), "DB file must not be created"
 
-    def test_inspect_replay_config_and_storage_path_exclusive(self, seeded_db: Path) -> None:
+    def test_inspect_replay_config_and_storage_path_exclusive(
+        self, seeded_db: Path
+    ) -> None:
         """--config and --storage-path are mutually exclusive for inspect replay."""
         code, _, stderr = _run_cli_exit(
-            "inspect", "replay",
-            "--config", _smoke_config_path(),
-            "--storage-path", str(seeded_db),
+            "inspect",
+            "replay",
+            "--config",
+            _smoke_config_path(),
+            "--storage-path",
+            str(seeded_db),
             "run-1",
         )
         assert code != 0
@@ -452,8 +526,10 @@ class TestTraceEventStoragePath:
 
     def test_trace_event_json(self, seeded_db: Path) -> None:
         stdout, stderr = _run_cli(
-            "trace", "event",
-            "--storage-path", str(seeded_db),
+            "trace",
+            "event",
+            "--storage-path",
+            str(seeded_db),
             "evt-sp-1",
             "--json",
         )
@@ -465,8 +541,10 @@ class TestTraceEventStoragePath:
 
     def test_trace_event_human_readable(self, seeded_db: Path) -> None:
         stdout, stderr = _run_cli(
-            "trace", "event",
-            "--storage-path", str(seeded_db),
+            "trace",
+            "event",
+            "--storage-path",
+            str(seeded_db),
             "evt-sp-1",
         )
         assert "Event: evt-sp-1" in stdout
@@ -475,8 +553,10 @@ class TestTraceEventStoragePath:
 
     def test_trace_event_not_found(self, seeded_db: Path) -> None:
         code, _, _ = _run_cli_exit(
-            "trace", "event",
-            "--storage-path", str(seeded_db),
+            "trace",
+            "event",
+            "--storage-path",
+            str(seeded_db),
             "nonexistent",
         )
         assert code == EXIT_NOT_FOUND
@@ -484,8 +564,10 @@ class TestTraceEventStoragePath:
     def test_trace_event_missing_db(self, tmp_path: Path) -> None:
         missing = tmp_path / "missing.db"
         code, _, stderr = _run_cli_exit(
-            "trace", "event",
-            "--storage-path", str(missing),
+            "trace",
+            "event",
+            "--storage-path",
+            str(missing),
             "evt-1",
         )
         assert code == EXIT_BUILD
@@ -496,18 +578,25 @@ class TestTraceEventStoragePath:
         """--storage-path does not create a missing database file."""
         missing = str(tmp_path / "never_created.db")
         _run_cli_exit(
-            "trace", "event",
-            "--storage-path", missing,
+            "trace",
+            "event",
+            "--storage-path",
+            missing,
             "evt-1",
         )
         assert not Path(missing).exists(), "DB file must not be created"
 
-    def test_trace_event_config_and_storage_path_exclusive(self, seeded_db: Path) -> None:
+    def test_trace_event_config_and_storage_path_exclusive(
+        self, seeded_db: Path
+    ) -> None:
         """--config and --storage-path are mutually exclusive for trace event."""
         code, _, stderr = _run_cli_exit(
-            "trace", "event",
-            "--config", _smoke_config_path(),
-            "--storage-path", str(seeded_db),
+            "trace",
+            "event",
+            "--config",
+            _smoke_config_path(),
+            "--storage-path",
+            str(seeded_db),
             "evt-1",
         )
         assert code != 0
@@ -517,8 +606,10 @@ class TestTraceEventStoragePath:
         event_id, db_path = _seed_via_smoke_cli(tmp_path)
 
         stdout, stderr = _run_cli(
-            "trace", "event",
-            "--storage-path", str(db_path),
+            "trace",
+            "event",
+            "--storage-path",
+            str(db_path),
             event_id,
             "--json",
         )
@@ -537,8 +628,10 @@ class TestTraceReplayStoragePath:
 
     def test_trace_replay_json(self, seeded_db_with_replay: Path) -> None:
         stdout, stderr = _run_cli(
-            "trace", "replay",
-            "--storage-path", str(seeded_db_with_replay),
+            "trace",
+            "replay",
+            "--storage-path",
+            str(seeded_db_with_replay),
             "run-sp-42",
             "--json",
         )
@@ -549,8 +642,10 @@ class TestTraceReplayStoragePath:
 
     def test_trace_replay_not_found(self, seeded_db: Path) -> None:
         code, _, _ = _run_cli_exit(
-            "trace", "replay",
-            "--storage-path", str(seeded_db),
+            "trace",
+            "replay",
+            "--storage-path",
+            str(seeded_db),
             "nonexistent-run",
         )
         assert code == EXIT_NOT_FOUND
@@ -558,8 +653,10 @@ class TestTraceReplayStoragePath:
     def test_trace_replay_missing_db(self, tmp_path: Path) -> None:
         missing = tmp_path / "missing.db"
         code, _, stderr = _run_cli_exit(
-            "trace", "replay",
-            "--storage-path", str(missing),
+            "trace",
+            "replay",
+            "--storage-path",
+            str(missing),
             "run-1",
         )
         assert code == EXIT_BUILD
@@ -570,18 +667,25 @@ class TestTraceReplayStoragePath:
         """--storage-path does not create a missing database file."""
         missing = str(tmp_path / "never_created.db")
         _run_cli_exit(
-            "trace", "replay",
-            "--storage-path", missing,
+            "trace",
+            "replay",
+            "--storage-path",
+            missing,
             "run-1",
         )
         assert not Path(missing).exists(), "DB file must not be created"
 
-    def test_trace_replay_config_and_storage_path_exclusive(self, seeded_db: Path) -> None:
+    def test_trace_replay_config_and_storage_path_exclusive(
+        self, seeded_db: Path
+    ) -> None:
         """--config and --storage-path are mutually exclusive for trace replay."""
         code, _, stderr = _run_cli_exit(
-            "trace", "replay",
-            "--config", _smoke_config_path(),
-            "--storage-path", str(seeded_db),
+            "trace",
+            "replay",
+            "--config",
+            _smoke_config_path(),
+            "--storage-path",
+            str(seeded_db),
             "run-1",
         )
         assert code != 0
@@ -599,7 +703,8 @@ class TestEvidenceStoragePath:
     def test_evidence_json_bundle(self, seeded_db: Path) -> None:
         stdout, stderr = _run_cli(
             "evidence",
-            "--storage-path", str(seeded_db),
+            "--storage-path",
+            str(seeded_db),
             "--json",
         )
         bundle = json.loads(stdout)
@@ -618,7 +723,8 @@ class TestEvidenceStoragePath:
     def test_evidence_storage_section_has_counts(self, seeded_db: Path) -> None:
         stdout, stderr = _run_cli(
             "evidence",
-            "--storage-path", str(seeded_db),
+            "--storage-path",
+            str(seeded_db),
             "--json",
         )
         bundle = json.loads(stdout)
@@ -629,9 +735,11 @@ class TestEvidenceStoragePath:
     def test_evidence_with_event_filter(self, seeded_db: Path) -> None:
         stdout, stderr = _run_cli(
             "evidence",
-            "--storage-path", str(seeded_db),
+            "--storage-path",
+            str(seeded_db),
             "--json",
-            "--event", "evt-sp-1",
+            "--event",
+            "evt-sp-1",
         )
         bundle = json.loads(stdout)
         storage_data = bundle["sections"]["storage"]["data"]
@@ -642,7 +750,8 @@ class TestEvidenceStoragePath:
         missing = tmp_path / "missing.db"
         stdout, stderr = _run_cli(
             "evidence",
-            "--storage-path", str(missing),
+            "--storage-path",
+            str(missing),
             "--json",
         )
         bundle = json.loads(stdout)
@@ -657,7 +766,8 @@ class TestEvidenceStoragePath:
         bad_db.write_text("not a sqlite database")
         stdout, stderr = _run_cli(
             "evidence",
-            "--storage-path", str(bad_db),
+            "--storage-path",
+            str(bad_db),
             "--json",
         )
         bundle = json.loads(stdout)
@@ -673,8 +783,10 @@ class TestEvidenceStoragePath:
         """--config and --storage-path are mutually exclusive for evidence."""
         code, _, stderr = _run_cli_exit(
             "evidence",
-            "--config", _smoke_config_path(),
-            "--storage-path", str(seeded_db),
+            "--config",
+            _smoke_config_path(),
+            "--storage-path",
+            str(seeded_db),
         )
         assert code != 0
         assert "not allowed with" in stderr.lower()
@@ -684,9 +796,11 @@ class TestEvidenceStoragePath:
 
         stdout, stderr = _run_cli(
             "evidence",
-            "--storage-path", str(db_path),
+            "--storage-path",
+            str(db_path),
             "--json",
-            "--event", event_id,
+            "--event",
+            event_id,
         )
         bundle = json.loads(stdout)
         assert bundle["status"] in ("passed", "partial")
@@ -701,25 +815,32 @@ class TestEvidenceStoragePath:
     def test_evidence_human_readable(self, seeded_db: Path) -> None:
         stdout, stderr = _run_cli(
             "evidence",
-            "--storage-path", str(seeded_db),
+            "--storage-path",
+            str(seeded_db),
         )
         assert "Evidence: PASSED" in stdout
         assert "Evidence: ERROR" not in stdout
 
-    def test_evidence_human_readable_sections_show_passed(self, seeded_db: Path) -> None:
+    def test_evidence_human_readable_sections_show_passed(
+        self, seeded_db: Path
+    ) -> None:
         """Section markers must map 'passed' to ✓, not fall through to '?'."""
         stdout, _ = _run_cli(
             "evidence",
-            "--storage-path", str(seeded_db),
+            "--storage-path",
+            str(seeded_db),
         )
         # The storage section should show ✓ for 'passed' status.
         assert "✓ storage: passed" in stdout
 
-    def test_evidence_storage_path_rejects_refresh_health(self, seeded_db: Path) -> None:
+    def test_evidence_storage_path_rejects_refresh_health(
+        self, seeded_db: Path
+    ) -> None:
         """--storage-path + --include-refresh-health must be rejected."""
         code, stdout, stderr = _run_cli_exit(
             "evidence",
-            "--storage-path", str(seeded_db),
+            "--storage-path",
+            str(seeded_db),
             "--include-refresh-health",
         )
         assert code != 0
@@ -740,8 +861,10 @@ class TestInvalidDBShape:
         bad_db = tmp_path / "empty.db"
         bad_db.write_bytes(b"")
         code, _, stderr = _run_cli_exit(
-            "inspect", "event",
-            "--storage-path", str(bad_db),
+            "inspect",
+            "event",
+            "--storage-path",
+            str(bad_db),
             "evt-1",
         )
         assert code == EXIT_BUILD
@@ -757,8 +880,10 @@ class TestInvalidDBShape:
         conn.close()
 
         code, _, stderr = _run_cli_exit(
-            "inspect", "event",
-            "--storage-path", str(bad_db),
+            "inspect",
+            "event",
+            "--storage-path",
+            str(bad_db),
             "evt-1",
         )
         assert code == EXIT_BUILD
@@ -772,8 +897,10 @@ class TestInvalidDBShape:
         original_size = bad_db.stat().st_size
 
         _run_cli_exit(
-            "inspect", "event",
-            "--storage-path", str(bad_db),
+            "inspect",
+            "event",
+            "--storage-path",
+            str(bad_db),
             "evt-1",
         )
         assert bad_db.stat().st_size == original_size, "File must not be modified"
@@ -795,12 +922,16 @@ class TestFullWalkthroughStoragePath:
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             with pytest.raises(SystemExit) as exc_info:
-                main([
-                    "smoke",
-                    "--config", _smoke_config_path(),
-                    "--storage-path", str(db_path),
-                    "--json",
-                ])
+                main(
+                    [
+                        "smoke",
+                        "--config",
+                        _smoke_config_path(),
+                        "--storage-path",
+                        str(db_path),
+                        "--json",
+                    ]
+                )
         assert exc_info.value.code == 0
         report = json.loads(stdout_buf.getvalue())
         assert report["status"] == "passed"
@@ -809,32 +940,45 @@ class TestFullWalkthroughStoragePath:
         # Step 2: inspect event --storage-path (NO config file)
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
-            main([
-                "inspect", "event",
-                "--storage-path", str(db_path),
-                event_id,
-            ])
+            main(
+                [
+                    "inspect",
+                    "event",
+                    "--storage-path",
+                    str(db_path),
+                    event_id,
+                ]
+            )
         assert event_id in stdout_buf.getvalue()
 
         # Step 3: inspect receipts --storage-path
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
-            main([
-                "inspect", "receipts",
-                "--storage-path", str(db_path),
-                "--event", event_id,
-            ])
+            main(
+                [
+                    "inspect",
+                    "receipts",
+                    "--storage-path",
+                    str(db_path),
+                    "--event",
+                    event_id,
+                ]
+            )
         assert "sent" in stdout_buf.getvalue()
 
         # Step 4: trace event --storage-path --json
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
-            main([
-                "trace", "event",
-                "--storage-path", str(db_path),
-                event_id,
-                "--json",
-            ])
+            main(
+                [
+                    "trace",
+                    "event",
+                    "--storage-path",
+                    str(db_path),
+                    event_id,
+                    "--json",
+                ]
+            )
         timeline = json.loads(stdout_buf.getvalue())
         assert len(timeline) >= 1
         entry_types = [e.get("entry_type") for e in timeline]
@@ -843,12 +987,16 @@ class TestFullWalkthroughStoragePath:
         # Step 5: evidence --storage-path --json
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
-            main([
-                "evidence",
-                "--storage-path", str(db_path),
-                "--json",
-                "--event", event_id,
-            ])
+            main(
+                [
+                    "evidence",
+                    "--storage-path",
+                    str(db_path),
+                    "--json",
+                    "--event",
+                    event_id,
+                ]
+            )
         bundle = json.loads(stdout_buf.getvalue())
         assert bundle["status"] in ("passed", "partial")
         assert bundle["config_source"] == "storage_path"

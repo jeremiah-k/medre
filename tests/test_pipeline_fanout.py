@@ -13,11 +13,9 @@ from medre.adapters.fake_presentation import FakePresentationAdapter
 from medre.adapters.fake_transport import FakeTransportAdapter
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.observability.metrics import Diagnostician
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage import SQLiteStorage
-
 from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -107,10 +105,16 @@ class TestMixedFanoutClassification:
             assert by_adapter["good"].failure_kind is None
 
             assert by_adapter["transient"].status == "transient_failure"
-            assert by_adapter["transient"].failure_kind is DeliveryFailureKind.ADAPTER_TRANSIENT
+            assert (
+                by_adapter["transient"].failure_kind
+                is DeliveryFailureKind.ADAPTER_TRANSIENT
+            )
 
             assert by_adapter["permanent"].status == "permanent_failure"
-            assert by_adapter["permanent"].failure_kind is DeliveryFailureKind.ADAPTER_PERMANENT
+            assert (
+                by_adapter["permanent"].failure_kind
+                is DeliveryFailureKind.ADAPTER_PERMANENT
+            )
 
             # Three distinct receipts stored.
             rows = await temp_storage._read_all(
@@ -183,9 +187,7 @@ class TestFanoutScaling:
     ) -> None:
         """Fanout to 10 targets: all succeed, 10 receipts stored."""
         targets = [f"target-{i}" for i in range(10)]
-        adapters = {
-            t: FakePresentationAdapter(adapter_id=t) for t in targets
-        }
+        adapters = {t: FakePresentationAdapter(adapter_id=t) for t in targets}
 
         route_targets = [RouteTarget(adapter=t) for t in targets]
         route = Route(
@@ -289,8 +291,7 @@ class TestFanoutScaling:
     ) -> None:
         """Fanout receipts have monotonically increasing sequence numbers."""
         adapters = {
-            f"ord-{i}": FakePresentationAdapter(adapter_id=f"ord-{i}")
-            for i in range(5)
+            f"ord-{i}": FakePresentationAdapter(adapter_id=f"ord-{i}") for i in range(5)
         }
 
         route = Route(
@@ -311,8 +312,7 @@ class TestFanoutScaling:
         await runner.start()
 
         events = [
-            make_event(event_id=f"seq-evt-{i}", source_adapter="src")
-            for i in range(3)
+            make_event(event_id=f"seq-evt-{i}", source_adapter="src") for i in range(3)
         ]
 
         try:
@@ -329,9 +329,9 @@ class TestFanoutScaling:
             # Sequence numbers are strictly monotonic
             seqs = [r["sequence"] for r in rows]
             for i in range(1, len(seqs)):
-                assert seqs[i] > seqs[i - 1], (
-                    f"Sequence {seqs[i]} not > {seqs[i-1]} at index {i}"
-                )
+                assert (
+                    seqs[i] > seqs[i - 1]
+                ), f"Sequence {seqs[i]} not > {seqs[i-1]} at index {i}"
         finally:
             await runner.stop()
 
@@ -345,10 +345,12 @@ class TestFanoutScaling:
         good_a = FakePresentationAdapter(adapter_id="good-a")
         good_b = FakePresentationAdapter(adapter_id="good-b")
         transient = FaultyPresentationAdapter(
-            adapter_id="transient", failure_mode="transient_fail",
+            adapter_id="transient",
+            failure_mode="transient_fail",
         )
         permanent = FaultyPresentationAdapter(
-            adapter_id="permanent", failure_mode="permanent_fail",
+            adapter_id="permanent",
+            failure_mode="permanent_fail",
         )
 
         route = Route(
@@ -369,8 +371,10 @@ class TestFanoutScaling:
             storage=temp_storage,
             router=router,
             adapters={
-                "good-a": good_a, "good-b": good_b,
-                "transient": transient, "permanent": permanent,
+                "good-a": good_a,
+                "good-b": good_b,
+                "transient": transient,
+                "permanent": permanent,
             },
         )
         runner = PipelineRunner(config)

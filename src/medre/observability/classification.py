@@ -32,14 +32,23 @@ __all__ = [
 RETRYABLE_KINDS: frozenset[str] = frozenset({"adapter_transient"})
 """Failure kinds that are transient and may succeed on retry."""
 
-PERMANENT_KINDS: frozenset[str] = frozenset({
-    "adapter_permanent", "adapter_missing", "renderer_failure", "planner_failure",
-})
+PERMANENT_KINDS: frozenset[str] = frozenset(
+    {
+        "adapter_permanent",
+        "adapter_missing",
+        "renderer_failure",
+        "planner_failure",
+    }
+)
 """Failure kinds that are permanent and unlikely to succeed on retry."""
 
-OPERATIONAL_KINDS: frozenset[str] = frozenset({
-    "capacity_rejection", "shutdown_rejection", "deadline_exceeded",
-})
+OPERATIONAL_KINDS: frozenset[str] = frozenset(
+    {
+        "capacity_rejection",
+        "shutdown_rejection",
+        "deadline_exceeded",
+    }
+)
 """Failure kinds caused by operational conditions (capacity, shutdown, deadline)."""
 
 
@@ -66,7 +75,10 @@ def infer_failure_kind(error: str | None, status: str) -> str:
     if "planner" in err:
         return "planner_failure"
     # Retryable: transient signals
-    if any(s in err for s in ("timeout", "connectionerror", "connection reset", "temporary")):
+    if any(
+        s in err
+        for s in ("timeout", "connectionerror", "connection reset", "temporary")
+    ):
         return "adapter_transient"
     # dead_lettered implies retries exhausted — was transient
     if status == "dead_lettered":

@@ -14,9 +14,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from medre.core.engine.pipeline import PipelineRunner
@@ -78,6 +78,7 @@ class RetryWorker:
         if self._event_buffer is None:
             return
         from medre.runtime.events import RuntimeEventType
+
         try:
             rt = RuntimeEventType(event_type)
         except ValueError:
@@ -99,11 +100,14 @@ class RetryWorker:
             self._batch_size,
             self._max_attempts,
         )
-        self._emit("retry_started", {
-            "interval": self._interval,
-            "batch_size": self._batch_size,
-            "max_attempts": self._max_attempts,
-        })
+        self._emit(
+            "retry_started",
+            {
+                "interval": self._interval,
+                "batch_size": self._batch_size,
+                "max_attempts": self._max_attempts,
+            },
+        )
 
     async def stop(self) -> None:
         """Signal shutdown and wait for worker to finish."""
@@ -116,12 +120,15 @@ class RetryWorker:
             _logger.warning("RetryWorker did not stop within 5s")
         self._task = None
         self.state.running = False
-        self._emit("retry_stopped", {
-            "processed": self.state.processed,
-            "succeeded": self.state.succeeded,
-            "failed": self.state.failed,
-            "dead_lettered": self.state.dead_lettered,
-        })
+        self._emit(
+            "retry_stopped",
+            {
+                "processed": self.state.processed,
+                "succeeded": self.state.succeeded,
+                "failed": self.state.failed,
+                "dead_lettered": self.state.dead_lettered,
+            },
+        )
         _logger.info("RetryWorker stopped")
 
     async def _run_loop(self) -> None:
@@ -144,7 +151,9 @@ class RetryWorker:
     async def _process_due(self, now: datetime) -> None:
         """Find and process due retry receipts."""
         receipts = await self._storage.list_due_retry_receipts(
-            now, self._batch_size, max_attempts=self._max_attempts,
+            now,
+            self._batch_size,
+            max_attempts=self._max_attempts,
         )
         if not receipts:
             return
@@ -195,15 +204,32 @@ class RetryWorker:
                     # Back off: update next_retry_at to prevent hot-looping.
                     try:
                         from medre.core.planning.delivery_plan import (
-                            RetryPolicy,
                             RetryExecutor,
+                            RetryPolicy,
                         )
+
                         # Reconstruct policy from receipt metadata.
                         policy = RetryPolicy(
-                            max_attempts=receipt.retry_max_attempts if receipt.retry_max_attempts is not None else self._max_attempts,
-                            backoff_base=receipt.retry_backoff_base if receipt.retry_backoff_base is not None else 2.0,
-                            max_delay_seconds=receipt.retry_max_delay if receipt.retry_max_delay is not None else 60.0,
-                            jitter=receipt.retry_jitter if receipt.retry_jitter is not None else False,
+                            max_attempts=(
+                                receipt.retry_max_attempts
+                                if receipt.retry_max_attempts is not None
+                                else self._max_attempts
+                            ),
+                            backoff_base=(
+                                receipt.retry_backoff_base
+                                if receipt.retry_backoff_base is not None
+                                else 2.0
+                            ),
+                            max_delay_seconds=(
+                                receipt.retry_max_delay
+                                if receipt.retry_max_delay is not None
+                                else 60.0
+                            ),
+                            jitter=(
+                                receipt.retry_jitter
+                                if receipt.retry_jitter is not None
+                                else False
+                            ),
                         )
                         backoff = RetryExecutor(policy).compute_backoff(
                             receipt.attempt_number,
@@ -217,18 +243,21 @@ class RetryWorker:
                             "RetryWorker: failed to backoff receipt %s",
                             receipt.receipt_id,
                         )
-                    self._emit("retry_failed", {
-                        "receipt_id": parent_receipt_id,
-                        "parent_receipt_id": parent_receipt_id,
-                        "retry_receipt_id": None,
-                        "event_id": receipt.event_id,
-                        "target_adapter": receipt.target_adapter,
-                        "attempt_number": receipt.attempt_number,
-                        "status": "capacity_rejection",
-                        "failure_kind": "capacity_rejection",
-                        "error": "delivery capacity not available",
-                        "next_retry_at": None,
-                    })
+                    self._emit(
+                        "retry_failed",
+                        {
+                            "receipt_id": parent_receipt_id,
+                            "parent_receipt_id": parent_receipt_id,
+                            "retry_receipt_id": None,
+                            "event_id": receipt.event_id,
+                            "target_adapter": receipt.target_adapter,
+                            "attempt_number": receipt.attempt_number,
+                            "status": "capacity_rejection",
+                            "failure_kind": "capacity_rejection",
+                            "error": "delivery capacity not available",
+                            "next_retry_at": None,
+                        },
+                    )
                     return
             except Exception:
                 self.state.failed += 1
@@ -255,21 +284,40 @@ class RetryWorker:
                 target=target,
                 primary_strategy=DeliveryStrategy(method="direct"),
                 retry_policy=RetryPolicy(
-                    max_attempts=receipt.retry_max_attempts if receipt.retry_max_attempts is not None else self._max_attempts,
-                    backoff_base=receipt.retry_backoff_base if receipt.retry_backoff_base is not None else 2.0,
-                    max_delay_seconds=receipt.retry_max_delay if receipt.retry_max_delay is not None else 60.0,
-                    jitter=receipt.retry_jitter if receipt.retry_jitter is not None else False,
+                    max_attempts=(
+                        receipt.retry_max_attempts
+                        if receipt.retry_max_attempts is not None
+                        else self._max_attempts
+                    ),
+                    backoff_base=(
+                        receipt.retry_backoff_base
+                        if receipt.retry_backoff_base is not None
+                        else 2.0
+                    ),
+                    max_delay_seconds=(
+                        receipt.retry_max_delay
+                        if receipt.retry_max_delay is not None
+                        else 60.0
+                    ),
+                    jitter=(
+                        receipt.retry_jitter
+                        if receipt.retry_jitter is not None
+                        else False
+                    ),
                 ),
             )
 
-            self._emit("retry_attempted", {
-                "receipt_id": parent_receipt_id,
-                "parent_receipt_id": parent_receipt_id,
-                "retry_receipt_id": None,
-                "event_id": receipt.event_id,
-                "target_adapter": receipt.target_adapter,
-                "attempt_number": receipt.attempt_number,
-            })
+            self._emit(
+                "retry_attempted",
+                {
+                    "receipt_id": parent_receipt_id,
+                    "parent_receipt_id": parent_receipt_id,
+                    "retry_receipt_id": None,
+                    "event_id": receipt.event_id,
+                    "target_adapter": receipt.target_adapter,
+                    "attempt_number": receipt.attempt_number,
+                },
+            )
 
             result_receipt = await self._pipeline.deliver_to_target(
                 event=event,
@@ -283,14 +331,17 @@ class RetryWorker:
             # Success path — deliver_to_target returns a receipt.
             self.state.processed += 1
             self.state.succeeded += 1
-            self._emit("retry_succeeded", {
-                "receipt_id": result_receipt.receipt_id,
-                "parent_receipt_id": parent_receipt_id,
-                "retry_receipt_id": result_receipt.receipt_id,
-                "event_id": receipt.event_id,
-                "target_adapter": receipt.target_adapter,
-                "attempt_number": result_receipt.attempt_number,
-            })
+            self._emit(
+                "retry_succeeded",
+                {
+                    "receipt_id": result_receipt.receipt_id,
+                    "parent_receipt_id": parent_receipt_id,
+                    "retry_receipt_id": result_receipt.receipt_id,
+                    "event_id": receipt.event_id,
+                    "target_adapter": receipt.target_adapter,
+                    "attempt_number": result_receipt.attempt_number,
+                },
+            )
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -300,13 +351,15 @@ class RetryWorker:
             # FIX 2: guard storage calls so errors don't swallow the original.
             try:
                 is_dead_lettered = await self._check_dead_lettered(
-                    receipt.event_id, receipt.target_adapter,
+                    receipt.event_id,
+                    receipt.target_adapter,
                     parent_receipt_id,
                 )
             except Exception:
                 _logger.exception(
                     "RetryWorker: error checking dead-lettered for %s/%s",
-                    receipt.event_id, receipt.target_adapter,
+                    receipt.event_id,
+                    receipt.target_adapter,
                 )
                 is_dead_lettered = False
 
@@ -314,44 +367,56 @@ class RetryWorker:
                 self.state.dead_lettered += 1
                 try:
                     dl_receipt_id = await self._find_dead_letter_receipt_id(
-                        receipt.event_id, receipt.target_adapter,
+                        receipt.event_id,
+                        receipt.target_adapter,
                         parent_receipt_id,
                     )
                 except Exception:
                     _logger.exception(
                         "RetryWorker: error finding dead-letter receipt for %s/%s",
-                        receipt.event_id, receipt.target_adapter,
+                        receipt.event_id,
+                        receipt.target_adapter,
                     )
                     dl_receipt_id = None
-                self._emit("retry_dead_lettered", {
-                    "receipt_id": dl_receipt_id or parent_receipt_id,
-                    "parent_receipt_id": parent_receipt_id,
-                    "retry_receipt_id": dl_receipt_id,
-                    "event_id": receipt.event_id,
-                    "target_adapter": receipt.target_adapter,
-                    "attempt_number": receipt.attempt_number + 1,
-                })
+                self._emit(
+                    "retry_dead_lettered",
+                    {
+                        "receipt_id": dl_receipt_id or parent_receipt_id,
+                        "parent_receipt_id": parent_receipt_id,
+                        "retry_receipt_id": dl_receipt_id,
+                        "event_id": receipt.event_id,
+                        "target_adapter": receipt.target_adapter,
+                        "attempt_number": receipt.attempt_number + 1,
+                    },
+                )
             else:
                 # FIX 1: look up the failed receipt for retry_receipt_id.
                 try:
                     new_receipt = await self._find_failed_receipt(
-                        receipt.event_id, receipt.target_adapter,
+                        receipt.event_id,
+                        receipt.target_adapter,
                         parent_receipt_id,
                     )
                 except Exception:
                     _logger.exception(
                         "RetryWorker: error finding failed receipt for %s/%s",
-                        receipt.event_id, receipt.target_adapter,
+                        receipt.event_id,
+                        receipt.target_adapter,
                     )
                     new_receipt = None
-                self._emit("retry_failed", {
-                    "receipt_id": parent_receipt_id,
-                    "parent_receipt_id": parent_receipt_id,
-                    "retry_receipt_id": new_receipt.receipt_id if new_receipt else None,
-                    "event_id": receipt.event_id,
-                    "target_adapter": receipt.target_adapter,
-                    "attempt_number": receipt.attempt_number,
-                })
+                self._emit(
+                    "retry_failed",
+                    {
+                        "receipt_id": parent_receipt_id,
+                        "parent_receipt_id": parent_receipt_id,
+                        "retry_receipt_id": (
+                            new_receipt.receipt_id if new_receipt else None
+                        ),
+                        "event_id": receipt.event_id,
+                        "target_adapter": receipt.target_adapter,
+                        "attempt_number": receipt.attempt_number,
+                    },
+                )
             _logger.debug(
                 "RetryWorker: delivery failed for receipt %s",
                 receipt.receipt_id,
@@ -362,7 +427,10 @@ class RetryWorker:
                 await self._capacity.release_delivery()
 
     async def _check_dead_lettered(
-        self, event_id: str, target_adapter: str, parent_receipt_id: str,
+        self,
+        event_id: str,
+        target_adapter: str,
+        parent_receipt_id: str,
     ) -> bool:
         """Check if a dead-lettered receipt exists for this specific retry lineage."""
         receipts = await self._storage.list_receipts_for_event(event_id)
@@ -374,7 +442,10 @@ class RetryWorker:
         )
 
     async def _find_dead_letter_receipt_id(
-        self, event_id: str, target_adapter: str, parent_receipt_id: str,
+        self,
+        event_id: str,
+        target_adapter: str,
+        parent_receipt_id: str,
     ) -> str | None:
         """Return the receipt_id of the dead-lettered receipt for this lineage, if any."""
         receipts = await self._storage.list_receipts_for_event(event_id)
@@ -388,13 +459,18 @@ class RetryWorker:
         return None
 
     async def _find_failed_receipt(
-        self, event_id: str, target_adapter: str, parent_receipt_id: str,
+        self,
+        event_id: str,
+        target_adapter: str,
+        parent_receipt_id: str,
     ) -> Any | None:
         """Find the latest failed receipt for this retry lineage."""
         receipts = await self._storage.list_receipts_for_event(event_id)
         for r in reversed(receipts):
-            if (r.status == "failed"
+            if (
+                r.status == "failed"
                 and r.target_adapter == target_adapter
-                and r.parent_receipt_id == parent_receipt_id):
+                and r.parent_receipt_id == parent_receipt_id
+            ):
                 return r
         return None

@@ -21,7 +21,6 @@ import re
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Shared constants
 # ---------------------------------------------------------------------------
@@ -96,18 +95,16 @@ class TestSupervisionBoundary:
         lines = _import_lines(source)
 
         banned_sdk = _banned_imports(lines, _SDK_PACKAGES)
-        assert banned_sdk == [], (
-            f"supervision.py imports transport SDKs: {banned_sdk}"
-        )
+        assert banned_sdk == [], f"supervision.py imports transport SDKs: {banned_sdk}"
 
     def test_no_concrete_adapter_imports(self) -> None:
         source = _source_of("medre.core.runtime.supervision")
         lines = _import_lines(source)
 
         banned_adapters = _banned_imports(lines, _ADAPTER_PREFIXES)
-        assert banned_adapters == [], (
-            f"supervision.py imports concrete adapter packages: {banned_adapters}"
-        )
+        assert (
+            banned_adapters == []
+        ), f"supervision.py imports concrete adapter packages: {banned_adapters}"
 
     def test_only_imports_core_and_lifecycle(self) -> None:
         """Supervision should only import from core/lifecycle."""
@@ -116,12 +113,14 @@ class TestSupervisionBoundary:
 
         for line in lines:
             # Standard library imports are fine
-            if line.startswith(("from __future__", "import ", "from enum", "from typing")):
+            if line.startswith(
+                ("from __future__", "import ", "from enum", "from typing")
+            ):
                 continue
             # Allowed internal imports
-            assert "medre.core.lifecycle.states" in line or line.startswith("import"), (
-                f"supervision.py has unexpected import: {line}"
-            )
+            assert "medre.core.lifecycle.states" in line or line.startswith(
+                "import"
+            ), f"supervision.py has unexpected import: {line}"
 
 
 # ===================================================================
@@ -138,18 +137,16 @@ class TestDiagnosticsBoundary:
         lines = _import_lines(source)
 
         banned_sdk = _banned_imports(lines, _SDK_PACKAGES)
-        assert banned_sdk == [], (
-            f"diagnostics.py imports transport SDKs: {banned_sdk}"
-        )
+        assert banned_sdk == [], f"diagnostics.py imports transport SDKs: {banned_sdk}"
 
     def test_no_concrete_adapter_imports(self) -> None:
         source = _source_of("medre.core.runtime.diagnostics")
         lines = _import_lines(source)
 
         banned_adapters = _banned_imports(lines, _ADAPTER_PREFIXES)
-        assert banned_adapters == [], (
-            f"diagnostics.py imports concrete adapter packages: {banned_adapters}"
-        )
+        assert (
+            banned_adapters == []
+        ), f"diagnostics.py imports concrete adapter packages: {banned_adapters}"
 
 
 # ===================================================================
@@ -166,18 +163,16 @@ class TestHealthBoundary:
         lines = _import_lines(source)
 
         banned_sdk = _banned_imports(lines, _SDK_PACKAGES)
-        assert banned_sdk == [], (
-            f"health.py imports transport SDKs: {banned_sdk}"
-        )
+        assert banned_sdk == [], f"health.py imports transport SDKs: {banned_sdk}"
 
     def test_no_concrete_adapter_imports(self) -> None:
         source = _source_of("medre.core.runtime.health")
         lines = _import_lines(source)
 
         banned_adapters = _banned_imports(lines, _ADAPTER_PREFIXES)
-        assert banned_adapters == [], (
-            f"health.py imports concrete adapter packages: {banned_adapters}"
-        )
+        assert (
+            banned_adapters == []
+        ), f"health.py imports concrete adapter packages: {banned_adapters}"
 
 
 # ===================================================================
@@ -194,18 +189,18 @@ class TestDiagnosticContractBoundary:
         lines = _import_lines(source)
 
         banned_sdk = _banned_imports(lines, _SDK_PACKAGES)
-        assert banned_sdk == [], (
-            f"diagnostic_contract.py imports transport SDKs: {banned_sdk}"
-        )
+        assert (
+            banned_sdk == []
+        ), f"diagnostic_contract.py imports transport SDKs: {banned_sdk}"
 
     def test_no_concrete_adapter_imports(self) -> None:
         source = _source_of("medre.core.runtime.diagnostic_contract")
         lines = _import_lines(source)
 
         banned_adapters = _banned_imports(lines, _ADAPTER_PREFIXES)
-        assert banned_adapters == [], (
-            f"diagnostic_contract.py imports concrete adapter packages: {banned_adapters}"
-        )
+        assert (
+            banned_adapters == []
+        ), f"diagnostic_contract.py imports concrete adapter packages: {banned_adapters}"
 
 
 # ===================================================================
@@ -222,9 +217,7 @@ class TestPersistenceBoundary:
         lines = _import_lines(source)
 
         banned_sdk = _banned_imports(lines, _SDK_PACKAGES)
-        assert banned_sdk == [], (
-            f"{module_name} imports transport SDKs: {banned_sdk}"
-        )
+        assert banned_sdk == [], f"{module_name} imports transport SDKs: {banned_sdk}"
 
     @pytest.mark.parametrize("module_name", _PERSISTENCE_MODULES)
     def test_no_concrete_adapter_imports(self, module_name: str) -> None:
@@ -232,9 +225,9 @@ class TestPersistenceBoundary:
         lines = _import_lines(source)
 
         banned_adapters = _banned_imports(lines, _ADAPTER_PREFIXES)
-        assert banned_adapters == [], (
-            f"{module_name} imports concrete adapter packages: {banned_adapters}"
-        )
+        assert (
+            banned_adapters == []
+        ), f"{module_name} imports concrete adapter packages: {banned_adapters}"
 
 
 # ===================================================================
@@ -251,9 +244,7 @@ class TestRuntimeCoreAgnostic:
         lines = _import_lines(source)
 
         banned_sdk = _banned_imports(lines, _SDK_PACKAGES)
-        assert banned_sdk == [], (
-            f"{module_name} imports transport SDKs: {banned_sdk}"
-        )
+        assert banned_sdk == [], f"{module_name} imports transport SDKs: {banned_sdk}"
 
     @pytest.mark.parametrize("module_name", _RUNTIME_MODULES)
     def test_no_concrete_adapter_imports(self, module_name: str) -> None:
@@ -261,9 +252,9 @@ class TestRuntimeCoreAgnostic:
         lines = _import_lines(source)
 
         banned_adapters = _banned_imports(lines, _ADAPTER_PREFIXES)
-        assert banned_adapters == [], (
-            f"{module_name} imports concrete adapter packages: {banned_adapters}"
-        )
+        assert (
+            banned_adapters == []
+        ), f"{module_name} imports concrete adapter packages: {banned_adapters}"
 
 
 # ===================================================================

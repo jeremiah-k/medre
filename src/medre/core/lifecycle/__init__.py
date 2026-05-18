@@ -11,9 +11,9 @@ Re-exported symbols
 """
 
 from medre.core.lifecycle.states import (
+    VALID_TRANSITIONS,
     AdapterState,
     InvalidStateTransition,
-    VALID_TRANSITIONS,
     is_valid_transition,
     require_valid_transition,
 )

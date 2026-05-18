@@ -8,7 +8,6 @@ This document audits the current operational readiness of the MEDRE runtime and 
 
 All four adapters are in alpha. Fake mode is the default development path for all four. All four now have optional live smoke harnesses (excluded from default CI). No adapter has been tested against real hardware or services in default CI. The current cross-transport assessment is consolidated in contract 28 (`28-alpha-readiness-report.md`).
 
-
 ## 1. Per-Adapter Operational Status
 
 ### 1.1 Matrix
@@ -74,7 +73,6 @@ All four adapters are in alpha. Fake mode is the default development path for al
 - Reticulum's networking stack may conflict with asyncio's event loop. The async/sync boundary needs design work.
 - Identity management (creation, storage, rotation) is entirely unscoped.
 
-
 ## 2. Health Reporting Gaps
 
 ### 2.1 AdapterHealth vs AdapterInfo Contradiction
@@ -128,7 +126,6 @@ startup via :func:`~medre.core.runtime.supervision.classify_runtime_health` but
 there is no watchdog, no health check interval, and no automatic state
 transition based on health degradation during steady-state operation.
 
-
 ## 3. Logging Gaps
 
 ### 3.1 What Exists
@@ -148,7 +145,6 @@ The observability subsystem provides:
 - **No inbound/outbound event logging by default.** The `_PipelineLoggingMiddleware` logs every event at DEBUG level. It does not log adapter-specific ingress/egress details (native IDs, channel mappings, payload sizes) at any level.
 - **No log rotation or retention configuration.** The logging subsystem writes to stdout. Log management (rotation, retention, shipping) is entirely the operator's responsibility.
 
-
 ## 4. Metrics and Tracing Gaps
 
 ### 4.1 What Exists
@@ -165,7 +161,6 @@ The observability subsystem provides:
 - **No adapter-level metrics.** Individual adapters do not report their own metrics (messages sent/received, errors, queue depth, latency to transport). The `AdapterInfo` dataclass has no metrics fields.
 - **No health check metrics.** Health check results are not tracked over time. There is no history of adapter state transitions.
 - **Spec observability unimplemented.** Contract 02 Section 12.2 lists `core/observability/` as providing observability. What exists is a logging helper and in-memory counters. The spec implies a richer subsystem that does not exist.
-
 
 ## 5. Health Aggregation Gaps
 
@@ -185,7 +180,6 @@ There is no mechanism to skip routes whose target adapter is unhealthy, or to ro
 
 If one adapter fails, there is no cascade detection. The failure is recorded as a receipt and a diagnostic event, but no logic evaluates whether repeated failures on one adapter should trigger alerts, route changes, or adapter restarts.
 
-
 ## 6. Replay Operational Gaps
 
 ### 6.1 What Works
@@ -200,7 +194,6 @@ The replay engine supports five modes (`STRICT`, `RE_RENDER`, `RE_ROUTE`, `BEST_
 - **No receipt deduplication.** Replaying events that already have successful delivery receipts produces duplicate receipts. This is documented in contract 07 but remains an operational hazard.
 - **No dead-letter replay shortcut.** Replaying dead-lettered events requires a manual query of `delivery_receipts` to collect `event_id` values, then passing them as `correlation_ids`. There is no single command for "replay all dead-lettered events."
 - **No replay scheduling.** Replay is a synchronous operation. There is no way to schedule a replay for a future time or on a recurring basis.
-
 
 ## 7. Policy and Plugin Scaffolding Gaps
 
@@ -219,7 +212,6 @@ Contract 05 defines a complete plugin API: `Plugin` protocol, `PluginContext`, `
 **Current state:** None of this is implemented. The `plugin_state` SQL table exists in the schema but is not wired to any runtime service. No plugin loader, host, or capability enforcement exists. The contract documents the intended interface for future implementation.
 
 **Gap:** The plugin subsystem is entirely scaffolding. No third-party code can extend the runtime. The `plugin.custom` event kind exists in the taxonomy but no plugin produces it.
-
 
 ## 8. Dead-Letter and Retry Management Gaps
 
@@ -240,12 +232,12 @@ Contract 05 defines a complete plugin API: `Plugin` protocol, `PluginContext`, `
 - **No adapter-level error customization.** Error classification uses Python exception types. Adapters cannot declare custom retryable/permanent error codes.
 - **No reconnection logic.** No adapter handles reconnection or connection loss. The lifecycle is start/stop with no automatic recovery. If the Matrix homeserver drops the connection, the sync task fails silently and `health_check()` reports `"failed"`, but no reconnect attempt is made.
 
-
 ## 9. Runbook Gaps
 
 ### 9.1 What Exists
 
 Two runbooks:
+
 - `docs/runbooks/matrix-live-smoke.md` for the optional Matrix live smoke harness.
 - `docs/runbooks/meshtastic-live-smoke.md` for the optional Meshtastic live smoke harness.
 
@@ -264,7 +256,6 @@ There are no operational runbooks for:
 - Managing the SQLite storage backend (backup, compaction, migration)
 - Configuring logging levels and formats
 - Debugging routing mismatches (event matches zero routes)
-
 
 ## 10. Contradictions and Inconsistencies Found
 
@@ -292,7 +283,6 @@ Contract 02 defines five states (`INITIALIZING`, `RUNNING`, `DEGRADED`, `DRAININ
 
 Matrix's codec inherits from `AdapterCodec` (the abstract base in `base.py`). The transport codecs (Meshtastic, MeshCore, LXMF) are standalone classes. This is noted in contract 15 as a minor accidental inconsistency that could cause issues with a future codec registry.
 
-
 ## 11. Explicit Out-of-Scope Constraints
 
 The following are explicitly not part of this audit and must not be inferred from this document:
@@ -304,35 +294,33 @@ The following are explicitly not part of this audit and must not be inferred fro
 - **No feature proposals.** This document enumerates gaps. It does not propose features, priorities, or implementation plans for closing those gaps.
 - **Tranche constraints preserved.** This audit covers tranche 1 behavior only. No feature expansion beyond the current tranche is implied.
 
-
 ## 12. Summary of Gaps by Category
 
-| Category | Gap Severity | Summary |
-|---|---|---|
-| Adapter connectivity | Critical | All adapters use fake delivery. Matrix has real client code but no CI verification. Other three have no real connectivity. |
-| Health reporting | High | `AdapterHealth` spec vs `AdapterInfo` string mismatch. Transport adapters report trivial health. No periodic health polling. |
-| Metrics | High | In-memory counters only. No export, no histograms, no distributed tracing. Lost on restart. |
-| Policy pipeline | High | Empty package. Four-stage policy architecture is spec-only. No rate limiting, filtering, or deduplication. |
-| Retry management | Medium | Receipt recording works. No background scheduler, no dead-letter management, no retry budgets. |
-| Logging | Medium | Structured logging exists. No trace correlation, no per-adapter levels, no error codes. |
-| Replay | Medium | Five modes work. No progress tracking, no resumption, no rate limiting, no scheduling. |
-| Plugin API | Low | Full spec exists. Zero implementation. Scaffolding only. |
-| Runbooks | Low | Two runbooks for Matrix and Meshtastic live smoke. No operational runbooks. |
-| Lifecycle state machine | Low | Spec and code diverge on state names and count. Both documented. Neither authoritative. |
-| Privacy modes | Low | Spec defines four modes. No code implements them. |
-
+| Category                | Gap Severity | Summary                                                                                                                      |
+| ----------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| Adapter connectivity    | Critical     | All adapters use fake delivery. Matrix has real client code but no CI verification. Other three have no real connectivity.   |
+| Health reporting        | High         | `AdapterHealth` spec vs `AdapterInfo` string mismatch. Transport adapters report trivial health. No periodic health polling. |
+| Metrics                 | High         | In-memory counters only. No export, no histograms, no distributed tracing. Lost on restart.                                  |
+| Policy pipeline         | High         | Empty package. Four-stage policy architecture is spec-only. No rate limiting, filtering, or deduplication.                   |
+| Retry management        | Medium       | Receipt recording works. No background scheduler, no dead-letter management, no retry budgets.                               |
+| Logging                 | Medium       | Structured logging exists. No trace correlation, no per-adapter levels, no error codes.                                      |
+| Replay                  | Medium       | Five modes work. No progress tracking, no resumption, no rate limiting, no scheduling.                                       |
+| Plugin API              | Low          | Full spec exists. Zero implementation. Scaffolding only.                                                                     |
+| Runbooks                | Low          | Two runbooks for Matrix and Meshtastic live smoke. No operational runbooks.                                                  |
+| Lifecycle state machine | Low          | Spec and code diverge on state names and count. Both documented. Neither authoritative.                                      |
+| Privacy modes           | Low          | Spec defines four modes. No code implements them.                                                                            |
 
 ## 13. Contract Cross-References
 
-| Topic | Contract |
-|---|---|
-| Production connectivity per adapter | `16-production-connectivity-readiness.md` |
-| Adapter baseline consistency audit | `15-adapter-baseline-consolidation.md` |
-| Adapter runtime contract (lifecycle, health, capabilities) | `02-adapter-runtime-contract.md` |
-| Routing and delivery planning | `04-routing-planning-contract.md` |
-| Plugin API | `05-plugin-api-contract.md` |
-| Replay and event log | `07-replay-event-log-contract.md` |
-| Metadata embedding and privacy modes | `06-metadata-embedding-contract.md` |
-| Phase 1 limitations | `phase-1-limitations.md` |
+| Topic                                                      | Contract                                  |
+| ---------------------------------------------------------- | ----------------------------------------- |
+| Production connectivity per adapter                        | `16-production-connectivity-readiness.md` |
+| Adapter baseline consistency audit                         | `15-adapter-baseline-consolidation.md`    |
+| Adapter runtime contract (lifecycle, health, capabilities) | `02-adapter-runtime-contract.md`          |
+| Routing and delivery planning                              | `04-routing-planning-contract.md`         |
+| Plugin API                                                 | `05-plugin-api-contract.md`               |
+| Replay and event log                                       | `07-replay-event-log-contract.md`         |
+| Metadata embedding and privacy modes                       | `06-metadata-embedding-contract.md`       |
+| Phase 1 limitations                                        | `phase-1-limitations.md`                  |
 
 Contract 16 is the readiness authority. This document supplements it with operational runtime gaps. Where this document and Contract 16 conflict on adapter readiness facts, Contract 16 takes precedence.

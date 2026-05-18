@@ -33,9 +33,9 @@ Post-release (future stability guarantee):
 
 from __future__ import annotations
 
-import msgspec
 from typing import Callable
 
+import msgspec
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -73,7 +73,9 @@ class SchemaVersion(msgspec.Struct, frozen=True):
     version: int
 
 
-def schema_version_from_event(event_kind: str, payload: dict[str, object]) -> SchemaVersion:
+def schema_version_from_event(
+    event_kind: str, payload: dict[str, object]
+) -> SchemaVersion:
     """Extract a :class:`SchemaVersion` from a raw event payload.
 
     The payload is expected to contain a ``"schema_version"`` key with an

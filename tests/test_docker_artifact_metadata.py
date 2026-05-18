@@ -12,20 +12,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import pytest
-
 from medre.runtime.docker_bridge_artifacts import (
     ARTIFACT_PLAN,
-    collect_docker_bridge_artifacts,
-    get_artifact_plan,
+    _collect_log_artifacts,
     _read_run_metadata,
     _write_redacted_config,
-    _collect_log_artifacts,
-    _LIMITATIONS,
+    collect_docker_bridge_artifacts,
+    get_artifact_plan,
 )
-
 from tests.helpers.docker_artifacts import _FIXED_NOW, _fixed_now
-
 
 # ---------------------------------------------------------------------------
 # _read_run_metadata
@@ -150,6 +145,7 @@ class TestStructuredMetadataPrecedence:
     ):
         def _runner(cmd, env, timeout, cwd):
             return returncode, stdout, stderr
+
         return _runner
 
     def test_metadata_overrides_matrix_evidence(self, tmp_path: Path) -> None:
@@ -295,11 +291,13 @@ class TestStructuredMetadataPrecedence:
         export_calls: list[dict[str, Any]] = []
 
         def _mock_export(run_dir, storage_path, event_id):
-            export_calls.append({
-                "run_dir": run_dir,
-                "storage_path": storage_path,
-                "event_id": event_id,
-            })
+            export_calls.append(
+                {
+                    "run_dir": run_dir,
+                    "storage_path": storage_path,
+                    "event_id": event_id,
+                }
+            )
             return {}
 
         call_count = 0
@@ -347,6 +345,7 @@ class TestArtifactPathsInSummary:
     ):
         def _runner(cmd, env, timeout, cwd):
             return returncode, stdout, stderr
+
         return _runner
 
     def test_summary_has_artifact_plan(self, tmp_path: Path) -> None:
@@ -453,6 +452,7 @@ class TestMissingArtifactsReported:
     def _make_mock_runner(returncode: int = 0, stdout: str = "", stderr: str = ""):
         def _runner(cmd, env, timeout, cwd):
             return returncode, stdout, stderr
+
         return _runner
 
     def test_missing_required_artifacts_reported_honestly(self, tmp_path: Path) -> None:
@@ -471,8 +471,7 @@ class TestMissingArtifactsReported:
         # These should NOT be in the errors list (they are environmental limits).
         for name in missing_req:
             assert not any(
-                f"Missing required artifact: {name}" in e
-                for e in summary["errors"]
+                f"Missing required artifact: {name}" in e for e in summary["errors"]
             ), f"Missing required artifact {name} should be in manifest, not errors"
 
     def test_final_snapshot_limitation_when_missing(self, tmp_path: Path) -> None:
@@ -533,6 +532,7 @@ class TestConfigTomlRedaction:
     def _make_mock_runner(returncode: int = 0, stdout: str = "", stderr: str = ""):
         def _runner(cmd, env, timeout, cwd):
             return returncode, stdout, stderr
+
         return _runner
 
     def test_config_toml_redacts_secrets(self, tmp_path: Path) -> None:

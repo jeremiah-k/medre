@@ -9,8 +9,8 @@ from typing import Any, Callable
 from medre.config.paths import MedrePaths, MedrePathsError
 
 from ._helpers import (
-    SCHEMA_VERSION,
     _LIMITATIONS,
+    SCHEMA_VERSION,
     _compute_overall_status,
     _get_version,
     _now_utc,
@@ -19,7 +19,6 @@ from ._helpers import (
     _section_partial,
     _section_skipped,
 )
-
 
 # ---------------------------------------------------------------------------
 # Shared storage data collector
@@ -66,7 +65,8 @@ async def _collect_storage_data_from_backend(
             import msgspec
 
             tl_result = await _timeline.assemble_event_timeline(
-                storage, event_id,
+                storage,
+                event_id,
             )
             if tl_result is not None:
                 event = tl_result["event"]
@@ -82,29 +82,26 @@ async def _collect_storage_data_from_backend(
 
                 # Compact incident summary using shared classification.
                 from medre.observability.classification import (
-                    infer_failure_kind,
                     failure_category,
+                    infer_failure_kind,
                     recommended_commands,
                 )
 
-                receipt_dicts = [
-                    _json.loads(msgspec.json.encode(r)) for r in receipts
-                ]
+                receipt_dicts = [_json.loads(msgspec.json.encode(r)) for r in receipts]
                 failed_count = sum(
-                    1 for r in receipt_dicts
+                    1
+                    for r in receipt_dicts
                     if r.get("status") in ("failed", "dead_lettered")
                 )
-                sent_count = sum(
-                    1 for r in receipt_dicts
-                    if r.get("status") == "sent"
-                )
+                sent_count = sum(1 for r in receipt_dicts if r.get("status") == "sent")
 
                 first_failure_kind: str | None = None
                 worst_category = "success"
                 for r in receipt_dicts:
                     if r.get("status") in ("failed", "dead_lettered"):
                         fk = infer_failure_kind(
-                            r.get("error"), r.get("status", ""),
+                            r.get("error"),
+                            r.get("status", ""),
                         )
                         if first_failure_kind is None:
                             first_failure_kind = fk
@@ -113,9 +110,7 @@ async def _collect_storage_data_from_backend(
                             worst_category = cat
                             break
 
-                has_replay = any(
-                    r.get("source") == "replay" for r in receipt_dicts
-                )
+                has_replay = any(r.get("source") == "replay" for r in receipt_dicts)
                 has_native_refs = len(native_refs) > 0
 
                 # Determine overall classification for the event.
@@ -126,9 +121,11 @@ async def _collect_storage_data_from_backend(
                 else:
                     classification = "unknown"
 
-                cmds = recommended_commands(classification, event_id) \
-                    if classification != "success" \
+                cmds = (
+                    recommended_commands(classification, event_id)
+                    if classification != "success"
                     else [f"medre inspect event {event_id} --timeline"]
+                )
 
                 # Specialised lower-level command for evidence bundle.
                 evidence_cmd = f"medre evidence --event {event_id} --json"
@@ -169,12 +166,12 @@ async def _collect_storage_data_from_backend(
             import msgspec
 
             tl_replay = await _timeline.assemble_replay_timeline(
-                storage, replay_run_id,
+                storage,
+                replay_run_id,
             )
             if tl_replay is not None:
                 data["replay_run_receipts"] = [
-                    _json.loads(msgspec.json.encode(r))
-                    for r in tl_replay["receipts"]
+                    _json.loads(msgspec.json.encode(r)) for r in tl_replay["receipts"]
                 ]
                 data["replay_timeline"] = tl_replay["timeline_entries"]
             else:
@@ -182,9 +179,7 @@ async def _collect_storage_data_from_backend(
 
         # If event was requested but not found, report partial.
         if event_id is not None and data["event"] is None:
-            return _section_partial(
-                data, f"Event {event_id!r} not found in storage"
-            )
+            return _section_partial(data, f"Event {event_id!r} not found in storage")
 
         return _section_ok(data)
     except Exception as exc:
@@ -265,7 +260,10 @@ async def _collect_storage_section(
 
     try:
         return await _collect_storage_data_from_backend(
-            storage, db_path, event_id, replay_run_id,
+            storage,
+            db_path,
+            event_id,
+            replay_run_id,
         )
     finally:
         if storage is not None:
@@ -379,7 +377,10 @@ async def _collect_storage_path_bundle(
 
     try:
         sections["storage"] = await _collect_storage_data_from_backend(
-            storage, storage_path, event_id, replay_run_id,
+            storage,
+            storage_path,
+            event_id,
+            replay_run_id,
         )
     finally:
         if storage is not None:

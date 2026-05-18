@@ -20,9 +20,9 @@ import pytest
 from medre.config.loader import load_config
 from medre.config.model import RuntimeConfig
 from medre.config.paths import MedrePaths
+from medre.runtime.app import MedreApp
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.errors import RuntimeConfigError
-from medre.runtime.app import MedreApp
 
 # ---------------------------------------------------------------------------
 # Paths & helpers
@@ -54,7 +54,8 @@ def _resolve_docker_placeholders(raw: str) -> str:
 
 
 def _load_docker_config(
-    config_name: str, tmp_path: Path,
+    config_name: str,
+    tmp_path: Path,
 ) -> tuple[RuntimeConfig, object, MedrePaths]:
     """Read a Docker example config, resolve placeholders, write to tmp, load."""
     raw = (CONFIGS_DIR / config_name).read_text(encoding="utf-8")
@@ -86,14 +87,14 @@ class TestFakeConfigRuntimePath:
         assert isinstance(app, MedreApp)
 
         # At least one adapter built
-        assert len(app.adapters) >= 1, (
-            f"Expected >= 1 adapter, got {list(app.adapters.keys())}"
-        )
+        assert (
+            len(app.adapters) >= 1
+        ), f"Expected >= 1 adapter, got {list(app.adapters.keys())}"
 
         # Build failures should be empty for all-fake config
-        assert app.build_failures == [], (
-            f"Unexpected build failures: {app.build_failures}"
-        )
+        assert (
+            app.build_failures == []
+        ), f"Unexpected build failures: {app.build_failures}"
 
         # started_adapter_ids is empty pre-start, but adapters dict should
         # contain exactly the enabled adapters from config
@@ -267,9 +268,12 @@ class TestUnknownAdapterIsHardError:
         builder = RuntimeBuilder(config, paths)
 
         from unittest.mock import MagicMock
+
         mock_rtc = MagicMock(adapter_kind="fake")
 
-        with pytest.raises(RuntimeConfigError, match="Unknown transport type") as exc_info:
+        with pytest.raises(
+            RuntimeConfigError, match="Unknown transport type"
+        ) as exc_info:
             builder._build_single_adapter("nonexistent_transport", "bad", mock_rtc)
         assert "nonexistent_transport" in str(exc_info.value)
 
@@ -292,6 +296,7 @@ class TestUnknownAdapterIsHardError:
         builder = RuntimeBuilder(config, paths)
 
         from unittest.mock import MagicMock
+
         try:
             builder._build_single_adapter("bogus", "x", MagicMock(adapter_kind="fake"))
         except RuntimeConfigError:
@@ -382,7 +387,9 @@ class TestExampleConfigsUseSameLoader:
         raw = (CONFIGS_DIR / config_name).read_text(encoding="utf-8")
         if "${" in raw:
             config_path = _write_toml(
-                tmp_path, _resolve_docker_placeholders(raw), config_name,
+                tmp_path,
+                _resolve_docker_placeholders(raw),
+                config_name,
             )
         else:
             config_path = CONFIGS_DIR / config_name

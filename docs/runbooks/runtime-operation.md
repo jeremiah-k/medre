@@ -2,7 +2,6 @@
 
 This runbook covers how to run, configure, deploy, and operate the MEDRE runtime.
 
-
 ## Running MEDRE
 
 ```bash
@@ -17,17 +16,16 @@ To verify config without starting:
 medre config check
 ```
 
-
 ## Exit Codes
 
 `medre run` uses differentiated exit codes so operators and process supervisors can distinguish failure categories without parsing stderr.
 
-| Code | Constant | Meaning |
-|------|----------|---------|
-| 0 | `EXIT_OK` | Successful run and clean shutdown. |
-| 2 | `EXIT_CONFIG` | Config file not found, TOML parse error, validation error, or no adapters enabled. |
-| 3 | `EXIT_BUILD` | Runtime build failure — missing optional SDK dependency, invalid storage path, or adapter construction error. Adapters that fail during construction are recorded as build failures; if *all* adapters fail to build, the runtime exits with this code. |
-| 4 | `EXIT_STARTUP` | Total startup failure — zero adapters started successfully (after build). This covers core subsystem failures (storage init, pipeline runner) and total adapter startup failure. |
+| Code | Constant       | Meaning                                                                                                                                                                                                                                                 |
+| ---- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0    | `EXIT_OK`      | Successful run and clean shutdown.                                                                                                                                                                                                                      |
+| 2    | `EXIT_CONFIG`  | Config file not found, TOML parse error, validation error, or no adapters enabled.                                                                                                                                                                      |
+| 3    | `EXIT_BUILD`   | Runtime build failure — missing optional SDK dependency, invalid storage path, or adapter construction error. Adapters that fail during construction are recorded as build failures; if _all_ adapters fail to build, the runtime exits with this code. |
+| 4    | `EXIT_STARTUP` | Total startup failure — zero adapters started successfully (after build). This covers core subsystem failures (storage init, pipeline runner) and total adapter startup failure.                                                                        |
 
 **Degraded startup does NOT exit.** If at least one adapter starts successfully but others fail, the runtime enters `RUNNING` with `DEGRADED` health and continues operating. The boot summary and console output report which adapters failed.
 
@@ -57,18 +55,17 @@ When the runtime starts with `DEGRADED` health, use these surfaces to understand
 
 ### Exit Codes by Command
 
-| Command | Config error | Build error | Startup error |
-|---------|:---:|:---:|:---:|
-| `medre run` | 2 | 3 | 4 |
-| `medre diagnostics` | 2 | 3 | n/a |
-| `medre diagnostics --refresh-health` | 2 | 3 | 4 |
-| `medre config check` | 2 | n/a | n/a |
-| `medre routes validate` | 2 | n/a | n/a |
-| `medre routes topology` | 2 | n/a | n/a |
-| `medre routes list` | 2 | n/a | n/a |
+| Command                              | Config error | Build error | Startup error |
+| ------------------------------------ | :----------: | :---------: | :-----------: |
+| `medre run`                          |      2       |      3      |       4       |
+| `medre diagnostics`                  |      2       |      3      |      n/a      |
+| `medre diagnostics --refresh-health` |      2       |      3      |       4       |
+| `medre config check`                 |      2       |     n/a     |      n/a      |
+| `medre routes validate`              |      2       |     n/a     |      n/a      |
+| `medre routes topology`              |      2       |     n/a     |      n/a      |
+| `medre routes list`                  |      2       |     n/a     |      n/a      |
 
 All commands print a human-readable error message to stderr (no traceback) before exiting nonzero.
-
 
 ## Configuration Overview
 
@@ -197,7 +194,6 @@ channel_mapping = {0 = "general"}
 
 Startup order: `matrix.bridge` first (alphabetical by transport), then `meshtastic.radio`.
 
-
 ## Resource Limits
 
 The `[runtime.limits]` section controls concurrency and drain behavior for the pipeline and replay engine. If this section is absent, all limits use their defaults.
@@ -235,19 +231,20 @@ The replay engine has a separate semaphore (`max_inflight_replay_events`) that b
 
 Run `medre diagnostics` to see resource limit gauges:
 
-| Counter | Description |
-|---------|-------------|
-| `inbound_accepted` | Inbound events accepted into the pipeline |
-| `outbound_delivered` | Outbound deliveries that succeeded |
-| `outbound_failed` | Outbound deliveries that failed |
-| `loop_prevented` | Events blocked by the self-loop guard |
-| `capacity_rejections` | Operations rejected by the capacity controller |
+| Counter                               | Description                                       |
+| ------------------------------------- | ------------------------------------------------- |
+| `inbound_accepted`                    | Inbound events accepted into the pipeline         |
+| `outbound_delivered`                  | Outbound deliveries that succeeded                |
+| `outbound_failed`                     | Outbound deliveries that failed                   |
+| `loop_prevented`                      | Events blocked by the self-loop guard             |
+| `capacity_rejections`                 | Operations rejected by the capacity controller    |
 | `delivery_current` / `delivery_limit` | Current / max concurrent delivery semaphore slots |
-| `replay_current` / `replay_limit` | Current / max concurrent replay semaphore slots |
+| `replay_current` / `replay_limit`     | Current / max concurrent replay semaphore slots   |
 
 ### Example Configurations
 
 **Conservative (low-resource device):**
+
 ```toml
 [runtime.limits]
 max_inflight_deliveries = 8
@@ -257,6 +254,7 @@ shutdown_drain_timeout_seconds = 3.0
 ```
 
 **High-throughput (server):**
+
 ```toml
 [runtime.limits]
 max_inflight_deliveries = 128
@@ -264,7 +262,6 @@ max_inflight_replay_events = 64
 delivery_acquire_timeout_seconds = 60.0
 shutdown_drain_timeout_seconds = 10.0
 ```
-
 
 ## Shutdown Behavior
 
@@ -290,18 +287,18 @@ When shutdown begins (SIGTERM, SIGINT, or programmatic):
 
 ### What Gets Drained vs Cancelled
 
-| Category | Behavior |
-|----------|----------|
-| In-flight adapter deliveries | **Drained** — awaited up to `shutdown_drain_timeout_seconds`, then cancelled |
-| Adapter receive loops | Cancelled immediately on adapter `stop()` |
-| Replay events | Cancelled; completed delivery receipts are preserved |
-| Route statistics, diagnostic counters | **Lost** — in-memory only |
+| Category                              | Behavior                                                                     |
+| ------------------------------------- | ---------------------------------------------------------------------------- |
+| In-flight adapter deliveries          | **Drained** — awaited up to `shutdown_drain_timeout_seconds`, then cancelled |
+| Adapter receive loops                 | Cancelled immediately on adapter `stop()`                                    |
+| Replay events                         | Cancelled; completed delivery receipts are preserved                         |
+| Route statistics, diagnostic counters | **Lost** — in-memory only                                                    |
 
 ### Shutdown Timeout
 
 The overall shutdown budget is `shutdown_timeout_seconds` from `RuntimeConfig`. Individual subsystem timeouts share this budget:
 
-```
+```text
 Total budget: shutdown_timeout_seconds
 ├── Adapter stops (reverse order, each uses the full timeout)
 ├── Pipeline runner stop (drain timeout = shutdown_drain_timeout_seconds)
@@ -320,7 +317,6 @@ If the overall budget is exceeded, `RuntimeShutdownError` is raised with a summa
 
 See Contract 54 (Runtime Shutdown), Contract 59 (Runtime Durability), and Contract 60 (Runtime Cancellation) for full specifications.
 
-
 ## Docker Deployment
 
 ### Using docker.env.example
@@ -334,18 +330,18 @@ cp examples/env/docker.env.example .env
 
 Key variables:
 
-| Variable | Purpose |
-|----------|---------|
-| `MEDRE_HOME` | Root data directory inside container (`/opt/medre`) |
-| `MEDRE_LOG_LEVEL` | Log verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
-| `MEDRE_MATRIX_ENABLED` | Enable Matrix adapter |
-| `MEDRE_MATRIX_HOMESERVER` | Matrix homeserver URL |
-| `MEDRE_MATRIX_USER_ID` | Matrix user ID |
-| `MEDRE_MATRIX_ACCESS_TOKEN` | Matrix access token |
-| `MEDRE_MATRIX_ROOM_ALLOWLIST` | Comma-separated room IDs |
-| `MEDRE_MESHTASTIC_ENABLED` | Enable Meshtastic adapter |
-| `MEDRE_MESHTASTIC_CONNECTION_TYPE` | Connection mode: `serial`, `tcp`, `ble`, `fake` |
-| `MEDRE_MESHTASTIC_SERIAL_PORT` | Serial device path |
+| Variable                           | Purpose                                             |
+| ---------------------------------- | --------------------------------------------------- |
+| `MEDRE_HOME`                       | Root data directory inside container (`/opt/medre`) |
+| `MEDRE_LOG_LEVEL`                  | Log verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR`  |
+| `MEDRE_MATRIX_ENABLED`             | Enable Matrix adapter                               |
+| `MEDRE_MATRIX_HOMESERVER`          | Matrix homeserver URL                               |
+| `MEDRE_MATRIX_USER_ID`             | Matrix user ID                                      |
+| `MEDRE_MATRIX_ACCESS_TOKEN`        | Matrix access token                                 |
+| `MEDRE_MATRIX_ROOM_ALLOWLIST`      | Comma-separated room IDs                            |
+| `MEDRE_MESHTASTIC_ENABLED`         | Enable Meshtastic adapter                           |
+| `MEDRE_MESHTASTIC_CONNECTION_TYPE` | Connection mode: `serial`, `tcp`, `ble`, `fake`     |
+| `MEDRE_MESHTASTIC_SERIAL_PORT`     | Serial device path                                  |
 
 Mount a volume at `MEDRE_HOME` for persistent state:
 
@@ -362,7 +358,7 @@ docker run -d \
 
 Inside the container, `MEDRE_HOME=/opt/medre`. All paths resolve under this root:
 
-```
+```text
 /opt/medre/
 ├── config.toml
 ├── state/
@@ -379,23 +375,22 @@ Inside the container, `MEDRE_HOME=/opt/medre`. All paths resolve under this root
     └── medre.log
 ```
 
-
 ## MEDRE_HOME Layout
 
 When `MEDRE_HOME` is set (or using XDG defaults), the runtime creates this layout:
 
-| Path | Description |
-|------|-------------|
-| `{config}/config.toml` | Primary configuration file |
-| `{state}/medre.sqlite` | Single global database |
-| `{log_dir}/medre.log` | Global log file (`{state}/logs` in XDG mode, `$MEDRE_HOME/logs` in MEDRE_HOME mode) |
-| `{state}/adapters/{adapter_id}/` | Per-adapter state root |
-| `{state}/adapters/{adapter_id}/matrix/store/` | Matrix E2EE crypto store (non-plaintext only) |
-| `{state}/adapters/{adapter_id}/meshtastic/` | Meshtastic transport state |
-| `{state}/adapters/{adapter_id}/meshcore/` | MeshCore transport state |
-| `{state}/adapters/{adapter_id}/lxmf/` | LXMF transport state |
-| `{data}/` | Data directory |
-| `{cache}/` | Cache directory |
+| Path                                          | Description                                                                         |
+| --------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `{config}/config.toml`                        | Primary configuration file                                                          |
+| `{state}/medre.sqlite`                        | Single global database                                                              |
+| `{log_dir}/medre.log`                         | Global log file (`{state}/logs` in XDG mode, `$MEDRE_HOME/logs` in MEDRE_HOME mode) |
+| `{state}/adapters/{adapter_id}/`              | Per-adapter state root                                                              |
+| `{state}/adapters/{adapter_id}/matrix/store/` | Matrix E2EE crypto store (non-plaintext only)                                       |
+| `{state}/adapters/{adapter_id}/meshtastic/`   | Meshtastic transport state                                                          |
+| `{state}/adapters/{adapter_id}/meshcore/`     | MeshCore transport state                                                            |
+| `{state}/adapters/{adapter_id}/lxmf/`         | LXMF transport state                                                                |
+| `{data}/`                                     | Data directory                                                                      |
+| `{cache}/`                                    | Cache directory                                                                     |
 
 See Contract 46 for the authoritative path model.
 
@@ -404,7 +399,6 @@ To inspect resolved paths:
 ```bash
 medre paths
 ```
-
 
 ## Container Deployment Hardening
 
@@ -424,7 +418,7 @@ Path resolution is pure computation — no filesystem I/O occurs during config l
 
 When running in a container, set `MEDRE_HOME=/opt/medre` (or any absolute path) and mount a single volume at that path. The runtime creates all subdirectories on startup via `_ensure_dirs()`.
 
-```
+```bash
 docker run -d \
   --env MEDRE_HOME=/opt/medre \
   -v medre-data:/opt/medre \
@@ -460,7 +454,7 @@ MEDRE uses a single SQLite database at `{state_dir}/medre.sqlite`. This is the a
 
 When a Matrix adapter uses non-plaintext `encryption_mode`, the runtime derives a crypto store path:
 
-```
+```json
 {state_dir}/adapters/{adapter_id}/matrix/store/
 ```
 
@@ -472,7 +466,7 @@ The store contains Olm/Megolm session keys and device keys managed by the nio li
 
 For Meshtastic adapters using serial connections, pass the host device into the container:
 
-```
+```bash
 docker run -d \
   --device /dev/ttyACM0 \
   -v medre-data:/opt/medre \
@@ -507,24 +501,23 @@ Each adapter receives an isolated state root at `{state_dir}/adapters/{adapter_i
 
 ### Container Checklist
 
-| Concern | Mechanism |
-|---------|-----------|
-| Persistent state | Mount volume at `MEDRE_HOME` |
-| SQLite durability | WAL mode, file on mounted volume |
-| Matrix crypto persistence | Auto-derived store path under adapter state root |
-| Log persistence | `{log_dir}/medre.log` on mounted volume |
-| Serial device access | `--device` passthrough, correct permissions |
-| Deterministic paths | `MEDRE_HOME` set to fixed absolute path |
-| Adapter isolation | Unique `adapter_id` per adapter, path separator validation |
-| Idempotent startup | `_ensure_dirs()` uses `exist_ok=True` |
-| Config injection | Environment variables or mounted `config.toml` |
-
+| Concern                   | Mechanism                                                  |
+| ------------------------- | ---------------------------------------------------------- |
+| Persistent state          | Mount volume at `MEDRE_HOME`                               |
+| SQLite durability         | WAL mode, file on mounted volume                           |
+| Matrix crypto persistence | Auto-derived store path under adapter state root           |
+| Log persistence           | `{log_dir}/medre.log` on mounted volume                    |
+| Serial device access      | `--device` passthrough, correct permissions                |
+| Deterministic paths       | `MEDRE_HOME` set to fixed absolute path                    |
+| Adapter isolation         | Unique `adapter_id` per adapter, path separator validation |
+| Idempotent startup        | `_ensure_dirs()` uses `exist_ok=True`                      |
+| Config injection          | Environment variables or mounted `config.toml`             |
 
 ## Expected Startup Output
 
 A successful startup with the mixed runtime (Example 4) produces output similar to:
 
-```
+```console
 INFO  medre.cli: Loading config from /opt/medre/config.toml
 INFO  medre.runtime: Starting 2 adapters
 INFO  medre.adapters.matrix.bridge: adapter_starting transport=matrix adapter_id=bridge
@@ -537,12 +530,11 @@ INFO  medre.runtime: Resource limits: max_inflight_deliveries=100 max_inflight_r
 
 Adapters start in deterministic order: sorted by `(transport, adapter_id)`. Resource limits are logged at startup with their resolved values (explicit or default). Capacity bounds are enforced by the `CapacityController` — delivery concurrency is bounded by `max_inflight_deliveries`, replay concurrency by `max_inflight_replay_events`, and adapter-level queues (e.g., Meshtastic outbound queue) apply their own `maxlen` bounds.
 
-
 ## Expected Shutdown Output
 
 On SIGTERM or SIGINT, the runtime shuts down in reverse start order:
 
-```
+```console
 INFO  medre.runtime: Shutting down 2 adapters (timeout=10s drain=5.0s)
 INFO  medre.adapters.meshtastic.radio: adapter_stopping transport=meshtastic adapter_id=radio
 INFO  medre.adapters.meshtastic.radio: adapter_stopped transport=meshtastic adapter_id=radio duration_ms=42
@@ -555,7 +547,6 @@ INFO  medre.runtime: Storage closed
 INFO  medre.runtime: Shutdown complete in 70ms
 ```
 
-
 ## Long-Running Run: Operator Observability
 
 This section covers what operators see when running `medre run` in a terminal for an extended period — startup evidence, shutdown evidence, signal handling, and post-run inspection. For short-lived commands (`medre smoke`, `medre diagnostics`, `medre evidence`, `medre trace`, `medre recover`), see the respective sections above. `inspect` is the primary read-only investigation command for post-run evidence.
@@ -566,7 +557,7 @@ When `medre run` starts, the console prints a structured summary of the runtime 
 
 **What you see on a successful startup:**
 
-```
+```yaml
 Runtime starting with 2 adapter(s): bridge, radio
   Routes: 1 enabled, 0 disabled (1 total)
   Storage: sqlite
@@ -585,19 +576,19 @@ Runtime started — 2 adapter(s) in 457ms
 
 **Startup checklist for operators:**
 
-| Element | Where to look | Healthy sign | Problem sign |
-|---------|--------------|--------------|--------------|
-| Adapter count | Console first line | `N adapter(s)` matches config | Fewer than expected (build failures) |
-| Build failures | Console `Build failures (N)` block | No block printed | Block present with `✗` entries |
-| Routes | Console `Routes:` line | Expected count enabled | Zero enabled or validation errors |
-| Storage backend | Console `Storage:` line | `sqlite` for production | `memory` (no persistence) |
-| Limits | Console `Limits:` line | As configured | Unexpected defaults |
-| Per-adapter logs | `adapter_started` lines | All adapters logged `started` | Any `adapter_failed` entries |
-| Assembly summary | `Assembly complete` line | `N/N adapters started` | `N/M adapters started, K failed` |
+| Element          | Where to look                      | Healthy sign                  | Problem sign                         |
+| ---------------- | ---------------------------------- | ----------------------------- | ------------------------------------ |
+| Adapter count    | Console first line                 | `N adapter(s)` matches config | Fewer than expected (build failures) |
+| Build failures   | Console `Build failures (N)` block | No block printed              | Block present with `✗` entries       |
+| Routes           | Console `Routes:` line             | Expected count enabled        | Zero enabled or validation errors    |
+| Storage backend  | Console `Storage:` line            | `sqlite` for production       | `memory` (no persistence)            |
+| Limits           | Console `Limits:` line             | As configured                 | Unexpected defaults                  |
+| Per-adapter logs | `adapter_started` lines            | All adapters logged `started` | Any `adapter_failed` entries         |
+| Assembly summary | `Assembly complete` line           | `N/N adapters started`        | `N/M adapters started, K failed`     |
 
 **Degraded startup indicators:**
 
-```
+```yaml
 Runtime starting with 3 adapter(s): bot1, bot2, radio
   Build failures (1):
     ✗ matrix.bot2: authentication failed
@@ -621,7 +612,7 @@ On shutdown (triggered by Ctrl-C, SIGTERM, or programmatic stop), the runtime pr
 
 **What you see on a clean shutdown:**
 
-```
+```console
 Runtime shutting down
 INFO  medre.runtime: Shutting down 2 adapters (timeout=10s drain=5.0s)
 INFO  medre.adapters.meshtastic.radio: adapter_stopping transport=meshtastic adapter_id=radio
@@ -637,12 +628,12 @@ INFO  medre.runtime: Shutdown complete in 70ms
 
 **Shutdown checklist for operators:**
 
-| Element | Where to look | Clean sign | Problem sign |
-|---------|--------------|------------|--------------|
-| Adapter stop order | Log lines | Reverse of startup order | Missing adapter stop lines |
-| Drain outcome | Console `Drain completed/timed out` | `completed` | `timed out` with abandoned count |
-| Error count | Console `Shutdown complete` line | `0 error(s)` | Non-zero error count |
-| Per-adapter duration | `adapter_stopped` log lines | Milliseconds | Timeout or missing |
+| Element              | Where to look                       | Clean sign               | Problem sign                     |
+| -------------------- | ----------------------------------- | ------------------------ | -------------------------------- |
+| Adapter stop order   | Log lines                           | Reverse of startup order | Missing adapter stop lines       |
+| Drain outcome        | Console `Drain completed/timed out` | `completed`              | `timed out` with abandoned count |
+| Error count          | Console `Shutdown complete` line    | `0 error(s)`             | Non-zero error count             |
+| Per-adapter duration | `adapter_stopped` log lines         | Milliseconds             | Timeout or missing               |
 
 **Shutdown accounting counters:**
 
@@ -664,15 +655,15 @@ The snapshot is written to `{state_dir}/shutdown-snapshot.json` (resolved accord
 
 **What the shutdown snapshot contains:**
 
-| Section | Content |
-|---------|---------|
-| `lifecycle.runtime_state` | `"stopped"` (captured after graceful shutdown completes) |
-| `lifecycle.adapters.{id}` | Per-adapter lifecycle state at shutdown time |
-| `accounting` | Final `RuntimeAccounting` counters (inbound/outbound counts) |
-| `capacity` | Final `CapacityController` gauges (delivery_current, timeouts, rejections) |
-| `startup.boot_summary` | Frozen startup classification (unchanged from startup) |
-| `diagnostics.runtime_events` | Bounded event buffer accumulated during the run |
-| `routes.stats` | Per-route delivery statistics accumulated during the run |
+| Section                      | Content                                                                    |
+| ---------------------------- | -------------------------------------------------------------------------- |
+| `lifecycle.runtime_state`    | `"stopped"` (captured after graceful shutdown completes)                   |
+| `lifecycle.adapters.{id}`    | Per-adapter lifecycle state at shutdown time                               |
+| `accounting`                 | Final `RuntimeAccounting` counters (inbound/outbound counts)               |
+| `capacity`                   | Final `CapacityController` gauges (delivery_current, timeouts, rejections) |
+| `startup.boot_summary`       | Frozen startup classification (unchanged from startup)                     |
+| `diagnostics.runtime_events` | Bounded event buffer accumulated during the run                            |
+| `routes.stats`               | Per-route delivery statistics accumulated during the run                   |
 
 **Important caveats:**
 
@@ -698,24 +689,24 @@ The snapshot is written to `{state_dir}/shutdown-snapshot.json` (resolved accord
 
 **What is preserved on clean shutdown:**
 
-| Data | Preserved? | Why |
-|------|-----------|-----|
-| Events in SQLite | Yes | Written before delivery begins |
-| Delivery receipts | Yes | Written after each delivery attempt |
-| Route attribution on receipts | Yes | Persisted with the receipt |
-| E2EE crypto stores | Yes | On disk, managed by SDK |
-| Log history | Yes | Append-only file |
+| Data                          | Preserved? | Why                                 |
+| ----------------------------- | ---------- | ----------------------------------- |
+| Events in SQLite              | Yes        | Written before delivery begins      |
+| Delivery receipts             | Yes        | Written after each delivery attempt |
+| Route attribution on receipts | Yes        | Persisted with the receipt          |
+| E2EE crypto stores            | Yes        | On disk, managed by SDK             |
+| Log history                   | Yes        | Append-only file                    |
 
 **What is lost on shutdown:**
 
-| Data | Lost? | Why |
-|------|-------|-----|
-| In-flight deliveries (not yet completed) | Yes | In-memory only; cancelled during drain |
-| Runtime accounting counters | Yes | Process-local; not persisted |
-| RouteStats per-route counters | Yes | Process-local; not persisted |
-| CapacityController gauges | Yes | Process-local; reset on startup |
-| Active replay runs | Yes | Must re-initiate manually |
-| Runtime events buffer | Yes | Process-local; use `--snapshot-on-shutdown` to capture |
+| Data                                     | Lost? | Why                                                    |
+| ---------------------------------------- | ----- | ------------------------------------------------------ |
+| In-flight deliveries (not yet completed) | Yes   | In-memory only; cancelled during drain                 |
+| Runtime accounting counters              | Yes   | Process-local; not persisted                           |
+| RouteStats per-route counters            | Yes   | Process-local; not persisted                           |
+| CapacityController gauges                | Yes   | Process-local; reset on startup                        |
+| Active replay runs                       | Yes   | Must re-initiate manually                              |
+| Runtime events buffer                    | Yes   | Process-local; use `--snapshot-on-shutdown` to capture |
 
 **Second interrupt (repeated Ctrl-C):**
 
@@ -800,7 +791,6 @@ ORDER BY e.created_at DESC;
 - Replay is manual and duplicate-risky. `BEST_EFFORT` replay produces real outbound messages without deduplication. Use `DRY_RUN` first to preview.
 - Runtime events and counters are process-local. They are not in SQLite and cannot be inspected post-run unless captured via `--snapshot-on-shutdown`.
 
-
 ## Restart Expectations
 
 ### State Persists Across Restarts
@@ -814,33 +804,32 @@ ORDER BY e.created_at DESC;
 
 After a clean shutdown, restarting with the same config resumes normal operation. No state reset, cache clear, or manual intervention is needed.
 
-
 ## Persistence and Crash Semantics
 
 This section summarizes what MEDRE state survives restarts and what is lost. For the full contracts, see Contract 55 (Runtime Persistence) and Contract 59 (Runtime Durability).
 
 ### What Is Persisted (Survives Crash and Restart)
 
-| State | Location | Notes |
-|-------|----------|-------|
-| Canonical events | SQLite (`{state}/medre.sqlite`) | Written before delivery begins |
-| Delivery receipts | SQLite | Written after each delivery attempt completes |
-| Route attribution on receipts | SQLite (`receipt.route_id`) | Persists with the receipt |
-| Matrix E2EE crypto keys | `{state}/adapters/{id}/matrix/store/` | SDK-managed |
-| LXMF identities | `{state}/adapters/{id}/lxmf/` | Transport-managed |
-| Log history | `{state}/logs/medre.log` | Append-only |
-| Configuration | Operator-managed file | Unchanged |
+| State                         | Location                              | Notes                                         |
+| ----------------------------- | ------------------------------------- | --------------------------------------------- |
+| Canonical events              | SQLite (`{state}/medre.sqlite`)       | Written before delivery begins                |
+| Delivery receipts             | SQLite                                | Written after each delivery attempt completes |
+| Route attribution on receipts | SQLite (`receipt.route_id`)           | Persists with the receipt                     |
+| Matrix E2EE crypto keys       | `{state}/adapters/{id}/matrix/store/` | SDK-managed                                   |
+| LXMF identities               | `{state}/adapters/{id}/lxmf/`         | Transport-managed                             |
+| Log history                   | `{state}/logs/medre.log`              | Append-only                                   |
+| Configuration                 | Operator-managed file                 | Unchanged                                     |
 
 ### What Is NOT Persisted (Lost on Process Termination)
 
-| State | Nature | Impact |
-|-------|--------|--------|
-| In-flight deliveries | Lost on crash or cancellation | No receipt, no retry, no recovery |
-| Active replay runs | Lost on crash or shutdown | Must re-initiate manually |
-| Runtime counters (`inbound_accepted`, etc.) | Process-local only | Reset to zero on every startup |
-| RouteStats per-route counters | Process-local only | No historical route statistics |
-| CapacityController gauges | Process-local only | Reset on startup |
-| Adapter health/connection state | Process-local only | Adapters reconnect from scratch |
+| State                                       | Nature                        | Impact                            |
+| ------------------------------------------- | ----------------------------- | --------------------------------- |
+| In-flight deliveries                        | Lost on crash or cancellation | No receipt, no retry, no recovery |
+| Active replay runs                          | Lost on crash or shutdown     | Must re-initiate manually         |
+| Runtime counters (`inbound_accepted`, etc.) | Process-local only            | Reset to zero on every startup    |
+| RouteStats per-route counters               | Process-local only            | No historical route statistics    |
+| CapacityController gauges                   | Process-local only            | Reset on startup                  |
+| Adapter health/connection state             | Process-local only            | Adapters reconnect from scratch   |
 
 ### Crash Recovery
 
@@ -873,7 +862,6 @@ MEDRE persists state to a local SQLite database and local filesystem. There is n
 
 See Contract 55 (Runtime Persistence) and Contract 59 (Runtime Durability) for the complete specifications.
 
-
 ## Failure Expectations
 
 ### Adapter Failure During Startup
@@ -887,7 +875,7 @@ If one adapter fails to start, the runtime:
 
 Example output with a partial failure:
 
-```
+```console
 INFO  medre.runtime: Starting 3 adapters
 INFO  medre.adapters.matrix.bot1: adapter_starting transport=matrix adapter_id=bot1
 INFO  medre.adapters.matrix.bot1: adapter_started transport=matrix adapter_id=bot1 duration_ms=210
@@ -916,8 +904,7 @@ If the entire runtime process crashes (OOM, kill -9, power loss):
 3. Restart with the same config to resume operation.
 4. Adapters may replay or suppress stale messages based on their `startup_backlog_suppress_seconds` setting.
 
-
-## Diagnostics
+## Runtime Diagnostics
 
 ### Inspecting Build-Time Runtime State
 
@@ -925,7 +912,7 @@ If the entire runtime process crashes (OOM, kill -9, power loss):
 medre diagnostics
 ```
 
-This command builds the runtime from configuration but **does not start adapters, storage, or any I/O**. It produces a pre-flight JSON snapshot showing what the runtime *would* look like at build time. All values are build-time snapshots — no adapter startup occurs, no connections are made.
+This command builds the runtime from configuration but **does not start adapters, storage, or any I/O**. It produces a pre-flight JSON snapshot showing what the runtime _would_ look like at build time. All values are build-time snapshots — no adapter startup occurs, no connections are made.
 
 The output is structured into the same sections documented in Contract 63 (Runtime Snapshot Schema). Key adapter-level fields per entry:
 
@@ -959,27 +946,27 @@ This command builds the runtime from configuration, **starts all adapters**, ref
 
 The snapshot has the same structure as `medre diagnostics` but with key differences:
 
-| Section | `medre diagnostics` | `medre diagnostics --refresh-health` |
-|---------|---------------------|--------------------------------------|
-| `health.live_health` | `null` | `LiveHealthSnapshot` dict with per-adapter live health, `poll_count=1`, real timestamps |
-| `health.live_refresh` | `false` | `true` |
-| `health.scope` | `"startup"` | `"live"` |
-| `startup.startup_health` | Frozen startup classification | Frozen startup classification (unchanged, separate from live) |
-| `lifecycle.runtime_state` | `"initialized"` | `"running"` (snapshot captured before runtime stop) |
-| `lifecycle.adapters.{id}` | `{}` (empty — never started) | Current adapter lifecycle state at snapshot time |
-| Timestamps | Fixed (`2026-01-01T00:00:00Z`) | Real wall-clock and monotonic timestamps |
+| Section                   | `medre diagnostics`            | `medre diagnostics --refresh-health`                                                    |
+| ------------------------- | ------------------------------ | --------------------------------------------------------------------------------------- |
+| `health.live_health`      | `null`                         | `LiveHealthSnapshot` dict with per-adapter live health, `poll_count=1`, real timestamps |
+| `health.live_refresh`     | `false`                        | `true`                                                                                  |
+| `health.scope`            | `"startup"`                    | `"live"`                                                                                |
+| `startup.startup_health`  | Frozen startup classification  | Frozen startup classification (unchanged, separate from live)                           |
+| `lifecycle.runtime_state` | `"initialized"`                | `"running"` (snapshot captured before runtime stop)                                     |
+| `lifecycle.adapters.{id}` | `{}` (empty — never started)   | Current adapter lifecycle state at snapshot time                                        |
+| Timestamps                | Fixed (`2026-01-01T00:00:00Z`) | Real wall-clock and monotonic timestamps                                                |
 
 **`health.live_health` fields (per adapter):**
 
-| Field | Meaning |
-|-------|---------|
-| `adapter_id` | Unique adapter identifier |
-| `health` | One of: `healthy`, `degraded`, `failed`, `unknown`, `starting`, `stopping` |
-| `adapter_state` | Lifecycle state derived from the health poll |
-| `fake_or_live` | `"fake"` for fake adapters, `"live"` for real adapters, `"unknown"` if undetermined |
-| `poll_timestamp_wall` | ISO-8601 UTC when this adapter was polled |
-| `poll_timestamp_monotonic` | Monotonic timestamp for ordering |
-| `error` | Error string if `health_check()` raised, `null` otherwise |
+| Field                      | Meaning                                                                             |
+| -------------------------- | ----------------------------------------------------------------------------------- |
+| `adapter_id`               | Unique adapter identifier                                                           |
+| `health`                   | One of: `healthy`, `degraded`, `failed`, `unknown`, `starting`, `stopping`          |
+| `adapter_state`            | Lifecycle state derived from the health poll                                        |
+| `fake_or_live`             | `"fake"` for fake adapters, `"live"` for real adapters, `"unknown"` if undetermined |
+| `poll_timestamp_wall`      | ISO-8601 UTC when this adapter was polled                                           |
+| `poll_timestamp_monotonic` | Monotonic timestamp for ordering                                                    |
+| `error`                    | Error string if `health_check()` raised, `null` otherwise                           |
 
 **Key semantics:**
 
@@ -992,12 +979,12 @@ The snapshot has the same structure as `medre diagnostics` but with key differen
 
 **Exit codes for `--refresh-health`:**
 
-| Code | Constant | Meaning |
-|------|----------|---------|
-| 0 | `EXIT_OK` | Runtime started, health refreshed, snapshot printed. Runtime may be degraded. |
-| 2 | `EXIT_CONFIG` | Config parse/validation error, or no adapters enabled. |
-| 3 | `EXIT_BUILD` | Runtime build failure — all adapters failed to construct. |
-| 4 | `EXIT_STARTUP` | Total startup failure — zero adapters started. |
+| Code | Constant       | Meaning                                                                       |
+| ---- | -------------- | ----------------------------------------------------------------------------- |
+| 0    | `EXIT_OK`      | Runtime started, health refreshed, snapshot printed. Runtime may be degraded. |
+| 2    | `EXIT_CONFIG`  | Config parse/validation error, or no adapters enabled.                        |
+| 3    | `EXIT_BUILD`   | Runtime build failure — all adapters failed to construct.                     |
+| 4    | `EXIT_STARTUP` | Total startup failure — zero adapters started.                                |
 
 ### Config Validation
 
@@ -1012,22 +999,21 @@ Validates the config file without starting the runtime. Checks for:
 - Required fields per adapter type
 - Conflicting paths
 
-
 ### Smoke vs. Diagnostics vs. Inspect vs. Evidence vs. Trace vs. Recover
 
 These commands serve different purposes. `inspect` is the primary read-only
 investigation command. Operators should understand the boundaries:
 
-| Command | Storage | Starts adapters | Output | Persistence |
-|---------|---------|----------------|--------|-------------|
-| ``medre inspect *`` | Opens existing SQLite (read-only) | No | Queried data | Reads existing DB |
-| ``medre smoke`` | In-memory by default; SQLite with ``--storage-path`` | Yes (fake only) | passed/failed JSON report | Ephemeral by default; SQLite persists with ``--storage-path`` |
-| ``medre evidence`` | Per config (memory or SQLite) | Fake only (or real with ``--include-refresh-health``) | Full evidence bundle JSON | Per config |
-| ``medre diagnostics`` | None (build-time) | No | Build-time snapshot | N/A (no data written) |
-| ``medre diagnostics --refresh-health`` | None | Yes (real or fake) | Live health snapshot | Ephemeral — lost on exit |
-| ``medre run`` | Per config (SQLite or memory) | Yes (real or fake) | Logs only | SQLite persists if configured |
-| ``medre trace`` | Opens existing SQLite (read-only) | No | Chronological timeline | Reads existing DB |
-| ``medre recover`` | Per config | No | Recovery runbook | Reads existing DB |
+| Command                              | Storage                                            | Starts adapters                                     | Output                    | Persistence                                                 |
+| ------------------------------------ | -------------------------------------------------- | --------------------------------------------------- | ------------------------- | ----------------------------------------------------------- |
+| `medre inspect *`                    | Opens existing SQLite (read-only)                  | No                                                  | Queried data              | Reads existing DB                                           |
+| `medre smoke`                        | In-memory by default; SQLite with `--storage-path` | Yes (fake only)                                     | passed/failed JSON report | Ephemeral by default; SQLite persists with `--storage-path` |
+| `medre evidence`                     | Per config (memory or SQLite)                      | Fake only (or real with `--include-refresh-health`) | Full evidence bundle JSON | Per config                                                  |
+| `medre diagnostics`                  | None (build-time)                                  | No                                                  | Build-time snapshot       | N/A (no data written)                                       |
+| `medre diagnostics --refresh-health` | None                                               | Yes (real or fake)                                  | Live health snapshot      | Ephemeral — lost on exit                                    |
+| `medre run`                          | Per config (SQLite or memory)                      | Yes (real or fake)                                  | Logs only                 | SQLite persists if configured                               |
+| `medre trace`                        | Opens existing SQLite (read-only)                  | No                                                  | Chronological timeline    | Reads existing DB                                           |
+| `medre recover`                      | Per config                                         | No                                                  | Recovery runbook          | Reads existing DB                                           |
 
 `inspect event --timeline` covers `trace event` output. `inspect event
 --evidence` covers `evidence --event` output. `inspect event --recovery`
@@ -1036,8 +1022,8 @@ specialized commands when you need standalone output or features beyond
 inspect flags.
 
 For durable post-run investigation of events, receipts, and native refs, use
-``medre run`` with ``[storage] backend = "sqlite"``, then inspect with
-``medre inspect`` subcommands (primary path):
+`medre run` with `[storage] backend = "sqlite"`, then inspect with
+`medre inspect` subcommands (primary path):
 
 ```bash
 # Inspect a specific event (primary investigation command)
@@ -1058,7 +1044,7 @@ medre inspect receipts --replay-run <run_id> --storage-path /path/to/medre.sqlit
 medre inspect native-ref --adapter bot --message '$event_id' --storage-path /path/to/medre.sqlite
 ```
 
-``medre inspect`` exits with code 2 if the config uses ``backend = "memory"``
+`medre inspect` exits with code 2 if the config uses `backend = "memory"`
 — there is no persistent data to inspect. It also exits 2 if the database
 file does not exist or cannot be opened.
 
@@ -1120,11 +1106,19 @@ The following compact excerpts illustrate the key structural differences between
   },
   "startup": {
     "startup_health": "degraded",
-    "boot_summary": { "startup_outcome": "partial", "adapters_started": 1, "adapters_failed": 1 }
+    "boot_summary": {
+      "startup_outcome": "partial",
+      "adapters_started": 1,
+      "adapters_failed": 1
+    }
   },
   "routes": {
     "startup_readiness": [
-      { "route_id": "matrix-to-radio", "readiness": "degraded", "failed_adapter_ids": ["radio"] }
+      {
+        "route_id": "matrix-to-radio",
+        "readiness": "degraded",
+        "failed_adapter_ids": ["radio"]
+      }
     ]
   }
 }
@@ -1147,7 +1141,11 @@ The following compact excerpts illustrate the key structural differences between
       "poll_count": 1,
       "runtime_health": "healthy",
       "adapters": [
-        { "adapter_id": "bridge", "health": "healthy", "poll_timestamp_wall": "2026-05-14T10:30:00Z" }
+        {
+          "adapter_id": "bridge",
+          "health": "healthy",
+          "poll_timestamp_wall": "2026-05-14T10:30:00Z"
+        }
       ]
     }
   },
@@ -1169,27 +1167,27 @@ Note: `startup.startup_health` is the frozen startup classification in both outp
 
 When reading `health.live_health.runtime_health` from `--refresh-health` output:
 
-| Value | Meaning |
-|-------|---------|
-| `healthy` | All started adapters report healthy/operational. |
+| Value      | Meaning                                                                      |
+| ---------- | ---------------------------------------------------------------------------- |
+| `healthy`  | All started adapters report healthy/operational.                             |
 | `degraded` | Some adapters report degraded or failed health. Runtime may still be usable. |
-| `failed` | All adapters failed or health checks could not complete. |
-| `unknown` | No live health available, or an adapter returned unknown status. |
+| `failed`   | All adapters failed or health checks could not complete.                     |
+| `unknown`  | No live health available, or an adapter returned unknown status.             |
 
 **`startup_health` vs `live_health`:** `startup.startup_health` is frozen at startup time and never changes. `health.live_health` reflects the current state at the moment of the health refresh. They can differ — an adapter that started successfully may fail its live health check, or a degraded startup may recover by the time you run `--refresh-health`.
 
 **Failed health does not trigger automatic remediation.** MEDRE does not restart adapters, routes, or the runtime based on health state.
 
 **Manual next steps when health is not `healthy`:**
+
 1. Check `health.live_health.adapters[].error` and `health.live_health.adapters[].health` per adapter.
 2. Review adapter diagnostics and logs for the affected adapter.
 3. Verify transport connectivity (network, serial device, credentials).
 4. Fix the environment or config, then run `medre diagnostics --refresh-health` again to confirm recovery.
 
-
 ## Log File Location
 
-```
+```json
 {log_dir}/medre.log
 ```
 
@@ -1208,7 +1206,6 @@ There are **no per-adapter log files** today. Per-adapter log file support is a 
 ### Log Rotation
 
 MEDRE does not rotate logs internally. Use external log rotation (logrotate, Docker logging drivers, or Kubernetes log management) for production deployments.
-
 
 ## Recovery Procedures
 
@@ -1244,7 +1241,6 @@ workflow, see [Replay Operation](replay-operation.md).
 3. If the database is corrupted, delete it and restart. The runtime creates a fresh database.
 4. **Note:** This loses all event history. Crypto stores (under `{state}/adapters/`) are separate and unaffected.
 
-
 ## Queue Discipline
 
 The MEDRE pipeline uses bounded capacity to prevent unbounded memory accumulation. This section describes how capacity bounds work, what happens when capacity is exhausted, and what operators should expect.
@@ -1253,10 +1249,10 @@ The MEDRE pipeline uses bounded capacity to prevent unbounded memory accumulatio
 
 The `CapacityController` (see Contract 53, §15) manages two independent semaphores:
 
-| Stream | Config field | Default bound | What it limits |
-|--------|-------------|---------------|----------------|
-| Delivery | `max_inflight_deliveries` | 100 | Concurrent adapter `deliver()` calls across all adapters |
-| Replay | `max_inflight_replay_events` | 100 | Concurrent replay event deliveries |
+| Stream   | Config field                 | Default bound | What it limits                                           |
+| -------- | ---------------------------- | ------------- | -------------------------------------------------------- |
+| Delivery | `max_inflight_deliveries`    | 100           | Concurrent adapter `deliver()` calls across all adapters |
+| Replay   | `max_inflight_replay_events` | 100           | Concurrent replay event deliveries                       |
 
 When a delivery or replay event cannot acquire a slot within `delivery_acquire_timeout_seconds` (default 1.0s), the operation is **rejected** — it returns a failure outcome with diagnostics incremented. No retry is attempted. Capacity timeout is a backpressure signal, not a transient error.
 
@@ -1264,9 +1260,9 @@ When a delivery or replay event cannot acquire a slot within `delivery_acquire_t
 
 Some adapters maintain their own bounded internal queues in addition to the global capacity semaphores:
 
-| Adapter | Queue mechanism | Default bound | Overflow policy |
-|---------|----------------|---------------|-----------------|
-| Meshtastic | `deque(maxlen=1024)` | 1024 items | Drop-oldest, `total_dropped` counter incremented |
+| Adapter    | Queue mechanism      | Default bound | Overflow policy                                  |
+| ---------- | -------------------- | ------------- | ------------------------------------------------ |
+| Meshtastic | `deque(maxlen=1024)` | 1024 items    | Drop-oldest, `total_dropped` counter incremented |
 
 Other adapters (Matrix, LXMF, MeshCore) rely on the `CapacityController` semaphore and their transport's own flow control.
 
@@ -1286,20 +1282,19 @@ Capacity counters are available in the `capacity` section of the runtime snapsho
 
 Snapshot capacity fields (process-local, actively refreshed, bounded, non-durable):
 
-| Counter | What it tells you |
-|---------|-------------------|
-| `delivery_current` | How many deliveries are in-flight right now |
-| `inbound_accepted` | How many inbound events were accepted into the pipeline |
-| `outbound_delivered` | How many outbound deliveries succeeded |
-| `outbound_failed` | How many outbound deliveries failed |
-| `loop_prevented` | How many events were blocked by the self-loop guard |
+| Counter               | What it tells you                                            |
+| --------------------- | ------------------------------------------------------------ |
+| `delivery_current`    | How many deliveries are in-flight right now                  |
+| `inbound_accepted`    | How many inbound events were accepted into the pipeline      |
+| `outbound_delivered`  | How many outbound deliveries succeeded                       |
+| `outbound_failed`     | How many outbound deliveries failed                          |
+| `loop_prevented`      | How many events were blocked by the self-loop guard          |
 | `capacity_rejections` | How many operations were rejected by the capacity controller |
-| `replay_current` | How many replay events are in-flight right now |
+| `replay_current`      | How many replay events are in-flight right now               |
 
 Sustained growth in `capacity_rejections` indicates the runtime is under more delivery pressure than its configured limits can handle. Consider increasing `max_inflight_deliveries` or reducing the number of active routes.
 
 **Important:** Queue bounds prevent unbounded memory accumulation but do **not** prevent data loss under extreme pressure. MEDRE remains best-effort. No exactly-once guarantees. No transactional delivery guarantees.
-
 
 ## Soak Expectations
 
@@ -1339,7 +1334,6 @@ Every test in the harness:
 - Uses **in-memory storage** — no filesystem I/O beyond temp dirs.
 - Runs within **<10 seconds** for default iteration counts.
 - Is **deterministic** — no sleeps or wall-clock dependencies beyond what the event loop needs for async scheduling.
-
 
 ## Operational Caveats
 

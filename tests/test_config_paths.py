@@ -10,7 +10,6 @@ import pytest
 
 from medre.config.paths import MedrePaths, MedrePathsError, resolve
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -80,27 +79,37 @@ class TestXDGDefaults:
 class TestXDGEnvOverrides:
     """XDG_*_HOME env vars override the default fallback directories."""
 
-    def test_config_dir_respects_xdg_config_home(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_config_dir_respects_xdg_config_home(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("XDG_CONFIG_HOME", "/tmp/xdg-config")
         paths = resolve()
         assert paths.config_dir == Path("/tmp/xdg-config/medre")
 
-    def test_state_dir_respects_xdg_state_home(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_state_dir_respects_xdg_state_home(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("XDG_STATE_HOME", "/tmp/xdg-state")
         paths = resolve()
         assert paths.state_dir == Path("/tmp/xdg-state/medre")
 
-    def test_data_dir_respects_xdg_data_home(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_data_dir_respects_xdg_data_home(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("XDG_DATA_HOME", "/tmp/xdg-data")
         paths = resolve()
         assert paths.data_dir == Path("/tmp/xdg-data/medre")
 
-    def test_cache_dir_respects_xdg_cache_home(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_cache_dir_respects_xdg_cache_home(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("XDG_CACHE_HOME", "/tmp/xdg-cache")
         paths = resolve()
         assert paths.cache_dir == Path("/tmp/xdg-cache/medre")
 
-    def test_log_dir_follows_custom_state(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_log_dir_follows_custom_state(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("XDG_STATE_HOME", "/tmp/xdg-state")
         paths = resolve()
         assert paths.log_dir == Path("/tmp/xdg-state/medre/logs")
@@ -137,13 +146,17 @@ class TestMedreHomeMode:
         assert paths.config_dir is None
         assert paths.state_dir == Path("/opt/medre/state")
 
-    def test_medre_home_empty_treated_as_unset(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_medre_home_empty_treated_as_unset(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("MEDRE_HOME", "")
         paths = resolve()
         # Should fall back to XDG defaults
         assert paths.config_dir is not None
 
-    def test_medre_home_whitespace_treated_as_unset(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_medre_home_whitespace_treated_as_unset(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("MEDRE_HOME", "   ")
         paths = resolve()
         assert paths.config_dir is not None
@@ -157,7 +170,9 @@ class TestMedreHomeMode:
 class TestNoDirectoryCreation:
     """resolve() performs pure path resolution — no filesystem side effects."""
 
-    def test_nonexistent_paths_not_created(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_nonexistent_paths_not_created(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         """Point MEDRE_HOME at a non-existent directory; resolve() must not create it."""
         fake_home = tmp_path / "nonexistent_medre_home"
         monkeypatch.setenv("MEDRE_HOME", str(fake_home))
@@ -166,9 +181,11 @@ class TestNoDirectoryCreation:
         assert paths.state_dir == fake_home / "state"
         assert not fake_home.exists(), "resolve() must not create directories"
 
-    def test_xdg_nonexistent_not_created(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_xdg_nonexistent_not_created(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "nope"))
-        paths = resolve()
+        resolve()
         assert not (tmp_path / "nope").exists()
 
 
@@ -185,7 +202,9 @@ class TestExpandPlaceholder:
         return resolve()
 
     @pytest.fixture()
-    def medre_home_paths(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> MedrePaths:
+    def medre_home_paths(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> MedrePaths:
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path / "home"))
         return resolve()
 
@@ -210,7 +229,9 @@ class TestExpandPlaceholder:
         result = xdg_paths.expand_placeholder("{logs}/app.log")
         assert result == xdg_paths.log_dir / "app.log"
 
-    def test_config_placeholder_in_medre_home_mode(self, medre_home_paths: MedrePaths) -> None:
+    def test_config_placeholder_in_medre_home_mode(
+        self, medre_home_paths: MedrePaths
+    ) -> None:
         """In MEDRE_HOME mode, {config} resolves to config_file.parent."""
         result = medre_home_paths.expand_placeholder("{config}/extra.toml")
         assert result == medre_home_paths.config_file.parent / "extra.toml"
@@ -324,6 +345,7 @@ class TestAdapterTransportStateDir:
         paths = resolve()
         result = paths.adapter_transport_state_dir("bot1", "matrix")
         import tempfile
+
         assert tempfile.gettempdir() not in str(result)
 
 
@@ -352,7 +374,9 @@ class TestToDiagnostics:
         # All values are strings
         assert all(isinstance(v, str) for v in diag.values())
 
-    def test_medre_home_mode_diagnostics(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_medre_home_mode_diagnostics(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path / "home"))
         paths = resolve()
         diag = paths.to_diagnostics()

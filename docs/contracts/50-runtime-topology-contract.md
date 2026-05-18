@@ -7,12 +7,11 @@
 
 Every agent or document that references MEDRE runtime topology, layer boundaries, or the composition of subsystems must defer to this contract.
 
-
 ## 1. Runtime Layers
 
 The MEDRE runtime is composed of the following layers, from top to bottom:
 
-```
+```python
 ┌─────────────────────────────────────────┐
 │  CLI (medre.cli, medre run)               │
 ├─────────────────────────────────────────┤
@@ -57,7 +56,6 @@ The MEDRE runtime is composed of the following layers, from top to bottom:
 
 Each layer has strict import boundaries documented below.
 
-
 ## 2. Import Boundary Rules
 
 ### 2.1 Runtime Must Not Import SDKs
@@ -83,6 +81,7 @@ Adapter modules must not import `medre.runtime.route_engine` or call `Router` di
 ### 2.6 Codecs Must Remain Pure
 
 Codec modules (`medre.adapters.*/codec.py`) must not:
+
 - Import or manage lifecycle (start/stop/reconnect).
 - Instantiate SDK clients or routers.
 - Import `medre.runtime.*`.
@@ -93,6 +92,7 @@ Codecs are pure format converters: canonical event ↔ transport format.
 ### 2.7 Renderers Must Not Route
 
 Renderer modules (`medre.adapters.*/renderer.py`, `medre.core.rendering.*`) must not:
+
 - Call adapter/session `deliver`, `send`, `start`, or `stop`.
 - Import routing modules.
 - Manage adapter lifecycle.
@@ -102,7 +102,6 @@ Renderers produce display-ready text from canonical events. They are side-effect
 ### 2.8 Adapters Must Not Import Sibling Adapter Packages
 
 Each adapter package (`medre.adapters.matrix`, etc.) must not import any other adapter package. Cross-adapter communication happens exclusively through the event pipeline and routing.
-
 
 ## 3. Topology Composition at Startup
 
@@ -125,7 +124,7 @@ Routes are registered **after** adapters are built, so `validate_route_adapter_r
 
 ### 3.2 Startup Lifecycle
 
-```
+```text
 MedreApp.start():
   1. Start storage (if enabled)
   2. Start event bus
@@ -137,7 +136,7 @@ MedreApp.start():
 
 ### 3.3 Shutdown Lifecycle
 
-```
+```text
 MedreApp.stop():
   1. Signal shutdown event
   2. Stop adapters in reverse startup order
@@ -146,12 +145,11 @@ MedreApp.stop():
   5. Close storage
 ```
 
-
 ## 4. Event Flow Topology
 
 ### 4.1 Inbound (Transport → Pipeline)
 
-```
+```text
 Transport SDK
   → Session (callback, normalizes to raw data)
     → Adapter (converts to CanonicalEvent via codec)
@@ -161,7 +159,7 @@ Transport SDK
 
 ### 4.2 Outbound (Pipeline → Transport)
 
-```
+```text
 PipelineRunner
   → Router (matches event to routes, resolves targets)
     → RenderingPipeline (renders event to adapter payload)
@@ -171,7 +169,7 @@ PipelineRunner
 
 ### 4.3 Cross-Transport Bridge
 
-```
+```text
 Matrix Session → Matrix Adapter → EventBus → PipelineRunner
   → Router (matches route "matrix_to_radio")
     → RenderingPipeline (renders text)
@@ -181,24 +179,23 @@ Matrix Session → Matrix Adapter → EventBus → PipelineRunner
 
 The bridge is driven entirely by the pipeline and router. Neither adapter is aware of the other.
 
-
 ## 5. Transport-Agnostic Runtime Guarantee
 
 The runtime (`medre.runtime.*`) is transport-agnostic. It operates on adapter IDs, event kinds, and channel IDs — never on transport-specific concepts like Matrix room IDs or Meshtastic node numbers.
 
 Transport-specific details (room IDs, node numbers, LXMF destinations) appear only in:
+
 - `BridgePolicy` allowlists (string matching, no SDK types)
 - Adapter codecs (format conversion)
 - Session modules (SDK interaction)
 
 The runtime does not interpret transport-specific identifiers; it passes them through as strings.
 
-
 ## 6. Multi-Adapter Topology Examples
 
 ### 6.1 Single-Transport, Multi-Adapter
 
-```
+```json
 [adapters.matrix.bot1]
 [adapters.matrix.bot2]
 ```
@@ -207,7 +204,7 @@ Two Matrix bots in the same runtime. Each has its own session, codec, and adapte
 
 ### 6.2 Multi-Transport Hub
 
-```
+```json
 [adapters.matrix.hub_bot]
 [adapters.meshtastic.radio_a]
 [adapters.meshtastic.radio_b]
@@ -223,7 +220,7 @@ Matrix hub fans out to three different transports. Each destination adapter hand
 
 ### 6.3 Full Mesh (Bidirectional)
 
-```
+```json
 [adapters.matrix.bot]
 [adapters.meshtastic.radio]
 
@@ -235,17 +232,16 @@ directionality = "bidirectional"
 
 Events flow both ways. The router creates two internal routes. Loop prevention at config-time prevents `bot → radio → bot` circularity if both routes match the same event kind.
 
-
 ## 7. Boundary Violation Indicators
 
 The following patterns indicate a boundary violation:
 
-| Pattern | Violation |
-|---------|-----------|
-| `medre.runtime.*` importing `nio` or `meshtastic` | Runtime imports SDK |
-| `medre.core.routing.*` importing `medre.runtime.*` | Core depends on runtime |
-| Session module importing `medre.runtime.routes` | Session knows about routes |
-| Codec importing `Router` or `route_engine` | Codec has routing knowledge |
-| Renderer calling `adapter.send()` or `session.deliver()` | Renderer performs I/O |
-| `medre.adapters.matrix` importing `medre.adapters.meshtastic` | Cross-adapter coupling |
-| Adapter calling `Router.route()` directly | Adapter orchestrates routing |
+| Pattern                                                       | Violation                    |
+| ------------------------------------------------------------- | ---------------------------- |
+| `medre.runtime.*` importing `nio` or `meshtastic`             | Runtime imports SDK          |
+| `medre.core.routing.*` importing `medre.runtime.*`            | Core depends on runtime      |
+| Session module importing `medre.runtime.routes`               | Session knows about routes   |
+| Codec importing `Router` or `route_engine`                    | Codec has routing knowledge  |
+| Renderer calling `adapter.send()` or `session.deliver()`      | Renderer performs I/O        |
+| `medre.adapters.matrix` importing `medre.adapters.meshtastic` | Cross-adapter coupling       |
+| Adapter calling `Router.route()` directly                     | Adapter orchestrates routing |

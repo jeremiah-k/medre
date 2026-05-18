@@ -36,11 +36,10 @@ from medre.core.events.canonical import CanonicalEvent, EventMetadata, NativeRef
 from medre.core.events.kinds import EventKind
 from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.routing.stats import RouteStats
 from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.storage.sqlite import SQLiteStorage
-
 from tests.helpers.async_utils import wait_until
 from tests.helpers.bridge import (
     make_adapter_context,
@@ -88,7 +87,9 @@ def _evt(
 
 def _nref(msg_id: str) -> NativeRef:
     return NativeRef(
-        adapter=MX_ID, native_channel_id=MX_CHANNEL, native_message_id=msg_id,
+        adapter=MX_ID,
+        native_channel_id=MX_CHANNEL,
+        native_message_id=msg_id,
     )
 
 
@@ -114,22 +115,28 @@ async def _build(storage: SQLiteStorage) -> _S:
     mc = FakeMeshCoreAdapter(MeshCoreConfig(adapter_id=MC_ID))
     lxmf = FakeLxmfAdapter(LxmfConfig(adapter_id=LXMF_ID))
 
-    router = Router(routes=[
-        Route(
-            id=ROUTE_FANOUT,
-            source=RouteSource(adapter=MX_ID, event_kinds=("message.created",), channel=None),
-            targets=[
-                RouteTarget(adapter=MESH_ID, channel="0"),
-                RouteTarget(adapter=MC_ID, channel="0"),
-                RouteTarget(adapter=LXMF_ID, channel="0"),
-            ],
-        ),
-        Route(
-            id=ROUTE_MESH_RETURN,
-            source=RouteSource(adapter=MESH_ID, event_kinds=("message.created",), channel=None),
-            targets=[RouteTarget(adapter=MX_ID, channel=MX_CHANNEL)],
-        ),
-    ])
+    router = Router(
+        routes=[
+            Route(
+                id=ROUTE_FANOUT,
+                source=RouteSource(
+                    adapter=MX_ID, event_kinds=("message.created",), channel=None
+                ),
+                targets=[
+                    RouteTarget(adapter=MESH_ID, channel="0"),
+                    RouteTarget(adapter=MC_ID, channel="0"),
+                    RouteTarget(adapter=LXMF_ID, channel="0"),
+                ],
+            ),
+            Route(
+                id=ROUTE_MESH_RETURN,
+                source=RouteSource(
+                    adapter=MESH_ID, event_kinds=("message.created",), channel=None
+                ),
+                targets=[RouteTarget(adapter=MX_ID, channel=MX_CHANNEL)],
+            ),
+        ]
+    )
 
     rp = RenderingPipeline()
     rp.register(TextRenderer(), priority=100)
@@ -138,8 +145,12 @@ async def _build(storage: SQLiteStorage) -> _S:
 
     adapters = {MX_ID: mx, MESH_ID: mesh, MC_ID: mc, LXMF_ID: lxmf}
     config = make_pipeline_config(
-        storage=storage, router=router, adapters=adapters,
-        rendering_pipeline=rp, accounting=acct, route_stats=rstats,
+        storage=storage,
+        router=router,
+        adapters=adapters,
+        rendering_pipeline=rp,
+        accounting=acct,
+        route_stats=rstats,
     )
     runner = PipelineRunner(config)
     await runner.start()
@@ -194,7 +205,8 @@ class Test50MessageMixedDeterministicSession:
     """
 
     async def test_50_message_mixed_deterministic_session(
-        self, temp_storage: SQLiteStorage,
+        self,
+        temp_storage: SQLiteStorage,
     ) -> None:
         s = await _build(temp_storage)
         try:
@@ -225,7 +237,9 @@ class Test50MessageMixedDeterministicSession:
             # -- Phase 4: 10 normal matrix→fanout --
             for i in range(10):
                 await s.matrix.simulate_inbound(
-                    s.matrix.make_event(text=f"p4 {i}", event_kind=EventKind.MESSAGE_CREATED)
+                    s.matrix.make_event(
+                        text=f"p4 {i}", event_kind=EventKind.MESSAGE_CREATED
+                    )
                 )
             await wait_until(lambda: snap()["inbound_accepted"] >= 35)
 
@@ -233,7 +247,9 @@ class Test50MessageMixedDeterministicSession:
             s.meshcore.set_deliver_failure(True)
             for i in range(5):
                 await s.matrix.simulate_inbound(
-                    s.matrix.make_event(text=f"p5 {i}", event_kind=EventKind.MESSAGE_CREATED)
+                    s.matrix.make_event(
+                        text=f"p5 {i}", event_kind=EventKind.MESSAGE_CREATED
+                    )
                 )
             await wait_until(lambda: snap()["inbound_accepted"] >= 40)
             s.meshcore.set_deliver_failure(False)
@@ -241,7 +257,9 @@ class Test50MessageMixedDeterministicSession:
             # -- Phase 6: 5 normal matrix→fanout (meshcore recovers) --
             for i in range(5):
                 await s.matrix.simulate_inbound(
-                    s.matrix.make_event(text=f"p6 {i}", event_kind=EventKind.MESSAGE_CREATED)
+                    s.matrix.make_event(
+                        text=f"p6 {i}", event_kind=EventKind.MESSAGE_CREATED
+                    )
                 )
             await wait_until(lambda: snap()["inbound_accepted"] >= 45)
 
@@ -266,7 +284,9 @@ class Test50MessageMixedDeterministicSession:
             # fanout: 40×3=120 minus 5 meshcore failures = 115; mesh-return: 5
             assert a["outbound_delivered"] == 120
             assert a["outbound_failed"] == 5
-            assert a["outbound_delivered"] + a["outbound_failed"] == a["outbound_attempts"]
+            assert (
+                a["outbound_delivered"] + a["outbound_failed"] == a["outbound_attempts"]
+            )
             assert a["capacity_rejections"] == 0
             assert a["replay_processed"] == 0
             assert a["replay_rejected"] == 0
@@ -302,16 +322,18 @@ class Test50MessageMixedDeterministicSession:
             assert len(dupes) == 0
 
             # -- Adapter delivered_payloads --
-            assert len(s.matrix.delivered_payloads) == 5      # from meshtastic reverse
+            assert len(s.matrix.delivered_payloads) == 5  # from meshtastic reverse
             assert len(s.meshtastic.delivered_payloads) == 40  # from matrix fanout
-            assert len(s.meshcore.delivered_payloads) == 35    # 40 - 5 failures
-            assert len(s.lxmf.delivered_payloads) == 40       # from matrix fanout
+            assert len(s.meshcore.delivered_payloads) == 35  # 40 - 5 failures
+            assert len(s.lxmf.delivered_payloads) == 40  # from matrix fanout
 
             # -- RouteStats --
             st = s.rstats.snapshot()
             assert st[ROUTE_FANOUT]["delivered"] == 115
             assert st[ROUTE_FANOUT]["failed"] == 5
-            assert st[ROUTE_FANOUT]["loop_prevented"] == 0  # dedup tracked in global accounting, not per-route
+            assert (
+                st[ROUTE_FANOUT]["loop_prevented"] == 0
+            )  # dedup tracked in global accounting, not per-route
             assert st[ROUTE_MESH_RETURN]["delivered"] == 5
             assert st[ROUTE_MESH_RETURN]["failed"] == 0
             assert st[ROUTE_MESH_RETURN]["loop_prevented"] == 0
@@ -319,7 +341,9 @@ class Test50MessageMixedDeterministicSession:
             for rid, rs in st.items():
                 for sk, sv in rs.items():
                     if sk == "last_error":
-                        assert sv is None or isinstance(sv, str), f"rstats[{rid!r}][{sk!r}]={sv!r}"
+                        assert sv is None or isinstance(
+                            sv, str
+                        ), f"rstats[{rid!r}][{sk!r}]={sv!r}"
                     else:
                         assert isinstance(sv, int), f"rstats[{rid!r}][{sk!r}]={sv!r}"
 
@@ -350,22 +374,28 @@ async def _run_batch(
     mc = FakeMeshCoreAdapter(MeshCoreConfig(adapter_id=MC_ID))
     lxmf = FakeLxmfAdapter(LxmfConfig(adapter_id=LXMF_ID))
 
-    router = Router(routes=[
-        Route(
-            id=ROUTE_FANOUT,
-            source=RouteSource(adapter=MX_ID, event_kinds=("message.created",), channel=None),
-            targets=[
-                RouteTarget(adapter=MESH_ID, channel="0"),
-                RouteTarget(adapter=MC_ID, channel="0"),
-                RouteTarget(adapter=LXMF_ID, channel="0"),
-            ],
-        ),
-        Route(
-            id=ROUTE_MESH_RETURN,
-            source=RouteSource(adapter=MESH_ID, event_kinds=("message.created",), channel=None),
-            targets=[RouteTarget(adapter=MX_ID, channel=MX_CHANNEL)],
-        ),
-    ])
+    router = Router(
+        routes=[
+            Route(
+                id=ROUTE_FANOUT,
+                source=RouteSource(
+                    adapter=MX_ID, event_kinds=("message.created",), channel=None
+                ),
+                targets=[
+                    RouteTarget(adapter=MESH_ID, channel="0"),
+                    RouteTarget(adapter=MC_ID, channel="0"),
+                    RouteTarget(adapter=LXMF_ID, channel="0"),
+                ],
+            ),
+            Route(
+                id=ROUTE_MESH_RETURN,
+                source=RouteSource(
+                    adapter=MESH_ID, event_kinds=("message.created",), channel=None
+                ),
+                targets=[RouteTarget(adapter=MX_ID, channel=MX_CHANNEL)],
+            ),
+        ]
+    )
 
     rp = RenderingPipeline()
     rp.register(TextRenderer(), priority=100)
@@ -373,9 +403,12 @@ async def _run_batch(
     rstats = RouteStats()
 
     config = make_pipeline_config(
-        storage=storage, router=router,
+        storage=storage,
+        router=router,
         adapters={MX_ID: mx, MESH_ID: mesh, MC_ID: mc, LXMF_ID: lxmf},
-        rendering_pipeline=rp, accounting=acct, route_stats=rstats,
+        rendering_pipeline=rp,
+        accounting=acct,
+        route_stats=rstats,
     )
     runner = PipelineRunner(config)
     await runner.start()
@@ -386,11 +419,17 @@ async def _run_batch(
 
     try:
         for i in range(n):
-            nref = dup_refs[i] if (dup_refs and i < len(dup_refs)) else _nref(f"{prefix}-nref-{i}")
+            nref = (
+                dup_refs[i]
+                if (dup_refs and i < len(dup_refs))
+                else _nref(f"{prefix}-nref-{i}")
+            )
             await mx.simulate_inbound(_evt(f"{prefix}-{i}", nref, text=f"{prefix} {i}"))
 
         await wait_until(
-            lambda: acct.snapshot()["inbound_accepted"] + acct.snapshot()["loop_prevented"] >= n,
+            lambda: acct.snapshot()["inbound_accepted"]
+            + acct.snapshot()["loop_prevented"]
+            >= n,
             timeout=10.0,
         )
     finally:
@@ -408,7 +447,8 @@ class TestRestartBoundaryMidRun:
     accounting, and native-ref dedup works across restarts."""
 
     async def test_restart_boundary_mid_run(
-        self, temp_storage: SQLiteStorage,
+        self,
+        temp_storage: SQLiteStorage,
     ) -> None:
         """Run 1: 10 fresh messages.  Run 2: 10 messages (3 cross-restart dups + 7 fresh)."""
 
@@ -423,7 +463,9 @@ class TestRestartBoundaryMidRun:
 
         # -- Run 2 (3 duplicates from run 1 + 7 fresh) --
         dup_refs = [_nref(f"run1-nref-{i}") for i in range(3)]
-        accepted_2, acct_2 = await _run_batch(temp_storage, 10, "run2", dup_refs=dup_refs)
+        accepted_2, acct_2 = await _run_batch(
+            temp_storage, 10, "run2", dup_refs=dup_refs
+        )
         assert accepted_2 == 7
 
         # Run 2 accounting is process-local
@@ -435,7 +477,9 @@ class TestRestartBoundaryMidRun:
         assert a2["outbound_failed"] == 0
 
         # -- Cumulative storage --
-        all_ev = await temp_storage._read_all("SELECT event_id FROM canonical_events ORDER BY event_id")
+        all_ev = await temp_storage._read_all(
+            "SELECT event_id FROM canonical_events ORDER BY event_id"
+        )
         assert len(all_ev) == 17  # 10 + 7
         assert sum(1 for e in all_ev if e["event_id"].startswith("run1")) == 10
         assert sum(1 for e in all_ev if e["event_id"].startswith("run2")) == 7

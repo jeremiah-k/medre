@@ -19,18 +19,9 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock
 
 import pytest
 
-from medre.core.contracts.adapter import (
-    AdapterCapabilities,
-    AdapterContext,
-    AdapterDeliveryResult,
-    AdapterInfo,
-    AdapterRole,
-    AdapterContract,
-)
 from medre.config.model import (
     AdapterConfigSet,
     LoggingConfig,
@@ -40,15 +31,22 @@ from medre.config.model import (
     StorageConfig,
 )
 from medre.config.paths import MedrePaths, resolve
+from medre.core.contracts.adapter import (
+    AdapterCapabilities,
+    AdapterContext,
+    AdapterContract,
+    AdapterDeliveryResult,
+    AdapterInfo,
+    AdapterRole,
+)
 from medre.core.lifecycle.states import (
     AdapterState,
     InvalidStateTransition,
 )
+from medre.runtime.app import MedreApp
 from medre.runtime.builder import AdapterBuildFailure, RuntimeBuilder
 from medre.runtime.errors import RuntimeStartupError
-from medre.runtime.app import MedreApp, RuntimeState
 from medre.runtime.snapshot import build_runtime_snapshot
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -261,9 +259,7 @@ class TestFailedAfterStartFailure:
     """FAILED state after adapter start failure."""
 
     @pytest.mark.asyncio
-    async def test_failed_after_start_exception(
-        self, tmp_paths: MedrePaths
-    ) -> None:
+    async def test_failed_after_start_exception(self, tmp_paths: MedrePaths) -> None:
         config = _config_with_one_fake_adapter()
         app = _build_app(config, tmp_paths)
 
@@ -310,9 +306,7 @@ class TestFailedAfterStopFailure:
     """FAILED state after adapter stop failure."""
 
     @pytest.mark.asyncio
-    async def test_failed_after_stop_exception(
-        self, tmp_paths: MedrePaths
-    ) -> None:
+    async def test_failed_after_stop_exception(self, tmp_paths: MedrePaths) -> None:
         config = _config_with_one_fake_adapter()
         app = _build_app(config, tmp_paths)
 

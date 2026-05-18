@@ -13,24 +13,19 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 
-import pytest
-
+from medre.adapters.fake_presentation import (
+    FakePresentationAdapter,
+)
 from medre.core.contracts.adapter import (
     AdapterContext,
     AdapterDeliveryResult,
-    AdapterInfo,
-    AdapterRole,
 )
-from medre.adapters.fake_presentation import (
-    FakePresentationAdapter,
-    FaultyPresentationAdapter,
-)
+from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
+from medre.core.events.bus import EventBus
 from medre.core.events.canonical import (
     CanonicalEvent,
     DeliveryReceipt,
-    NativeMessageRef,
 )
-from medre.core.events.bus import EventBus
 from medre.core.events.metadata import EventMetadata
 from medre.core.observability.metrics import Diagnostician
 from medre.core.planning.delivery_plan import (
@@ -47,10 +42,8 @@ from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.core.routing.router import Router
 from medre.core.routing.stats import RouteStats
 from medre.core.runtime.accounting import RuntimeAccounting
-from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.storage.sqlite import SQLiteStorage
 from medre.observability.classification import infer_failure_kind
-
 
 # ---------------------------------------------------------------------------
 # FallbackResolver that injects a retry_policy into every plan
@@ -66,6 +59,7 @@ class _FallbackResolverWithRetry(FallbackResolver):
     def resolve_fallback(self, event, target, capabilities):  # type: ignore[override]
         plan = super().resolve_fallback(event, target, capabilities)
         from dataclasses import replace
+
         return replace(plan, retry_policy=self._retry_policy)
 
 
@@ -106,9 +100,7 @@ class _AlwaysPermanentFailAdapter(FakePresentationAdapter):
         super().__init__(adapter_id=adapter_id)
 
     async def deliver(self, result) -> AdapterDeliveryResult | None:
-        raise ValueError(
-            f"Permanent failure from {self.adapter_id}: bad payload"
-        )
+        raise ValueError(f"Permanent failure from {self.adapter_id}: bad payload")
 
 
 # ---------------------------------------------------------------------------
@@ -128,15 +120,18 @@ def _route_from_receipt(receipt: DeliveryReceipt) -> Route:
     return Route(
         id=receipt.route_id or "retry-route",
         source=RouteSource(adapter=None, event_kinds=(), channel=None),
-        targets=[RouteTarget(
-            adapter=receipt.target_adapter,
-            channel=getattr(receipt, "target_channel", None),
-        )],
+        targets=[
+            RouteTarget(
+                adapter=receipt.target_adapter,
+                channel=getattr(receipt, "target_channel", None),
+            )
+        ],
     )
 
 
 def _plan_from_receipt(
-    receipt: DeliveryReceipt, retry_policy: RetryPolicy,
+    receipt: DeliveryReceipt,
+    retry_policy: RetryPolicy,
 ) -> DeliveryPlan:
     return DeliveryPlan(
         plan_id=receipt.delivery_plan_id,
@@ -193,7 +188,9 @@ class _RetryWorker:
 
             try:
                 await self.pipeline.deliver_to_target(
-                    event, route, plan,
+                    event,
+                    route,
+                    plan,
                     previous_receipt=receipt,
                     source="retry",
                 )
@@ -299,7 +296,8 @@ class TestRetryRuntimeIntegration:
     async def test_fake_bridge_transient_then_retry(self, temp_storage):
         """Transient failure on first attempt, retry succeeds."""
         adapter = _TransientThenSucceedAdapter(
-            adapter_id="transient_target", fail_count=1,
+            adapter_id="transient_target",
+            fail_count=1,
         )
         event = _make_event()
         route = Route(
@@ -340,7 +338,10 @@ class TestRetryRuntimeIntegration:
             # Retry via worker
             policy = RetryPolicy(max_attempts=3)
             worker = _RetryWorker(
-                temp_storage, runner, policy, accounting=accounting,
+                temp_storage,
+                runner,
+                policy,
+                accounting=accounting,
             )
             processed = await worker._process_due(datetime.now(timezone.utc))
 
@@ -352,7 +353,8 @@ class TestRetryRuntimeIntegration:
                 event.event_id,
             )
             retry_receipts = [
-                r for r in all_receipts
+                r
+                for r in all_receipts
                 if r.parent_receipt_id == original_receipt.receipt_id
             ]
             assert len(retry_receipts) >= 1
@@ -374,7 +376,8 @@ class TestRetryRuntimeIntegration:
             adapter_id="good_target",
         )
         bad_adapter = _TransientThenSucceedAdapter(
-            adapter_id="bad_target", fail_count=1,
+            adapter_id="bad_target",
+            fail_count=1,
         )
         event = _make_event()
         route = Route(
@@ -407,7 +410,8 @@ class TestRetryRuntimeIntegration:
             # Get only the failed receipt for the bad target
             receipts = await temp_storage.list_receipts_for_event(event.event_id)
             failed_bad = [
-                r for r in receipts
+                r
+                for r in receipts
                 if r.status == "failed" and r.target_adapter == "bad_target"
             ]
             assert len(failed_bad) == 1
@@ -419,7 +423,10 @@ class TestRetryRuntimeIntegration:
 
             policy = RetryPolicy(max_attempts=3)
             worker = _RetryWorker(
-                temp_storage, runner, policy, accounting=accounting,
+                temp_storage,
+                runner,
+                policy,
+                accounting=accounting,
             )
             processed = await worker._process_due(datetime.now(timezone.utc))
 
@@ -434,9 +441,7 @@ class TestRetryRuntimeIntegration:
                 r for r in all_receipts if r.target_adapter == "bad_target"
             ]
             # Should have: original failed + retry success
-            succeeded = [
-                r for r in bad_target_receipts if r.status == "sent"
-            ]
+            succeeded = [r for r in bad_target_receipts if r.status == "sent"]
             assert len(succeeded) >= 1
 
             # Good target should NOT be duplicated
@@ -444,9 +449,7 @@ class TestRetryRuntimeIntegration:
                 r for r in all_receipts if r.target_adapter == "good_target"
             ]
             # Only the original success receipt for good target
-            good_succeeded = [
-                r for r in good_target_receipts if r.status == "sent"
-            ]
+            good_succeeded = [r for r in good_target_receipts if r.status == "sent"]
             assert len(good_succeeded) == 1
         finally:
             await runner.stop()
@@ -454,7 +457,8 @@ class TestRetryRuntimeIntegration:
     async def test_accounting_reflects_retry(self, temp_storage):
         """After retry succeeds, accounting shows correct counts."""
         adapter = _TransientThenSucceedAdapter(
-            adapter_id="accounting_target", fail_count=1,
+            adapter_id="accounting_target",
+            fail_count=1,
         )
         event = _make_event()
         route = Route(
@@ -495,7 +499,10 @@ class TestRetryRuntimeIntegration:
 
             policy = RetryPolicy(max_attempts=3)
             worker = _RetryWorker(
-                temp_storage, runner, policy, accounting=accounting,
+                temp_storage,
+                runner,
+                policy,
+                accounting=accounting,
             )
             await worker._process_due(datetime.now(timezone.utc))
 
@@ -515,7 +522,8 @@ class TestRetryRuntimeIntegration:
         """Real pipeline transient failure creates receipt with next_retry_at,
         then retry through worker succeeds with correct lineage."""
         adapter = _TransientThenSucceedAdapter(
-            adapter_id="due_target", fail_count=1,
+            adapter_id="due_target",
+            fail_count=1,
         )
         event = _make_event()
         route = Route(
@@ -534,7 +542,10 @@ class TestRetryRuntimeIntegration:
         default_retry_policy = RetryPolicy(max_attempts=3)
         resolver = _FallbackResolverWithRetry(default_retry_policy)
         runner = _build_runner(
-            temp_storage, adapters, router, accounting,
+            temp_storage,
+            adapters,
+            router,
+            accounting,
             fallback_resolver=resolver,
         )
         await _start_adapters(adapters)
@@ -567,7 +578,10 @@ class TestRetryRuntimeIntegration:
             # Retry via worker (uses real storage query)
             policy = RetryPolicy(max_attempts=3)
             worker = _RetryWorker(
-                temp_storage, runner, policy, accounting=accounting,
+                temp_storage,
+                runner,
+                policy,
+                accounting=accounting,
             )
             processed = await worker._process_due(future_now)
 
@@ -579,7 +593,8 @@ class TestRetryRuntimeIntegration:
                 event.event_id,
             )
             retry_receipts = [
-                r for r in all_receipts
+                r
+                for r in all_receipts
                 if r.parent_receipt_id == original_receipt.receipt_id
             ]
             assert len(receipts) >= 1
@@ -601,7 +616,8 @@ class TestRetryRuntimeIntegration:
         counts, retryability, and accounting totals."""
         adapter_a = FakePresentationAdapter(adapter_id="target_a")
         adapter_b = _TransientThenSucceedAdapter(
-            adapter_id="target_b", fail_count=1,
+            adapter_id="target_b",
+            fail_count=1,
         )
         adapter_c = _AlwaysPermanentFailAdapter(adapter_id="target_c")
 
@@ -630,7 +646,10 @@ class TestRetryRuntimeIntegration:
         default_retry_policy = RetryPolicy(max_attempts=3)
         resolver = _FallbackResolverWithRetry(default_retry_policy)
         runner = _build_runner(
-            temp_storage, adapters, router, accounting,
+            temp_storage,
+            adapters,
+            router,
+            accounting,
             fallback_resolver=resolver,
         )
         await _start_adapters(adapters)
@@ -656,7 +675,8 @@ class TestRetryRuntimeIntegration:
 
             # --- Target B: 1 failed receipt with next_retry_at ---
             b_failed = [
-                r for r in all_receipts
+                r
+                for r in all_receipts
                 if r.target_adapter == "target_b" and r.status == "failed"
             ]
             assert len(b_failed) == 1
@@ -666,22 +686,24 @@ class TestRetryRuntimeIntegration:
 
             # --- Target C: 1 failed receipt, NOT retryable ---
             c_receipts = [r for r in all_receipts if r.target_adapter == "target_c"]
-            c_failed = [
-                r for r in c_receipts if r.status == "failed"
-            ]
+            c_failed = [r for r in c_receipts if r.status == "failed"]
             assert len(c_failed) >= 1
             c_orig = c_failed[0]
             assert c_orig.failure_kind not in (
-                None, "adapter_transient",
+                None,
+                "adapter_transient",
             ), "Target C should have permanent failure_kind, not transient"
-            assert c_orig.next_retry_at is None, (
-                "Permanent failure should not have next_retry_at"
-            )
+            assert (
+                c_orig.next_retry_at is None
+            ), "Permanent failure should not have next_retry_at"
 
             # --- Retry only B's receipt ---
             policy = RetryPolicy(max_attempts=3)
             worker = _RetryWorker(
-                temp_storage, runner, policy, accounting=accounting,
+                temp_storage,
+                runner,
+                policy,
+                accounting=accounting,
             )
             temp_storage.list_due_retry_receipts = AsyncMock(
                 return_value=[b_original],
@@ -698,7 +720,7 @@ class TestRetryRuntimeIntegration:
             )
             a_total = [r for r in all_receipts if r.target_adapter == "target_a"]
             b_total = [r for r in all_receipts if r.target_adapter == "target_b"]
-            c_total = [r for r in all_receipts if r.target_adapter == "target_c"]
+            [r for r in all_receipts if r.target_adapter == "target_c"]
 
             assert len(a_total) == 1
             assert len(b_total) == 2  # original failed + retry succeeded
@@ -719,19 +741,21 @@ class TestRetryRuntimeIntegration:
     async def test_real_bridge_retry_integration(self, temp_storage):
         """Full bridge retry: real pipeline, real storage query, native ref
         on retry success, original failed excluded from next due query."""
-        from medre.runtime.retry import RetryWorker
-        from medre.runtime.capacity import CapacityController
         from medre.config.model import RuntimeLimits
+        from medre.runtime.capacity import CapacityController
+        from medre.runtime.retry import RetryWorker
 
         adapter = _TransientThenSucceedAdapter(
-            adapter_id="bridge_target", fail_count=1,
+            adapter_id="bridge_target",
+            fail_count=1,
         )
         event = _make_event()
         route = Route(
             id="bridge-route",
             source=RouteSource(
                 adapter="fake_source",
-                event_kinds=("message.created",), channel=None,
+                event_kinds=("message.created",),
+                channel=None,
             ),
             targets=[RouteTarget(adapter="bridge_target")],
         )
@@ -742,7 +766,10 @@ class TestRetryRuntimeIntegration:
         default_retry_policy = RetryPolicy(max_attempts=3)
         resolver = _FallbackResolverWithRetry(default_retry_policy)
         runner = _build_runner(
-            temp_storage, adapters, router, accounting,
+            temp_storage,
+            adapters,
+            router,
+            accounting,
             fallback_resolver=resolver,
         )
         await _start_adapters(adapters)
@@ -774,8 +801,12 @@ class TestRetryRuntimeIntegration:
             )
             capacity = CapacityController(limits)
             worker = RetryWorker(
-                temp_storage, runner, capacity,
-                enabled=True, interval_seconds=10.0, batch_size=20,
+                temp_storage,
+                runner,
+                capacity,
+                enabled=True,
+                interval_seconds=10.0,
+                batch_size=20,
                 max_attempts=3,
             )
 
@@ -805,8 +836,11 @@ class TestRetryRuntimeIntegration:
             sent_rcpts = [r for r in all_receipts if r.status == "sent"]
             assert len(failed_rcpts) == 1
             assert len(sent_rcpts) >= 1
-            retry_sent = [r for r in sent_rcpts
-                          if r.parent_receipt_id == original_receipt.receipt_id]
+            retry_sent = [
+                r
+                for r in sent_rcpts
+                if r.parent_receipt_id == original_receipt.receipt_id
+            ]
             assert len(retry_sent) == 1
             assert retry_sent[0].attempt_number == 2
         finally:
@@ -820,14 +854,16 @@ class TestRetryRuntimeIntegration:
         """When adapter is removed between runs, retry produces ADAPTER_MISSING
         failure — no crash."""
         adapter = _TransientThenSucceedAdapter(
-            adapter_id="target-a", fail_count=999,
+            adapter_id="target-a",
+            fail_count=999,
         )
         event = _make_event()
         route = Route(
             id="route-a",
             source=RouteSource(
                 adapter="fake_source",
-                event_kinds=("message.created",), channel=None,
+                event_kinds=("message.created",),
+                channel=None,
             ),
             targets=[RouteTarget(adapter="target-a")],
         )
@@ -838,7 +874,10 @@ class TestRetryRuntimeIntegration:
         retry_policy = RetryPolicy(max_attempts=5)
         resolver = _FallbackResolverWithRetry(retry_policy)
         runner = _build_runner(
-            temp_storage, adapters, router, accounting,
+            temp_storage,
+            adapters,
+            router,
+            accounting,
             fallback_resolver=resolver,
         )
         await _start_adapters(adapters)
@@ -861,14 +900,17 @@ class TestRetryRuntimeIntegration:
         # Second runtime WITHOUT adapter "target-a"
         adapters_b: dict = {}
         runner_b = _build_runner(
-            temp_storage, adapters_b, router, RuntimeAccounting(),
+            temp_storage,
+            adapters_b,
+            router,
+            RuntimeAccounting(),
             fallback_resolver=resolver,
         )
         await runner_b.start()
         try:
             failed = [
-                r for r in
-                await temp_storage.list_receipts_for_event(event.event_id)
+                r
+                for r in await temp_storage.list_receipts_for_event(event.event_id)
                 if r.status == "failed"
             ]
             assert len(failed) >= 1
@@ -878,7 +920,9 @@ class TestRetryRuntimeIntegration:
 
             policy = RetryPolicy(max_attempts=5)
             worker = _RetryWorker(
-                temp_storage, runner_b, policy,
+                temp_storage,
+                runner_b,
+                policy,
                 accounting=RuntimeAccounting(),
             )
             # This should NOT crash despite adapter missing
@@ -891,17 +935,19 @@ class TestRetryRuntimeIntegration:
                 event.event_id,
             )
             adapter_missing = [
-                r for r in all_receipts
-                if r.failure_kind == "adapter_missing"
+                r for r in all_receipts if r.failure_kind == "adapter_missing"
             ]
             assert len(adapter_missing) >= 1
         finally:
             await runner_b.stop()
 
-    async def test_retry_preserves_target_channel_after_route_change(self, temp_storage):
+    async def test_retry_preserves_target_channel_after_route_change(
+        self, temp_storage
+    ):
         """Retry uses stored target_channel, not current route config."""
         adapter = _TransientThenSucceedAdapter(
-            adapter_id="target-a", fail_count=1,
+            adapter_id="target-a",
+            fail_count=1,
         )
         event = _make_event()
         original_channel = "!room:1"
@@ -909,7 +955,8 @@ class TestRetryRuntimeIntegration:
             id="channel-route",
             source=RouteSource(
                 adapter="fake_source",
-                event_kinds=("message.created",), channel=None,
+                event_kinds=("message.created",),
+                channel=None,
             ),
             targets=[RouteTarget(adapter="target-a", channel=original_channel)],
         )
@@ -920,7 +967,10 @@ class TestRetryRuntimeIntegration:
         retry_policy = RetryPolicy(max_attempts=3)
         resolver = _FallbackResolverWithRetry(retry_policy)
         runner = _build_runner(
-            temp_storage, adapters, router, accounting,
+            temp_storage,
+            adapters,
+            router,
+            accounting,
             fallback_resolver=resolver,
         )
         await _start_adapters(adapters)
@@ -944,7 +994,8 @@ class TestRetryRuntimeIntegration:
             id="channel-route",
             source=RouteSource(
                 adapter="fake_source",
-                event_kinds=("message.created",), channel=None,
+                event_kinds=("message.created",),
+                channel=None,
             ),
             targets=[RouteTarget(adapter="target-a", channel=new_channel)],
         )
@@ -952,7 +1003,10 @@ class TestRetryRuntimeIntegration:
         adapter_b = FakePresentationAdapter(adapter_id="target-a")
         adapters_b = {"target-a": adapter_b}
         runner_b = _build_runner(
-            temp_storage, adapters_b, router_b, RuntimeAccounting(),
+            temp_storage,
+            adapters_b,
+            router_b,
+            RuntimeAccounting(),
             fallback_resolver=resolver,
         )
         await _start_adapters(adapters_b)
@@ -960,8 +1014,8 @@ class TestRetryRuntimeIntegration:
 
         try:
             failed = [
-                r for r in
-                await temp_storage.list_receipts_for_event(event.event_id)
+                r
+                for r in await temp_storage.list_receipts_for_event(event.event_id)
                 if r.status == "failed"
             ]
             assert len(failed) >= 1
@@ -971,7 +1025,9 @@ class TestRetryRuntimeIntegration:
 
             policy = RetryPolicy(max_attempts=5)
             worker = _RetryWorker(
-                temp_storage, runner_b, policy,
+                temp_storage,
+                runner_b,
+                policy,
                 accounting=RuntimeAccounting(),
             )
             processed = await worker._process_due(datetime.now(timezone.utc))
@@ -983,8 +1039,7 @@ class TestRetryRuntimeIntegration:
                 event.event_id,
             )
             retry_receipts = [
-                r for r in all_receipts
-                if r.parent_receipt_id == original.receipt_id
+                r for r in all_receipts if r.parent_receipt_id == original.receipt_id
             ]
             assert len(retry_receipts) >= 1
             assert retry_receipts[0].target_channel == original_channel
@@ -1002,14 +1057,16 @@ class TestRetryRuntimeIntegration:
             jitter=False,
         )
         adapter = _TransientThenSucceedAdapter(
-            adapter_id="policy_target", fail_count=1,
+            adapter_id="policy_target",
+            fail_count=1,
         )
         event = _make_event()
         route = Route(
             id="policy-route",
             source=RouteSource(
                 adapter="fake_source",
-                event_kinds=("message.created",), channel=None,
+                event_kinds=("message.created",),
+                channel=None,
             ),
             targets=[RouteTarget(adapter="policy_target")],
         )
@@ -1019,7 +1076,10 @@ class TestRetryRuntimeIntegration:
 
         resolver = _FallbackResolverWithRetry(custom_policy)
         runner = _build_runner(
-            temp_storage, adapters, router, accounting,
+            temp_storage,
+            adapters,
+            router,
+            accounting,
             fallback_resolver=resolver,
         )
         await _start_adapters(adapters)
@@ -1040,9 +1100,9 @@ class TestRetryRuntimeIntegration:
             assert original.retry_jitter is False
 
             # Retry using the real RetryWorker with DIFFERENT defaults
-            from medre.runtime.retry import RetryWorker
-            from medre.runtime.capacity import CapacityController
             from medre.config.model import RuntimeLimits
+            from medre.runtime.capacity import CapacityController
+            from medre.runtime.retry import RetryWorker
 
             limits = RuntimeLimits(
                 max_inflight_deliveries=10,
@@ -1053,8 +1113,12 @@ class TestRetryRuntimeIntegration:
             capacity = CapacityController(limits)
             # max_attempts=3 is DIFFERENT from the stored 7
             worker = RetryWorker(
-                temp_storage, runner, capacity,
-                enabled=True, interval_seconds=10.0, batch_size=20,
+                temp_storage,
+                runner,
+                capacity,
+                enabled=True,
+                interval_seconds=10.0,
+                batch_size=20,
                 max_attempts=3,
             )
 
@@ -1077,17 +1141,18 @@ class TestRetryRuntimeIntegration:
 
         Proves trace/recover/evidence consistency across the retry lifecycle.
         """
+        from medre.config.model import RuntimeLimits
+        from medre.runtime.capacity import CapacityController
+        from medre.runtime.retry import RetryWorker
         from medre.runtime.timeline import (
             assemble_event_timeline,
             assemble_storage_summary,
         )
-        from medre.runtime.retry import RetryWorker
-        from medre.runtime.capacity import CapacityController
-        from medre.config.model import RuntimeLimits
 
         # --- 1. Bridge setup: fake matrix source → meshtastic target ---
         adapter = _TransientThenSucceedAdapter(
-            adapter_id="mesh_target", fail_count=1,
+            adapter_id="mesh_target",
+            fail_count=1,
         )
         event = _make_event()
         route = Route(
@@ -1106,7 +1171,10 @@ class TestRetryRuntimeIntegration:
         retry_policy = RetryPolicy(max_attempts=3)
         resolver = _FallbackResolverWithRetry(retry_policy)
         runner = _build_runner(
-            temp_storage, adapters, router, accounting,
+            temp_storage,
+            adapters,
+            router,
+            accounting,
             fallback_resolver=resolver,
         )
         await _start_adapters(adapters)
@@ -1130,7 +1198,8 @@ class TestRetryRuntimeIntegration:
 
             # --- 4. Trace shows the failed receipt ---
             timeline = await assemble_event_timeline(
-                temp_storage, event.event_id,
+                temp_storage,
+                event.event_id,
             )
             assert timeline is not None
             assert len(timeline["receipts"]) == 1
@@ -1148,8 +1217,12 @@ class TestRetryRuntimeIntegration:
             )
             capacity = CapacityController(limits)
             worker = RetryWorker(
-                temp_storage, runner, capacity,
-                enabled=True, interval_seconds=10.0, batch_size=20,
+                temp_storage,
+                runner,
+                capacity,
+                enabled=True,
+                interval_seconds=10.0,
+                batch_size=20,
                 max_attempts=3,
             )
             await worker._process_due(future_now)
@@ -1160,7 +1233,8 @@ class TestRetryRuntimeIntegration:
 
             # --- 7. Trace now shows both failed + success receipts ---
             timeline_after = await assemble_event_timeline(
-                temp_storage, event.event_id,
+                temp_storage,
+                event.event_id,
             )
             assert timeline_after is not None
             all_receipts_tl = timeline_after["receipts"]
@@ -1173,9 +1247,7 @@ class TestRetryRuntimeIntegration:
 
             # --- 8. Recover: no retry pending (all resolved) ---
             due_after = await temp_storage.list_due_retry_receipts(future_now)
-            assert len(due_after) == 0, (
-                "No retry should be pending — all resolved"
-            )
+            assert len(due_after) == 0, "No retry should be pending — all resolved"
 
             # --- 9. Evidence: storage summary shows retry lineage ---
             summary = await assemble_storage_summary(temp_storage)

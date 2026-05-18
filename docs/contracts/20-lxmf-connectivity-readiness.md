@@ -15,32 +15,31 @@ network.
 **No production LXMF/Reticulum connectivity is claimed.
 The adapter supports `connection_type="reticulum"` for real Reticulum/LXMF operation via `LxmfSession` when optional dependencies are installed; fake mode remains the default.**
 
-
 ## 1. Package and Import [CONFIRMED]
 
-| Item | Value | Label |
-|------|-------|-------|
-| LXMF PyPI distribution | `lxmf` | CONFIRMED |
-| LXMF import | `import LXMF` (uppercase) | CONFIRMED |
-| LXMF version installed | 0.9.7 | CONFIRMED |
-| LXMF install path | `/home/jeremiah/.platformio/penv/lib/python3.12/site-packages/LXMF/` | CONFIRMED |
-| Reticulum PyPI distribution | `rns` | CONFIRMED |
-| Reticulum import | `import RNS` | CONFIRMED |
-| Reticulum version installed | 1.2.5 | CONFIRMED |
-| Reticulum install path | `/home/jeremiah/.platformio/penv/lib/python3.12/site-packages/RNS/` | CONFIRMED |
-| Author | Mark Qvist | CONFIRMED |
-| Wire format | msgpack (not protobuf) | CONFIRMED |
-| Serialization | `RNS.vendor.umsgpack` bundled | CONFIRMED |
-| pyserial version | 3.5 | CONFIRMED |
+| Item                        | Value                                                                | Label     |
+| --------------------------- | -------------------------------------------------------------------- | --------- |
+| LXMF PyPI distribution      | `lxmf`                                                               | CONFIRMED |
+| LXMF import                 | `import LXMF` (uppercase)                                            | CONFIRMED |
+| LXMF version installed      | 0.9.7                                                                | CONFIRMED |
+| LXMF install path           | `/home/jeremiah/.platformio/penv/lib/python3.12/site-packages/LXMF/` | CONFIRMED |
+| Reticulum PyPI distribution | `rns`                                                                | CONFIRMED |
+| Reticulum import            | `import RNS`                                                         | CONFIRMED |
+| Reticulum version installed | 1.2.5                                                                | CONFIRMED |
+| Reticulum install path      | `/home/jeremiah/.platformio/penv/lib/python3.12/site-packages/RNS/`  | CONFIRMED |
+| Author                      | Mark Qvist                                                           | CONFIRMED |
+| Wire format                 | msgpack (not protobuf)                                               | CONFIRMED |
+| Serialization               | `RNS.vendor.umsgpack` bundled                                        | CONFIRMED |
+| pyserial version            | 3.5                                                                  | CONFIRMED |
 
 Inspection commands used:
+
 ```bash
 pip show lxmf rns 2>&1
 python3 -c "import RNS; print(RNS.__version__, RNS.__file__)"
 python3 -c "import LXMF; print(LXMF.__version__, LXMF.__file__)"
 python3 -c "import serial; print(serial.__version__)"
 ```
-
 
 ## 2. Confirmed SDK Findings [CONFIRMED]
 
@@ -326,7 +325,7 @@ include_ticket)`. Confirmed via `inspect.getsource(LXMF.LXMessage.__init__)`.
 
 Message state transitions:
 
-```
+```text
 GENERATING (0x00) -> OUTBOUND (0x01) -> SENDING (0x02) -> SENT (0x04) -> DELIVERED (0x08)
                                                             \
                                                              -> FAILED (0xFF)
@@ -336,12 +335,12 @@ GENERATING (0x00) -> OUTBOUND (0x01) -> SENDING (0x02) -> SENT (0x04) -> DELIVER
 
 Delivery methods:
 
-| Method | Code | Description |
-|--------|------|-------------|
-| `LXMessage.OPPORTUNISTIC` | `0x01` | Single packet, fire-and-forget. Max 295 bytes encrypted content. |
-| `LXMessage.DIRECT` | `0x02` | Link-based, reliable. Up to 319 bytes per packet, larger via RNS Resource transfer. |
-| `LXMessage.PROPAGATED` | `0x03` | Store-and-forward via propagation node. |
-| `LXMessage.PAPER` | `0x05` | Offline transfer via QR code or `lxm://` URI. |
+| Method                    | Code   | Description                                                                         |
+| ------------------------- | ------ | ----------------------------------------------------------------------------------- |
+| `LXMessage.OPPORTUNISTIC` | `0x01` | Single packet, fire-and-forget. Max 295 bytes encrypted content.                    |
+| `LXMessage.DIRECT`        | `0x02` | Link-based, reliable. Up to 319 bytes per packet, larger via RNS Resource transfer. |
+| `LXMessage.PROPAGATED`    | `0x03` | Store-and-forward via propagation node.                                             |
+| `LXMessage.PAPER`         | `0x05` | Offline transfer via QR code or `lxm://` URI.                                       |
 
 ### 2.8 Message Hash as native_message_id [CONFIRMED]
 
@@ -362,28 +361,28 @@ SHA-256 hashes. The real adapter would use the actual `lxm.hash`.
 LXMF defines field keys in `LXMF.LXMF.py`. CONFIRMED via `dir(LXMF)` inspection.
 MEDRE uses `FIELD_CUSTOM_META` (0xFD) for its metadata envelope. Full field list:
 
-| Key | Constant | Description |
-|-----|----------|-------------|
-| `0x01` | `FIELD_EMBEDDED_LXMS` | Embedded LXMF messages |
-| `0x02` | `FIELD_TELEMETRY` | Telemetry data |
-| `0x03` | `FIELD_TELEMETRY_STREAM` | Streaming telemetry |
-| `0x04` | `FIELD_ICON_APPEARANCE` | Icon/appearance metadata |
-| `0x05` | `FIELD_FILE_ATTACHMENTS` | File attachments |
-| `0x06` | `FIELD_IMAGE` | Image data |
-| `0x07` | `FIELD_AUDIO` | Audio data (Codec2, Opus modes) |
-| `0x08` | `FIELD_THREAD` | Conversation grouping |
-| `0x09` | `FIELD_COMMANDS` | Command interface |
-| `0x0A` | `FIELD_RESULTS` | Command results |
-| `0x0B` | `FIELD_GROUP` | Group addressing |
-| `0x0C` | `FIELD_TICKET` | Reply permission (PoW bypass) |
-| `0x0D` | `FIELD_EVENT` | Event data |
-| `0x0E` | `FIELD_RNR_REFS` | RNR references |
-| `0x0F` | `FIELD_RENDERER` | Renderer hint (plain, micron, markdown, bbcode) |
-| `0xFB` | `FIELD_CUSTOM_TYPE` | Custom type identifier |
-| `0xFC` | `FIELD_CUSTOM_DATA` | Custom payload |
-| `0xFD` | `FIELD_CUSTOM_META` | **MEDRE uses this** for metadata envelope |
-| `0xFE` | `FIELD_NON_SPECIFIC` | Non-specific extension |
-| `0xFF` | `FIELD_DEBUG` | Debug information |
+| Key    | Constant                 | Description                                     |
+| ------ | ------------------------ | ----------------------------------------------- |
+| `0x01` | `FIELD_EMBEDDED_LXMS`    | Embedded LXMF messages                          |
+| `0x02` | `FIELD_TELEMETRY`        | Telemetry data                                  |
+| `0x03` | `FIELD_TELEMETRY_STREAM` | Streaming telemetry                             |
+| `0x04` | `FIELD_ICON_APPEARANCE`  | Icon/appearance metadata                        |
+| `0x05` | `FIELD_FILE_ATTACHMENTS` | File attachments                                |
+| `0x06` | `FIELD_IMAGE`            | Image data                                      |
+| `0x07` | `FIELD_AUDIO`            | Audio data (Codec2, Opus modes)                 |
+| `0x08` | `FIELD_THREAD`           | Conversation grouping                           |
+| `0x09` | `FIELD_COMMANDS`         | Command interface                               |
+| `0x0A` | `FIELD_RESULTS`          | Command results                                 |
+| `0x0B` | `FIELD_GROUP`            | Group addressing                                |
+| `0x0C` | `FIELD_TICKET`           | Reply permission (PoW bypass)                   |
+| `0x0D` | `FIELD_EVENT`            | Event data                                      |
+| `0x0E` | `FIELD_RNR_REFS`         | RNR references                                  |
+| `0x0F` | `FIELD_RENDERER`         | Renderer hint (plain, micron, markdown, bbcode) |
+| `0xFB` | `FIELD_CUSTOM_TYPE`      | Custom type identifier                          |
+| `0xFC` | `FIELD_CUSTOM_DATA`      | Custom payload                                  |
+| `0xFD` | `FIELD_CUSTOM_META`      | **MEDRE uses this** for metadata envelope       |
+| `0xFE` | `FIELD_NON_SPECIFIC`     | Non-specific extension                          |
+| `0xFF` | `FIELD_DEBUG`            | Debug information                               |
 
 ### 2.10 Stamp Cost (Proof of Work) [CONFIRMED]
 
@@ -392,7 +391,7 @@ LXMF implements a proof-of-work rate limiting mechanism via stamps:
 - `stamp_cost` is configured per destination. A cost of 0 or None means
   no stamp required.
 - Stamps are validated against `LXStamper.stamp_valid(stamp, cost,
-  workblock)`.
+workblock)`.
 - Higher stamp_cost means more CPU work before the message is accepted.
 - `LXMRouter.set_inbound_stamp_cost(dest_hash, cost)` configures the
   cost for inbound messages to that destination.
@@ -458,7 +457,6 @@ RNS.exit(code=0)
 RNS.Reticulum.exit_handler()  # @staticmethod, cleans up without exiting process
 ```
 
-
 ## 3. Inferred Behaviors [INFERRED]
 
 These are plausible assumptions based on the installed source code, but
@@ -511,7 +509,6 @@ host/port configuration is needed for local mesh operation. The TCP and
 UDP interfaces do require explicit configuration in the Reticulum
 config file.
 
-
 ## 4. Unknowns [UNKNOWN]
 
 These questions cannot be answered from source code alone. They require
@@ -529,6 +526,7 @@ context.
 
 The singleton pattern means only one `RNS.Reticulum` per process. For
 testing with sender and receiver in the same process, either:
+
 - Two separate processes are needed, or
 - The shared instance mechanism (local IPC on port 37428) is used,
   or
@@ -563,59 +561,57 @@ out? When propagation node sync fails? The retry logic exists in
 `process_outbound`, but the actual behavior under network failure
 conditions is untested in the MEDRE context.
 
-
 ## 5. API/Runtime Findings Table
 
 All findings from this reality pass. Inspection performed 2026-05-12
 against installed packages in `~/.platformio/penv/` (Python 3.12).
 
-| # | Finding | Source | Label |
-|---|---------|--------|-------|
-| 1 | `import LXMF` succeeds (uppercase module name) | `python3 -c "import LXMF"` | CONFIRMED |
-| 2 | `import RNS` succeeds | `python3 -c "import RNS"` | CONFIRMED |
-| 3 | `RNS.__version__` = `"1.2.5"` | `python3 -c "import RNS; print(RNS.__version__)"` | CONFIRMED |
-| 4 | `LXMF.__version__` = `"0.9.7"` | `python3 -c "import LXMF; print(LXMF.__version__)"` | CONFIRMED |
-| 5 | PyPI package `lxmf` (lowercase), import `LXMF` (uppercase) | `pip show lxmf` + `import LXMF` | CONFIRMED |
-| 6 | PyPI package `rns`, import `RNS` | `pip show rns` + `import RNS` | CONFIRMED |
-| 7 | `RNS.Reticulum()` singleton; second call raises `OSError` | `inspect.getsource(RNS.Reticulum.__init__)` line 11 | CONFIRMED |
-| 8 | `RNS.Reticulum.get_instance()` returns singleton or None | `inspect.getsource()` | CONFIRMED |
-| 9 | Config dir search: `/etc/reticulum` > `~/.config/reticulum` > `~/.reticulum` | Source lines 17–22 | CONFIRMED |
-| 10 | `RNS.Identity(create_keys=True)` default generates X25519+Ed25519 | `inspect.signature(RNS.Identity.__init__)` | CONFIRMED |
-| 11 | `RNS.Identity.to_file(path)` writes 64-byte raw private key | Source inspection | CONFIRMED |
-| 12 | `RNS.Identity.from_file(path)` returns None on failure | Source inspection | CONFIRMED |
-| 13 | `LXMRouter(identity, storagepath, ...)` - storagepath REQUIRED | Source: raises ValueError if None | CONFIRMED |
-| 14 | `register_delivery_identity(identity, display_name=None, stamp_cost=None)` | `inspect.signature()` | CONFIRMED |
-| 15 | Only ONE delivery identity per LXMRouter (second call returns None) | Source: `if len(self.delivery_destinations) != 0` | CONFIRMED |
-| 16 | `register_delivery_callback(callback)` sets private `__delivery_callback` | Source line 329 | CONFIRMED |
-| 17 | Delivery callback invocation catches exceptions, logs, does NOT propagate | Source lines 1779–1784 | CONFIRMED |
-| 18 | `announce(destination_hash, attached_interface=None)` | `inspect.signature()` | CONFIRMED |
-| 19 | `handle_outbound(lxmessage)` sets OUTBOUND state, adds to pending_outbound | `inspect.getsource()` | CONFIRMED |
-| 20 | `exit_handler()` tears down destinations, links, propagation, persists state | `inspect.getsource()` | CONFIRMED |
-| 21 | `exit_handler()` guarded against double-entry via `exit_handler_running` flag | Source inspection | CONFIRMED |
-| 22 | `enable_propagation()` indexes message store (blocking disk scan) | `inspect.getsource()` | CONFIRMED |
-| 23 | `disable_propagation()` sets `self.propagation_node = False` | `inspect.getsource()` | CONFIRMED |
-| 24 | `LXMessage(dest, source, content, title, fields, desired_method, destination_hash, source_hash, stamp_cost, include_ticket)` | `inspect.signature()` | CONFIRMED |
-| 25 | LXMessage states: GENERATING=0, OUTBOUND=1, SENDING=2, SENT=4, DELIVERED=8, FAILED=255, CANCELLED=254, REJECTED=253 | `dir(LXMF.LXMessage)` | CONFIRMED |
-| 26 | LXMessage methods: OPPORTUNISTIC=1, DIRECT=2, PROPAGATED=3, PAPER=5 | `dir(LXMF.LXMessage)` | CONFIRMED |
-| 27 | `LXMessage.register_delivery_callback(cb)` sets private `__delivery_callback` | `inspect.getsource()` | CONFIRMED |
-| 28 | `LXMessage.register_failed_callback(cb)` sets public `failed_callback` | `inspect.getsource()` | CONFIRMED |
-| 29 | `fail_message()` calls `lxmessage.failed_callback(lxmessage)` if set | `inspect.getsource()` | CONFIRMED |
-| 30 | `RNS.exit(code=0)` calls `Reticulum.exit_handler()` then `os._exit(code)` | `inspect.getsource(RNS.exit)` | CONFIRMED |
-| 31 | `RNS.Reticulum.exit_handler()` is `@staticmethod` | `inspect.getsource()` | CONFIRMED |
-| 32 | RNodeInterface requires `pyserial`, panics without it | `inspect.getsource(RNodeInterface.__init__)` | CONFIRMED |
-| 33 | `pyserial` 3.5 installed | `python3 -c "import serial; print(serial.__version__)"` | CONFIRMED |
-| 34 | RNodeInterface HW_MTU=508, serial default 115200 baud | Source inspection | CONFIRMED |
-| 35 | `LXMF.APP_NAME = "lxmf"` | `python3 -c "import LXMF; print(LXMF.APP_NAME)"` | CONFIRMED |
-| 36 | LXMRouter constructor has `enforce_ratchets`, `enforce_stamps`, `name` params | `inspect.signature(LXMF.LXMRouter.__init__)` | CONFIRMED |
-| 37 | LXMRouter default sync_strategy = `LXMPeer.STRATEGY_PERSISTENT` | Source inspection | CONFIRMED |
-| 38 | `MAX_DELIVERY_ATTEMPTS = 5`, `DELIVERY_RETRY_WAIT = 10` (seconds) | `dir(LXMF.LXMRouter)` constants | CONFIRMED |
-| 39 | `RNS.Reticulum.MTU = 500`, `MDU = 464` | `dir(RNS.Reticulum)` constants | CONFIRMED |
-| 40 | Callback timing, ordering under load | Requires live testing | UNKNOWN |
-| 41 | Path discovery latency on real network | Requires live testing | UNKNOWN |
-| 42 | Multi-hop delivery reliability | Requires live testing | UNKNOWN |
-| 43 | Behavior with `rnsd` shared instance co-existing | Requires live testing | UNKNOWN |
-| 44 | Resource transfer for large messages | Requires live testing | UNKNOWN |
-
+| #   | Finding                                                                                                                      | Source                                                  | Label     |
+| --- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- | --------- |
+| 1   | `import LXMF` succeeds (uppercase module name)                                                                               | `python3 -c "import LXMF"`                              | CONFIRMED |
+| 2   | `import RNS` succeeds                                                                                                        | `python3 -c "import RNS"`                               | CONFIRMED |
+| 3   | `RNS.__version__` = `"1.2.5"`                                                                                                | `python3 -c "import RNS; print(RNS.__version__)"`       | CONFIRMED |
+| 4   | `LXMF.__version__` = `"0.9.7"`                                                                                               | `python3 -c "import LXMF; print(LXMF.__version__)"`     | CONFIRMED |
+| 5   | PyPI package `lxmf` (lowercase), import `LXMF` (uppercase)                                                                   | `pip show lxmf` + `import LXMF`                         | CONFIRMED |
+| 6   | PyPI package `rns`, import `RNS`                                                                                             | `pip show rns` + `import RNS`                           | CONFIRMED |
+| 7   | `RNS.Reticulum()` singleton; second call raises `OSError`                                                                    | `inspect.getsource(RNS.Reticulum.__init__)` line 11     | CONFIRMED |
+| 8   | `RNS.Reticulum.get_instance()` returns singleton or None                                                                     | `inspect.getsource()`                                   | CONFIRMED |
+| 9   | Config dir search: `/etc/reticulum` > `~/.config/reticulum` > `~/.reticulum`                                                 | Source lines 17–22                                      | CONFIRMED |
+| 10  | `RNS.Identity(create_keys=True)` default generates X25519+Ed25519                                                            | `inspect.signature(RNS.Identity.__init__)`              | CONFIRMED |
+| 11  | `RNS.Identity.to_file(path)` writes 64-byte raw private key                                                                  | Source inspection                                       | CONFIRMED |
+| 12  | `RNS.Identity.from_file(path)` returns None on failure                                                                       | Source inspection                                       | CONFIRMED |
+| 13  | `LXMRouter(identity, storagepath, ...)` - storagepath REQUIRED                                                               | Source: raises ValueError if None                       | CONFIRMED |
+| 14  | `register_delivery_identity(identity, display_name=None, stamp_cost=None)`                                                   | `inspect.signature()`                                   | CONFIRMED |
+| 15  | Only ONE delivery identity per LXMRouter (second call returns None)                                                          | Source: `if len(self.delivery_destinations) != 0`       | CONFIRMED |
+| 16  | `register_delivery_callback(callback)` sets private `__delivery_callback`                                                    | Source line 329                                         | CONFIRMED |
+| 17  | Delivery callback invocation catches exceptions, logs, does NOT propagate                                                    | Source lines 1779–1784                                  | CONFIRMED |
+| 18  | `announce(destination_hash, attached_interface=None)`                                                                        | `inspect.signature()`                                   | CONFIRMED |
+| 19  | `handle_outbound(lxmessage)` sets OUTBOUND state, adds to pending_outbound                                                   | `inspect.getsource()`                                   | CONFIRMED |
+| 20  | `exit_handler()` tears down destinations, links, propagation, persists state                                                 | `inspect.getsource()`                                   | CONFIRMED |
+| 21  | `exit_handler()` guarded against double-entry via `exit_handler_running` flag                                                | Source inspection                                       | CONFIRMED |
+| 22  | `enable_propagation()` indexes message store (blocking disk scan)                                                            | `inspect.getsource()`                                   | CONFIRMED |
+| 23  | `disable_propagation()` sets `self.propagation_node = False`                                                                 | `inspect.getsource()`                                   | CONFIRMED |
+| 24  | `LXMessage(dest, source, content, title, fields, desired_method, destination_hash, source_hash, stamp_cost, include_ticket)` | `inspect.signature()`                                   | CONFIRMED |
+| 25  | LXMessage states: GENERATING=0, OUTBOUND=1, SENDING=2, SENT=4, DELIVERED=8, FAILED=255, CANCELLED=254, REJECTED=253          | `dir(LXMF.LXMessage)`                                   | CONFIRMED |
+| 26  | LXMessage methods: OPPORTUNISTIC=1, DIRECT=2, PROPAGATED=3, PAPER=5                                                          | `dir(LXMF.LXMessage)`                                   | CONFIRMED |
+| 27  | `LXMessage.register_delivery_callback(cb)` sets private `__delivery_callback`                                                | `inspect.getsource()`                                   | CONFIRMED |
+| 28  | `LXMessage.register_failed_callback(cb)` sets public `failed_callback`                                                       | `inspect.getsource()`                                   | CONFIRMED |
+| 29  | `fail_message()` calls `lxmessage.failed_callback(lxmessage)` if set                                                         | `inspect.getsource()`                                   | CONFIRMED |
+| 30  | `RNS.exit(code=0)` calls `Reticulum.exit_handler()` then `os._exit(code)`                                                    | `inspect.getsource(RNS.exit)`                           | CONFIRMED |
+| 31  | `RNS.Reticulum.exit_handler()` is `@staticmethod`                                                                            | `inspect.getsource()`                                   | CONFIRMED |
+| 32  | RNodeInterface requires `pyserial`, panics without it                                                                        | `inspect.getsource(RNodeInterface.__init__)`            | CONFIRMED |
+| 33  | `pyserial` 3.5 installed                                                                                                     | `python3 -c "import serial; print(serial.__version__)"` | CONFIRMED |
+| 34  | RNodeInterface HW_MTU=508, serial default 115200 baud                                                                        | Source inspection                                       | CONFIRMED |
+| 35  | `LXMF.APP_NAME = "lxmf"`                                                                                                     | `python3 -c "import LXMF; print(LXMF.APP_NAME)"`        | CONFIRMED |
+| 36  | LXMRouter constructor has `enforce_ratchets`, `enforce_stamps`, `name` params                                                | `inspect.signature(LXMF.LXMRouter.__init__)`            | CONFIRMED |
+| 37  | LXMRouter default sync_strategy = `LXMPeer.STRATEGY_PERSISTENT`                                                              | Source inspection                                       | CONFIRMED |
+| 38  | `MAX_DELIVERY_ATTEMPTS = 5`, `DELIVERY_RETRY_WAIT = 10` (seconds)                                                            | `dir(LXMF.LXMRouter)` constants                         | CONFIRMED |
+| 39  | `RNS.Reticulum.MTU = 500`, `MDU = 464`                                                                                       | `dir(RNS.Reticulum)` constants                          | CONFIRMED |
+| 40  | Callback timing, ordering under load                                                                                         | Requires live testing                                   | UNKNOWN   |
+| 41  | Path discovery latency on real network                                                                                       | Requires live testing                                   | UNKNOWN   |
+| 42  | Multi-hop delivery reliability                                                                                               | Requires live testing                                   | UNKNOWN   |
+| 43  | Behavior with `rnsd` shared instance co-existing                                                                             | Requires live testing                                   | UNKNOWN   |
+| 44  | Resource transfer for large messages                                                                                         | Requires live testing                                   | UNKNOWN   |
 
 ## 6. Current Adapter Scaffold Status
 
@@ -624,30 +620,30 @@ Here is exactly what exists and what does not.
 
 ### 6.1 What Exists
 
-| Component | File | Status |
-|-----------|------|--------|
-| `LxmfAdapter` | `adapter.py` | Scaffold. `start()` only supports `connection_type="fake"`. `deliver()` returns `None`. |
-| `LxmfConfig` | `config.py` | Functional. `connection_type` accepts `"fake"` and `"reticulum"` as valid shapes. `reticulum` validates at config level (shape only); runtime `start()` raises `LxmfConnectionError` for non-fake modes. `identity_path` is a `str | None` placeholder. |
-| `LxmfCodec` | `codec.py` | Functional against dict-shaped test data. Does not accept `LXMessage` objects. |
-| `LxmfRenderer` | `renderer.py` | Functional. Produces content/title/fields dicts. |
-| `LxmfFieldsHelper` | `fields.py` | Functional. Embeds/extracts MEDRE envelope under `FIELD_CUSTOM_META` (0xFD). |
-| `LxmfPacketClassifier` | `packet_classifier.py` | Functional against dict-shaped test data. |
-| Error hierarchy | `errors.py` | Complete. `LxmfError` base, `LxmfConnectionError`, `LxmfSendError`, `LxmfConfigError`, `LxmfCodecError`, `LxmfPacketError`. |
+| Component              | File                   | Status                                                                                                                                                                                                                             |
+| ---------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
+| `LxmfAdapter`          | `adapter.py`           | Scaffold. `start()` only supports `connection_type="fake"`. `deliver()` returns `None`.                                                                                                                                            |
+| `LxmfConfig`           | `config.py`            | Functional. `connection_type` accepts `"fake"` and `"reticulum"` as valid shapes. `reticulum` validates at config level (shape only); runtime `start()` raises `LxmfConnectionError` for non-fake modes. `identity_path` is a `str | None` placeholder. |
+| `LxmfCodec`            | `codec.py`             | Functional against dict-shaped test data. Does not accept `LXMessage` objects.                                                                                                                                                     |
+| `LxmfRenderer`         | `renderer.py`          | Functional. Produces content/title/fields dicts.                                                                                                                                                                                   |
+| `LxmfFieldsHelper`     | `fields.py`            | Functional. Embeds/extracts MEDRE envelope under `FIELD_CUSTOM_META` (0xFD).                                                                                                                                                       |
+| `LxmfPacketClassifier` | `packet_classifier.py` | Functional against dict-shaped test data.                                                                                                                                                                                          |
+| Error hierarchy        | `errors.py`            | Complete. `LxmfError` base, `LxmfConnectionError`, `LxmfSendError`, `LxmfConfigError`, `LxmfCodecError`, `LxmfPacketError`.                                                                                                        |
 
 ### 6.2 What Does NOT Exist
 
-| Missing Piece | Impact |
-|---------------|--------|
-| No real `RNS.Identity` loading | `identity_path` in config is unwired. |
-| No `RNS.Reticulum()` initialization | No Reticulum transport layer. |
-| No `LXMF.LXMRouter()` creation | No LXMF message routing. |
-| No `register_delivery_identity` call | No inbound message destination. |
-| No `register_delivery_callback` | No message reception. |
-| No `router.announce()` | No presence on the network. |
-| No `router.handle_outbound()` | No real message sending. |
-| No `router.exit_handler()` / `RNS.exit()` | No clean shutdown. |
-| No `RNS.Transport` path management | No path discovery. |
-| No `LXMessage` to dict conversion | Codec expects dicts, not LXMessage objects. |
+| Missing Piece                             | Impact                                      |
+| ----------------------------------------- | ------------------------------------------- |
+| No real `RNS.Identity` loading            | `identity_path` in config is unwired.       |
+| No `RNS.Reticulum()` initialization       | No Reticulum transport layer.               |
+| No `LXMF.LXMRouter()` creation            | No LXMF message routing.                    |
+| No `register_delivery_identity` call      | No inbound message destination.             |
+| No `register_delivery_callback`           | No message reception.                       |
+| No `router.announce()`                    | No presence on the network.                 |
+| No `router.handle_outbound()`             | No real message sending.                    |
+| No `router.exit_handler()` / `RNS.exit()` | No clean shutdown.                          |
+| No `RNS.Transport` path management        | No path discovery.                          |
+| No `LXMessage` to dict conversion         | Codec expects dicts, not LXMessage objects. |
 
 ### 6.3 Config Gaps
 
@@ -665,15 +661,14 @@ Additional config fields that would be needed for real connectivity:
 - `propagation_node` (destination hash) for store-and-forward.
 - `listen` (bool) for whether to announce and receive.
 
-
 ## 7. Delivery Method Semantics
 
-| Method | Wire Behavior | Reliability | Size Limit | Use Case |
-|--------|--------------|-------------|------------|----------|
-| DIRECT | Establishes `RNS.Link`, sends via link packet or `RNS.Resource` | High. Retries up to `MAX_DELIVERY_ATTEMPTS` (5). Proof receipts confirm delivery. | Link packet: 319B. Resource: arbitrary. | Default for most messaging. |
-| OPPORTUNISTIC | Single RNS packet, no link. Embedded in opportunistic route. | Best-effort. No ACK, no retry. Max 1 attempt (`MAX_PATHLESS_TRIES=1`). | 295 bytes encrypted content. | Quick, low-overhead messages to online peers. |
-| PROPAGATED | Delivered to propagation node via link. Node stores for recipient. | Moderate. Delivery to node is reliable. Recipient must sync from node. | Limited by propagation node config (`PROPAGATION_LIMIT=256KB`). | Offline recipients, delayed delivery. |
-| PAPER | Encoded as QR code or `lxm://` URI. No network transport. | None. Physical delivery only. | `PAPER_MDU` varies, roughly 2KB. | Air-gapped transfer, QR scanning. |
+| Method        | Wire Behavior                                                      | Reliability                                                                       | Size Limit                                                      | Use Case                                      |
+| ------------- | ------------------------------------------------------------------ | --------------------------------------------------------------------------------- | --------------------------------------------------------------- | --------------------------------------------- |
+| DIRECT        | Establishes `RNS.Link`, sends via link packet or `RNS.Resource`    | High. Retries up to `MAX_DELIVERY_ATTEMPTS` (5). Proof receipts confirm delivery. | Link packet: 319B. Resource: arbitrary.                         | Default for most messaging.                   |
+| OPPORTUNISTIC | Single RNS packet, no link. Embedded in opportunistic route.       | Best-effort. No ACK, no retry. Max 1 attempt (`MAX_PATHLESS_TRIES=1`).            | 295 bytes encrypted content.                                    | Quick, low-overhead messages to online peers. |
+| PROPAGATED    | Delivered to propagation node via link. Node stores for recipient. | Moderate. Delivery to node is reliable. Recipient must sync from node.            | Limited by propagation node config (`PROPAGATION_LIMIT=256KB`). | Offline recipients, delayed delivery.         |
+| PAPER         | Encoded as QR code or `lxm://` URI. No network transport.          | None. Physical delivery only.                                                     | `PAPER_MDU` varies, roughly 2KB.                                | Air-gapped transfer, QR scanning.             |
 
 ### 7.1 Method Selection Logic
 
@@ -697,27 +692,26 @@ For a mesh messaging scenario:
 - OPPORTUNISTIC is useful for quick status messages.
 - PAPER is unlikely to be needed in MEDRE's bridging use case.
 
-
 ## 8. Storage Paths
 
 Reticulum and LXMF both use filesystem directories for persistent state.
 These are separate from each other and from MEDRE's storage.
 
-| System | Path | Contents |
-|--------|------|----------|
-| Reticulum config | `~/.reticulum/` (default) | `config` file, `storage/`, `interfaces/` |
-| Reticulum storage | `{configdir}/storage/` | `known_destinations`, `cache/`, `resources/`, `identities/` |
-| LXMF router storage | `{storagepath}/lxmf/` | `local_deliveries`, `locally_processed`, `outbound_stamp_costs`, `available_tickets`, `messagestore/`, `ratchets/` |
-| MEDRE SQLite | Configured by MEDRE | Events, receipts, native refs, route configs |
+| System              | Path                      | Contents                                                                                                           |
+| ------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Reticulum config    | `~/.reticulum/` (default) | `config` file, `storage/`, `interfaces/`                                                                           |
+| Reticulum storage   | `{configdir}/storage/`    | `known_destinations`, `cache/`, `resources/`, `identities/`                                                        |
+| LXMF router storage | `{storagepath}/lxmf/`     | `local_deliveries`, `locally_processed`, `outbound_stamp_costs`, `available_tickets`, `messagestore/`, `ratchets/` |
+| MEDRE SQLite        | Configured by MEDRE       | Events, receipts, native refs, route configs                                                                       |
 
 The LXMF `storagepath` is passed to `LXMRouter(storagepath=...)`. It
 must be a writable directory. The router creates `lxmf/` inside it.
 
 For MEDRE, these would be configured via adapter config:
+
 - `reticulum_configdir` -> `RNS.Reticulum(configdir=...)`
 - `storage_path` -> `LXMRouter(storagepath=...)`
 - `identity_path` -> `RNS.Identity.from_file(...)`
-
 
 ## 9. Message Lifecycle: Inbound
 
@@ -758,6 +752,7 @@ The current codec expects a dict like:
 ```
 
 A real `LXMessage` has:
+
 - `lxm.source_hash` (bytes, 16B)
 - `lxm.destination_hash` (bytes, 16B)
 - `lxm.hash` (bytes, 32B, the message ID)
@@ -772,13 +767,12 @@ A real `LXMessage` has:
 The adapter needs a thin conversion layer between `LXMessage` objects
 and the codec's expected dict shape.
 
-
 ## 10. Message Lifecycle: Outbound
 
 Confirmed sequence from source code:
 
 1. Create `LXMessage(destination, source, content, title, fields,
-   desired_method)`.
+desired_method)`.
 2. `router.handle_outbound(lxm)`:
    - Sets state to `OUTBOUND`.
    - Checks for outbound ticket (for stamp bypass).
@@ -802,11 +796,11 @@ For the real adapter, `deliver()` would:
 1. Extract content, title, fields from `RenderingResult.payload`.
 2. Resolve the destination hash from the target address.
 3. Create `LXMessage(destination_dest, source_dest, content, title,
-   fields, desired_method)`.
+fields, desired_method)`.
 4. Register delivery and failed callbacks.
 5. Call `router.handle_outbound(lxm)`.
 6. Return `AdapterDeliveryResult(native_message_id=lxm.hash.hex(),
-   native_channel_id="")`.
+native_channel_id="")`.
 
 The tricky part is resolving the destination hash. MEDRE addresses are
 identity hashes (32 hex chars). The destination hash must be computed
@@ -814,15 +808,14 @@ from the identity hash and the `lxmf.delivery` aspect. This requires
 either having the remote identity loaded (from an announce) or computing
 the destination hash from the known identity hash.
 
-
 ## 10. Cross-References
 
-| Topic | Contract |
-|-------|----------|
-| LXMF source audit (identity, wire format, fields, delivery methods) | `13-lxmf-source-audit.md` |
-| LXMF adapter tranche 1 scope, config, capabilities, pipeline | `14-lxmf-tranche-1.md` |
-| Production connectivity readiness per adapter (LXMF section) | `16-production-connectivity-readiness.md` |
-| Operational readiness gaps (LXMF section) | `18-operational-readiness-gaps.md` |
+| Topic                                                               | Contract                                  |
+| ------------------------------------------------------------------- | ----------------------------------------- |
+| LXMF source audit (identity, wire format, fields, delivery methods) | `13-lxmf-source-audit.md`                 |
+| LXMF adapter tranche 1 scope, config, capabilities, pipeline        | `14-lxmf-tranche-1.md`                    |
+| Production connectivity readiness per adapter (LXMF section)        | `16-production-connectivity-readiness.md` |
+| Operational readiness gaps (LXMF section)                           | `18-operational-readiness-gaps.md`        |
 
 Key findings that this contract consolidates:
 
@@ -843,22 +836,20 @@ Key findings that this contract consolidates:
   contract confirms the threading model (Reticulum uses daemon threads,
   not asyncio) and the need for callback bridging.
 
-
 ## 11. Implementation Readiness Summary
 
-| Task | SDK API Available | Adapter Code Exists | Blocked By |
-|------|------------------|--------------------|-------------| 
-| Identity load/create | `RNS.Identity.from_file()`, `RNS.Identity()` | No | `identity_path` wiring |
-| Reticulum init | `RNS.Reticulum(configdir)` | No | `reticulum_configdir` config field |
-| Router creation | `LXMF.LXMRouter(storagepath)` | No | `storage_path` config field |
-| Register delivery identity | `router.register_delivery_identity()` | No | Identity + router creation |
-| Register delivery callback | `router.register_delivery_callback()` | No | Router creation |
-| Announce presence | `router.announce()` | No | Delivery identity registration |
-| Send message | `router.handle_outbound()` | No | Router + destination resolution |
-| LXMessage to dict conversion | N/A (application code) | No | Need to decide: modify codec or add adapter layer |
-| Clean shutdown | `router.exit_handler()`, `RNS.exit()` | No | Router creation |
-| Propagation node sync | `router.request_messages_from_propagation_node()` | No | Propagation node config |
-
+| Task                         | SDK API Available                                 | Adapter Code Exists | Blocked By                                        |
+| ---------------------------- | ------------------------------------------------- | ------------------- | ------------------------------------------------- |
+| Identity load/create         | `RNS.Identity.from_file()`, `RNS.Identity()`      | No                  | `identity_path` wiring                            |
+| Reticulum init               | `RNS.Reticulum(configdir)`                        | No                  | `reticulum_configdir` config field                |
+| Router creation              | `LXMF.LXMRouter(storagepath)`                     | No                  | `storage_path` config field                       |
+| Register delivery identity   | `router.register_delivery_identity()`             | No                  | Identity + router creation                        |
+| Register delivery callback   | `router.register_delivery_callback()`             | No                  | Router creation                                   |
+| Announce presence            | `router.announce()`                               | No                  | Delivery identity registration                    |
+| Send message                 | `router.handle_outbound()`                        | No                  | Router + destination resolution                   |
+| LXMessage to dict conversion | N/A (application code)                            | No                  | Need to decide: modify codec or add adapter layer |
+| Clean shutdown               | `router.exit_handler()`, `RNS.exit()`             | No                  | Router creation                                   |
+| Propagation node sync        | `router.request_messages_from_propagation_node()` | No                  | Propagation node config                           |
 
 ## 12. Explicit Non-Claims
 
@@ -875,10 +866,9 @@ Key findings that this contract consolidates:
   real LXMF traffic.** It is a MEDRE convention that other clients may
   or may not respect.
 
-
 ---
 
-*This document was produced by auditing the LXMF 0.9.6 and Reticulum
+_This document was produced by auditing the LXMF 0.9.6 and Reticulum
 1.2.4 source code. It does not replace live transport testing. All
 findings are based on source code analysis, not running Reticulum
-network captures.*
+network captures._

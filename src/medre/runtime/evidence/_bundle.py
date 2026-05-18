@@ -5,18 +5,10 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Callable
 
-from medre.config.loader import load_config
 from medre.config.env import apply_env_overrides
+from medre.config.loader import load_config
 from medre.observability.sanitization import sanitize_error
 
-from ._helpers import (
-    SCHEMA_VERSION,
-    _LIMITATIONS,
-    _compute_overall_status,
-    _get_version,
-    _now_utc,
-    _section_skipped,
-)
 from ._config_sections import (
     _collect_config_summary,
     _collect_route_validation,
@@ -25,11 +17,18 @@ from ._diagnostics_sections import (
     _collect_diagnostics_snapshot,
     _collect_live_health,
 )
-from ._storage_sections import (
-    _collect_storage_section,
-    _collect_storage_path_bundle,
+from ._helpers import (
+    _LIMITATIONS,
+    SCHEMA_VERSION,
+    _compute_overall_status,
+    _get_version,
+    _now_utc,
+    _section_skipped,
 )
-
+from ._storage_sections import (
+    _collect_storage_path_bundle,
+    _collect_storage_section,
+)
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -122,7 +121,8 @@ async def collect_evidence_bundle(
 
     # -- Diagnostics snapshot (no start) ------------------------------------
     sections["diagnostics_snapshot"] = await _collect_diagnostics_snapshot(
-        config, paths,
+        config,
+        paths,
     )
     if sections["diagnostics_snapshot"]["error"]:
         errors.append(sections["diagnostics_snapshot"]["error"])
@@ -144,7 +144,10 @@ async def collect_evidence_bundle(
 
     # -- Storage section ----------------------------------------------------
     sections["storage"] = await _collect_storage_section(
-        config, paths, event_id, replay_run_id,
+        config,
+        paths,
+        event_id,
+        replay_run_id,
     )
     if sections["storage"]["error"]:
         errors.append(sections["storage"]["error"])

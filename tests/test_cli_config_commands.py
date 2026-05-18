@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from medre.config.sample import generate_sample_config
 from medre.config.loader import load_config
+from medre.config.sample import generate_sample_config
 from medre.runtime.builder import RuntimeBuilder
 from tests.helpers.cli import (
     CONFIG_BAD_LIMITS,
@@ -18,7 +18,6 @@ from tests.helpers.cli import (
     _run_cli,
     _run_cli_both,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -74,17 +73,13 @@ class TestConfigCheckRoutes:
         assert "radio_to_matrix: disabled" in output
         assert "Config valid" in output
 
-    def test_config_check_route_on_off_markers(
-        self, config_with_routes: Path
-    ) -> None:
+    def test_config_check_route_on_off_markers(self, config_with_routes: Path) -> None:
         """Config check route inventory shows [ON]/[OFF] markers."""
         output = _run_cli("config", "check", "--config", str(config_with_routes))
         assert "[ON]" in output
         assert "[OFF]" in output
 
-    def test_config_check_route_summary_count(
-        self, config_with_routes: Path
-    ) -> None:
+    def test_config_check_route_summary_count(self, config_with_routes: Path) -> None:
         output = _run_cli("config", "check", "--config", str(config_with_routes))
         assert "2/3 route(s) active" in output
 
@@ -256,9 +251,9 @@ class TestSampleConfigFakeBuildable:
             f"Expected >= 2 built adapters, got {len(app.adapters)}: "
             f"{list(app.adapters.keys())}"
         )
-        assert app.build_failures == [], (
-            f"Unexpected build failures: {app.build_failures}"
-        )
+        assert (
+            app.build_failures == []
+        ), f"Unexpected build failures: {app.build_failures}"
 
     def test_sample_routes_parse_correctly(self, tmp_path: Path) -> None:
         """Routes in sample config parse into RouteConfigSet."""
@@ -288,6 +283,6 @@ class TestSampleConfigFakeBuildable:
         for _transport, instances in data.get("adapters", {}).items():
             for _name, conf in instances.items():
                 if isinstance(conf, dict) and "access_token" in conf:
-                    assert conf["access_token"] != "", (
-                        "Sample has empty access_token — would fail config validation"
-                    )
+                    assert (
+                        conf["access_token"] != ""
+                    ), "Sample has empty access_token — would fail config validation"

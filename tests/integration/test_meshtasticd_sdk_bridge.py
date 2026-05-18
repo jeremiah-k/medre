@@ -68,23 +68,28 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from medre.core.contracts.adapter import AdapterContext
 from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
-from medre.core.events.canonical import CanonicalEvent
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.adapters.meshtastic.compat import HAS_MESHTASTIC
-from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
+from medre.config.adapters.meshtastic import MeshtasticConfig
+from medre.core.contracts.adapter import AdapterContext
+from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.events.bus import EventBus
+from medre.core.events.canonical import CanonicalEvent
 from medre.core.planning.fallback_resolution import FallbackResolver
 from medre.core.planning.relation_resolution import RelationResolver
 from medre.core.rendering.renderer import RenderingPipeline, RenderingResult
 from medre.core.rendering.text import TextRenderer
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite import SQLiteStorage
-from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 
-from .conftest import MeshtasticdEnvironment, _write_artifact_json, _write_run_metadata, _RUN_ARTIFACT_DIR
+from .conftest import (
+    _RUN_ARTIFACT_DIR,
+    MeshtasticdEnvironment,
+    _write_artifact_json,
+    _write_run_metadata,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -375,9 +380,9 @@ class TestMeshtasticdSdkBridge:
                 native_channel_id="0",
                 native_message_id="88888",
             )
-            assert resolved is not None, (
-                "Expected inbound native ref for packet_id 88888 on channel 0"
-            )
+            assert (
+                resolved is not None
+            ), "Expected inbound native ref for packet_id 88888 on channel 0"
             canonical_id = resolved
 
             # Delivery receipt persisted as 'sent' (public API).
@@ -533,7 +538,8 @@ class TestMeshtasticdSdkBridge:
             await loop.run_in_executor(
                 None,
                 lambda: injector.sendText(
-                    "sdk inject test", channelIndex=0,
+                    "sdk inject test",
+                    channelIndex=0,
                 ),
             )
 

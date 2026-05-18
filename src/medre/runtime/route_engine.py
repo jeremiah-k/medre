@@ -334,8 +334,7 @@ def validate_route_adapter_refs(
         for aid in rc.dest_adapters:
             if aid not in adapter_ids:
                 unknown_refs.append(
-                    f"Route {rc.route_id!r} references unknown dest "
-                    f"adapter {aid!r}"
+                    f"Route {rc.route_id!r} references unknown dest " f"adapter {aid!r}"
                 )
 
     if unknown_refs:
@@ -385,7 +384,6 @@ def _expand_route_config(
         Expanded core route objects, all sharing the ``enabled`` flag
         from *rc*.
     """
-    from medre.runtime.routes import RouteDirectionality
 
     if swap_direction:
         source_ids = rc.dest_adapters
@@ -416,10 +414,7 @@ def _expand_route_config(
         else:
             route_id = f"{rc.route_id}__{src_idx}"
 
-        targets = [
-            RouteTarget(adapter=did, channel=dest_channel)
-            for did in dest_ids
-        ]
+        targets = [RouteTarget(adapter=did, channel=dest_channel) for did in dest_ids]
 
         source = RouteSource(
             adapter=src_id,
@@ -579,7 +574,7 @@ def check_route_loops(routes: list[Route]) -> list[str]:
     # -- Slow path: multi-hop cycle detection via DFS ----------------------
     # Build adjacency list: source_adapter → [dest_adapter, ...]
     adj: dict[str, list[str]] = {}
-    for (src, dst) in edges:
+    for src, dst in edges:
         adj.setdefault(src, []).append(dst)
 
     visited: set[str] = set()
@@ -599,9 +594,7 @@ def check_route_loops(routes: list[Route]) -> list[str]:
                 cycle_start = path.index(neighbour)
                 cycle = path[cycle_start:] + [neighbour]
                 cycle_str = " -> ".join(cycle)
-                loops.append(
-                    f"Route cycle detected: {cycle_str}"
-                )
+                loops.append(f"Route cycle detected: {cycle_str}")
 
         path.pop()
         rec_stack.remove(node)
@@ -721,23 +714,29 @@ def register_routes(
                 route.id,
                 src,
             )
-            skipped_routes.append(SkippedRoute(
-                route_id=route.id,
-                reason="source_adapter_failed",
-                failed_adapter_ids=(src,),
-            ))
+            skipped_routes.append(
+                SkippedRoute(
+                    route_id=route.id,
+                    reason="source_adapter_failed",
+                    failed_adapter_ids=(src,),
+                )
+            )
             continue
 
         surviving_targets = [
-            t for t in route.targets
+            t
+            for t in route.targets
             if t.adapter is None or t.adapter in built_adapter_ids
         ]
         dropped = [t.adapter for t in route.targets if t not in surviving_targets]
         # Capture failed adapter IDs before potential route replacement.
-        all_failed_target_ids = tuple(sorted(
-            t.adapter for t in route.targets
-            if t.adapter is not None and t.adapter not in built_adapter_ids
-        ))
+        all_failed_target_ids = tuple(
+            sorted(
+                t.adapter
+                for t in route.targets
+                if t.adapter is not None and t.adapter not in built_adapter_ids
+            )
+        )
         if dropped:
             _logger.warning(
                 "Degrading route %r: dest adapters %r failed to build — "
@@ -746,27 +745,31 @@ def register_routes(
                 dropped,
             )
             from dataclasses import replace as _dc_replace
+
             route = _dc_replace(route, targets=surviving_targets)
 
         if not surviving_targets:
             _logger.warning(
-                "Degrading route %r: no surviving target adapters — "
-                "skipping route",
+                "Degrading route %r: no surviving target adapters — " "skipping route",
                 route.id,
             )
-            skipped_routes.append(SkippedRoute(
-                route_id=route.id,
-                reason="no_surviving_targets",
-                failed_adapter_ids=all_failed_target_ids,
-            ))
+            skipped_routes.append(
+                SkippedRoute(
+                    route_id=route.id,
+                    reason="no_surviving_targets",
+                    failed_adapter_ids=all_failed_target_ids,
+                )
+            )
             continue
 
         # Track degraded routes (registered with partial target loss).
         if all_failed_target_ids:
-            degraded_routes.append(DegradedRoute(
-                route_id=route.id,
-                failed_adapter_ids=all_failed_target_ids,
-            ))
+            degraded_routes.append(
+                DegradedRoute(
+                    route_id=route.id,
+                    failed_adapter_ids=all_failed_target_ids,
+                )
+            )
 
         registered_routes.append(route)
 
@@ -796,9 +799,9 @@ def register_routes(
     _logger.info("Registered %d route(s)", len(registered_routes))
 
     # Build per-route operational states.
-    skipped_ids = {sr.route_id for sr in skipped_routes}
-    degraded_ids = {dr.route_id for dr in degraded_routes}
-    registered_ids = {r.id for r in registered_routes}
+    {sr.route_id for sr in skipped_routes}
+    {dr.route_id for dr in degraded_routes}
+    {r.id for r in registered_routes}
 
     # Build a reverse provenance: config_route_id → set of expanded route IDs.
     config_to_expanded: dict[str, set[str]] = {}
@@ -924,9 +927,7 @@ def compute_startup_readiness(
 
         # Check if already skipped at build time.
         expanded = config_to_expanded.get(config_id, set())
-        build_skipped = [
-            sr for sr in eligibility.skipped if sr.route_id in expanded
-        ]
+        build_skipped = [sr for sr in eligibility.skipped if sr.route_id in expanded]
         if build_skipped and not any(r.id in expanded for r in registered_routes):
             startup_route_states[config_id] = RouteOperationalState.SKIPPED
             continue
@@ -949,13 +950,16 @@ def compute_startup_readiness(
                     _logger.warning(
                         "Startup readiness: route %r source adapter %r "
                         "failed to start — skipping",
-                        expanded_id, src,
+                        expanded_id,
+                        src,
                     )
-                    startup_skipped.append(SkippedRoute(
-                        route_id=expanded_id,
-                        reason="source_adapter_start_failed",
-                        failed_adapter_ids=(src,),
-                    ))
+                    startup_skipped.append(
+                        SkippedRoute(
+                            route_id=expanded_id,
+                            reason="source_adapter_start_failed",
+                            failed_adapter_ids=(src,),
+                        )
+                    )
                     any_skipped = True
                     continue
 
@@ -978,22 +982,27 @@ def compute_startup_readiness(
                     "after startup — skipping",
                     expanded_id,
                 )
-                startup_skipped.append(SkippedRoute(
-                    route_id=expanded_id,
-                    reason="no_surviving_targets_start_failed",
-                    failed_adapter_ids=tuple(sorted(failed_target_ids)),
-                ))
+                startup_skipped.append(
+                    SkippedRoute(
+                        route_id=expanded_id,
+                        reason="no_surviving_targets_start_failed",
+                        failed_adapter_ids=tuple(sorted(failed_target_ids)),
+                    )
+                )
                 any_skipped = True
             elif failed_target_ids:
                 _logger.warning(
                     "Startup readiness: route %r degraded — target "
                     "adapters %r failed to start",
-                    expanded_id, failed_target_ids,
+                    expanded_id,
+                    failed_target_ids,
                 )
-                startup_degraded.append(DegradedRoute(
-                    route_id=expanded_id,
-                    failed_adapter_ids=tuple(sorted(failed_target_ids)),
-                ))
+                startup_degraded.append(
+                    DegradedRoute(
+                        route_id=expanded_id,
+                        failed_adapter_ids=tuple(sorted(failed_target_ids)),
+                    )
+                )
                 any_degraded = True
                 any_registered = True
             else:

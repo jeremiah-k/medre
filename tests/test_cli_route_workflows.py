@@ -3,17 +3,13 @@
 Operators run validate, topology, and list commands and get consistent,
 deterministic results across all three subcommands.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from tests.test_cli_config_workflows import (
     _run_cli,
-    _run_cli_raw,
-    config_fake_multi,
-    config_minimal,
 )
 
 
@@ -83,6 +79,6 @@ class TestRoutesWorkflow:
     def test_no_routes_message(self, config_minimal: Path) -> None:
         for subcmd in ("validate", "topology", "list"):
             output = _run_cli("routes", subcmd, "--config", str(config_minimal))
-            assert "No routes configured" in output, (
-                f"routes {subcmd} did not report empty routes"
-            )
+            assert (
+                "No routes configured" in output
+            ), f"routes {subcmd} did not report empty routes"

@@ -31,7 +31,9 @@ TARGET_DOCS = [
     RUNBOOKS_DIR / "configuration.md",
 ]
 
-_OPERATOR_COMMAND_SURFACE = _ROOT / "docs" / "architecture" / "operator-command-surface.md"
+_OPERATOR_COMMAND_SURFACE = (
+    _ROOT / "docs" / "architecture" / "operator-command-surface.md"
+)
 _EXAMPLES_CONFIGS_DIR = _ROOT / "examples" / "configs"
 _LIVE_CONFIG_HELPER = _ROOT / "tests" / "helpers" / "live_config.py"
 
@@ -57,7 +59,7 @@ class TestNoPrivateCliImports:
     (``from medre.adapters.matrix import ...``) should appear."""
 
     def test_no_private_cli_imports_in_docs(self) -> None:
-        text = _all_doc_text()
+        _all_doc_text()
         # Match import lines referencing medre.cli._ (private modules)
         # or from medre._ (private top-level).
         patterns = [
@@ -114,9 +116,9 @@ class TestRetrySemantics:
     def test_bridge_operation_describes_retry_opt_in(self) -> None:
         text = _read(RUNBOOKS_DIR / "bridge-operation.md")
         # Must mention opt-in nature of retry
-        assert "opt-in" in text.lower() or "disabled by default" in text.lower(), (
-            "bridge-operation.md must describe retry as opt-in/disabled by default."
-        )
+        assert (
+            "opt-in" in text.lower() or "disabled by default" in text.lower()
+        ), "bridge-operation.md must describe retry as opt-in/disabled by default."
 
     def test_alpha_walkthrough_describes_retry_levels(self) -> None:
         text = _read(RUNBOOKS_DIR / "alpha-walkthrough.md")
@@ -135,9 +137,7 @@ class TestRetrySemantics:
             # Only check docs that mention replay extensively
             if text.lower().count("replay") < 3:
                 continue
-            assert (
-                "manual" in text.lower() or "one-shot" in text.lower()
-            ), (
+            assert "manual" in text.lower() or "one-shot" in text.lower(), (
                 f"{doc_path.name} mentions replay extensively but does "
                 f"not describe it as manual/one-shot."
             )
@@ -307,9 +307,10 @@ class TestSourceTreeExamplesWording:
         if "examples/configs/" not in text:
             pytest.skip(f"{doc_path.name} does not reference examples/configs/")
         # Must have some mention of source-tree/installed distinction
-        has_source_note = (
-            "source" in text.lower()
-            and ("checkout" in text.lower() or "tree" in text.lower() or "clone" in text.lower())
+        has_source_note = "source" in text.lower() and (
+            "checkout" in text.lower()
+            or "tree" in text.lower()
+            or "clone" in text.lower()
         )
         assert has_source_note, (
             f"{doc_path.name} references examples/configs/ but does not "

@@ -7,6 +7,7 @@ registration, bounded reconnection, and graceful teardown.
 The adapter delegates all client ownership to this session object.
 The session owns raw transport; the adapter owns semantic conversion.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -17,11 +18,11 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from medre.adapters.meshtastic.compat import HAS_MESHTASTIC
-from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.adapters.meshtastic.errors import (
     MeshtasticConnectionError,
     MeshtasticSendError,
 )
+from medre.config.adapters.meshtastic import MeshtasticConfig
 
 _logger = logging.getLogger(__name__)
 
@@ -282,9 +283,7 @@ class MeshtasticSession:
 
         self._client = None
         self._started = False
-        self._logger.info(
-            "MeshtasticSession %s stopped", self._adapter_id
-        )
+        self._logger.info("MeshtasticSession %s stopped", self._adapter_id)
 
     # -- Outbound send --------------------------------------------------------
 
@@ -334,7 +333,10 @@ class MeshtasticSession:
                 self._logger.warning(
                     "MeshtasticSession %s transient send failure "
                     "(attempt %d/%d): %s",
-                    self._adapter_id, attempt, _MAX_SEND_RETRIES, exc,
+                    self._adapter_id,
+                    attempt,
+                    _MAX_SEND_RETRIES,
+                    exc,
                 )
                 if attempt < _MAX_SEND_RETRIES:
                     await asyncio.sleep(0.1 * attempt)
@@ -345,7 +347,10 @@ class MeshtasticSession:
                 self._logger.warning(
                     "MeshtasticSession %s transient send failure "
                     "(attempt %d/%d): %s",
-                    self._adapter_id, attempt, _MAX_SEND_RETRIES, exc,
+                    self._adapter_id,
+                    attempt,
+                    _MAX_SEND_RETRIES,
+                    exc,
                 )
                 if attempt < _MAX_SEND_RETRIES:
                     await asyncio.sleep(0.1 * attempt)
@@ -362,9 +367,11 @@ class MeshtasticSession:
                 self._transient_delivery_failures += 1
                 self._last_error = f"Send failure (attempt {attempt}): {exc}"
                 self._logger.warning(
-                    "MeshtasticSession %s send failure "
-                    "(attempt %d/%d): %s",
-                    self._adapter_id, attempt, _MAX_SEND_RETRIES, exc,
+                    "MeshtasticSession %s send failure " "(attempt %d/%d): %s",
+                    self._adapter_id,
+                    attempt,
+                    _MAX_SEND_RETRIES,
+                    exc,
                 )
                 if attempt < _MAX_SEND_RETRIES:
                     await asyncio.sleep(0.1 * attempt)
@@ -421,16 +428,18 @@ class MeshtasticSession:
                 assert self._config.host is not None  # validated by config
                 return TCPInterface(
                     hostname=self._config.host,
-                    portNumber=self._config.port
-                    if self._config.port is not None
-                    else 4403,
+                    portNumber=(
+                        self._config.port if self._config.port is not None else 4403
+                    ),
                 )
             elif conn == "serial":
                 from meshtastic.serial_interface import SerialInterface
 
                 return SerialInterface(devPath=self._config.serial_port)
             elif conn == "ble":
-                from meshtastic.ble_interface import BLEInterface  # type: ignore[attr-defined]
+                from meshtastic.ble_interface import (
+                    BLEInterface,  # type: ignore[attr-defined]
+                )
 
                 assert self._config.ble_address is not None
                 return BLEInterface(address=self._config.ble_address)
@@ -477,9 +486,7 @@ class MeshtasticSession:
             pass
         self._subscribed = False
 
-    def _on_receive(
-        self, packet: dict[str, Any], interface: Any = None
-    ) -> None:
+    def _on_receive(self, packet: dict[str, Any], interface: Any = None) -> None:
         """Pubsub callback for inbound packets.
 
         Records diagnostics and forwards to the adapter's message callback.
@@ -499,9 +506,7 @@ class MeshtasticSession:
         if self._stop_requested or self._reconnecting:
             return
         self._last_error = "Connection lost"
-        self._logger.warning(
-            "MeshtasticSession %s connection lost", self._adapter_id
-        )
+        self._logger.warning("MeshtasticSession %s connection lost", self._adapter_id)
         self._reconnect_task = asyncio.create_task(self._reconnect_loop())
 
     async def _reconnect_loop(self) -> None:
@@ -526,26 +531,21 @@ class MeshtasticSession:
                         _MAX_RECONNECT_ATTEMPTS,
                     )
                     self._last_error = (
-                        f"Max reconnect attempts ({_MAX_RECONNECT_ATTEMPTS}) "
-                        "reached"
+                        f"Max reconnect attempts ({_MAX_RECONNECT_ATTEMPTS}) " "reached"
                     )
                     self._reconnecting = False
                     return
 
                 # Compute backoff with jitter
                 delay = min(
-                    _BACKOFF_BASE
-                    * (2 ** (self._reconnect_attempts - 1)),
+                    _BACKOFF_BASE * (2 ** (self._reconnect_attempts - 1)),
                     _BACKOFF_CAP,
                 )
                 jitter = delay * _BACKOFF_JITTER_FRACTION
-                actual_delay = max(
-                    0.0, delay + random.uniform(-jitter, jitter)
-                )
+                actual_delay = max(0.0, delay + random.uniform(-jitter, jitter))
 
                 self._logger.warning(
-                    "MeshtasticSession %s reconnect attempt %d/%d "
-                    "in %.1fs",
+                    "MeshtasticSession %s reconnect attempt %d/%d " "in %.1fs",
                     self._adapter_id,
                     self._reconnect_attempts,
                     _MAX_RECONNECT_ATTEMPTS,
@@ -598,8 +598,7 @@ class MeshtasticSession:
                 except Exception as exc:
                     self._last_error = f"Reconnect failed: {exc}"
                     self._logger.warning(
-                        "MeshtasticSession %s reconnect attempt %d "
-                        "failed: %s",
+                        "MeshtasticSession %s reconnect attempt %d " "failed: %s",
                         self._adapter_id,
                         self._reconnect_attempts,
                         exc,

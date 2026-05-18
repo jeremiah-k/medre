@@ -7,12 +7,9 @@ filtering, dead-letter retry, and non-mutation constraints.
 
 from __future__ import annotations
 
-from typing import Any
 from unittest.mock import AsyncMock
 
-import pytest
-
-from medre.core.events import CanonicalEvent, DeliveryReceipt, EventMetadata
+from medre.core.events import CanonicalEvent, DeliveryReceipt
 from medre.core.rendering import RenderingPipeline
 from medre.core.routing import Router
 from medre.core.storage import EventFilter, SQLiteStorage
@@ -20,11 +17,9 @@ from medre.core.storage.replay import (
     ReplayMode,
     ReplayRequest,
 )
-
 from tests.helpers.replay import (
     StubPipeline,
     make_engine,
-    rendering_pipeline,
 )
 
 

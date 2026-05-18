@@ -8,13 +8,11 @@
 
 This document explicitly states the fire-and-forget delivery model of MEDRE's radio transports (Meshtastic, MeshCore, LXMF). These are inherent properties of the radio protocols and SDKs, not bugs in MEDRE. The purpose is to prevent misinterpretation of `AdapterDeliveryResult` values for these transports.
 
-
 ## 1. Core Statement
 
 **Meshtastic, MeshCore, and LXMF transports do not guarantee end-to-end delivery confirmation.** An outbound `deliver()` call that returns `AdapterDeliveryResult(success=True)` confirms only that the message was handed off to the local radio or router layer. It does **not** mean the message was received by any remote party.
 
 This is an honest model. MEDRE reports what it knows (local handoff succeeded) and does not pretend to know what it cannot verify (remote receipt).
-
 
 ## 2. Per-Transport Behavior
 
@@ -46,19 +44,17 @@ This is an honest model. MEDRE reports what it knows (local handoff succeeded) a
 - MEDRE does not currently observe or surface the LXMF delivery state progression.
 - **`AdapterDeliveryResult.success=True` means "message was handed to the LXMRouter."**
 
-
 ## 3. AdapterDeliveryResult Semantics
 
 The `AdapterDeliveryResult` type has a `success` field and a `native_message_id` field. For radio transports:
 
-| Field | Meaning for radio transports |
-|-------|------------------------------|
-| `success=True` | Local handoff succeeded. The message was accepted by the local radio, SDK, or router. |
-| `success=False` | Local handoff failed. The message was not transmitted. |
+| Field               | Meaning for radio transports                                                                                |
+| ------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `success=True`      | Local handoff succeeded. The message was accepted by the local radio, SDK, or router.                       |
+| `success=False`     | Local handoff failed. The message was not transmitted.                                                      |
 | `native_message_id` | Transport-specific local identifier (Meshtastic packet ID, MeshCore link ID, LXMF message hash), or `None`. |
 
 **Neither field implies end-to-end delivery.** This is true for all radio transports. Only Matrix provides server-side delivery confirmation (homeserver persists the event and returns an event_id).
-
 
 ## 4. Why This Is Not a Bug
 
@@ -70,11 +66,9 @@ The `AdapterDeliveryResult` type has a `success` field and a `native_message_id`
 
 4. **Consumers must handle uncertainty.** Applications built on MEDRE must be designed for eventual delivery or no delivery. This is the same contract that the underlying radio protocols provide.
 
-
 ## 5. Relationship to Failure Taxonomy
 
 This contract supplements `docs/contracts/33-failure-taxonomy.md`, which provides detailed per-transport failure classification. The failure taxonomy records specific failure modes (transient vs. permanent, reconnectable, duplicate-send risk). This document states the general principle: radio transports are fire-and-forget at the MEDRE adapter level.
-
 
 ## 6. Implications for Consumers
 

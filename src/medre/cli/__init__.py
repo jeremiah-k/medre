@@ -39,15 +39,16 @@ Utility::
 The package also supports ``python -m medre`` and ``python -m medre.cli``
 via their respective ``__main__`` modules.
 """
+
 from __future__ import annotations
 
 # Exit codes — used by tests via ``from medre.cli import EXIT_*``
 from .exit_codes import (
-    EXIT_OK,
-    EXIT_CONFIG,
     EXIT_BUILD,
-    EXIT_STARTUP,
+    EXIT_CONFIG,
     EXIT_NOT_FOUND,
+    EXIT_OK,
+    EXIT_STARTUP,
 )
 
 # Main entry point and parser

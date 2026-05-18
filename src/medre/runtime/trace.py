@@ -112,65 +112,73 @@ def assemble_event_timeline(
     # Relations precede the event itself (they are structural metadata
     # that exists at event creation time).
     for i, rel in enumerate(relations):
-        entries.append(_timeline_entry(
-            timestamp=event.timestamp,
-            ordinal=-(len(relations) - i),
-            entry_type="relation",
-            data={"relation_type": rel.relation_type},
-        ))
+        entries.append(
+            _timeline_entry(
+                timestamp=event.timestamp,
+                ordinal=-(len(relations) - i),
+                entry_type="relation",
+                data={"relation_type": rel.relation_type},
+            )
+        )
 
     # The event itself.
-    entries.append(_timeline_entry(
-        timestamp=event.timestamp,
-        ordinal=0,
-        entry_type="event",
-        data={
-            "event_id": event.event_id,
-            "event_kind": event.event_kind,
-            "source_adapter": event.source_adapter,
-            "source_channel_id": event.source_channel_id,
-        },
-    ))
+    entries.append(
+        _timeline_entry(
+            timestamp=event.timestamp,
+            ordinal=0,
+            entry_type="event",
+            data={
+                "event_id": event.event_id,
+                "event_kind": event.event_kind,
+                "source_adapter": event.source_adapter,
+                "source_channel_id": event.source_channel_id,
+            },
+        )
+    )
 
     # Native message refs — materialisation evidence.
     for i, nref in enumerate(native_refs):
-        entries.append(_timeline_entry(
-            timestamp=nref.created_at,
-            ordinal=i + 1,
-            entry_type="native_ref",
-            data={
-                "id": nref.id,
-                "event_id": nref.event_id,
-                "adapter": nref.adapter,
-                "native_channel_id": nref.native_channel_id,
-                "native_message_id": nref.native_message_id,
-                "native_thread_id": nref.native_thread_id,
-                "direction": nref.direction,
-            },
-        ))
+        entries.append(
+            _timeline_entry(
+                timestamp=nref.created_at,
+                ordinal=i + 1,
+                entry_type="native_ref",
+                data={
+                    "id": nref.id,
+                    "event_id": nref.event_id,
+                    "adapter": nref.adapter,
+                    "native_channel_id": nref.native_channel_id,
+                    "native_message_id": nref.native_message_id,
+                    "native_thread_id": nref.native_thread_id,
+                    "direction": nref.direction,
+                },
+            )
+        )
 
     # Delivery receipts — outbound delivery evidence.
     for receipt in receipts:
-        entries.append(_timeline_entry(
-            timestamp=receipt.created_at,
-            ordinal=receipt.sequence,
-            entry_type="receipt",
-            data={
-                "receipt_id": receipt.receipt_id,
-                "event_id": receipt.event_id,
-                "route_id": receipt.route_id,
-                "delivery_plan_id": receipt.delivery_plan_id,
-                "target_adapter": receipt.target_adapter,
-                "status": receipt.status,
-                "failure_kind": None,
-                "error": receipt.error,
-                "attempt_number": receipt.attempt_number,
-                "source": receipt.source,
-                "replay_run_id": receipt.replay_run_id,
-                "native_message_id": receipt.adapter_message_id,
-                "native_channel_id": None,
-            },
-        ))
+        entries.append(
+            _timeline_entry(
+                timestamp=receipt.created_at,
+                ordinal=receipt.sequence,
+                entry_type="receipt",
+                data={
+                    "receipt_id": receipt.receipt_id,
+                    "event_id": receipt.event_id,
+                    "route_id": receipt.route_id,
+                    "delivery_plan_id": receipt.delivery_plan_id,
+                    "target_adapter": receipt.target_adapter,
+                    "status": receipt.status,
+                    "failure_kind": None,
+                    "error": receipt.error,
+                    "attempt_number": receipt.attempt_number,
+                    "source": receipt.source,
+                    "replay_run_id": receipt.replay_run_id,
+                    "native_message_id": receipt.adapter_message_id,
+                    "native_channel_id": None,
+                },
+            )
+        )
 
     # Sort by (timestamp, ordinal) for deterministic chronological order.
     entries.sort(key=lambda e: (e["timestamp"], e["ordinal"]))
@@ -263,16 +271,18 @@ def assemble_replay_timeline(
         # If the referenced event is in cache, include a summary.
         event = event_cache.get(receipt.event_id)
         if event is not None:
-            timeline_entries.append({
-                "timestamp": _to_iso(event.timestamp),
-                "ordinal": receipt.sequence + 1,
-                "entry_type": "event_summary",
-                "data": {
-                    "event_id": event.event_id,
-                    "event_kind": event.event_kind,
-                    "source_adapter": event.source_adapter,
-                },
-            })
+            timeline_entries.append(
+                {
+                    "timestamp": _to_iso(event.timestamp),
+                    "ordinal": receipt.sequence + 1,
+                    "entry_type": "event_summary",
+                    "data": {
+                        "event_id": event.event_id,
+                        "event_kind": event.event_kind,
+                        "source_adapter": event.source_adapter,
+                    },
+                }
+            )
 
     # Sort by (timestamp, ordinal).
     timeline_entries.sort(key=lambda e: (e["timestamp"], e["ordinal"]))

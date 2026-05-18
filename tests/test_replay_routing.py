@@ -21,8 +21,8 @@ import pytest
 from medre.core.events import CanonicalEvent, EventMetadata, RoutingMetadata
 from medre.core.planning import FallbackResolver
 from medre.core.rendering import RenderingPipeline, TextRenderer
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
-from medre.core.storage import EventFilter, SQLiteStorage
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
+from medre.core.storage import SQLiteStorage
 from medre.core.storage.backend import StorageBackend
 from medre.core.storage.replay import (
     ReplayEngine,
@@ -30,14 +30,12 @@ from medre.core.storage.replay import (
     ReplayRequest,
     ReplayResult,
     ReplayRouteAttribution,
-    ReplaySummary,
     _build_summary,
     _filter_replay_loops,
     _replay_delivery_envelope,
     collect_replay_state,
     collect_replay_summary,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -109,7 +107,8 @@ class _StubPipeline:
         return None
 
     async def route_event(
-        self, event: CanonicalEvent,
+        self,
+        event: CanonicalEvent,
     ) -> list[tuple[Any, list[Any]]]:
         """Match event against the router and return (route, targets) pairs."""
         if self._router is None:
@@ -127,11 +126,9 @@ class _StubPipeline:
     ) -> list[Any]:
         """Build delivery plans for each route-target pair."""
         plans: list[Any] = []
-        for route, targets in routes:
+        for _route, targets in routes:
             for target in targets:
-                plan = self._fallback_resolver.resolve_fallback(
-                    event, target, {}
-                )
+                plan = self._fallback_resolver.resolve_fallback(event, target, {})
                 plans.append(plan)
         return plans
 
@@ -314,7 +311,10 @@ class TestRouteMetadataNamespacing:
         stored = await temp_storage.get(event.event_id)
         assert stored is not None
         # No replay-specific metadata was added to the event
-        assert stored.metadata.routing is None or stored.metadata.routing == event.metadata.routing
+        assert (
+            stored.metadata.routing is None
+            or stored.metadata.routing == event.metadata.routing
+        )
 
     def test_attribution_to_dict_is_deterministic(self) -> None:
         """ReplayRouteAttribution.to_dict() produces deterministic output."""
@@ -391,10 +391,12 @@ class TestReplayLoopPrevention:
     ) -> None:
         """Bidirectional routes: each event only routes away from its source."""
         event_a = _make_event(
-            source_adapter="a", event_id="evt-from-a",
+            source_adapter="a",
+            event_id="evt-from-a",
         )
         event_b = _make_event(
-            source_adapter="b", event_id="evt-from-b",
+            source_adapter="b",
+            event_id="evt-from-b",
         )
         await temp_storage.append(event_a)
         await temp_storage.append(event_b)
@@ -499,8 +501,14 @@ class TestReplayLoopPrevention:
         """_filter_replay_loops returns no warnings when no loops exist."""
         event = _make_event(source_adapter="a")
         routes = [
-            (Route(id="r1", source=RouteSource(adapter="a", event_kinds=(), channel=None),
-                   targets=[RouteTarget(adapter="b")]), [RouteTarget(adapter="b")]),
+            (
+                Route(
+                    id="r1",
+                    source=RouteSource(adapter="a", event_kinds=(), channel=None),
+                    targets=[RouteTarget(adapter="b")],
+                ),
+                [RouteTarget(adapter="b")],
+            ),
         ]
         warnings, filtered = _filter_replay_loops(event, routes)
         assert warnings == []
@@ -510,8 +518,14 @@ class TestReplayLoopPrevention:
         """_filter_replay_loops detects source feedback."""
         event = _make_event(source_adapter="a")
         routes = [
-            (Route(id="r1", source=RouteSource(adapter="a", event_kinds=(), channel=None),
-                   targets=[RouteTarget(adapter="a")]), [RouteTarget(adapter="a")]),
+            (
+                Route(
+                    id="r1",
+                    source=RouteSource(adapter="a", event_kinds=(), channel=None),
+                    targets=[RouteTarget(adapter="a")],
+                ),
+                [RouteTarget(adapter="a")],
+            ),
         ]
         warnings, filtered = _filter_replay_loops(event, routes)
         assert len(warnings) == 1
@@ -525,8 +539,14 @@ class TestReplayLoopPrevention:
             matched_routes=("r1",),
         )
         routes = [
-            (Route(id="r1", source=RouteSource(adapter="a", event_kinds=(), channel=None),
-                   targets=[RouteTarget(adapter="b")]), [RouteTarget(adapter="b")]),
+            (
+                Route(
+                    id="r1",
+                    source=RouteSource(adapter="a", event_kinds=(), channel=None),
+                    targets=[RouteTarget(adapter="b")],
+                ),
+                [RouteTarget(adapter="b")],
+            ),
         ]
         warnings, filtered = _filter_replay_loops(event, routes)
         assert len(warnings) == 1
@@ -738,8 +758,10 @@ class TestDeliveryMetadataPreservation:
 
     async def test_delivery_envelope_preserves_adapter_results(self) -> None:
         """_replay_delivery_envelope preserves original results without promotion."""
+
         class _FakeDeliveryResult:
             """Simulates a queued/best-effort adapter result."""
+
             native_message_id = None  # Not confirmed delivered
             status = "queued"
 
@@ -801,7 +823,7 @@ class TestDeterministicDuplicateReplay:
         results2 = [r async for r in engine.replay(request)]
 
         assert len(results1) == len(results2)
-        for r1, r2 in zip(results1, results2):
+        for r1, r2 in zip(results1, results2, strict=False):
             assert r1.event_id == r2.event_id
             assert r1.stage == r2.stage
             assert r1.status == r2.status
@@ -829,7 +851,10 @@ class TestDeterministicDuplicateReplay:
 
         assert route1.route_attribution is not None
         assert route2.route_attribution is not None
-        assert route1.route_attribution.loop_warnings == route2.route_attribution.loop_warnings
+        assert (
+            route1.route_attribution.loop_warnings
+            == route2.route_attribution.loop_warnings
+        )
 
     async def test_collect_replay_state_deterministic(
         self,
@@ -1163,10 +1188,12 @@ class TestReplaySummaryRouteCounts:
         engine = _make_engine(temp_storage, pipeline=pipeline)
 
         summary = await collect_replay_summary(
-            engine.replay(ReplayRequest(
-                mode=ReplayMode.RE_ROUTE,
-                run_id="run-abc-123",
-            )),
+            engine.replay(
+                ReplayRequest(
+                    mode=ReplayMode.RE_ROUTE,
+                    run_id="run-abc-123",
+                )
+            ),
             mode=ReplayMode.RE_ROUTE,
             run_id="run-abc-123",
         )

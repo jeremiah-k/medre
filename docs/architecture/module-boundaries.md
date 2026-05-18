@@ -4,7 +4,7 @@ Package structure and import rules after the runtime refactor.
 
 ## Package layout
 
-```
+```text
 src/medre/
   cli/            argparse, command dispatch, I/O formatting
   runtime/        builder, app, route engine, smoke/drill/trace
@@ -67,14 +67,14 @@ Owns TOML loading, model classes, environment overrides, and path resolution.
 
 ## Import rules
 
-| From | May import | Must not import |
-|------|-----------|-----------------|
-| `cli/` commands | `config.*`, `observability`, `runtime.builder` | Adapter implementations, `core.*` internals |
-| `runtime/builder` | `core.contracts.adapter`, `config.model`, `core.*` | Specific adapter SDK modules |
-| `runtime/observability` | `core.diagnostics`, `core.routing.stats` | Adapter code |
-| `core/*` | Other `core/*` sub-packages | `adapters.*`, `runtime.*`, `cli.*` |
-| `adapters/<transport>/` | `core.contracts.adapter`, `core.events`, `core.rendering` | Other adapter packages, `runtime.*` |
-| `config/` | `pathlib`, stdlib only | `core.*`, `adapters.*`, `runtime.*` |
+| From                    | May import                                                | Must not import                             |
+| ----------------------- | --------------------------------------------------------- | ------------------------------------------- |
+| `cli/` commands         | `config.*`, `observability`, `runtime.builder`            | Adapter implementations, `core.*` internals |
+| `runtime/builder`       | `core.contracts.adapter`, `config.model`, `core.*`        | Specific adapter SDK modules                |
+| `runtime/observability` | `core.diagnostics`, `core.routing.stats`                  | Adapter code                                |
+| `core/*`                | Other `core/*` sub-packages                               | `adapters.*`, `runtime.*`, `cli.*`          |
+| `adapters/<transport>/` | `core.contracts.adapter`, `core.events`, `core.rendering` | Other adapter packages, `runtime.*`         |
+| `config/`               | `pathlib`, stdlib only                                    | `core.*`, `adapters.*`, `runtime.*`         |
 
 Key invariants:
 
@@ -90,11 +90,11 @@ Key invariants:
 
 ## What was removed or moved
 
-| Before | After | Reason |
-|--------|-------|--------|
-| `runner.py` (top-level) | Deleted | Logic moved into `runtime/builder.py` and `runtime/app.py` |
-| `cli.py` (monolithic) | `cli/` package | Split into per-command modules for maintainability |
-| `_sanitize_error` (scattered) | `medre.observability.sanitization.sanitize_error` | Consolidated into user-facing observability package |
+| Before                        | After                                             | Reason                                                     |
+| ----------------------------- | ------------------------------------------------- | ---------------------------------------------------------- |
+| `runner.py` (top-level)       | Deleted                                           | Logic moved into `runtime/builder.py` and `runtime/app.py` |
+| `cli.py` (monolithic)         | `cli/` package                                    | Split into per-command modules for maintainability         |
+| `_sanitize_error` (scattered) | `medre.observability.sanitization.sanitize_error` | Consolidated into user-facing observability package        |
 
 ## Operator Tooling Boundary
 
@@ -110,7 +110,6 @@ Operator tools are consumers of the runtime, not dependencies of it.
 See [Operator Tooling Boundary](operator-tooling-boundary.md) for the full
 decision record, import invariants, and split criteria.
 
-
 ## Observability: Two Packages
 
 medre has two observability packages with distinct responsibilities and consumers.
@@ -122,14 +121,14 @@ Import path: `from medre.observability import ...`
 Used by CLI commands, runtime orchestration, and adapter-facing code. This is the
 public observability surface.
 
-| Symbol | Module | Purpose |
-|--------|--------|---------|
-| `sanitize_error` | `.sanitization` | Redact tokens/passwords from error strings, truncate to safe length |
-| `sanitize_for_log` | `.sanitization` | Canonical dict redaction path — strip secret keys from dicts, coerce values for structured log output. `medre.core.observability.logging` delegates to this function for all dict sanitization. |
-| `adapter_logger` | `.logging` | LoggerAdapter factory injecting `adapter_id` and `transport` context |
-| `startup_summary` | `.summaries` | Multi-line startup summary string for the runtime |
-| `shutdown_summary` | `.summaries` | Multi-line shutdown summary string for the runtime |
-| `format_duration_ms` | `.summaries` | Human-readable duration from monotonic timestamps |
+| Symbol               | Module          | Purpose                                                                                                                                                                                         |
+| -------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sanitize_error`     | `.sanitization` | Redact tokens/passwords from error strings, truncate to safe length                                                                                                                             |
+| `sanitize_for_log`   | `.sanitization` | Canonical dict redaction path — strip secret keys from dicts, coerce values for structured log output. `medre.core.observability.logging` delegates to this function for all dict sanitization. |
+| `adapter_logger`     | `.logging`      | LoggerAdapter factory injecting `adapter_id` and `transport` context                                                                                                                            |
+| `startup_summary`    | `.summaries`    | Multi-line startup summary string for the runtime                                                                                                                                               |
+| `shutdown_summary`   | `.summaries`    | Multi-line shutdown summary string for the runtime                                                                                                                                              |
+| `format_duration_ms` | `.summaries`    | Human-readable duration from monotonic timestamps                                                                                                                                               |
 
 ### `medre.core.observability` — framework-internal
 
@@ -138,18 +137,18 @@ Import path: `from medre.core.observability import ...`
 Used by the pipeline, routing engine, and internal framework code. Not intended
 for direct consumption by CLI or adapter code.
 
-| Symbol | Module | Purpose |
-|--------|--------|---------|
-| `setup_logging` | `.logging` | Configure the root `medre` logger (handler, level, JSON format) |
-| `get_logger` | `.logging` | Obtain a child logger in the `medre.*` namespace |
-| `diagnostic_event` | `.logging` | Emit structured diagnostic log entries with category and context |
-| `log_route_matched` | `.logging` | Log route match event |
-| `log_route_delivered` | `.logging` | Log successful route delivery |
-| `log_route_failed` | `.logging` | Log failed route delivery (sanitizes error via `medre.observability`) |
-| `log_route_loop_prevented` | `.logging` | Log loop-prevention skip |
-| `EventMetrics` | `.metrics` | Per-stage event counters with snapshot support |
-| `RouteMetrics` | `.metrics` | Per-route delivery counters with snapshot support |
-| `Diagnostician` | `.metrics` | Structured failure and diagnostic event recorder |
+| Symbol                     | Module     | Purpose                                                               |
+| -------------------------- | ---------- | --------------------------------------------------------------------- |
+| `setup_logging`            | `.logging` | Configure the root `medre` logger (handler, level, JSON format)       |
+| `get_logger`               | `.logging` | Obtain a child logger in the `medre.*` namespace                      |
+| `diagnostic_event`         | `.logging` | Emit structured diagnostic log entries with category and context      |
+| `log_route_matched`        | `.logging` | Log route match event                                                 |
+| `log_route_delivered`      | `.logging` | Log successful route delivery                                         |
+| `log_route_failed`         | `.logging` | Log failed route delivery (sanitizes error via `medre.observability`) |
+| `log_route_loop_prevented` | `.logging` | Log loop-prevention skip                                              |
+| `EventMetrics`             | `.metrics` | Per-stage event counters with snapshot support                        |
+| `RouteMetrics`             | `.metrics` | Per-route delivery counters with snapshot support                     |
+| `Diagnostician`            | `.metrics` | Structured failure and diagnostic event recorder                      |
 
 ### Boundary rules
 

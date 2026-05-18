@@ -34,9 +34,7 @@ from __future__ import annotations
 import os
 import re
 import sqlite3
-import tomllib
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -50,8 +48,8 @@ from medre.config.model import (
     StorageConfig,
 )
 from medre.config.paths import MedrePaths, resolve
-from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.app import MedreApp
+from medre.runtime.builder import RuntimeBuilder
 
 # ---------------------------------------------------------------------------
 # Repo paths
@@ -95,14 +93,14 @@ def _make_runtime_with(
     """Build a RuntimeConfig with specified adapters."""
     adapters = AdapterConfigSet()
 
-    for aid in (matrix_ids or []):
+    for aid in matrix_ids or []:
         adapters.matrix[aid] = MatrixRuntimeConfig(
             adapter_id=aid,
             enabled=True,
             adapter_kind="fake",
         )
 
-    for aid in (meshtastic_ids or []):
+    for aid in meshtastic_ids or []:
         adapters.meshtastic[aid] = MeshtasticRuntimeConfig(
             adapter_id=aid,
             enabled=True,
@@ -122,7 +120,8 @@ def _make_runtime_with(
 
 
 def _build_and_ensure_dirs(
-    config: RuntimeConfig, paths: MedrePaths,
+    config: RuntimeConfig,
+    paths: MedrePaths,
 ) -> MedreApp:
     """Build a MedreApp and call _ensure_dirs (without starting)."""
     builder = RuntimeBuilder(config, paths)
@@ -144,7 +143,9 @@ class TestBindMountStatePersistence:
     """
 
     def test_state_file_survives_reresolution(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """A file written to state_dir persists after re-resolve."""
         vol = tmp_path / "volume"
@@ -161,7 +162,9 @@ class TestBindMountStatePersistence:
         assert paths1.state_dir == paths2.state_dir
 
     def test_database_file_survives_reresolution(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """SQLite database file persists after re-resolve."""
         vol = tmp_path / "volume"
@@ -184,7 +187,9 @@ class TestBindMountStatePersistence:
         assert rows == [("hello",)]
 
     def test_adapter_state_survives_reresolution(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Adapter state directory contents persist after re-resolve."""
         vol = tmp_path / "volume"
@@ -196,7 +201,9 @@ class TestBindMountStatePersistence:
         (adapter_state / "session.dat").write_bytes(b"\x00\x01\x02")
 
         paths2 = resolve()
-        assert (paths2.adapter_state_dir("mx_a") / "session.dat").read_bytes() == b"\x00\x01\x02"
+        assert (
+            paths2.adapter_state_dir("mx_a") / "session.dat"
+        ).read_bytes() == b"\x00\x01\x02"
 
 
 # ===================================================================
@@ -211,7 +218,9 @@ class TestSQLitePersistence:
     """
 
     def test_sqlite_data_survives_rebuild(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Build app with sqlite backend, insert data, rebuild, data persists."""
         vol = tmp_path / "vol"
@@ -247,7 +256,9 @@ class TestSQLitePersistence:
         assert rows == [("value",)]
 
     def test_sqlite_wal_mode_compatible(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """SQLite WAL mode can be enabled on database under MEDRE_HOME."""
         vol = tmp_path / "vol"
@@ -271,7 +282,9 @@ class TestMatrixStorePathPersistence:
     """Matrix crypto store path is stable and deterministic."""
 
     def test_matrix_store_path_identical_across_resolves(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Re-resolving paths produces identical Matrix store path."""
         vol = tmp_path / "vol"
@@ -286,7 +299,9 @@ class TestMatrixStorePathPersistence:
         assert store1 == store2
 
     def test_matrix_store_files_persist(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Files written to Matrix store dir survive re-resolution."""
         vol = tmp_path / "vol"
@@ -311,7 +326,9 @@ class TestContainerInstanceIsolation:
     """Two different MEDRE_HOME values produce completely isolated state."""
 
     def test_separate_homes_no_shared_state(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Container A and Container B have no shared state directories."""
         home_a = tmp_path / "container_a"
@@ -343,7 +360,9 @@ class TestContainerInstanceIsolation:
         assert (paths_a.adapter_state_dir("mx") / "a_marker.txt").exists()
 
     def test_database_isolation(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Container A and Container B have separate databases."""
         home_a = tmp_path / "container_a"
@@ -368,7 +387,9 @@ class TestEnsureDirsIdempotency:
     """Calling _ensure_dirs multiple times produces no errors."""
 
     def test_ensure_dirs_twice_no_error(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """_ensure_dirs can be called twice without error."""
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
@@ -384,7 +405,9 @@ class TestEnsureDirsIdempotency:
         assert paths.adapter_state_dir("mx").is_dir()
 
     def test_ensure_dirs_thrice_idempotent(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Three calls to _ensure_dirs produce same directory tree."""
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
@@ -432,9 +455,9 @@ class TestNonRootAssumptions:
         text = _DOCKER_ENV.read_text()
         assert "MEDRE_HOME" in text, "docker.env.example missing MEDRE_HOME"
         # Must mention /opt/medre (the canonical container path)
-        assert "/opt/medre" in text, (
-            "docker.env.example must specify MEDRE_HOME=/opt/medre"
-        )
+        assert (
+            "/opt/medre" in text
+        ), "docker.env.example must specify MEDRE_HOME=/opt/medre"
 
     def test_docker_env_mentions_volume_mount(
         self,
@@ -444,9 +467,7 @@ class TestNonRootAssumptions:
         # Should mention mount/volume/persistent somewhere
         assert any(
             kw in text.lower() for kw in ("mount", "volume", "persistent", "data")
-        ), (
-            "docker.env.example should mention volume mounting or data persistence"
-        )
+        ), "docker.env.example should mention volume mounting or data persistence"
 
     def test_docker_env_no_hardcoded_uid_gid(
         self,
@@ -454,12 +475,12 @@ class TestNonRootAssumptions:
         """docker.env.example should not hardcode UID/GID values."""
         text = _DOCKER_ENV.read_text()
         # Should not have explicit UID/GID like 1000:1000
-        assert not re.search(r"\bUID\b\s*=\s*\d{4}", text), (
-            "docker.env.example should not hardcode UID"
-        )
-        assert not re.search(r"\bGID\b\s*=\s*\d{4}", text), (
-            "docker.env.example should not hardcode GID"
-        )
+        assert not re.search(
+            r"\bUID\b\s*=\s*\d{4}", text
+        ), "docker.env.example should not hardcode UID"
+        assert not re.search(
+            r"\bGID\b\s*=\s*\d{4}", text
+        ), "docker.env.example should not hardcode GID"
 
     def test_docker_env_comments_mention_persistence(
         self,
@@ -469,12 +490,11 @@ class TestNonRootAssumptions:
         # First few lines should mention persistent state / data
         header = "\n".join(text.splitlines()[:10])
         has_persistence_keyword = any(
-            kw in header.lower()
-            for kw in ("persistent", "volume", "state", "data")
+            kw in header.lower() for kw in ("persistent", "volume", "state", "data")
         )
-        assert has_persistence_keyword, (
-            "docker.env.example header should mention persistence/volume/state"
-        )
+        assert (
+            has_persistence_keyword
+        ), "docker.env.example header should mention persistence/volume/state"
 
 
 # ===================================================================
@@ -490,7 +510,9 @@ class TestContainerRestartSimulation:
     """
 
     def test_dirs_survive_restart_cycle(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Directories created in first run survive rebuild."""
         vol = tmp_path / "vol"
@@ -511,7 +533,9 @@ class TestContainerRestartSimulation:
         assert paths.adapter_state_dir("mt").is_dir()
 
     def test_data_survives_restart_cycle(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Data files created in first run survive rebuild."""
         vol = tmp_path / "vol"
@@ -520,17 +544,19 @@ class TestContainerRestartSimulation:
         paths = resolve()
 
         # First run — write data
-        app1 = _build_and_ensure_dirs(config, paths)
+        _build_and_ensure_dirs(config, paths)
         data_file = paths.data_dir / "runtime_state.json"
         data_file.parent.mkdir(parents=True, exist_ok=True)
         data_file.write_text('{"status": "ok"}')
 
         # Second run — data still there
-        app2 = _build_and_ensure_dirs(config, paths)
+        _build_and_ensure_dirs(config, paths)
         assert (paths.data_dir / "runtime_state.json").read_text() == '{"status": "ok"}'
 
     def test_matrix_store_survives_restart(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Matrix crypto store survives container restart."""
         vol = tmp_path / "vol"
@@ -563,26 +589,24 @@ class TestDockerEnvExampleStructure:
         """File should be mostly comments (template style)."""
         text = _DOCKER_ENV.read_text()
         lines = text.splitlines()
-        non_empty = [l for l in lines if l.strip()]
-        comment_lines = [l for l in non_empty if l.strip().startswith("#")]
+        non_empty = [line for line in lines if line.strip()]
+        comment_lines = [line for line in non_empty if line.strip().startswith("#")]
         # Most lines should be comments
-        assert len(comment_lines) > len(non_empty) // 2, (
-            "docker.env.example should be predominantly comments"
-        )
+        assert (
+            len(comment_lines) > len(non_empty) // 2
+        ), "docker.env.example should be predominantly comments"
 
     def test_contains_medre_home_assignment(self) -> None:
         """MEDRE_HOME must be assigned a value."""
         text = _DOCKER_ENV.read_text()
-        assert re.search(r"^MEDRE_HOME\s*=", text, re.MULTILINE), (
-            "docker.env.example missing MEDRE_HOME=<value> assignment"
-        )
+        assert re.search(
+            r"^MEDRE_HOME\s*=", text, re.MULTILINE
+        ), "docker.env.example missing MEDRE_HOME=<value> assignment"
 
     def test_contains_log_level(self) -> None:
         """MEDRE_LOG_LEVEL should be present."""
         text = _DOCKER_ENV.read_text()
-        assert "MEDRE_LOG_LEVEL" in text, (
-            "docker.env.example missing MEDRE_LOG_LEVEL"
-        )
+        assert "MEDRE_LOG_LEVEL" in text, "docker.env.example missing MEDRE_LOG_LEVEL"
 
     def test_matrix_adapter_keys_present(self) -> None:
         """Matrix adapter env vars should be documented."""
@@ -605,13 +629,11 @@ class TestDockerEnvExampleStructure:
         """docker.env.example must not contain real secret patterns."""
         text = _DOCKER_ENV.read_text()
         # Real Matrix access tokens: syt_ followed by 10+ alphanumeric chars
-        assert not re.search(r"syt_[a-zA-Z0-9]{10,}", text), (
-            "docker.env.example contains a real-looking access token"
-        )
+        assert not re.search(
+            r"syt_[a-zA-Z0-9]{10,}", text
+        ), "docker.env.example contains a real-looking access token"
         # No private keys
-        assert "-----BEGIN" not in text, (
-            "docker.env.example contains a private key"
-        )
+        assert "-----BEGIN" not in text, "docker.env.example contains a private key"
 
     def test_placeholder_token_is_safe(self) -> None:
         """Access token placeholder should be clearly fake."""
@@ -620,6 +642,8 @@ class TestDockerEnvExampleStructure:
         if match:
             value = match.group(1).strip()
             # Should not be a real-looking token
-            assert len(value) < 50 or "secret" in value.lower() or "placeholder" in value.lower(), (
-                f"Access token value looks potentially real: {value!r}"
-            )
+            assert (
+                len(value) < 50
+                or "secret" in value.lower()
+                or "placeholder" in value.lower()
+            ), f"Access token value looks potentially real: {value!r}"

@@ -27,7 +27,6 @@ from typing import Protocol, Sequence, runtime_checkable
 
 from medre.core.events.canonical import CanonicalEvent
 
-
 # ---------------------------------------------------------------------------
 # Capabilities
 # ---------------------------------------------------------------------------
@@ -89,9 +88,7 @@ class Plugin(Protocol):
         """
         ...
 
-    async def handle_event(
-        self, event: CanonicalEvent
-    ) -> list[CanonicalEvent]:
+    async def handle_event(self, event: CanonicalEvent) -> list[CanonicalEvent]:
         """Process an inbound canonical event.
 
         Returns zero or more derived canonical events that the runtime

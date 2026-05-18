@@ -13,7 +13,6 @@ Everything in this document is conservative. If something has not been tested ag
 
 **Audit note (2026-05-12)**: SDK findings in this document are based on source extraction of `meshcore-2.3.7-py3-none-any.whl` from PyPI. All API claims are labeled CONFIRMED (read from source), INFERRED (reasonable from patterns), or UNKNOWN (needs hardware). See `docs/contracts/19-meshcore-connectivity-readiness.md` for full findings table.
 
-
 ## 1. Purpose
 
 Alpha operation validates that the MEDRE MeshCore adapter works end to end against a real MeshCore radio node with real radio traffic. This is the first time the adapter leaves fake and mock territory.
@@ -28,20 +27,18 @@ Scope boundaries:
 
 This runbook complements `docs/runbooks/meshcore-live-smoke.md`. The smoke test documents SDK connectivity procedures. Alpha operation validates the full wiring: config, adapter, codec, inbound event dispatch, outbound delivery, and health, running together.
 
-
 ## 2. Prerequisites
 
-| Requirement | Details |
-|------------|---------|
-| MeshCore node | A MeshCore companion radio node accessible via TCP, serial, or BLE |
-| Python | 3.11 or later |
-| Package install | Core MEDRE: `pip install -e .` (no extra required for fake mode). Real connectivity: `pip install meshcore` (v2.3.7 audited, CONFIRMED on PyPI) |
-| Network access (TCP) | Your machine can reach the node's IP address on port 4000 |
-| Serial access | USB cable connecting the node; user must be in `dialout` group on Linux |
-| BLE access | BLE-capable hardware and BlueZ on Linux (optional) |
+| Requirement          | Details                                                                                                                                         |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| MeshCore node        | A MeshCore companion radio node accessible via TCP, serial, or BLE                                                                              |
+| Python               | 3.11 or later                                                                                                                                   |
+| Package install      | Core MEDRE: `pip install -e .` (no extra required for fake mode). Real connectivity: `pip install meshcore` (v2.3.7 audited, CONFIRMED on PyPI) |
+| Network access (TCP) | Your machine can reach the node's IP address on port 4000                                                                                       |
+| Serial access        | USB cable connecting the node; user must be in `dialout` group on Linux                                                                         |
+| BLE access           | BLE-capable hardware and BlueZ on Linux (optional)                                                                                              |
 
 You do not need Docker for basic alpha operation. Docker guidance is in section 11.
-
 
 ## 3. Node Setup
 
@@ -116,11 +113,11 @@ bluetoothctl scan on
 `meshcore` v2.3.7 is the audited SDK version (CONFIRMED from PyPI source extraction). Firmware compatibility depends on the node's firmware version. If you encounter protocol errors, update both the node firmware and the `meshcore` package.
 
 **SDK version check** (CONFIRMED):
+
 ```bash
 python -c "import meshcore; print(meshcore.__all__)"
 # Should output: ['BinaryReqType', 'BLEConnection', 'ConnectionManager', 'EventType', 'MeshCore', 'SerialConnection', 'TCPConnection', 'logger']
 ```
-
 
 ## 4. Connection Modes
 
@@ -140,6 +137,7 @@ config = MeshCoreConfig(
 ```
 
 In fake mode:
+
 - `start()` sets `_client = None`. No network or serial activity.
 - `deliver()` returns `None` (no real send).
 - `simulate_inbound()` is available for injecting test packets.
@@ -210,14 +208,15 @@ config = MeshCoreConfig(
 
 `MeshCoreConfig.validate()` enforces:
 
-| Connection type | Required fields |
-|----------------|-----------------|
-| `fake` | `adapter_id` only |
-| `tcp` | `adapter_id`, `host` |
-| `serial` | `adapter_id`, `serial_port` |
-| `ble` | `adapter_id`, `ble_address` |
+| Connection type | Required fields             |
+| --------------- | --------------------------- |
+| `fake`          | `adapter_id` only           |
+| `tcp`           | `adapter_id`, `host`        |
+| `serial`        | `adapter_id`, `serial_port` |
+| `ble`           | `adapter_id`, `ble_address` |
 
 Additional validation rules:
+
 - `identity` (if provided) must be a non-empty string.
 - `pubkey` (if provided) must be a non-empty hex string.
 - `node_config` must not contain keys named `private_key`, `secret`, or `password`.
@@ -225,23 +224,22 @@ Additional validation rules:
 
 Invalid configurations raise `MeshCoreConfigError` before any connection attempt.
 
-
 ## 5. Running MEDRE in Alpha Mode
 
 ### 5.1 Environment variables
 
 The live smoke tests use environment variables to configure the connection. The adapter itself is configured via `MeshCoreConfig` (see section 4).
 
-| Variable | Required for | Default | Example | Description |
-|----------|-------------|---------|---------|-------------|
-| `MESHCORE_CONNECTION_TYPE` | All | | `tcp` | Connection mode: `tcp`, `serial`, `ble` |
-| `MESHCORE_HOST` | TCP | | `192.168.1.100` | Node hostname or IP |
-| `MESHCORE_PORT` | TCP | `4000` | `4000` | TCP port |
-| `MESHCORE_SERIAL_PORT` | Serial | | `/dev/ttyUSB0` | Serial device path |
-| `MESHCORE_BLE_ADDRESS` | BLE | | `AA:BB:CC:DD:EE:FF` | BLE MAC address |
-| `MESHCORE_BLE_PIN` | BLE (optional) | | `123456` | BLE pairing PIN |
-| `MESHCORE_CHANNEL_INDEX` | All | `0` | `0` | Channel for test messages |
-| `MESHCORE_DESTINATION` | DM tests | | `a1b2c3...` | Hex pubkey prefix for direct message target |
+| Variable                   | Required for   | Default | Example             | Description                                 |
+| -------------------------- | -------------- | ------- | ------------------- | ------------------------------------------- |
+| `MESHCORE_CONNECTION_TYPE` | All            |         | `tcp`               | Connection mode: `tcp`, `serial`, `ble`     |
+| `MESHCORE_HOST`            | TCP            |         | `192.168.1.100`     | Node hostname or IP                         |
+| `MESHCORE_PORT`            | TCP            | `4000`  | `4000`              | TCP port                                    |
+| `MESHCORE_SERIAL_PORT`     | Serial         |         | `/dev/ttyUSB0`      | Serial device path                          |
+| `MESHCORE_BLE_ADDRESS`     | BLE            |         | `AA:BB:CC:DD:EE:FF` | BLE MAC address                             |
+| `MESHCORE_BLE_PIN`         | BLE (optional) |         | `123456`            | BLE pairing PIN                             |
+| `MESHCORE_CHANNEL_INDEX`   | All            | `0`     | `0`                 | Channel for test messages                   |
+| `MESHCORE_DESTINATION`     | DM tests       |         | `a1b2c3...`         | Hex pubkey prefix for direct message target |
 
 ### 5.2 Manual adapter wiring
 
@@ -306,7 +304,6 @@ pytest tests/test_meshcore_live.py -m live -v
 
 See `docs/runbooks/meshcore-live-smoke.md` for full smoke test documentation.
 
-
 ## 6. Startup and Shutdown Behavior
 
 ### 6.1 Startup sequence
@@ -314,11 +311,13 @@ See `docs/runbooks/meshcore-live-smoke.md` for full smoke test documentation.
 When `start(ctx)` is called:
 
 **Fake mode (current default):**
+
 1. The adapter sets `_client = None`. No network or serial activity.
 2. `_started` is set to `True`.
 3. A startup log line is emitted: `"MeshCoreAdapter meshcore-alpha started (mode=fake)"`.
 
 **Real mode (TCP/serial — implemented via MeshCoreSession):**
+
 1. The adapter creates a `MeshCoreSession`, which checks `HAS_MESHCORE` (the `meshcore` import guard in `compat.py`). If `meshcore` is not installed, raises `MeshCoreConnectionError`.
 2. The session calls the appropriate async SDK factory (`MeshCore.create_tcp()`, `create_serial()`). This call is **async** and blocks until the connection is established and `appstart()` completes. CONFIRMED.
 3. The factory can return `None` if transport connects but `appstart()` fails. The session must handle this. CONFIRMED.
@@ -332,16 +331,19 @@ When `start(ctx)` is called:
 ### 6.2 Expected startup output
 
 **Fake mode:**
-```
+
+```console
 INFO  MeshCoreAdapter meshcore-alpha started (mode=fake)
 ```
 
 **Real mode (TCP/serial):**
-```
+
+```console
 INFO  MeshCoreAdapter meshcore-alpha started (mode=tcp)
 ```
 
 If startup fails, you will see one of:
+
 - `MeshCoreConnectionError: meshcore SDK not installed; pip install meshcore or use connection_type='fake'`
 - `MeshCoreConnectionError: Failed to create tcp client: <underlying error>`
 - `MeshCoreConnectionError: Failed to subscribe to events: <error>`
@@ -371,18 +373,17 @@ await adapter.stop()       # disconnects again
 
 State resets on stop: `_client = None`, `_started = False`, `_subscribed = False`, background tasks cleared. Each `start()` creates a new client from scratch.
 
-
 ## 7. Expected Logs and Diagnostics
 
 ### 7.1 Health check states
 
 The adapter's `health_check()` returns an `AdapterInfo` with a `health` field:
 
-| State | Meaning |
-|-------|---------|
-| `unknown` | Adapter has not started, or has been stopped cleanly |
-| `healthy` | Adapter has started successfully; `_started` is `True` |
-| `failed` | Client exists but start did not complete (subscription failure) |
+| State     | Meaning                                                         |
+| --------- | --------------------------------------------------------------- |
+| `unknown` | Adapter has not started, or has been stopped cleanly            |
+| `healthy` | Adapter has started successfully; `_started` is `True`          |
+| `failed`  | Client exists but start did not complete (subscription failure) |
 
 There are no intermediate states. There is no `degraded` or `reconnecting` state in the current adapter.
 
@@ -390,15 +391,15 @@ There are no intermediate states. There is no `degraded` or `reconnecting` state
 
 When diagnostics are available (from a future runner or manual inspection):
 
-| Diagnostic field | Meaning | How to verify |
-|-----------------|---------|---------------|
-| `connected` | SDK client reports `is_connected` | Check `mc.is_connected` on the SDK client |
-| `node_id` | Node's Ed25519 public key (hex) from `SELF_INFO` | Emitted on startup via `appstart()` response |
-| `reconnecting` | SDK auto-reconnect is attempting reconnection | Emitted as `CONNECTED` event with `reconnected: True` |
-| `contacts_count` | Number of contacts in the node's contact list | Via `mc.commands.get_contacts()` |
-| `delivery_attempts` | Outbound send attempts since start | Adapter-level counter |
-| `delivery_successes` | Successful sends (MSG_SENT or OK result) | Adapter-level counter |
-| `delivery_failures` | Failed sends (ERROR result or exception) | Adapter-level counter |
+| Diagnostic field     | Meaning                                          | How to verify                                         |
+| -------------------- | ------------------------------------------------ | ----------------------------------------------------- |
+| `connected`          | SDK client reports `is_connected`                | Check `mc.is_connected` on the SDK client             |
+| `node_id`            | Node's Ed25519 public key (hex) from `SELF_INFO` | Emitted on startup via `appstart()` response          |
+| `reconnecting`       | SDK auto-reconnect is attempting reconnection    | Emitted as `CONNECTED` event with `reconnected: True` |
+| `contacts_count`     | Number of contacts in the node's contact list    | Via `mc.commands.get_contacts()`                      |
+| `delivery_attempts`  | Outbound send attempts since start               | Adapter-level counter                                 |
+| `delivery_successes` | Successful sends (MSG_SENT or OK result)         | Adapter-level counter                                 |
+| `delivery_failures`  | Failed sends (ERROR result or exception)         | Adapter-level counter                                 |
 
 ### 7.3 Inbound event processing
 
@@ -420,7 +421,6 @@ There is no periodic "still alive" log. Silence is normal when no events arrive.
 
 In fake mode, `deliver()` returns `None` — no real send occurs.
 
-
 ## 8. Canonical Metadata Structure
 
 The MeshCore codec preserves the following metadata from native event payloads into the canonical event:
@@ -440,14 +440,14 @@ NativeMetadata(data={
 })
 ```
 
-| Field | Source | Notes |
-|-------|--------|-------|
-| `packet_id` | `packet["sender_timestamp"]` | Integer timestamp from sender |
-| `sender_id` | `packet["pubkey_prefix"]` | Truncated Ed25519 public key prefix (default 6 bytes / 12 hex chars) |
-| `channel` | `packet["channel_idx"]` | Channel index for channel messages |
-| `pubkey_prefix` | `packet["pubkey_prefix"]` | Same value as `sender_id` |
-| `txt_type` | `packet["txt_type"]` | Text type field (may be `None`) |
-| `is_direct_message` | Derived from `packet["type"]` | `True` if `type == "PRIV"`, `False` if `type == "CHAN"` |
+| Field               | Source                        | Notes                                                                |
+| ------------------- | ----------------------------- | -------------------------------------------------------------------- |
+| `packet_id`         | `packet["sender_timestamp"]`  | Integer timestamp from sender                                        |
+| `sender_id`         | `packet["pubkey_prefix"]`     | Truncated Ed25519 public key prefix (default 6 bytes / 12 hex chars) |
+| `channel`           | `packet["channel_idx"]`       | Channel index for channel messages                                   |
+| `pubkey_prefix`     | `packet["pubkey_prefix"]`     | Same value as `sender_id`                                            |
+| `txt_type`          | `packet["txt_type"]`          | Text type field (may be `None`)                                      |
+| `is_direct_message` | Derived from `packet["type"]` | `True` if `type == "PRIV"`, `False` if `type == "CHAN"`              |
 
 ### 8.2 Source native ref
 
@@ -463,21 +463,21 @@ NativeRef(
 
 ### 8.3 Canonical event fields
 
-| Field | Value |
-|-------|-------|
-| `event_id` | UUID4 (generated by codec) |
-| `event_kind` | `MESSAGE_CREATED` |
+| Field                 | Value                              |
+| --------------------- | ---------------------------------- |
+| `event_id`            | UUID4 (generated by codec)         |
+| `event_kind`          | `MESSAGE_CREATED`                  |
 | `source_transport_id` | Sender pubkey prefix (`sender_id`) |
-| `source_channel_id` | Channel index as string |
-| `payload` | `{"body": "<text>"}` |
+| `source_channel_id`   | Channel index as string            |
+| `payload`             | `{"body": "<text>"}`               |
 
 ### 8.4 Identity model note
 
 MeshCore uses Ed25519 keypair identity. There is no numeric node ID. Addressing is always by public key hex string. The `pubkey_prefix` in events is a truncated prefix (default 6 bytes / 12 hex chars), not the full public key. This means:
+
 - Two different nodes could theoretically share the same short prefix.
 - The full public key is available in the SDK's contact list but is not carried in individual event payloads.
 - Do not assume `sender_id` is globally unique. For uniqueness guarantees, resolve the full public key via `get_contacts()`.
-
 
 ## 9. Outbound Delivery and Retry Semantics
 
@@ -492,6 +492,7 @@ In fake mode, `deliver()` returns `None` — no real send occurs.
 ### 9.2 Retry semantics (current: none at adapter level)
 
 **The adapter does not implement outbound retry logic.** When a send fails:
+
 - The failed item is **permanently dropped**.
 - The exception is re-raised to the caller.
 
@@ -511,6 +512,7 @@ result = await mc.commands.send_msg_with_retry(
 ```
 
 Behavior:
+
 - Sends via `send_msg()`, extracts `expected_ack`.
 - Waits for matching `ACK` event with timeout = `suggested_timeout * 1.2`.
 - On failure, retries up to `max_attempts` (default 3).
@@ -525,6 +527,7 @@ Behavior:
 Because the adapter has no outbound retry, there is **no duplicate-send risk from the adapter itself** in the current scaffold. Each delivery attempt is made exactly once.
 
 However, if `send_msg_with_retry()` is used in the future:
+
 - The SDK retries the same message to the same recipient. If the first attempt actually delivered but the ACK was lost, the retry delivers a duplicate.
 - `expected_ack` is derived from message content (effectively a CRC). Two identical messages to the same recipient produce the same `expected_ack`, which could confuse ACK correlation.
 - Operators should be aware of this risk when using SDK-level retry.
@@ -543,7 +546,6 @@ MeshCore is a LoRa mesh network. Packet loss is **expected and normal**:
 - Inbound events may arrive out of order, duplicated, or not at all.
 
 Operators should expect loss and plan accordingly. The adapter does not provide reliability guarantees.
-
 
 ## 10. Validation Procedures
 
@@ -604,7 +606,6 @@ asyncio.run(validate())
 
 See `docs/runbooks/meshcore-live-smoke.md` for the full manual verification procedure.
 
-
 ## 11. Docker Operational Guidance
 
 ### 11.1 TCP mode (recommended for Docker)
@@ -631,6 +632,7 @@ docker run -d --name medre-meshcore \
 ```
 
 Requirements:
+
 - The `--device` flag maps the host's serial port into the container.
 - The container user must have read/write access to the device.
 - The device path must match the `serial_port` configuration.
@@ -639,6 +641,7 @@ Requirements:
 ### 11.3 BLE in Docker
 
 BLE in Docker is theoretically possible but is **not validated** and requires:
+
 - `--net host` for BlueZ access, or
 - Bluetooth device passthrough via `--device /dev/bus/usb/...`
 
@@ -652,12 +655,12 @@ Use `--restart unless-stopped` or `--restart on-failure`. When the container res
 
 The MeshCore adapter does not currently persist state. There is no database, no message store, and no session state to preserve across restarts. Mounting a volume is not required for MeshCore-specific data. If using the MEDRE SQLite storage for other purposes, mount the database path as described in the Matrix alpha operation runbook.
 
-
 ## 12. Reconnect Behavior
 
 ### 12.1 Current state: no automatic reconnect at adapter level
 
 **The MeshCore adapter does not implement its own reconnection logic.** If the connection to the node is lost:
+
 - The adapter does not detect the disconnection automatically (in the current scaffold).
 - No reconnect attempts are made at the adapter level.
 - `health_check()` will continue to report `"healthy"` because `_started` is still `True`.
@@ -676,6 +679,7 @@ mc = await MeshCore.create_tcp(
 ```
 
 SDK reconnect behavior (from source analysis):
+
 - Flat 1-second delay between reconnect attempts (not exponential backoff).
 - Configurable `max_reconnect_attempts` (default 3).
 - Emits `CONNECTED` event with `reconnected: True` on successful reconnect.
@@ -715,7 +719,6 @@ When the adapter process restarts (whether via manual stop/start, Docker restart
 
 Automatic reconnection with exponential backoff and health state transitions (`healthy` / `degraded` / `failed`) is planned but not implemented. See `docs/contracts/19-meshcore-connectivity-readiness.md` for the readiness assessment.
 
-
 ## 13. Known Limitations
 
 This is an honest list. Everything here is real.
@@ -748,7 +751,6 @@ This is an honest list. Everything here is real.
 
 14. **Packet shapes unverified.** The event payload shapes used in MEDRE fixtures are derived from source audit (Contract 64). Whether real MeshCore hardware produces exactly these shapes has not been verified. Fields like `pubkey_prefix` truncation length, `txt_type` values, and `sender_timestamp` behavior need live validation.
 
-
 ## 14. Operational Risks
 
 ### 14.1 Radio traffic
@@ -774,7 +776,6 @@ LoRa radio nodes enforce duty cycle limits on transmission. The adapter's pacing
 ### 14.6 expected_ack collision risk
 
 The `expected_ack` field from `send_msg()` is derived from message content (effectively a CRC). Two identical messages to the same recipient produce the same `expected_ack`. If you send the same message content twice rapidly, ACK correlation may be ambiguous. This needs live hardware verification. See `docs/contracts/19-meshcore-connectivity-readiness.md` section 5.5.
-
 
 ## 15. Troubleshooting
 
@@ -907,7 +908,6 @@ pip install meshcore
 
 Core MEDRE tests pass without it. Only real connectivity modes require the SDK.
 
-
 ## Live Validation Evidence
 
 ### Test Results
@@ -926,31 +926,30 @@ Core MEDRE tests pass without it. Only real connectivity modes require the SDK.
 - **Hardware/Network:** Not available (no MeshCore radio node connected)
 - **Failures/Notes:** Live validation has not been performed in this environment. Alpha operation requires a real MeshCore radio node with the environment variables configured. Without these, all live tests skip automatically. See the smoke test runbook (`docs/runbooks/meshcore-live-smoke.md`) for detailed setup and environment variable instructions.
 
-
 ## 16. Explicit Unsupported Features
 
 The following features are not supported in alpha mode. Do not attempt to use them. They are listed here so you do not have to wonder.
 
-| Feature | Status | Notes |
-|---------|--------|-------|
-| Real client connections | Scaffolded | `start()` raises `MeshCoreConnectionError` for non-fake types |
-| Automatic reconnection | Not implemented at adapter level | SDK supports `auto_reconnect` param, not wired |
-| Outbound retry | Not implemented | Failed sends are permanently dropped |
-| ACK / delivery confirmation tracking | Not implemented | `expected_ack` is not tracked or correlated |
-| Direct message routing | Not supported | DMs classified but processed identically to channel messages |
-| Reply threading | Not supported | MeshCore protocol has no native reply mechanism |
-| Reactions | Not supported | MeshCore protocol has no reaction mechanism |
-| Edits | Not supported | MeshCore protocol has no edit mechanism |
-| Deletes | Not supported | MeshCore protocol has no delete mechanism |
-| Attachments / files | Not supported | Binary payload not handled |
-| Telemetry decoding | Not supported | Non-text events are silently dropped |
-| Position / GPS decoding | Not supported | Non-text events are silently dropped |
-| Contact list caching | Not supported | Contact list available via SDK but not cached by adapter |
-| Multi-node mesh testing | Not tested | Alpha has only been validated with a single node |
-| BLE connectivity | Documented only | BLE is a config option but not validated in alpha |
-| Backlog suppression | Config field exists, not wired | `startup_backlog_suppress_seconds` accepted but not used |
-| Store-and-forward | Not supported | No message persistence across restarts |
-| Rate limiting / flow control | Not implemented | Only basic pacing via `message_delay_seconds` |
-| Cross-transport orchestration | Not in scope | No bridge between MeshCore and other transports |
-| Bridge-policy redesign | Not in scope | No policy changes for MeshCore integration |
-| Non-MeshCore transports | Not in scope | This runbook covers MeshCore only |
+| Feature                              | Status                           | Notes                                                         |
+| ------------------------------------ | -------------------------------- | ------------------------------------------------------------- |
+| Real client connections              | Scaffolded                       | `start()` raises `MeshCoreConnectionError` for non-fake types |
+| Automatic reconnection               | Not implemented at adapter level | SDK supports `auto_reconnect` param, not wired                |
+| Outbound retry                       | Not implemented                  | Failed sends are permanently dropped                          |
+| ACK / delivery confirmation tracking | Not implemented                  | `expected_ack` is not tracked or correlated                   |
+| Direct message routing               | Not supported                    | DMs classified but processed identically to channel messages  |
+| Reply threading                      | Not supported                    | MeshCore protocol has no native reply mechanism               |
+| Reactions                            | Not supported                    | MeshCore protocol has no reaction mechanism                   |
+| Edits                                | Not supported                    | MeshCore protocol has no edit mechanism                       |
+| Deletes                              | Not supported                    | MeshCore protocol has no delete mechanism                     |
+| Attachments / files                  | Not supported                    | Binary payload not handled                                    |
+| Telemetry decoding                   | Not supported                    | Non-text events are silently dropped                          |
+| Position / GPS decoding              | Not supported                    | Non-text events are silently dropped                          |
+| Contact list caching                 | Not supported                    | Contact list available via SDK but not cached by adapter      |
+| Multi-node mesh testing              | Not tested                       | Alpha has only been validated with a single node              |
+| BLE connectivity                     | Documented only                  | BLE is a config option but not validated in alpha             |
+| Backlog suppression                  | Config field exists, not wired   | `startup_backlog_suppress_seconds` accepted but not used      |
+| Store-and-forward                    | Not supported                    | No message persistence across restarts                        |
+| Rate limiting / flow control         | Not implemented                  | Only basic pacing via `message_delay_seconds`                 |
+| Cross-transport orchestration        | Not in scope                     | No bridge between MeshCore and other transports               |
+| Bridge-policy redesign               | Not in scope                     | No policy changes for MeshCore integration                    |
+| Non-MeshCore transports              | Not in scope                     | This runbook covers MeshCore only                             |

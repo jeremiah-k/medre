@@ -20,10 +20,10 @@ Envelope structure::
         "metadata_keys": [...]
     }
 """
+
 from __future__ import annotations
 
 from typing import Any
-
 
 LXMF_NAMESPACE: str = "medre"
 """Namespace identifier for MEDRE within LXMF fields."""
@@ -36,11 +36,13 @@ LXMF field keys.
 """
 
 # Known attachment field keys in LXMF messages.
-_ATTACHMENT_FIELD_KEYS: frozenset[int] = frozenset({
-    0x05,  # FILE_ATTACHMENTS
-    0x06,  # IMAGE
-    0x07,  # AUDIO
-})
+_ATTACHMENT_FIELD_KEYS: frozenset[int] = frozenset(
+    {
+        0x05,  # FILE_ATTACHMENTS
+        0x06,  # IMAGE
+        0x07,  # AUDIO
+    }
+)
 
 
 class LxmfFieldsHelper:
@@ -116,17 +118,21 @@ class LxmfFieldsHelper:
             "source_transport_id": source_transport_id,
             "source_channel_id": source_channel_id,
             "lineage": list(lineage) if lineage else [],
-            "relations": [
-                {
-                    "relation_type": getattr(r, "relation_type", None),
-                    "target_event_id": getattr(r, "target_event_id", None),
-                    "target_native_ref": _serialise_native_ref(
-                        getattr(r, "target_native_ref", None)
-                    ),
-                    "fallback_text": getattr(r, "fallback_text", None),
-                }
-                for r in relations
-            ] if relations else [],
+            "relations": (
+                [
+                    {
+                        "relation_type": getattr(r, "relation_type", None),
+                        "target_event_id": getattr(r, "target_event_id", None),
+                        "target_native_ref": _serialise_native_ref(
+                            getattr(r, "target_native_ref", None)
+                        ),
+                        "fallback_text": getattr(r, "fallback_text", None),
+                    }
+                    for r in relations
+                ]
+                if relations
+                else []
+            ),
             "metadata_keys": list(metadata.keys()) if metadata else [],
         }
         updated[FIELD_MEDRE_ENVELOPE] = {LXMF_NAMESPACE: envelope}

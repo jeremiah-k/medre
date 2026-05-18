@@ -2,6 +2,7 @@
 
 Numeric constants returned by ``main()`` and sub-commands on error.
 """
+
 from __future__ import annotations
 
 EXIT_OK = 0

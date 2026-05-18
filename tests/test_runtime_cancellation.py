@@ -18,7 +18,6 @@ Does not overlap with test_runtime_hygiene.py or test_runtime_recovery.py.
 from __future__ import annotations
 
 import asyncio
-import time as _time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -41,10 +40,9 @@ from medre.core.events.canonical import CanonicalEvent
 from medre.core.events.kinds import EventKind
 from medre.core.events.metadata import EventMetadata
 from medre.core.lifecycle.states import AdapterState
+from medre.runtime.app import MedreApp, RuntimeState
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.capacity import CapacityController
-from medre.runtime.app import MedreApp, RuntimeState
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -169,27 +167,25 @@ class TestRepeatedCancellationCycles:
     """
 
     @pytest.mark.asyncio
-    async def test_three_full_cycles_state_clean(
-        self, tmp_paths: MedrePaths
-    ) -> None:
+    async def test_three_full_cycles_state_clean(self, tmp_paths: MedrePaths) -> None:
         """Three full build→start→stop cycles with clean state each time."""
         config = _config_with_one_fake_adapter()
 
         for cycle in range(3):
             app = _build_app(config, tmp_paths)
-            assert app.state == RuntimeState.INITIALIZED, (
-                f"Cycle {cycle}: expected INITIALIZED, got {app.state}"
-            )
+            assert (
+                app.state == RuntimeState.INITIALIZED
+            ), f"Cycle {cycle}: expected INITIALIZED, got {app.state}"
 
             await app.start()
-            assert app.state == RuntimeState.RUNNING, (
-                f"Cycle {cycle}: expected RUNNING, got {app.state}"
-            )
+            assert (
+                app.state == RuntimeState.RUNNING
+            ), f"Cycle {cycle}: expected RUNNING, got {app.state}"
 
             await app.stop()
-            assert app.state == RuntimeState.STOPPED, (
-                f"Cycle {cycle}: expected STOPPED, got {app.state}"
-            )
+            assert (
+                app.state == RuntimeState.STOPPED
+            ), f"Cycle {cycle}: expected STOPPED, got {app.state}"
 
     @pytest.mark.asyncio
     async def test_two_fake_adapters_repeated_cycles(
@@ -198,7 +194,7 @@ class TestRepeatedCancellationCycles:
         """Repeated cycles with two adapters maintain consistent start counts."""
         config = _config_with_two_fake_adapters()
 
-        for cycle in range(3):
+        for _cycle in range(3):
             app = _build_app(config, tmp_paths)
             await app.start()
             try:
@@ -209,13 +205,11 @@ class TestRepeatedCancellationCycles:
                 await app.stop()
 
     @pytest.mark.asyncio
-    async def test_capacity_fresh_per_cycle(
-        self, tmp_paths: MedrePaths
-    ) -> None:
+    async def test_capacity_fresh_per_cycle(self, tmp_paths: MedrePaths) -> None:
         """Each cycle gets a fresh CapacityController with zeroed counters."""
         config = _config_with_one_fake_adapter()
 
-        for cycle in range(3):
+        for _cycle in range(3):
             app = _build_app(config, tmp_paths)
             await app.start()
             try:
@@ -228,13 +222,11 @@ class TestRepeatedCancellationCycles:
                 await app.stop()
 
     @pytest.mark.asyncio
-    async def test_shutdown_event_fresh_per_cycle(
-        self, tmp_paths: MedrePaths
-    ) -> None:
+    async def test_shutdown_event_fresh_per_cycle(self, tmp_paths: MedrePaths) -> None:
         """Each cycle gets a fresh shutdown event that is unset at start."""
         config = _config_with_one_fake_adapter()
 
-        for cycle in range(3):
+        for _cycle in range(3):
             app = _build_app(config, tmp_paths)
             assert not app.shutdown_event.is_set()
             await app.start()
@@ -254,9 +246,7 @@ class TestTaskLeakChecks:
     """Verify no lingering asyncio tasks after runtime shutdown."""
 
     @pytest.mark.asyncio
-    async def test_no_lingering_tasks_after_stop(
-        self, tmp_paths: MedrePaths
-    ) -> None:
+    async def test_no_lingering_tasks_after_stop(self, tmp_paths: MedrePaths) -> None:
         """After full start/stop cycle, no runtime tasks remain."""
         config = _config_with_two_fake_adapters()
         app = _build_app(config, tmp_paths)
@@ -275,8 +265,7 @@ class TestTaskLeakChecks:
 
         # Filter out pytest infrastructure tasks.
         leaked = {
-            t for t in leaked
-            if not t.startswith(("pytest", "test_no_lingering"))
+            t for t in leaked if not t.startswith(("pytest", "test_no_lingering"))
         }
         assert not leaked, f"Leaked tasks after stop: {leaked}"
 
@@ -297,9 +286,9 @@ class TestTaskLeakChecks:
 
         final_count = len(asyncio.all_tasks())
         # Allow small variance (pytest internals) but no growth.
-        assert final_count <= baseline_count + 2, (
-            f"Task count grew from {baseline_count} to {final_count}"
-        )
+        assert (
+            final_count <= baseline_count + 2
+        ), f"Task count grew from {baseline_count} to {final_count}"
 
 
 # =====================================================================
@@ -494,14 +483,13 @@ class TestStopDuringStartup:
         await stop_task
 
         # The app should be in a terminal state (STOPPED or FAILED).
-        assert app.state in (RuntimeState.STOPPED, RuntimeState.FAILED), (
-            f"Expected STOPPED or FAILED, got {app.state}"
-        )
+        assert app.state in (
+            RuntimeState.STOPPED,
+            RuntimeState.FAILED,
+        ), f"Expected STOPPED or FAILED, got {app.state}"
 
     @pytest.mark.asyncio
-    async def test_stop_before_start_is_idempotent(
-        self, tmp_paths: MedrePaths
-    ) -> None:
+    async def test_stop_before_start_is_idempotent(self, tmp_paths: MedrePaths) -> None:
         """Calling stop() on an INITIALIZED app returns immediately."""
         config = _config_with_one_fake_adapter()
         app = _build_app(config, tmp_paths)
@@ -521,7 +509,7 @@ class TestStopDuringStartup:
         """A fresh app (INITIALIZED) can be started after an early stop."""
         config = _config_with_one_fake_adapter()
 
-        for cycle in range(2):
+        for _cycle in range(2):
             app = _build_app(config, tmp_paths)
             # Stop on INITIALIZED is a no-op.
             await app.stop()
@@ -541,9 +529,7 @@ class TestRepeatedStopRaces:
     """Concurrent stop() calls are idempotent."""
 
     @pytest.mark.asyncio
-    async def test_concurrent_stop_calls(
-        self, tmp_paths: MedrePaths
-    ) -> None:
+    async def test_concurrent_stop_calls(self, tmp_paths: MedrePaths) -> None:
         """Multiple concurrent stop() calls all succeed without error."""
         config = _config_with_two_fake_adapters()
         app = _build_app(config, tmp_paths)
@@ -560,22 +546,20 @@ class TestRepeatedStopRaces:
         exceptions = [r for r in results if isinstance(r, Exception)]
         # At most one RuntimeShutdownError is acceptable (from adapters).
         non_shutdown_exceptions = [
-            e for e in exceptions
-            if "Errors during shutdown" not in str(e)
+            e for e in exceptions if "Errors during shutdown" not in str(e)
         ]
-        assert not non_shutdown_exceptions, (
-            f"Unexpected exceptions from concurrent stop: {non_shutdown_exceptions}"
-        )
+        assert (
+            not non_shutdown_exceptions
+        ), f"Unexpected exceptions from concurrent stop: {non_shutdown_exceptions}"
 
         # Final state must be STOPPED (or FAILED if shutdown errors occurred).
-        assert app.state in (RuntimeState.STOPPED, RuntimeState.FAILED), (
-            f"Expected STOPPED or FAILED, got {app.state}"
-        )
+        assert app.state in (
+            RuntimeState.STOPPED,
+            RuntimeState.FAILED,
+        ), f"Expected STOPPED or FAILED, got {app.state}"
 
     @pytest.mark.asyncio
-    async def test_double_stop_after_full_start(
-        self, tmp_paths: MedrePaths
-    ) -> None:
+    async def test_double_stop_after_full_start(self, tmp_paths: MedrePaths) -> None:
         """Second stop() after clean first stop is a no-op."""
         config = _config_with_one_fake_adapter()
         app = _build_app(config, tmp_paths)
@@ -868,9 +852,7 @@ class TestDeliveryFanoutCancellation:
                 cc.stop_accepting()
                 stop_triggered = True
 
-        await asyncio.gather(
-            *[asyncio.create_task(try_deliver(i)) for i in range(20)]
-        )
+        await asyncio.gather(*[asyncio.create_task(try_deliver(i)) for i in range(20)])
 
         # Some should succeed (before stop), some should fail (after stop).
         successes = sum(1 for r in results if r)
@@ -945,7 +927,7 @@ class TestAdapterLifecycleDuringCancellation:
     async def test_wait_for_shutdown_respects_timeout(self) -> None:
         """wait_for_shutdown raises TimeoutError when timeout expires."""
         limits = _make_limits()
-        cc = CapacityController(limits)
+        CapacityController(limits)
 
         # The event is not set, so wait should time out.
         event = asyncio.Event()
@@ -1001,7 +983,10 @@ class TestConcurrentStopExactlyOnce:
             original_stops[aid] = adapter.stop
 
             async def _counting_stop(
-                *args: Any, _aid: str = aid, _orig: Any = original_stops[aid], **kwargs: Any
+                *args: Any,
+                _aid: str = aid,
+                _orig: Any = original_stops[aid],
+                **kwargs: Any,
             ) -> None:
                 stop_counts[_aid] += 1
                 await _orig(*args, **kwargs)
@@ -1016,15 +1001,15 @@ class TestConcurrentStopExactlyOnce:
 
         # Each adapter should have been stopped exactly once.
         for aid in adapter_ids:
-            assert stop_counts[aid] == 1, (
-                f"Adapter {aid} stop() called {stop_counts[aid]} times, expected 1"
-            )
+            assert (
+                stop_counts[aid] == 1
+            ), f"Adapter {aid} stop() called {stop_counts[aid]} times, expected 1"
 
         # All adapters should be in STOPPED state.
         for aid in adapter_ids:
-            assert app.adapter_states[aid] is AdapterState.STOPPED, (
-                f"Adapter {aid} state is {app.adapter_states[aid]}, expected STOPPED"
-            )
+            assert (
+                app.adapter_states[aid] is AdapterState.STOPPED
+            ), f"Adapter {aid} state is {app.adapter_states[aid]}, expected STOPPED"
 
         assert app.state in (RuntimeState.STOPPED, RuntimeState.FAILED)
 
@@ -1045,9 +1030,9 @@ class TestAllAdaptersStoppedAfterShutdown:
         assert app.state == RuntimeState.STOPPED
 
         for aid, state in app.adapter_states.items():
-            assert state is AdapterState.STOPPED, (
-                f"Adapter {aid} is {state.value}, expected STOPPED"
-            )
+            assert (
+                state is AdapterState.STOPPED
+            ), f"Adapter {aid} is {state.value}, expected STOPPED"
 
     @pytest.mark.asyncio
     async def test_adapter_states_complete_after_shutdown(
@@ -1081,7 +1066,7 @@ class TestPartialAdapterStopFailure:
         # Monkey-patch the second adapter to raise on stop.
         failing_id = adapter_ids[1]
         clean_id = adapter_ids[0]
-        original_stop = app.adapters[failing_id].stop
+        app.adapters[failing_id].stop  # noqa: B018 — attribute access for reference
 
         async def _raising_stop(timeout: float = 10.0) -> None:
             raise RuntimeError(f"Adapter {failing_id} stop failed")
@@ -1098,14 +1083,14 @@ class TestPartialAdapterStopFailure:
         assert app.state == RuntimeState.FAILED
 
         # Clean adapter should be STOPPED.
-        assert app.adapter_states[clean_id] is AdapterState.STOPPED, (
-            f"Clean adapter {clean_id} is {app.adapter_states[clean_id]}, expected STOPPED"
-        )
+        assert (
+            app.adapter_states[clean_id] is AdapterState.STOPPED
+        ), f"Clean adapter {clean_id} is {app.adapter_states[clean_id]}, expected STOPPED"
 
         # Failing adapter should be FAILED.
-        assert app.adapter_states[failing_id] is AdapterState.FAILED, (
-            f"Failing adapter {failing_id} is {app.adapter_states[failing_id]}, expected FAILED"
-        )
+        assert (
+            app.adapter_states[failing_id] is AdapterState.FAILED
+        ), f"Failing adapter {failing_id} is {app.adapter_states[failing_id]}, expected FAILED"
 
 
 class TestShutdownEventTiming:
@@ -1137,9 +1122,9 @@ class TestShutdownEventTiming:
 
         await app.stop()
 
-        assert event_set_during_stop is True, (
-            "shutdown_event was not set when adapter.stop() was called"
-        )
+        assert (
+            event_set_during_stop is True
+        ), "shutdown_event was not set when adapter.stop() was called"
 
 
 class TestCancelledDuringDrain:
@@ -1189,11 +1174,11 @@ class TestCancelledDuringDrain:
 
         # Capacity counters should be consistent.
         snap = cc.snapshot()
-        assert snap["delivery_current"] == 0, (
-            f"delivery_current is {snap['delivery_current']}, expected 0"
-        )
-        assert snap["replay_current"] == 0, (
-            f"replay_current is {snap['replay_current']}, expected 0"
-        )
+        assert (
+            snap["delivery_current"] == 0
+        ), f"delivery_current is {snap['delivery_current']}, expected 0"
+        assert (
+            snap["replay_current"] == 0
+        ), f"replay_current is {snap['replay_current']}, expected 0"
         # accepting_work should be False (stop_accepting was called).
         assert snap["accepting_work"] is False

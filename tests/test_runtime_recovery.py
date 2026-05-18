@@ -19,23 +19,13 @@ Uses fake adapters only, memory/sqlite temp storage only, no live dependencies.
 
 from __future__ import annotations
 
-import asyncio
 import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock
 
 import pytest
 
-from medre.core.contracts.adapter import (
-    AdapterCapabilities,
-    AdapterContext,
-    AdapterDeliveryResult,
-    AdapterInfo,
-    AdapterRole,
-    AdapterContract,
-)
 from medre.config.model import (
     AdapterConfigSet,
     LoggingConfig,
@@ -47,6 +37,14 @@ from medre.config.model import (
     StorageConfig,
 )
 from medre.config.paths import MedrePaths, resolve
+from medre.core.contracts.adapter import (
+    AdapterCapabilities,
+    AdapterContext,
+    AdapterContract,
+    AdapterDeliveryResult,
+    AdapterInfo,
+    AdapterRole,
+)
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.events.kinds import EventKind
 from medre.core.events.metadata import EventMetadata
@@ -56,17 +54,14 @@ from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.runtime.supervision import (
     RuntimeHealth,
     classify_runtime_health,
-    classify_startup_outcome,
     runtime_supervision_snapshot,
-    StartupOutcome,
 )
 from medre.core.storage.sqlite import SQLiteStorage
+from medre.runtime.app import MedreApp, RuntimeState
 from medre.runtime.boot_summary import BootSummary, build_boot_summary
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.capacity import CapacityController
 from medre.runtime.errors import RuntimeStartupError
-from medre.runtime.app import MedreApp, RuntimeState
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -336,9 +331,7 @@ class TestPartialAdapterStartup:
             await app.stop()
 
     @pytest.mark.asyncio
-    async def test_partial_startup_health_state(
-        self, tmp_paths: MedrePaths
-    ) -> None:
+    async def test_partial_startup_health_state(self, tmp_paths: MedrePaths) -> None:
         """Health state stored on app after partial startup is degraded."""
         config = _config_with_fake_adapters()
         app = _build_app(config, tmp_paths)
@@ -393,9 +386,7 @@ class TestZeroAdaptersStartup:
         assert app.state == RuntimeState.FAILED
 
     @pytest.mark.asyncio
-    async def test_all_disabled_adapters_raises(
-        self, tmp_paths: MedrePaths
-    ) -> None:
+    async def test_all_disabled_adapters_raises(self, tmp_paths: MedrePaths) -> None:
         """All adapters disabled → zero started → RuntimeStartupError."""
         config = RuntimeConfig(
             runtime=RuntimeOptions(name="all-disabled"),
@@ -594,9 +585,7 @@ class TestStoragePersistenceSurvivesRestart:
         await s2.close()
 
     @pytest.mark.asyncio
-    async def test_multiple_events_persist_across_restart(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_multiple_events_persist_across_restart(self, tmp_path: Path) -> None:
         """Multiple events survive storage restart."""
         db_path = str(tmp_path / "multi_restart.db")
 
@@ -613,9 +602,7 @@ class TestStoragePersistenceSurvivesRestart:
         await s2.close()
 
     @pytest.mark.asyncio
-    async def test_memory_storage_does_not_persist(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_memory_storage_does_not_persist(self, tmp_path: Path) -> None:
         """In-memory storage does NOT persist across instances."""
         s1 = SQLiteStorage(":memory:")
         await s1.initialize()
@@ -764,6 +751,7 @@ class TestDeterministicStartupSummaries:
 
     def test_boot_summary_shape_deterministic_across_calls(self) -> None:
         """Multiple summaries with same inputs produce identical shapes."""
+
         def _make_summary() -> BootSummary:
             return build_boot_summary(
                 startup_timestamp="2026-05-11T12:00:00+00:00",

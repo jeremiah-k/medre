@@ -22,7 +22,6 @@ from medre.core.identity.actor import (
     VerificationStatus,
 )
 
-
 # ---------------------------------------------------------------------------
 # Storage protocol (future extensibility)
 # ---------------------------------------------------------------------------
@@ -35,16 +34,13 @@ class ActorStore(Protocol):
     depend on the interface from the start.
     """
 
-    async def get(self, actor_id: str) -> CanonicalActor | None:
-        ...
+    async def get(self, actor_id: str) -> CanonicalActor | None: ...
 
-    async def put(self, actor: CanonicalActor) -> None:
-        ...
+    async def put(self, actor: CanonicalActor) -> None: ...
 
     async def find_by_native(
         self, platform: str, adapter_id: str, native_id: str
-    ) -> CanonicalActor | None:
-        ...
+    ) -> CanonicalActor | None: ...
 
 
 # ---------------------------------------------------------------------------
@@ -217,9 +213,7 @@ class IdentityResolver:
             return None
         return self._actors.get(actor_id)
 
-    async def set_verification(
-        self, actor_id: str, status: VerificationStatus
-    ) -> None:
+    async def set_verification(self, actor_id: str, status: VerificationStatus) -> None:
         """Update the verification status of a canonical actor.
 
         Parameters

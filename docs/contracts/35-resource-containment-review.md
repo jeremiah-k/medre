@@ -13,7 +13,6 @@ and records mitigations already in place.
 
 This is a review document. No runtime redesign is proposed.
 
-
 ## 1. Scope
 
 - Per-session resource ownership and cleanup.
@@ -29,15 +28,14 @@ This is a review document. No runtime redesign is proposed.
 - Redesigning retry or reconnect policies.
 - Adding new resource management features.
 
-
 ## 3. MatrixSession
 
 ### 3.1 Task Management
 
-| Resource | Type | Owner | Cleanup |
-|----------|------|-------|---------|
-| `_sync_task` | `asyncio.Task` | Session | Cancelled and awaited in `stop()` with configurable timeout (default 5s). Cleared to `None` after stop. |
-| `nio.AsyncClient` | SDK client | Session | `stop_sync_forever()` + `close()` called in `stop()`. Set to `None`. |
+| Resource          | Type           | Owner   | Cleanup                                                                                                 |
+| ----------------- | -------------- | ------- | ------------------------------------------------------------------------------------------------------- |
+| `_sync_task`      | `asyncio.Task` | Session | Cancelled and awaited in `stop()` with configurable timeout (default 5s). Cleared to `None` after stop. |
+| `nio.AsyncClient` | SDK client     | Session | `stop_sync_forever()` + `close()` called in `stop()`. Set to `None`.                                    |
 
 **Risk assessment:**
 
@@ -61,21 +59,21 @@ This is a review document. No runtime redesign is proposed.
 
 ### 3.3 Callback Management
 
-| Callback | Registration | Deregistration |
-|----------|-------------|----------------|
-| `_message_callback` | In `_finalize_start()` via `add_event_callback` | Client is closed on stop; nio handles cleanup internally |
-| `_on_megolm_event` | In `_register_megolm_callback()` | Same — client close handles it |
-| `_on_room_encryption_event` | In `_register_megolm_callback()` | Same — client close handles it |
+| Callback                    | Registration                                    | Deregistration                                           |
+| --------------------------- | ----------------------------------------------- | -------------------------------------------------------- |
+| `_message_callback`         | In `_finalize_start()` via `add_event_callback` | Client is closed on stop; nio handles cleanup internally |
+| `_on_megolm_event`          | In `_register_megolm_callback()`                | Same — client close handles it                           |
+| `_on_room_encryption_event` | In `_register_megolm_callback()`                | Same — client close handles it                           |
 
 **Risk assessment:** Low. Callbacks are registered on the nio client, which is closed and set to `None` on stop. No dangling callback risk after `stop()`.
 
 ### 3.4 Store/Crypto Retention
 
-| Resource | Type | Retention |
-|----------|------|-----------|
-| `_room_states` | `dict[str, RoomEncryptionState]` | In-memory. Cleared on `start()` (`self._room_states = {}`). Grows with number of rooms seen. |
-| Crypto store | SQLite database on disk | Managed by nio. Path set via `store_path` config. MEDRE does not manage lifecycle. |
-| `_undecryptable_event_count` | `int` | Monotonically increasing counter. Never reset. |
+| Resource                     | Type                             | Retention                                                                                    |
+| ---------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------- |
+| `_room_states`               | `dict[str, RoomEncryptionState]` | In-memory. Cleared on `start()` (`self._room_states = {}`). Grows with number of rooms seen. |
+| Crypto store                 | SQLite database on disk          | Managed by nio. Path set via `store_path` config. MEDRE does not manage lifecycle.           |
+| `_undecryptable_event_count` | `int`                            | Monotonically increasing counter. Never reset.                                               |
 
 **Risk assessment:**
 
@@ -90,6 +88,7 @@ This is a review document. No runtime redesign is proposed.
 ### 3.5 Test Coverage
 
 Existing tests in `tests/test_matrix_session.py` cover:
+
 - Start/stop lifecycle
 - Double-start protection
 - E2EE dependency detection (monkeypatchable)
@@ -99,15 +98,14 @@ Existing tests in `tests/test_matrix_session.py` cover:
 - Sync failure logging
 - MegolmEvent handling
 
-
 ## 4. MeshtasticSession
 
 ### 4.1 Task Management
 
-| Resource | Type | Owner | Cleanup |
-|----------|------|-------|---------|
+| Resource          | Type           | Owner   | Cleanup                                                                         |
+| ----------------- | -------------- | ------- | ------------------------------------------------------------------------------- |
 | `_reconnect_task` | `asyncio.Task` | Session | Cancelled and awaited in `stop()` with configurable timeout. Cleared to `None`. |
-| `_client` | SDK interface | Session | `close()` called in `stop()`. Set to `None`. |
+| `_client`         | SDK interface  | Session | `close()` called in `stop()`. Set to `None`.                                    |
 
 **Risk assessment:**
 
@@ -125,17 +123,17 @@ Existing tests in `tests/test_matrix_session.py` cover:
 
 ### 4.3 Callback Management
 
-| Callback | Registration | Deregistration |
-|----------|-------------|----------------|
-| `_message_callback` | Set in `start()` | `_unsubscribe_callbacks()` in `stop()` |
+| Callback            | Registration             | Deregistration                         |
+| ------------------- | ------------------------ | -------------------------------------- |
+| `_message_callback` | Set in `start()`         | `_unsubscribe_callbacks()` in `stop()` |
 | Pubsub subscription | `_subscribe_callbacks()` | `_unsubscribe_callbacks()` in `stop()` |
 
 **Risk assessment:** Low. Explicit unsubscribe on stop.
 
 ### 4.4 Store/Session Retention
 
-| Resource | Type | Retention |
-|----------|------|-----------|
+| Resource                       | Type  | Retention                              |
+| ------------------------------ | ----- | -------------------------------------- |
 | `_transient_delivery_failures` | `int` | Monotonically increasing. Never reset. |
 | `_permanent_delivery_failures` | `int` | Monotonically increasing. Never reset. |
 
@@ -159,16 +157,15 @@ properties:
 Existing tests in `tests/test_meshtastic_adapter.py` cover adapter lifecycle.
 No dedicated session-only test file exists; session is tested through adapter tests.
 
-
 ## 5. MeshCoreSession
 
 ### 5.1 Task Management
 
-| Resource | Type | Owner | Cleanup |
-|----------|------|-------|---------|
+| Resource          | Type           | Owner   | Cleanup                                               |
+| ----------------- | -------------- | ------- | ----------------------------------------------------- |
 | `_reconnect_task` | `asyncio.Task` | Session | Cancelled and awaited in `stop()`. Cleared to `None`. |
-| `_subscriptions` | `list[Any]` | Session | `_unsubscribe_all()` called in `stop()`. Cleared. |
-| `_meshcore` | SDK client | Session | `disconnect()` called in `stop()`. Set to `None`. |
+| `_subscriptions`  | `list[Any]`    | Session | `_unsubscribe_all()` called in `stop()`. Cleared.     |
+| `_meshcore`       | SDK client     | Session | `disconnect()` called in `stop()`. Set to `None`.     |
 
 **Risk assessment:** Low. Same pattern as other sessions. Clean teardown path.
 
@@ -180,10 +177,10 @@ No dedicated session-only test file exists; session is tested through adapter te
 
 ### 5.3 Callback Management
 
-| Callback | Registration | Deregistration |
-|----------|-------------|----------------|
-| `_message_callback` | Set in `start()` | No explicit deregistration (SDK subscriptions are cleared) |
-| SDK event subscriptions | `subscribe()` in `_connect_real()` | `_unsubscribe_all()` in `stop()` |
+| Callback                | Registration                       | Deregistration                                             |
+| ----------------------- | ---------------------------------- | ---------------------------------------------------------- |
+| `_message_callback`     | Set in `start()`                   | No explicit deregistration (SDK subscriptions are cleared) |
+| SDK event subscriptions | `subscribe()` in `_connect_real()` | `_unsubscribe_all()` in `stop()`                           |
 
 **Risk assessment:** Low.
 
@@ -197,18 +194,17 @@ growth risk under normal operation.
 Existing tests in `tests/test_meshcore_session.py` cover lifecycle, reconnect,
 send, and diagnostics in fake mode.
 
-
 ## 6. LxmfSession
 
 ### 6.1 Task Management
 
-| Resource | Type | Owner | Cleanup |
-|----------|------|-------|---------|
+| Resource          | Type           | Owner   | Cleanup                                                            |
+| ----------------- | -------------- | ------- | ------------------------------------------------------------------ |
 | `_reconnect_task` | `asyncio.Task` | Session | Cancelled and awaited in `stop()` with timeout. Cleared to `None`. |
-| `_announce_task` | `asyncio.Task` | Session | Cancelled and awaited in `stop()`. Cleared to `None`. |
-| `_router` | LXMRouter | Session | Torn down in `_teardown_sdk()`. |
-| `_identity` | RNS Identity | Session | Torn down in `_teardown_sdk()`. |
-| `_reticulum` | RNS.Reticulum | Session | Torn down in `_teardown_sdk()`. |
+| `_announce_task`  | `asyncio.Task` | Session | Cancelled and awaited in `stop()`. Cleared to `None`.              |
+| `_router`         | LXMRouter      | Session | Torn down in `_teardown_sdk()`.                                    |
+| `_identity`       | RNS Identity   | Session | Torn down in `_teardown_sdk()`.                                    |
+| `_reticulum`      | RNS.Reticulum  | Session | Torn down in `_teardown_sdk()`.                                    |
 
 **Risk assessment:**
 
@@ -230,19 +226,19 @@ send, and diagnostics in fake mode.
 
 ### 6.3 Callback Management
 
-| Callback | Registration | Deregistration |
-|----------|-------------|----------------|
-| `_message_callback` | Set in `start()` | `_unsubscribe_callbacks()` in `stop()` |
-| Delivery callback | `register_delivery_callback()` in `_connect_real()` | `_unsubscribe_callbacks()` in `stop()` |
+| Callback            | Registration                                        | Deregistration                         |
+| ------------------- | --------------------------------------------------- | -------------------------------------- |
+| `_message_callback` | Set in `start()`                                    | `_unsubscribe_callbacks()` in `stop()` |
+| Delivery callback   | `register_delivery_callback()` in `_connect_real()` | `_unsubscribe_callbacks()` in `stop()` |
 
 **Risk assessment:** Low. Explicit unsubscribe.
 
 ### 6.4 Store/Session Retention
 
-| Resource | Type | Retention |
-|----------|------|-----------|
-| `_outbound_deliveries` | `dict[str, _OutboundDelivery]` | Grows with pending outbound messages. Cleared in `stop()`. |
-| Identity file | 64-byte private key on disk | Managed by operator. MEDRE loads it but does not create/modify it (in real mode). |
+| Resource               | Type                           | Retention                                                                         |
+| ---------------------- | ------------------------------ | --------------------------------------------------------------------------------- |
+| `_outbound_deliveries` | `dict[str, _OutboundDelivery]` | Grows with pending outbound messages. Cleared in `stop()`.                        |
+| Identity file          | 64-byte private key on disk    | Managed by operator. MEDRE loads it but does not create/modify it (in real mode). |
 
 **Risk assessment:**
 
@@ -257,19 +253,18 @@ Existing tests in `tests/test_lxmf_session.py` cover lifecycle, start/stop,
 inbound normalisation, outbound pending semantics, diagnostics, delivery state
 model, and no raw-object leakage.
 
-
 ## 7. Cross-Session Resource Summary
 
-| Resource Type | Matrix | Meshtastic | MeshCore | LXMF |
-|--------------|--------|------------|----------|------|
-| **Background tasks** | 1 (sync) | 0–1 (reconnect) | 0–1 (reconnect) | 0–2 (reconnect + announce) |
-| **SDK client** | nio AsyncClient | mtjk interface | meshcore.MeshCore | RNS + Identity + LXMRouter |
-| **Max reconnect attempts** | 10 | 10 | 10 | 10 |
-| **Max send retries** | 0 (no retry) | 3 | 3 | 3 |
-| **Outbound queue** | None | Scaffold (lossy) | None | None (router-managed) |
-| **Monotonic counters** | 1 (undecryptable) | 2 (transient + permanent) | 2 (transient + permanent) | 2 (transient + permanent) |
-| **Memory growth risk** | `_room_states` dict | Outbound queue | None | `_outbound_deliveries` dict |
-| **Disk persistence** | Crypto store (SQLite) | None | None | Identity file (raw key) |
+| Resource Type              | Matrix                | Meshtastic                | MeshCore                  | LXMF                        |
+| -------------------------- | --------------------- | ------------------------- | ------------------------- | --------------------------- |
+| **Background tasks**       | 1 (sync)              | 0–1 (reconnect)           | 0–1 (reconnect)           | 0–2 (reconnect + announce)  |
+| **SDK client**             | nio AsyncClient       | mtjk interface            | meshcore.MeshCore         | RNS + Identity + LXMRouter  |
+| **Max reconnect attempts** | 10                    | 10                        | 10                        | 10                          |
+| **Max send retries**       | 0 (no retry)          | 3                         | 3                         | 3                           |
+| **Outbound queue**         | None                  | Scaffold (lossy)          | None                      | None (router-managed)       |
+| **Monotonic counters**     | 1 (undecryptable)     | 2 (transient + permanent) | 2 (transient + permanent) | 2 (transient + permanent)   |
+| **Memory growth risk**     | `_room_states` dict   | Outbound queue            | None                      | `_outbound_deliveries` dict |
+| **Disk persistence**       | Crypto store (SQLite) | None                      | None                      | Identity file (raw key)     |
 
 ## 8. Key Findings
 

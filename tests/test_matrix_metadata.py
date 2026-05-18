@@ -93,6 +93,7 @@ class TestMatrixMetadataEnvelope:
     def test_frozen_dataclass_prevents_mutation(self) -> None:
         """Envelope is frozen and cannot be mutated after creation."""
         import dataclasses
+
         import pytest
 
         envelope = MatrixMetadataEnvelope()

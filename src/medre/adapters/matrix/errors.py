@@ -11,6 +11,7 @@ Hierarchy::
     ├── MatrixSendError         — message send failures
     └── MatrixCodecError        — decode failures
 """
+
 from __future__ import annotations
 
 

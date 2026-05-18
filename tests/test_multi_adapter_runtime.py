@@ -7,16 +7,12 @@ and edge cases around configuration.
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
-from typing import Any
 
 import pytest
 
-from medre.core.contracts.adapter import AdapterContract
 from medre.adapters.fake_matrix import FakeMatrixAdapter
 from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
-from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.config.errors import ConfigValidationError
 from medre.config.model import (
     AdapterConfigSet,
@@ -28,14 +24,9 @@ from medre.config.model import (
     StorageConfig,
 )
 from medre.config.paths import MedrePaths, resolve
-from medre.runtime.builder import RuntimeBuilder
-from medre.runtime.errors import (
-    AdapterStartupError,
-    RuntimeConfigError,
-    RuntimeStartupError,
-)
 from medre.runtime.app import MedreApp
-
+from medre.runtime.builder import RuntimeBuilder
+from medre.runtime.errors import RuntimeStartupError
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -44,8 +35,13 @@ from medre.runtime.app import MedreApp
 
 @pytest.fixture(autouse=True)
 def _clean_path_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for var in ("MEDRE_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME",
-                "XDG_DATA_HOME", "XDG_CACHE_HOME"):
+    for var in (
+        "MEDRE_HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_STATE_HOME",
+        "XDG_DATA_HOME",
+        "XDG_CACHE_HOME",
+    ):
         monkeypatch.delenv(var, raising=False)
 
 
@@ -56,9 +52,10 @@ def tmp_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> MedrePaths:
     return resolve()
 
 
-def _make_config_with_two_matrix_fake(adapter_id_a: str = "main",
-                                       adapter_id_b: str = "secondary",
-                                       ) -> RuntimeConfig:
+def _make_config_with_two_matrix_fake(
+    adapter_id_a: str = "main",
+    adapter_id_b: str = "secondary",
+) -> RuntimeConfig:
     """RuntimeConfig with two fake Matrix adapters."""
     return RuntimeConfig(
         runtime=RuntimeOptions(name="test-multi-matrix"),
@@ -160,7 +157,8 @@ class TestTwoFakeMatrixAdapters:
     """Two Matrix adapters with adapter_kind='fake'."""
 
     def test_both_build_successfully(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """RuntimeBuilder builds two fake Matrix adapters."""
         config = _make_config_with_two_matrix_fake()
@@ -170,7 +168,8 @@ class TestTwoFakeMatrixAdapters:
         assert "secondary" in app.adapters
 
     def test_distinct_adapter_ids(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Each adapter has a distinct adapter_id."""
         config = _make_config_with_two_matrix_fake()
@@ -180,11 +179,12 @@ class TestTwoFakeMatrixAdapters:
         assert "main" in ids or len(ids) == 2
 
     def test_distinct_state_roots(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Each adapter gets a distinct adapter state root."""
         config = _make_config_with_two_matrix_fake("main", "secondary")
-        app = _build_and_start(config, tmp_paths)
+        _build_and_start(config, tmp_paths)
         # State roots are computed from paths, not from adapter objects
         root_a = tmp_paths.adapter_state_dir("main")
         root_b = tmp_paths.adapter_state_dir("secondary")
@@ -193,7 +193,8 @@ class TestTwoFakeMatrixAdapters:
         assert root_b == tmp_paths.state_dir / "adapters" / "secondary"
 
     async def test_matrix_store_dirs_created(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Matrix store dirs are created on start for Matrix adapters."""
         config = _make_config_with_two_matrix_fake("main", "secondary")
@@ -201,14 +202,17 @@ class TestTwoFakeMatrixAdapters:
         await app.start()
         try:
             store_a = tmp_paths.adapter_transport_state_dir("main", "matrix") / "store"
-            store_b = tmp_paths.adapter_transport_state_dir("secondary", "matrix") / "store"
+            store_b = (
+                tmp_paths.adapter_transport_state_dir("secondary", "matrix") / "store"
+            )
             assert store_a.is_dir(), f"Expected {store_a} to be a directory"
             assert store_b.is_dir(), f"Expected {store_b} to be a directory"
         finally:
             await app.stop()
 
     def test_adapters_are_fake_matrix(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Built adapters are FakeMatrixAdapter instances."""
         config = _make_config_with_two_matrix_fake()
@@ -226,7 +230,8 @@ class TestTwoFakeMeshtasticAdapters:
     """Two Meshtastic adapters with adapter_kind='fake'."""
 
     def test_both_build_successfully(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """RuntimeBuilder builds two fake Meshtastic adapters."""
         config = _make_config_with_two_meshtastic_fake("mesh_alpha", "mesh_bravo")
@@ -234,7 +239,8 @@ class TestTwoFakeMeshtasticAdapters:
         assert len(app.adapters) == 2
 
     def test_separate_state_roots(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Separate state roots computed for each adapter."""
         config = _make_config_with_two_meshtastic_fake("mesh_alpha", "mesh_bravo")
@@ -244,18 +250,21 @@ class TestTwoFakeMeshtasticAdapters:
         assert root_a != root_b
 
     async def test_no_matrix_store_dirs(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Meshtastic adapters do NOT get Matrix store directories."""
         config = _make_config_with_two_meshtastic_fake("mesh_alpha", "mesh_bravo")
         app = _build_and_start(config, tmp_paths)
         await app.start()
         try:
-            store_a = tmp_paths.adapter_transport_state_dir("mesh_alpha", "matrix") / "store"
-            # The matrix subdir should not have been created
-            assert not store_a.is_dir(), (
-                f"Meshtastic adapter should not have Matrix store at {store_a}"
+            store_a = (
+                tmp_paths.adapter_transport_state_dir("mesh_alpha", "matrix") / "store"
             )
+            # The matrix subdir should not have been created
+            assert (
+                not store_a.is_dir()
+            ), f"Meshtastic adapter should not have Matrix store at {store_a}"
         finally:
             await app.stop()
 
@@ -269,7 +278,8 @@ class TestMixedTransportRuntime:
     """2 fake Matrix + 2 fake Meshtastic = 4 adapters."""
 
     async def test_all_four_build_and_start(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """All 4 adapters build and start."""
         config = _make_config_mixed_four()
@@ -284,7 +294,8 @@ class TestMixedTransportRuntime:
             await app.stop()
 
     async def test_correct_state_roots(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Each adapter gets correct state root."""
         config = _make_config_mixed_four()
@@ -298,7 +309,8 @@ class TestMixedTransportRuntime:
             await app.stop()
 
     async def test_matrix_store_dirs_only_for_matrix(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Matrix store dirs created only for Matrix adapters."""
         config = _make_config_mixed_four()
@@ -313,9 +325,9 @@ class TestMixedTransportRuntime:
             # Meshtastic adapters do NOT get matrix/store
             for aid in ("mt_alpha", "mt_bravo"):
                 store = tmp_paths.adapter_transport_state_dir(aid, "matrix") / "store"
-                assert not store.is_dir(), (
-                    f"Meshtastic adapter {aid} should not have Matrix store"
-                )
+                assert (
+                    not store.is_dir()
+                ), f"Meshtastic adapter {aid} should not have Matrix store"
         finally:
             await app.stop()
 
@@ -329,7 +341,8 @@ class TestStartupShutdownCycle:
     """Build/start multi-adapter runtime, then stop."""
 
     async def test_clean_shutdown(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """All adapters stop cleanly after start."""
         config = _make_config_mixed_four()
@@ -341,7 +354,8 @@ class TestStartupShutdownCycle:
         assert app.shutdown_event.is_set()
 
     async def test_no_resource_leaks(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """After stop, adapters report as not started."""
         config = _make_config_with_two_matrix_fake()
@@ -363,7 +377,8 @@ class TestAdapterFailureIsolation:
     """Invalid adapter config does not prevent others from working."""
 
     async def test_invalid_adapter_reported(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Invalid adapter failure is reported with adapter_id attribution.
 
@@ -371,7 +386,6 @@ class TestAdapterFailureIsolation:
         ``build_failures`` rather than raising, so the 2 valid adapters
         still work.
         """
-        from medre.runtime.builder import AdapterBuildFailure
 
         # Configure 3 adapters: 2 fake + 1 real (which will fail without config)
         config = RuntimeConfig(
@@ -414,7 +428,8 @@ class TestAdapterFailureIsolation:
         assert failure.transport == "matrix"
 
     async def test_valid_adapters_unaffected_by_peer_failure(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """When only valid adapters are configured, all succeed."""
         # Use 3 valid fake adapters to show isolation is possible
@@ -463,10 +478,14 @@ class TestIndividualAdapterStop:
     """Stopping one adapter does not affect others."""
 
     async def test_other_adapters_continue_running(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """After stopping one adapter, the others continue running."""
-        config = _make_config_with_two_matrix_fake("alpha", "beta", )
+        config = _make_config_with_two_matrix_fake(
+            "alpha",
+            "beta",
+        )
         # Add a third
         config = RuntimeConfig(
             runtime=RuntimeOptions(name="test-individual-stop"),
@@ -508,7 +527,8 @@ class TestIndividualAdapterStop:
             await app.stop()
 
     async def test_stopped_adapter_tasks_cleaned(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Stopped adapter's internal state is cleaned up."""
         config = _make_config_with_two_matrix_fake("x", "y")
@@ -542,7 +562,8 @@ class TestEdgeCases:
             )
 
     def test_empty_runtime_no_crash(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Empty runtime (no adapters enabled) builds without crash."""
         config = RuntimeConfig(
@@ -555,14 +576,14 @@ class TestEdgeCases:
         assert len(app.adapters) == 0
 
     async def test_empty_runtime_starts_and_stops(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Empty runtime (zero adapters) raises RuntimeStartupError.
 
         Per startup semantics, zero adapters started is a total
         failure — the runtime cannot route any events.
         """
-        from medre.runtime.errors import RuntimeStartupError
 
         config = RuntimeConfig(
             runtime=RuntimeOptions(name="test-empty-lifecycle"),
@@ -576,7 +597,8 @@ class TestEdgeCases:
         assert len(app.adapters) == 0
 
     def test_disabled_adapters_not_started(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Disabled adapters are not built or listed in inventory."""
         config = RuntimeConfig(
@@ -605,7 +627,8 @@ class TestEdgeCases:
         assert len(app.adapters) == 1
 
     def test_startup_ordering_deterministic(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Same config always produces same adapter ordering."""
         config = RuntimeConfig(
@@ -639,6 +662,6 @@ class TestEdgeCases:
         app2 = builder2.build()
         keys1 = list(app1.adapters.keys())
         keys2 = list(app2.adapters.keys())
-        assert keys1 == keys2, (
-            f"Adapter ordering must be deterministic: {keys1} != {keys2}"
-        )
+        assert (
+            keys1 == keys2
+        ), f"Adapter ordering must be deterministic: {keys1} != {keys2}"

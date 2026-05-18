@@ -5,15 +5,20 @@ boundary enforcement, relation fallback rendering, and canonical immutability.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pytest
 
 from medre.adapters import FakePresentationAdapter, FakeTransportAdapter
-from medre.core.contracts.adapter import AdapterCapabilities, AdapterContext, AdapterInfo, AdapterPermanentError, AdapterRole
+from medre.core.contracts.adapter import (
+    AdapterInfo,
+    AdapterPermanentError,
+    AdapterRole,
+)
 from medre.core.events import CanonicalEvent, EventMetadata, EventRelation, NativeRef
 from medre.core.events.kinds import EventKind
 from medre.core.rendering.renderer import RenderingResult
 from medre.core.rendering.text import TextRenderer
-from datetime import datetime, timezone
 
 
 def _make_event(event_id: str = "evt-1") -> CanonicalEvent:
@@ -47,9 +52,7 @@ class TestFakeTransportAdapter:
         assert adapter.role == AdapterRole.TRANSPORT
         assert adapter.platform == "fake_transport"
 
-    async def test_capabilities_from_health_check(
-        self, make_adapter_context
-    ) -> None:
+    async def test_capabilities_from_health_check(self, make_adapter_context) -> None:
         """Health check reports capabilities with correct feature flags."""
         adapter = FakeTransportAdapter("test_t")
         ctx = make_adapter_context("test_t")
@@ -124,9 +127,7 @@ class TestFakePresentationAdapter:
         assert adapter.role == AdapterRole.PRESENTATION
         assert adapter.platform == "fake_presentation"
 
-    async def test_capabilities_from_health_check(
-        self, make_adapter_context
-    ) -> None:
+    async def test_capabilities_from_health_check(self, make_adapter_context) -> None:
         """Health check reports correct capabilities."""
         adapter = FakePresentationAdapter("test_p")
         ctx = make_adapter_context("test_p")
@@ -479,7 +480,8 @@ class TestDeliveryContract:
         from medre.adapters.fake_presentation import FaultyPresentationAdapter
 
         adapter = FaultyPresentationAdapter(
-            adapter_id="test", failure_mode="succeed",
+            adapter_id="test",
+            failure_mode="succeed",
         )
         event = _make_event()
         with pytest.raises(TypeError, match="RenderingResult only"):
@@ -514,7 +516,9 @@ class TestPluginBoundary:
             capabilities = set()
 
             async def initialize(self, ctx): ...
-            async def handle_event(self, event): return []
+            async def handle_event(self, event):
+                return []
+
             async def shutdown(self): ...
 
         from medre.plugins import Plugin
@@ -616,7 +620,8 @@ class TestFaultyPresentationAdapter:
         from medre.adapters.fake_presentation import FaultyPresentationAdapter
 
         adapter = FaultyPresentationAdapter(
-            adapter_id="always-fail", failure_mode="always_fail",
+            adapter_id="always-fail",
+            failure_mode="always_fail",
         )
         result = RenderingResult(
             event_id="evt-1",
@@ -637,7 +642,8 @@ class TestFaultyPresentationAdapter:
         from medre.adapters.fake_presentation import FaultyPresentationAdapter
 
         adapter = FaultyPresentationAdapter(
-            adapter_id="transient", failure_mode="transient_fail",
+            adapter_id="transient",
+            failure_mode="transient_fail",
         )
         result = RenderingResult(
             event_id="evt-2",
@@ -655,7 +661,8 @@ class TestFaultyPresentationAdapter:
         from medre.core.contracts.adapter import AdapterDeliveryResult
 
         adapter = FaultyPresentationAdapter(
-            adapter_id="always-ok", failure_mode="succeed",
+            adapter_id="always-ok",
+            failure_mode="succeed",
         )
         result = RenderingResult(
             event_id="evt-3",
@@ -677,7 +684,9 @@ class TestFaultyPresentationAdapter:
         from medre.core.contracts.adapter import AdapterDeliveryResult
 
         adapter = FaultyPresentationAdapter(
-            adapter_id="recover", failure_mode="fail_n_then_succeed", fail_count=3,
+            adapter_id="recover",
+            failure_mode="fail_n_then_succeed",
+            fail_count=3,
         )
         result = RenderingResult(
             event_id="evt-4",

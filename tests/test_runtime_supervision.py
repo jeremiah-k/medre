@@ -20,8 +20,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from medre.core.lifecycle.states import AdapterState
 from medre.core.runtime.supervision import (
     AdapterFailureSeverity,
@@ -32,7 +30,6 @@ from medre.core.runtime.supervision import (
     classify_startup_outcome,
     runtime_supervision_snapshot,
 )
-
 
 # ===================================================================
 # RuntimeHealth classification
@@ -57,17 +54,27 @@ class TestClassifyRuntimeHealth:
         assert classify_runtime_health([AdapterState.FAILED]) == RuntimeHealth.FAILED
 
     def test_single_degraded_is_degraded(self) -> None:
-        assert classify_runtime_health([AdapterState.DEGRADED]) == RuntimeHealth.DEGRADED
+        assert (
+            classify_runtime_health([AdapterState.DEGRADED]) == RuntimeHealth.DEGRADED
+        )
 
     def test_single_backpressured_is_degraded(self) -> None:
-        assert classify_runtime_health([AdapterState.BACKPRESSURED]) == RuntimeHealth.DEGRADED
+        assert (
+            classify_runtime_health([AdapterState.BACKPRESSURED])
+            == RuntimeHealth.DEGRADED
+        )
 
     def test_single_disconnected_is_degraded(self) -> None:
-        assert classify_runtime_health([AdapterState.DISCONNECTED]) == RuntimeHealth.DEGRADED
+        assert (
+            classify_runtime_health([AdapterState.DISCONNECTED])
+            == RuntimeHealth.DEGRADED
+        )
 
     def test_single_initializing_is_failed(self) -> None:
         """INITIALIZING only — not yet operational."""
-        assert classify_runtime_health([AdapterState.INITIALIZING]) == RuntimeHealth.FAILED
+        assert (
+            classify_runtime_health([AdapterState.INITIALIZING]) == RuntimeHealth.FAILED
+        )
 
     def test_single_stopping_is_failed(self) -> None:
         """STOPPING — transitional, not operational."""
@@ -201,23 +208,33 @@ class TestClassifyAdapterFailureSeverity:
         assert classify_adapter_failure_severity(0, 3) == AdapterFailureSeverity.FATAL
 
     def test_one_healthy_one_total_is_non_fatal(self) -> None:
-        assert classify_adapter_failure_severity(1, 1) == AdapterFailureSeverity.NON_FATAL
+        assert (
+            classify_adapter_failure_severity(1, 1) == AdapterFailureSeverity.NON_FATAL
+        )
 
     def test_one_healthy_three_total_is_non_fatal(self) -> None:
         """One adapter in FAILED state with others healthy is NON_FATAL (classification invariant)."""
-        assert classify_adapter_failure_severity(1, 3) == AdapterFailureSeverity.NON_FATAL
+        assert (
+            classify_adapter_failure_severity(1, 3) == AdapterFailureSeverity.NON_FATAL
+        )
 
     def test_all_healthy_is_non_fatal(self) -> None:
-        assert classify_adapter_failure_severity(5, 5) == AdapterFailureSeverity.NON_FATAL
+        assert (
+            classify_adapter_failure_severity(5, 5) == AdapterFailureSeverity.NON_FATAL
+        )
 
     def test_severity_reclassifies_as_adapters_recover(self) -> None:
         """When adapters recover, severity goes back to non-fatal."""
         # Initially all down
         assert classify_adapter_failure_severity(0, 3) == AdapterFailureSeverity.FATAL
         # One recovers
-        assert classify_adapter_failure_severity(1, 3) == AdapterFailureSeverity.NON_FATAL
+        assert (
+            classify_adapter_failure_severity(1, 3) == AdapterFailureSeverity.NON_FATAL
+        )
         # All recover
-        assert classify_adapter_failure_severity(3, 3) == AdapterFailureSeverity.NON_FATAL
+        assert (
+            classify_adapter_failure_severity(3, 3) == AdapterFailureSeverity.NON_FATAL
+        )
 
 
 # ===================================================================
@@ -402,18 +419,30 @@ class TestRuntimeHealthTransitionIntegration:
     def test_healthy_to_degraded_on_single_failure(self) -> None:
         """classify_runtime_health() returns DEGRADED when one READY is replaced with FAILED."""
         # Initially all healthy.
-        assert classify_runtime_health([AdapterState.READY, AdapterState.READY]) == RuntimeHealth.HEALTHY
+        assert (
+            classify_runtime_health([AdapterState.READY, AdapterState.READY])
+            == RuntimeHealth.HEALTHY
+        )
 
         # One adapter crashes.
-        assert classify_runtime_health([AdapterState.READY, AdapterState.FAILED]) == RuntimeHealth.DEGRADED
+        assert (
+            classify_runtime_health([AdapterState.READY, AdapterState.FAILED])
+            == RuntimeHealth.DEGRADED
+        )
 
     def test_degraded_to_failed_on_last_adapter_failure(self) -> None:
         """classify_runtime_health() returns FAILED when all states become FAILED."""
         # Degraded: one healthy, one failed.
-        assert classify_runtime_health([AdapterState.READY, AdapterState.FAILED]) == RuntimeHealth.DEGRADED
+        assert (
+            classify_runtime_health([AdapterState.READY, AdapterState.FAILED])
+            == RuntimeHealth.DEGRADED
+        )
 
         # Last adapter fails.
-        assert classify_runtime_health([AdapterState.FAILED, AdapterState.FAILED]) == RuntimeHealth.FAILED
+        assert (
+            classify_runtime_health([AdapterState.FAILED, AdapterState.FAILED])
+            == RuntimeHealth.FAILED
+        )
 
     def test_failure_severity_transitions_fatal_to_nonfatal(self) -> None:
         """Failure severity reclassifies as adapters recover."""
@@ -421,10 +450,14 @@ class TestRuntimeHealthTransitionIntegration:
         assert classify_adapter_failure_severity(0, 3) == AdapterFailureSeverity.FATAL
 
         # One recovers → non-fatal.
-        assert classify_adapter_failure_severity(1, 3) == AdapterFailureSeverity.NON_FATAL
+        assert (
+            classify_adapter_failure_severity(1, 3) == AdapterFailureSeverity.NON_FATAL
+        )
 
         # All recover → non-fatal.
-        assert classify_adapter_failure_severity(3, 3) == AdapterFailureSeverity.NON_FATAL
+        assert (
+            classify_adapter_failure_severity(3, 3) == AdapterFailureSeverity.NON_FATAL
+        )
 
     def test_supervision_snapshot_after_cascade_failure(self) -> None:
         """Supervision snapshot correctly classifies cascade failure states.
@@ -439,7 +472,12 @@ class TestRuntimeHealthTransitionIntegration:
         assert initial_snap["adapter_summary"]["healthy"] == 4
 
         # After cascade: 1 healthy, 3 failed.
-        cascade_states = [AdapterState.READY, AdapterState.FAILED, AdapterState.FAILED, AdapterState.FAILED]
+        cascade_states = [
+            AdapterState.READY,
+            AdapterState.FAILED,
+            AdapterState.FAILED,
+            AdapterState.FAILED,
+        ]
         cascade_snap = runtime_supervision_snapshot(cascade_states)
         assert cascade_snap["runtime_health"] == "degraded"
         assert cascade_snap["adapter_summary"]["healthy"] == 1
@@ -459,12 +497,22 @@ class TestRuntimeHealthTransitionIntegration:
 
     def test_fingerprint_changes_as_states_change(self) -> None:
         """Supervision fingerprint changes as adapter states evolve."""
-        snap_healthy = runtime_supervision_snapshot([AdapterState.READY, AdapterState.READY])
-        snap_degraded = runtime_supervision_snapshot([AdapterState.READY, AdapterState.FAILED])
-        snap_failed = runtime_supervision_snapshot([AdapterState.FAILED, AdapterState.FAILED])
+        snap_healthy = runtime_supervision_snapshot(
+            [AdapterState.READY, AdapterState.READY]
+        )
+        snap_degraded = runtime_supervision_snapshot(
+            [AdapterState.READY, AdapterState.FAILED]
+        )
+        snap_failed = runtime_supervision_snapshot(
+            [AdapterState.FAILED, AdapterState.FAILED]
+        )
 
-        assert snap_healthy["startup_fingerprint"] != snap_degraded["startup_fingerprint"]
-        assert snap_degraded["startup_fingerprint"] != snap_failed["startup_fingerprint"]
+        assert (
+            snap_healthy["startup_fingerprint"] != snap_degraded["startup_fingerprint"]
+        )
+        assert (
+            snap_degraded["startup_fingerprint"] != snap_failed["startup_fingerprint"]
+        )
 
 
 # ===================================================================
@@ -549,9 +597,9 @@ class TestStateLayerCombinations:
         from medre.runtime.app import RuntimeState
 
         member_names = {m.name for m in RuntimeState}
-        assert "DEGRADED" not in member_names, (
-            f"RuntimeState must not contain DEGRADED. Members: {member_names}"
-        )
+        assert (
+            "DEGRADED" not in member_names
+        ), f"RuntimeState must not contain DEGRADED. Members: {member_names}"
 
     def test_runtime_health_has_degraded_value(self) -> None:
         """RuntimeHealth enum must contain DEGRADED."""

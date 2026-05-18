@@ -13,6 +13,7 @@ All fixed ``asyncio.sleep(0.3)`` calls from the original have been replaced
 with ``wait_until(lambda: True, ...)`` from ``tests.helpers.async_utils``
 for deterministic behaviour.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -21,21 +22,16 @@ import json
 from contextlib import redirect_stdout
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
-from unittest.mock import patch
 
 import pytest
 
+from tests.helpers.async_utils import wait_until
 from tests.test_cli_config_workflows import (
     CONFIG_FAKE_MULTI,
     CONFIG_SINGLE_ADAPTER,
     _run_cli,
     _run_cli_raw,
-    config_fake_multi,
-    config_minimal,
 )
-from tests.helpers.async_utils import wait_until
-
 
 # ===================================================================
 # 9. Shutdown/restart workflow with fake runtime
@@ -72,7 +68,6 @@ class TestShutdownRestartWorkflow:
     def test_fake_runtime_build_and_snapshot(self, config_fake_multi: Path) -> None:
         """RuntimeBuilder can build from fake config and produce a snapshot."""
         from medre.config.loader import load_config
-        from medre.config.paths import resolve
         from medre.runtime.builder import RuntimeBuilder
         from medre.runtime.snapshot import build_runtime_snapshot
 
@@ -216,11 +211,12 @@ class TestSignalSafety:
         self, tmp_path: Path
     ) -> None:
         """Calling _request_shutdown simulates SIGTERM; app stops cleanly."""
+        import signal as signal_mod
+
+        import medre.cli.run_commands as run_mod
         from medre.cli.run_commands import _request_shutdown
         from medre.config.loader import load_config
         from medre.runtime.builder import RuntimeBuilder
-        import signal as signal_mod
-        import medre.cli.run_commands as run_mod
 
         p = tmp_path / "config.toml"
         p.write_text(CONFIG_SINGLE_ADAPTER)
@@ -241,9 +237,10 @@ class TestSignalSafety:
     @pytest.mark.asyncio
     async def test_request_shutdown_sigint(self) -> None:
         """SIGINT also sets shutdown_requested."""
-        from medre.cli.run_commands import _request_shutdown
         import signal as signal_mod
+
         import medre.cli.run_commands as run_mod
+        from medre.cli.run_commands import _request_shutdown
 
         run_mod.shutdown_requested = False
         _request_shutdown(signal_mod.SIGINT, None)
@@ -260,9 +257,7 @@ class TestSnapshotOnShutdown:
     """--snapshot-on-shutdown writes a valid JSON snapshot on graceful stop."""
 
     @pytest.mark.asyncio
-    async def test_snapshot_written_on_graceful_stop(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_snapshot_written_on_graceful_stop(self, tmp_path: Path) -> None:
         """Runtime builds snapshot and writes JSON to the specified path."""
         from medre.config.loader import load_config
         from medre.runtime.builder import RuntimeBuilder
@@ -306,9 +301,22 @@ class TestSnapshotOnShutdown:
         )
 
         expected_sections = {
-            "schema_version", "snapshot_at", "accounting", "adapters",
-            "capacity", "diagnostics", "health", "identity", "lifecycle",
-            "limits", "persistence", "replay", "retry", "routes", "startup", "unstable",
+            "schema_version",
+            "snapshot_at",
+            "accounting",
+            "adapters",
+            "capacity",
+            "diagnostics",
+            "health",
+            "identity",
+            "lifecycle",
+            "limits",
+            "persistence",
+            "replay",
+            "retry",
+            "routes",
+            "startup",
+            "unstable",
         }
         assert set(snap.keys()) == expected_sections
 

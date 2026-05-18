@@ -3,16 +3,15 @@ override application, secrets redaction."""
 
 from __future__ import annotations
 
-import dataclasses
-
 import pytest
 
+from medre.config.adapters.matrix import MatrixConfig
 from medre.config.env import (
     MedreEnvConfig,
-    apply_env_overrides,
     _coerce_bool,
     _coerce_int,
     _coerce_set,
+    apply_env_overrides,
 )
 from medre.config.errors import ConfigValidationError
 from medre.config.model import (
@@ -23,8 +22,6 @@ from medre.config.model import (
     RuntimeOptions,
     StorageConfig,
 )
-from medre.config.adapters.matrix import MatrixConfig
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -35,6 +32,7 @@ from medre.config.adapters.matrix import MatrixConfig
 def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Remove all MEDRE_* env vars between tests."""
     import os
+
     for key in list(os.environ.keys()):
         if key.startswith("MEDRE_"):
             monkeypatch.delenv(key, raising=False)
@@ -82,11 +80,15 @@ def _make_config_with_matrix() -> RuntimeConfig:
 class TestCoerceBool:
     """_coerce_bool parses boolean env-var values."""
 
-    @pytest.mark.parametrize("value", ["true", "True", "TRUE", "1", "yes", "Yes", "YES"])
+    @pytest.mark.parametrize(
+        "value", ["true", "True", "TRUE", "1", "yes", "Yes", "YES"]
+    )
     def test_truthy_values(self, value: str) -> None:
         assert _coerce_bool(value, "TEST_VAR") is True
 
-    @pytest.mark.parametrize("value", ["false", "False", "FALSE", "0", "no", "No", "NO"])
+    @pytest.mark.parametrize(
+        "value", ["false", "False", "FALSE", "0", "no", "No", "NO"]
+    )
     def test_falsy_values(self, value: str) -> None:
         assert _coerce_bool(value, "TEST_VAR") is False
 
@@ -181,9 +183,12 @@ class TestCoreOverrides:
         result = apply_env_overrides(base)
         assert result.logging.level == "DEBUG"
 
-    def test_no_env_vars_returns_same_config(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_no_env_vars_returns_same_config(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         # Clean all MEDRE_ vars
         import os
+
         for key in list(os.environ):
             if key.startswith("MEDRE_"):
                 monkeypatch.delenv(key, raising=False)
@@ -279,7 +284,9 @@ class TestImmutability:
         assert result is not base
         assert result.logging is not base.logging
 
-    def test_original_adapters_not_mutated(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_original_adapters_not_mutated(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("MEDRE_MATRIX_HOMESERVER", "https://env.test")
         monkeypatch.setenv("MEDRE_MATRIX_USER_ID", "@env:test")
         monkeypatch.setenv("MEDRE_MATRIX_ACCESS_TOKEN", "env-tok")
@@ -300,28 +307,37 @@ class TestImmutability:
 class TestMedreEnvConfig:
     """MedreEnvConfig reads and exposes MEDRE_* env vars."""
 
-    def test_from_environ_captures_known_vars(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_from_environ_captures_known_vars(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("MEDRE_DB_PATH", "/test.db")
         monkeypatch.setenv("MEDRE_LOG_LEVEL", "DEBUG")
         env = MedreEnvConfig.from_environ()
         assert env.db_path == "/test.db"
         assert env.log_level == "DEBUG"
 
-    def test_from_environ_ignores_unknown_vars(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_from_environ_ignores_unknown_vars(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("MEDRE_UNKNOWN_VAR", "whatever")
         env = MedreEnvConfig.from_environ()
         assert env.db_path is None
         assert env.log_level is None
 
-    def test_has_any_set_false_when_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_has_any_set_false_when_empty(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         import os
+
         for key in list(os.environ):
             if key.startswith("MEDRE_"):
                 monkeypatch.delenv(key, raising=False)
         env = MedreEnvConfig.from_environ()
         assert env.has_any_set() is False
 
-    def test_has_any_set_true_when_vars_present(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_has_any_set_true_when_vars_present(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("MEDRE_DB_PATH", "/x")
         env = MedreEnvConfig.from_environ()
         assert env.has_any_set() is True
@@ -341,7 +357,9 @@ class TestMedreEnvConfig:
 class TestSecretsRedaction:
     """Secret values are redacted in diagnostic output."""
 
-    def test_access_token_redacted_in_provenance(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_access_token_redacted_in_provenance(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("MEDRE_MATRIX_ACCESS_TOKEN", "super-secret-token")
         monkeypatch.setenv("MEDRE_MATRIX_HOMESERVER", "https://matrix.test")
         monkeypatch.setenv("MEDRE_MATRIX_USER_ID", "@bot:test")
@@ -382,7 +400,9 @@ class TestSecretsRedaction:
 class TestUnknownEnvVars:
     """Unknown MEDRE_ env vars are handled gracefully."""
 
-    def test_unknown_medre_vars_do_not_crash(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_unknown_medre_vars_do_not_crash(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("MEDRE_FUTURE_FEATURE", "some-value")
         base = _make_base_config()
         # Should not raise — unknown vars are ignored

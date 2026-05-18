@@ -1,0 +1,29 @@
+# yamllint disable rule:quoted-strings
+
+# B105/B106 flag any string containing "password"/"token"/"secret" as a hardcoded secret.
+# All findings are test fixture values (e.g. 'test_token', 'test_password', 'secret123').
+# Real secret detection is covered by trufflehog in the Trunk pipeline.
+#
+# B107  hardcoded password defaults — sentinel empty-string defaults in test fixtures.
+# B108  temp file usage — pytest tmp_path fixtures (not insecure).
+# B110  try/except/pass — expected failures in adapter session code.
+# B112  try/except/continue — expected failures in runtime iteration.
+# B311  pseudo-random — non-crypto usage for IDs, timings (acceptable).
+# B404  subprocess — intentional in test infrastructure scripts.
+# B603  subprocess call — intentional in test infrastructure scripts.
+# B607  partial executable path — intentional in test conftest.
+#
+# B310 (urlopen) and B608 (SQL injection) carry explicit
+# # nosec annotations in src/ with per-site rationale and are NOT skipped here.
+skips:
+  - B101
+  - B105
+  - B106
+  - B107
+  - B108
+  - B110
+  - B112
+  - B311
+  - B404
+  - B603
+  - B607

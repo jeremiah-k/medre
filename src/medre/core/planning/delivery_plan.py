@@ -341,9 +341,15 @@ class RetryExecutor:
             parent_receipt_id=previous_receipt_id,
             source=source,
             replay_run_id=replay_run_id,
-            retry_max_attempts=self._policy.max_attempts if self._policy is not None else None,
-            retry_backoff_base=self._policy.backoff_base if self._policy is not None else None,
-            retry_max_delay=self._policy.max_delay_seconds if self._policy is not None else None,
+            retry_max_attempts=(
+                self._policy.max_attempts if self._policy is not None else None
+            ),
+            retry_backoff_base=(
+                self._policy.backoff_base if self._policy is not None else None
+            ),
+            retry_max_delay=(
+                self._policy.max_delay_seconds if self._policy is not None else None
+            ),
             retry_jitter=self._policy.jitter if self._policy is not None else None,
         )
 

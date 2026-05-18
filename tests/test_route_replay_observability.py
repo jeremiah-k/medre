@@ -12,12 +12,9 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from medre.core.diagnostics.replay_metrics import ReplayMetrics
 from medre.core.routing.stats import RouteStats
 from medre.runtime.observability import DiagnosticsCollector
-
 
 # ---------------------------------------------------------------------------
 # test_route_counters_after_replay

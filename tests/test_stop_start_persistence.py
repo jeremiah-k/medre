@@ -41,14 +41,12 @@ import pytest
 from medre.adapters.fake_presentation import FakePresentationAdapter
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.events import CanonicalEvent, EventMetadata, NativeRef
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.storage.backend import StorageBackend
 from medre.core.storage.sqlite import SQLiteStorage
-
 from tests.helpers.bridge import make_pipeline_config
 from tests.helpers.pipeline import make_event
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -152,8 +150,7 @@ async def test_events_survive_stop_start(tmp_path: Path) -> None:
 
     # Inject 3 events via handle_ingress (direct pipeline path).
     events_a = [
-        make_event(event_id=f"evt-a-{i}", source_adapter="src")
-        for i in range(3)
+        make_event(event_id=f"evt-a-{i}", source_adapter="src") for i in range(3)
     ]
     for evt in events_a:
         await runner_a.handle_ingress(evt)
@@ -172,8 +169,7 @@ async def test_events_survive_stop_start(tmp_path: Path) -> None:
 
     # Inject 2 more events.
     events_b = [
-        make_event(event_id=f"evt-b-{i}", source_adapter="src")
-        for i in range(2)
+        make_event(event_id=f"evt-b-{i}", source_adapter="src") for i in range(2)
     ]
     for evt in events_b:
         await runner_b.handle_ingress(evt)
@@ -213,9 +209,7 @@ async def test_receipts_survive_stop_start(tmp_path: Path) -> None:
     # -- Runner A ---------------------------------------------------------
     storage_a = await _open_storage(db_path)
     pres_a = FakePresentationAdapter(adapter_id="fake_presentation")
-    runner_a = _build_runner(
-        storage_a, router, adapters={"fake_presentation": pres_a}
-    )
+    runner_a = _build_runner(storage_a, router, adapters={"fake_presentation": pres_a})
 
     await runner_a.start()
 
@@ -239,9 +233,7 @@ async def test_receipts_survive_stop_start(tmp_path: Path) -> None:
     # -- Runner B (same DB, new storage instance) -------------------------
     storage_b = await _open_storage(db_path)
     pres_b = FakePresentationAdapter(adapter_id="fake_presentation")
-    runner_b = _build_runner(
-        storage_b, router, adapters={"fake_presentation": pres_b}
-    )
+    runner_b = _build_runner(storage_b, router, adapters={"fake_presentation": pres_b})
 
     await runner_b.start()
 
@@ -341,18 +333,16 @@ async def test_native_ref_dedup_survives_restart(tmp_path: Path) -> None:
     )
 
     snap_b = accounting_b.snapshot()
-    assert snap_b["loop_prevented"] == 1, (
-        f"loop_prevented should be 1, got {snap_b['loop_prevented']}"
-    )
-    assert snap_b["inbound_accepted"] == 0, (
-        "Duplicate event should NOT increment inbound_accepted"
-    )
+    assert (
+        snap_b["loop_prevented"] == 1
+    ), f"loop_prevented should be 1, got {snap_b['loop_prevented']}"
+    assert (
+        snap_b["inbound_accepted"] == 0
+    ), "Duplicate event should NOT increment inbound_accepted"
 
     # Only the ORIGINAL event should be in storage (dedup-evt-002 never stored).
     total_events = await storage_b.count_events()
-    assert total_events == 1, (
-        f"Expected 1 event (original only), got {total_events}"
-    )
+    assert total_events == 1, f"Expected 1 event (original only), got {total_events}"
 
     original = await storage_b.get("dedup-evt-001")
     assert original is not None, "Original event dedup-evt-001 lost"
@@ -428,9 +418,9 @@ async def test_native_ref_dedup_null_channel_id_across_restart(
     outcomes_b = await runner_b.handle_ingress(event_b)
 
     # Suppressed: dedup key (adapter, NULL, msg_id) persisted across restart.
-    assert outcomes_b == [], (
-        "Duplicate NULL-channel native ref should be suppressed across restart"
-    )
+    assert (
+        outcomes_b == []
+    ), "Duplicate NULL-channel native ref should be suppressed across restart"
 
     snap_b = accounting_b.snapshot()
     assert snap_b["loop_prevented"] == 1
@@ -438,9 +428,7 @@ async def test_native_ref_dedup_null_channel_id_across_restart(
 
     # Only the original event in storage (nullch-evt-002 never stored).
     total_events = await storage_b.count_events()
-    assert total_events == 1, (
-        f"Expected 1 event (original only), got {total_events}"
-    )
+    assert total_events == 1, f"Expected 1 event (original only), got {total_events}"
 
     original = await storage_b.get("nullch-evt-001")
     assert original is not None, "Original NULL-channel event lost after restart"
@@ -475,7 +463,8 @@ async def test_accounting_resets_on_new_runner(tmp_path: Path) -> None:
     accounting_a = RuntimeAccounting()
     pres_a = FakePresentationAdapter(adapter_id="fake_presentation")
     runner_a = _build_runner(
-        storage_a, router,
+        storage_a,
+        router,
         adapters={"fake_presentation": pres_a},
         accounting=accounting_a,
     )
@@ -492,9 +481,9 @@ async def test_accounting_resets_on_new_runner(tmp_path: Path) -> None:
         await runner_a.handle_ingress(evt)
 
     snap_a = accounting_a.snapshot()
-    assert snap_a["inbound_accepted"] == 3, (
-        f"Runner A should have accepted 3 events, got {snap_a['inbound_accepted']}"
-    )
+    assert (
+        snap_a["inbound_accepted"] == 3
+    ), f"Runner A should have accepted 3 events, got {snap_a['inbound_accepted']}"
     assert snap_a["outbound_attempts"] == 3
     assert snap_a["outbound_delivered"] == 3
 
@@ -506,7 +495,8 @@ async def test_accounting_resets_on_new_runner(tmp_path: Path) -> None:
     accounting_b = RuntimeAccounting()
     pres_b = FakePresentationAdapter(adapter_id="fake_presentation")
     runner_b = _build_runner(
-        storage_b, router,
+        storage_b,
+        router,
         adapters={"fake_presentation": pres_b},
         accounting=accounting_b,
     )
@@ -515,9 +505,9 @@ async def test_accounting_resets_on_new_runner(tmp_path: Path) -> None:
 
     # Accounting B starts at zero (process-local, not restored from DB).
     snap_b_initial = accounting_b.snapshot()
-    assert snap_b_initial["inbound_accepted"] == 0, (
-        "New accounting instance should start at 0 for inbound_accepted"
-    )
+    assert (
+        snap_b_initial["inbound_accepted"] == 0
+    ), "New accounting instance should start at 0 for inbound_accepted"
     assert snap_b_initial["outbound_attempts"] == 0
     assert snap_b_initial["outbound_delivered"] == 0
 
@@ -531,24 +521,22 @@ async def test_accounting_resets_on_new_runner(tmp_path: Path) -> None:
         await runner_b.handle_ingress(evt)
 
     snap_b_final = accounting_b.snapshot()
-    assert snap_b_final["inbound_accepted"] == 2, (
-        f"Runner B should have accepted 2 events, got {snap_b_final['inbound_accepted']}"
-    )
+    assert (
+        snap_b_final["inbound_accepted"] == 2
+    ), f"Runner B should have accepted 2 events, got {snap_b_final['inbound_accepted']}"
     assert snap_b_final["outbound_attempts"] == 2
     assert snap_b_final["outbound_delivered"] == 2
 
     # Storage has all 5 events (3 from A + 2 from B) but accounting
     # only reflects B's 2 events — proving accounting is not persisted.
     total_events = await storage_b.count_events()
-    assert total_events == 5, (
-        f"Expected 5 total events in persistent storage, got {total_events}"
-    )
+    assert (
+        total_events == 5
+    ), f"Expected 5 total events in persistent storage, got {total_events}"
 
     # Runner A's accounting object still holds the old values — it was
     # not reset by runner B's creation (separate in-memory objects).
-    assert snap_a["inbound_accepted"] == 3, (
-        "Runner A's accounting should still show 3"
-    )
+    assert snap_a["inbound_accepted"] == 3, "Runner A's accounting should still show 3"
 
     await runner_b.stop()
     await storage_b.close()

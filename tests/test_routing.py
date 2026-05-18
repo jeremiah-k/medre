@@ -15,9 +15,9 @@ from medre.core.routing import (
     Route,
     RouteConflictError,
     RouteDestination,
+    Router,
     RouteSource,
     RouteTarget,
-    Router,
 )
 
 
@@ -156,7 +156,9 @@ class TestMultipleRoutes:
             targets=[RouteTarget(adapter="t2")],
         )
         router = Router(routes=[r1, r2])
-        event = _make_event(source_adapter="fake_transport", event_kind="message.created")
+        event = _make_event(
+            source_adapter="fake_transport", event_kind="message.created"
+        )
         matched = router.match(event)
         assert len(matched) == 2
         assert r1 in matched
@@ -310,7 +312,9 @@ class TestRouteDestination:
         assert dest.metadata["hop_count"] == 3
 
     def test_route_target_with_destination(self) -> None:
-        dest = RouteDestination(kind="channel", destination_hash=None, destination_name=None)
+        dest = RouteDestination(
+            kind="channel", destination_hash=None, destination_name=None
+        )
         target = RouteTarget(adapter="matrix", destination=dest)
         assert target.destination is not None
         assert target.destination.kind == "channel"
@@ -337,7 +341,8 @@ class TestRoutingMetadataRouteTrace:
     def test_route_trace_preserved_in_event(self) -> None:
         """route_trace survives round-trip through EventMetadata."""
         routing = RoutingMetadata(
-            matched_routes=("r1",), route_trace=("r1", "r2"),
+            matched_routes=("r1",),
+            route_trace=("r1", "r2"),
         )
         meta = EventMetadata(routing=routing)
         event = _make_event()

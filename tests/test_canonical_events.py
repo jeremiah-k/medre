@@ -13,6 +13,7 @@ import pytest
 
 from medre.core.events import (
     CURRENT_SCHEMA_VERSION,
+    KNOWN_KINDS,
     MIGRATION_REGISTRY,
     VALID_RELATION_TYPES,
     CanonicalEvent,
@@ -21,7 +22,6 @@ from medre.core.events import (
     EventMetadata,
     EventRecordKind,
     EventRelation,
-    KNOWN_KINDS,
     MetadataEmbeddingMode,
     NativeMessageRef,
     NativeMetadata,
@@ -29,13 +29,11 @@ from medre.core.events import (
     RadioMetadata,
     RoutingMetadata,
     SchemaRegistry,
-    SchemaVersion,
     TelemetryMetadata,
     TransportMetadata,
     is_registered,
     schema_version_from_event,
 )
-
 
 # ===================================================================
 # CanonicalEvent
@@ -452,13 +450,24 @@ class TestEventKind:
     def test_known_kinds_count(self) -> None:
         """KNOWN_KINDS contains every constant defined in EventKind."""
         expected = {
-            "message.created", "message.text", "message.reacted",
-            "message.edited", "message.deleted", "message.file",
-            "telemetry.received", "telemetry.position",
-            "presence.changed", "identity.updated",
-            "delivery.accepted", "delivery.queued", "delivery.sent",
-            "delivery.confirmed", "delivery.failed",
-            "system.audit", "system.lifecycle", "plugin.custom",
+            "message.created",
+            "message.text",
+            "message.reacted",
+            "message.edited",
+            "message.deleted",
+            "message.file",
+            "telemetry.received",
+            "telemetry.position",
+            "presence.changed",
+            "identity.updated",
+            "delivery.accepted",
+            "delivery.queued",
+            "delivery.sent",
+            "delivery.confirmed",
+            "delivery.failed",
+            "system.audit",
+            "system.lifecycle",
+            "plugin.custom",
         }
         assert KNOWN_KINDS == frozenset(expected)
 
@@ -480,17 +489,13 @@ class TestSchemaRegistry:
     def test_validate_fail_returns_false(self) -> None:
         """Validator returning errors means invalid."""
         registry = SchemaRegistry()
-        registry.register(
-            "message.text", 1, lambda p: ["missing 'body'"]
-        )
+        registry.register("message.text", 1, lambda p: ["missing 'body'"])
         assert registry.validate("message.text", {}) is False
 
     def test_validate_fail_populates_errors_list(self) -> None:
         """The errors list is populated with validator output."""
         registry = SchemaRegistry()
-        registry.register(
-            "message.text", 1, lambda p: ["missing 'body'", "too short"]
-        )
+        registry.register("message.text", 1, lambda p: ["missing 'body'", "too short"])
         errors: list[str] = []
         result = registry.validate("message.text", {}, errors=errors)
         assert result is False
@@ -541,12 +546,8 @@ class TestEventMetadata:
     def test_full_metadata(self) -> None:
         """All sub-namespaces populated."""
         meta = EventMetadata(
-            transport=TransportMetadata(
-                protocol="mqtt", delivery_confirmed=True
-            ),
-            routing=RoutingMetadata(
-                matched_routes=("r1", "r2"), fanout_group="fg"
-            ),
+            transport=TransportMetadata(protocol="mqtt", delivery_confirmed=True),
+            routing=RoutingMetadata(matched_routes=("r1", "r2"), fanout_group="fg"),
             radio=RadioMetadata(snr=8.0, rssi=-85.0, frequency=915.0),
             telemetry=TelemetryMetadata(metrics={"battery": 95.0}),
             native=NativeMetadata(data={"raw": True}),
@@ -767,7 +768,7 @@ class TestImmutability:
         """Appending to lineage is impossible (it is a tuple)."""
         event = _make_event()
         with pytest.raises(AttributeError):
-            getattr(event.lineage, "append")("new")
+            event.lineage.append("new")
 
     def test_relations_is_tuple(self) -> None:
         """relations is stored as an immutable tuple."""
@@ -778,7 +779,7 @@ class TestImmutability:
         """Appending to relations is impossible (it is a tuple)."""
         event = _make_event()
         with pytest.raises(AttributeError):
-            getattr(event.relations, "append")(
+            event.relations.append(
                 EventRelation(
                     relation_type="reaction",
                     target_event_id="t-3",
@@ -1194,9 +1195,7 @@ class TestRelationValidation:
     def test_relation_with_both_targets_is_valid(self) -> None:
         """A relation carrying both canonical and native references is
         allowed (canonical takes precedence at resolution time)."""
-        nref = NativeRef(
-            adapter="test", native_channel_id="c", native_message_id="m"
-        )
+        nref = NativeRef(adapter="test", native_channel_id="c", native_message_id="m")
         rel = EventRelation(
             relation_type="reply",
             target_event_id="evt-1",
@@ -1422,9 +1421,7 @@ class TestImmutableAfterIngress:
 
     def test_metadata_transport_frozen(self) -> None:
         """TransportMetadata is frozen."""
-        meta = EventMetadata(
-            transport=TransportMetadata(protocol="mqtt")
-        )
+        meta = EventMetadata(transport=TransportMetadata(protocol="mqtt"))
         event = _make_event_with_metadata(meta)
         with pytest.raises(AttributeError):
             event.metadata.transport.protocol = "http"  # type: ignore[misc]
@@ -1456,9 +1453,7 @@ class TestImmutableAfterIngress:
 
     def test_event_metadata_custom_deeply_frozen(self) -> None:
         """metadata.custom dict is deeply frozen via _FrozenDict."""
-        event = _make_event_with_metadata(
-            EventMetadata(custom={"a": {"b": "c"}})
-        )
+        event = _make_event_with_metadata(EventMetadata(custom={"a": {"b": "c"}}))
         with pytest.raises(TypeError):
             event.metadata.custom["a"]["b"] = "mutated"  # type: ignore[index]
 
@@ -1543,7 +1538,10 @@ class TestSchemaMigrationBehavior:
         from medre.core.events.schema import _MigrationRegistry
 
         reg = _MigrationRegistry()
-        fn = lambda p: {**p, "new_field": "default"}
+
+        def fn(p):
+            return {**p, "new_field": "default"}
+
         reg.register("message.text", 1, 2, fn)
         result = reg.get("message.text", 1, 2)
         assert result is fn
@@ -1560,7 +1558,10 @@ class TestSchemaMigrationBehavior:
         from medre.core.events.schema import _MigrationRegistry
 
         reg = _MigrationRegistry()
-        fn = lambda p: p
+
+        def fn(p):
+            return p
+
         reg.register("message.text", 1, 2, fn)
         reg.register("telemetry.received", 2, 3, fn)
         keys = reg.registered_keys
@@ -1572,8 +1573,13 @@ class TestSchemaMigrationBehavior:
         from medre.core.events.schema import _MigrationRegistry
 
         reg = _MigrationRegistry()
-        fn1 = lambda p: {**p, "v": 1}
-        fn2 = lambda p: {**p, "v": 2}
+
+        def fn1(p):
+            return {**p, "v": 1}
+
+        def fn2(p):
+            return {**p, "v": 2}
+
         reg.register("message.text", 1, 2, fn1)
         reg.register("message.text", 1, 2, fn2)
         assert reg.get("message.text", 1, 2) is fn2
@@ -1607,14 +1613,15 @@ class TestEventTaxonomyAudit:
 
     def test_known_kinds_matches_event_kind_class(self) -> None:
         """Every EventKind constant appears in KNOWN_KINDS."""
-        import dataclasses
 
         for attr in dir(EventKind):
             if attr.startswith("_"):
                 continue
             val = getattr(EventKind, attr)
             if isinstance(val, str) and "." in val:
-                assert val in KNOWN_KINDS, f"EventKind.{attr}={val!r} missing from KNOWN_KINDS"
+                assert (
+                    val in KNOWN_KINDS
+                ), f"EventKind.{attr}={val!r} missing from KNOWN_KINDS"
 
     def test_all_domains_covered(self) -> None:
         """All documented top-level domains are present."""
@@ -1681,9 +1688,7 @@ class TestProtocolNeutralReadiness:
         kw = _valid_kwargs()
         kw["trace_id"] = "webhook-corr-xyz"
         event = CanonicalEvent(**kw)
-        decoded = msgspec.json.decode(
-            msgspec.json.encode(event), type=CanonicalEvent
-        )
+        decoded = msgspec.json.decode(msgspec.json.encode(event), type=CanonicalEvent)
         assert decoded.trace_id == "webhook-corr-xyz"
 
     def test_trace_id_msgpack_round_trip(self) -> None:
@@ -1700,9 +1705,7 @@ class TestProtocolNeutralReadiness:
 
     def test_idempotency_key_in_custom(self) -> None:
         """metadata.custom can carry an idempotency key."""
-        meta = EventMetadata(
-            custom={"idempotency_key": "req_abc123"}
-        )
+        meta = EventMetadata(custom={"idempotency_key": "req_abc123"})
         event = CanonicalEvent(**{**_valid_kwargs(), "metadata": meta})
         assert event.metadata.custom["idempotency_key"] == "req_abc123"
 
@@ -1712,17 +1715,13 @@ class TestProtocolNeutralReadiness:
             custom={"idempotency_key": "req_def456", "source": "webhook"}
         )
         event = CanonicalEvent(**{**_valid_kwargs(), "metadata": meta})
-        decoded = msgspec.json.decode(
-            msgspec.json.encode(event), type=CanonicalEvent
-        )
+        decoded = msgspec.json.decode(msgspec.json.encode(event), type=CanonicalEvent)
         assert decoded.metadata.custom["idempotency_key"] == "req_def456"
         assert decoded.metadata.custom["source"] == "webhook"
 
     def test_idempotency_key_immutability(self) -> None:
         """The idempotency key in custom is frozen after construction."""
-        meta = EventMetadata(
-            custom={"idempotency_key": "req_ghi789"}
-        )
+        meta = EventMetadata(custom={"idempotency_key": "req_ghi789"})
         with pytest.raises(TypeError, match="immutable"):
             meta.custom["idempotency_key"] = "tampered"
 
@@ -1747,9 +1746,7 @@ class TestProtocolNeutralReadiness:
         principal = {"type": "apikey", "subject": "client-7", "scopes": ("read",)}
         meta = EventMetadata(custom={"principal": principal})
         event = CanonicalEvent(**{**_valid_kwargs(), "metadata": meta})
-        decoded = msgspec.json.decode(
-            msgspec.json.encode(event), type=CanonicalEvent
-        )
+        decoded = msgspec.json.decode(msgspec.json.encode(event), type=CanonicalEvent)
         p = decoded.metadata.custom["principal"]
         assert isinstance(p, dict)
         assert p["type"] == "apikey"
@@ -1816,9 +1813,7 @@ class TestProtocolNeutralReadiness:
         kw["lineage"] = ("evt-origin", "evt-parent")
         kw["trace_id"] = "multi-hop-trace"
         event = CanonicalEvent(**kw)
-        decoded = msgspec.json.decode(
-            msgspec.json.encode(event), type=CanonicalEvent
-        )
+        decoded = msgspec.json.decode(msgspec.json.encode(event), type=CanonicalEvent)
         assert decoded.lineage == ("evt-origin", "evt-parent")
         assert decoded.parent_event_id == "evt-parent"
         assert decoded.trace_id == "multi-hop-trace"
@@ -1829,9 +1824,7 @@ class TestProtocolNeutralReadiness:
         """source_adapter, source_transport_id, and source_channel_id
         can represent an externally initiated source."""
         meta = EventMetadata(
-            transport=TransportMetadata(
-                protocol="http", gateway_id="webhook-relay"
-            ),
+            transport=TransportMetadata(protocol="http", gateway_id="webhook-relay"),
         )
         event = CanonicalEvent(
             event_id="evt-wh-1",
@@ -1880,9 +1873,7 @@ class TestProtocolNeutralReadiness:
             metadata=meta,
             trace_id="wh-trace-2",
         )
-        decoded = msgspec.json.decode(
-            msgspec.json.encode(event), type=CanonicalEvent
-        )
+        decoded = msgspec.json.decode(msgspec.json.encode(event), type=CanonicalEvent)
         assert decoded.source_adapter == "webhook-incoming"
         assert decoded.source_transport_id == "ext-svc-1"
         assert decoded.source_channel_id == "/api/v1/events"
@@ -1983,9 +1974,7 @@ class TestProtocolNeutralReadiness:
         assert wh["delivery_id"] == "dlv-xyz"
 
         # Round-trip preserves native data
-        decoded = msgspec.json.decode(
-            msgspec.json.encode(event), type=CanonicalEvent
-        )
+        decoded = msgspec.json.decode(msgspec.json.encode(event), type=CanonicalEvent)
         assert decoded.metadata.native is not None
         wh_rt = decoded.metadata.native.data["webhook"]
         assert isinstance(wh_rt, dict)

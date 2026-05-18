@@ -54,6 +54,7 @@ Variable                    Description
 - No E2EE soak testing.
 - No MeshCore or LXMF soak testing (deferred to follow-up).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -112,9 +113,7 @@ pytestmark_matrix = [
 # Meshtastic soak — env gating (connection-type-aware, parity with live smoke)
 # ---------------------------------------------------------------------------
 
-_MESHTASTIC_CONNECTION_TYPE = os.environ.get(
-    "MESHTASTIC_CONNECTION_TYPE", ""
-).lower()
+_MESHTASTIC_CONNECTION_TYPE = os.environ.get("MESHTASTIC_CONNECTION_TYPE", "").lower()
 
 
 def _validate_meshtastic_soak_env() -> tuple[bool, str]:
@@ -125,7 +124,10 @@ def _validate_meshtastic_soak_env() -> tuple[bool, str]:
     """
     ct = _MESHTASTIC_CONNECTION_TYPE
     if not ct:
-        return False, "Set MESHTASTIC_CONNECTION_TYPE (tcp/serial/ble) for Meshtastic soak"
+        return (
+            False,
+            "Set MESHTASTIC_CONNECTION_TYPE (tcp/serial/ble) for Meshtastic soak",
+        )
     if ct == "tcp":
         if not os.environ.get("MESHTASTIC_HOST"):
             return False, "MESHTASTIC_HOST required for TCP soak"
@@ -264,9 +266,7 @@ class TestMatrixSoak:
         await adapter.start(ctx)
         try:
             info = await adapter.health_check()
-            assert info.health == "healthy", (
-                "Adapter must be healthy at start of soak"
-            )
+            assert info.health == "healthy", "Adapter must be healthy at start of soak"
 
             deadline = time.monotonic() + duration
             check_interval = min(5.0, duration / 4)
@@ -274,9 +274,10 @@ class TestMatrixSoak:
             while time.monotonic() < deadline:
                 await asyncio.sleep(check_interval)
                 info = await adapter.health_check()
-                assert info.health in ("healthy", "degraded"), (
-                    f"Adapter health unexpected: {info.health}"
-                )
+                assert info.health in (
+                    "healthy",
+                    "degraded",
+                ), f"Adapter health unexpected: {info.health}"
 
             # Send one message near the end to verify the session is still
             # functional.
@@ -290,9 +291,9 @@ class TestMatrixSoak:
             )
             delivery = await adapter.deliver(result)
             assert delivery is not None, "Soak-end send returned None"
-            assert delivery.native_message_id is not None, (
-                "Soak-end send must return a native_message_id"
-            )
+            assert (
+                delivery.native_message_id is not None
+            ), "Soak-end send must return a native_message_id"
         finally:
             await adapter.stop(timeout=5.0)
 
@@ -346,9 +347,9 @@ class TestMatrixSoak:
         # At least one message must have been sent successfully if any were
         # attempted.
         if send_count > 0:
-            assert success_count >= 1, (
-                f"Soak sent {send_count} messages but none succeeded"
-            )
+            assert (
+                success_count >= 1
+            ), f"Soak sent {send_count} messages but none succeeded"
 
 
 # ---------------------------------------------------------------------------
@@ -388,9 +389,7 @@ class TestMeshtasticSoak:
         await adapter.start(ctx)
         try:
             info = await adapter.health_check()
-            assert info.health == "healthy", (
-                "Adapter must be healthy at start of soak"
-            )
+            assert info.health == "healthy", "Adapter must be healthy at start of soak"
             print(f"[soak+0s] health={info.health}")
 
             deadline = time.monotonic() + duration
@@ -400,9 +399,10 @@ class TestMeshtasticSoak:
                 await asyncio.sleep(check_interval)
                 elapsed = time.monotonic() - soak_start
                 info = await adapter.health_check()
-                assert info.health in ("healthy", "degraded"), (
-                    f"Adapter health unexpected: {info.health}"
-                )
+                assert info.health in (
+                    "healthy",
+                    "degraded",
+                ), f"Adapter health unexpected: {info.health}"
 
                 # Diagnostics snapshot
                 diag = adapter.diagnostics()
@@ -428,16 +428,19 @@ class TestMeshtasticSoak:
             diag = adapter.diagnostics()
             session = diag.get("session", {})
             inbound_mock = ctx.publish_inbound
-            print(f"\n=== Meshtastic sustained soak summary ===")
-            print(f"  duration={duration}s  "
-                  f"final_health={info.health}")
-            print(f"  session: connected={session.get('connected')}  "
-                  f"reconnect_attempts={session.get('reconnect_attempts')}  "
-                  f"transient_fail={session.get('transient_delivery_failures')}  "
-                  f"permanent_fail={session.get('permanent_delivery_failures')}")
-            print(f"  queue: pending={diag.get('queue_pending')}  "
-                  f"total_sent={diag.get('queue_total_sent')}  "
-                  f"total_failed={diag.get('queue_total_failed')}")
+            print("\n=== Meshtastic sustained soak summary ===")
+            print(f"  duration={duration}s  " f"final_health={info.health}")
+            print(
+                f"  session: connected={session.get('connected')}  "
+                f"reconnect_attempts={session.get('reconnect_attempts')}  "
+                f"transient_fail={session.get('transient_delivery_failures')}  "
+                f"permanent_fail={session.get('permanent_delivery_failures')}"
+            )
+            print(
+                f"  queue: pending={diag.get('queue_pending')}  "
+                f"total_sent={diag.get('queue_total_sent')}  "
+                f"total_failed={diag.get('queue_total_failed')}"
+            )
             print(f"  inbound_packets={inbound_mock.call_count}")
         finally:
             await adapter.stop(timeout=5.0)
@@ -509,17 +512,23 @@ class TestMeshtasticSoak:
 
             # -- Post-loop observations --
             diag = adapter.diagnostics()
-            print(f"\n=== Meshtastic soak send summary ===")
-            print(f"  attempts={send_count}  successes={success_count}  "
-                  f"failures={fail_count}")
-            print(f"  queue: pending={diag.get('queue_pending')}  "
-                  f"total_sent={diag.get('queue_total_sent')}  "
-                  f"total_failed={diag.get('queue_total_failed')}")
+            print("\n=== Meshtastic soak send summary ===")
+            print(
+                f"  attempts={send_count}  successes={success_count}  "
+                f"failures={fail_count}"
+            )
+            print(
+                f"  queue: pending={diag.get('queue_pending')}  "
+                f"total_sent={diag.get('queue_total_sent')}  "
+                f"total_failed={diag.get('queue_total_failed')}"
+            )
             session = diag.get("session", {})
-            print(f"  session: connected={session.get('connected')}  "
-                  f"reconnects={session.get('reconnect_attempts')}  "
-                  f"transient_fail={session.get('transient_delivery_failures')}  "
-                  f"permanent_fail={session.get('permanent_delivery_failures')}")
+            print(
+                f"  session: connected={session.get('connected')}  "
+                f"reconnects={session.get('reconnect_attempts')}  "
+                f"transient_fail={session.get('transient_delivery_failures')}  "
+                f"permanent_fail={session.get('permanent_delivery_failures')}"
+            )
             if session.get("last_error"):
                 print(f"  session last_error: {session['last_error']}")
 
@@ -533,15 +542,17 @@ class TestMeshtasticSoak:
                         if pkt_id is not None:
                             seen_inbound_ids.append(pkt_id)
                 dup_count = len(seen_inbound_ids) - len(set(seen_inbound_ids))
-                print(f"  inbound: {len(seen_inbound_ids)} packets  "
-                      f"duplicates={dup_count}")
+                print(
+                    f"  inbound: {len(seen_inbound_ids)} packets  "
+                    f"duplicates={dup_count}"
+                )
         finally:
             await adapter.stop(timeout=5.0)
 
         if send_count > 0:
-            assert success_count >= 1, (
-                f"Soak sent {send_count} messages but none succeeded"
-            )
+            assert (
+                success_count >= 1
+            ), f"Soak sent {send_count} messages but none succeeded"
 
     async def test_meshtastic_session_stop_cleanliness(self) -> None:
         """Verify stop() cleanly tears down all resources.
@@ -564,9 +575,9 @@ class TestMeshtasticSoak:
 
         # Verify started state
         info = await adapter.health_check()
-        assert info.health == "healthy", (
-            f"Adapter must be healthy before stop, got {info.health}"
-        )
+        assert (
+            info.health == "healthy"
+        ), f"Adapter must be healthy before stop, got {info.health}"
         diag_before = adapter.diagnostics()
         assert diag_before["started"] is True
 
@@ -577,23 +588,25 @@ class TestMeshtasticSoak:
         assert adapter._started is False, "Adapter must report stopped"
         assert adapter._session is None, "Session must be None after stop"
         assert adapter._client is None, "Client must be None after stop"
-        assert len(adapter._background_tasks) == 0, (
-            f"Background tasks remain after stop: {len(adapter._background_tasks)}"
-        )
+        assert (
+            len(adapter._background_tasks) == 0
+        ), f"Background tasks remain after stop: {len(adapter._background_tasks)}"
 
         diag_after = adapter.diagnostics()
         assert diag_after["started"] is False
-        assert diag_after["queue_pending"] == 0, (
-            f"Queue must be empty after stop, got {diag_after['queue_pending']}"
-        )
-        assert "session" not in diag_after, (
-            "Session diagnostics should not be present after stop"
-        )
+        assert (
+            diag_after["queue_pending"] == 0
+        ), f"Queue must be empty after stop, got {diag_after['queue_pending']}"
+        assert (
+            "session" not in diag_after
+        ), "Session diagnostics should not be present after stop"
 
-        print(f"=== Meshtastic stop cleanliness ===")
-        print(f"  started={diag_after['started']}  "
-              f"queue_pending={diag_after['queue_pending']}  "
-              f"bg_tasks={diag_after['background_tasks']}")
+        print("=== Meshtastic stop cleanliness ===")
+        print(
+            f"  started={diag_after['started']}  "
+            f"queue_pending={diag_after['queue_pending']}  "
+            f"bg_tasks={diag_after['background_tasks']}"
+        )
 
         # Idempotent second stop — must not raise
         await adapter.stop(timeout=5.0)
@@ -640,13 +653,17 @@ class TestMeshtasticSoak:
             unique = len(set(inbound_ids))
             dups = total - unique
 
-            print(f"\n=== Meshtastic inbound duplication observation ===")
-            print(f"  duration={duration}s  "
-                  f"total_inbound={total}  "
-                  f"unique={unique}  "
-                  f"duplicates={dups}")
+            print("\n=== Meshtastic inbound duplication observation ===")
+            print(
+                f"  duration={duration}s  "
+                f"total_inbound={total}  "
+                f"unique={unique}  "
+                f"duplicates={dups}"
+            )
             if dups > 0:
-                print(f"  NOTE: mesh radio duplicate delivery is expected; "
-                      f"not treated as error")
+                print(
+                    "  NOTE: mesh radio duplicate delivery is expected; "
+                    "not treated as error"
+                )
         finally:
             await adapter.stop(timeout=5.0)

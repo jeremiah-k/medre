@@ -41,30 +41,29 @@ class CanonicalEvent(msgspec.Struct, frozen=True):
 
 **`source_transport_id`** identifies the native actor, not the native message. Native message IDs belong in `native_message_refs` (Section 12.2 of the master spec).
 
-| Transport | source_transport_id | Example |
-|-----------|-------------------|---------|
-| Matrix | Sender MXID | `@user:server.org` |
-| LXMF | Source hash (16-byte hex) | `a1b2c3d4e5f6a7b8` |
-| Meshtastic | Node number (string) | `1234` |
-| MeshCore | Node number (string) | `1234` |
+| Transport  | source_transport_id       | Example            |
+| ---------- | ------------------------- | ------------------ |
+| Matrix     | Sender MXID               | `@user:server.org` |
+| LXMF       | Source hash (16-byte hex) | `a1b2c3d4e5f6a7b8` |
+| Meshtastic | Node number (string)      | `1234`             |
+| MeshCore   | Node number (string)      | `1234`             |
 
 **`source_channel_id`** is the native channel, room, or topic where the event originated. A core field so route matching can evaluate source channels without pulling from metadata.
 
 **`source_native_ref`** carries the inbound native message reference from the adapter codec. Set by `MatrixCodec.decode()` (and analogous codecs) during inbound processing. For Matrix, this is a `NativeRef` wrapping the Matrix event ID. `None` for outbound events or events created internally. The pipeline persists this as an inbound `NativeMessageRef` after canonical event storage.
 
-| Transport | source_channel_id | Example |
-|-----------|-------------------|---------|
-| Matrix | Room ID | `!abc123:server.org` |
-| MeshCore | Channel slot index | `0` |
-| LXMF | Destination hash (for inbound) | `e5f6a7b8c9d0e1f2` |
-| (no channel concept) | `None` | |
+| Transport            | source_channel_id              | Example              |
+| -------------------- | ------------------------------ | -------------------- |
+| Matrix               | Room ID                        | `!abc123:server.org` |
+| MeshCore             | Channel slot index             | `0`                  |
+| LXMF                 | Destination hash (for inbound) | `e5f6a7b8c9d0e1f2`   |
+| (no channel concept) | `None`                         |                      |
 
 **`lineage`** is stored as an immutable `tuple[str, ...]`. Every element must be a non-empty string (event ID). The constructor validates this invariant and raises `ValueError` on violation.
 
 **`depth`** defaults to `0` and must be `>= 0`.
 
 **`trace_id`** is an optional distributed tracing correlation ID, reserved for future protocol-neutral use.
-
 
 ---
 
@@ -84,17 +83,16 @@ class EventRelation(msgspec.Struct, frozen=True):
 
 The `relation_type` is validated at construction time. Values outside the five known types (`"reply"`, `"reaction"`, `"edit"`, `"delete"`, `"thread"`) raise `ValueError`. The set of valid types is exported as `VALID_RELATION_TYPES`.
 
-| Field | Purpose |
-|-------|---------|
-| `relation_type` | Semantic type of the relation |
-| `target_event_id` | Canonical event ID this relation points to. Set after correlation |
+| Field               | Purpose                                                                                                                                                                                                             |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `relation_type`     | Semantic type of the relation                                                                                                                                                                                       |
+| `target_event_id`   | Canonical event ID this relation points to. Set after correlation                                                                                                                                                   |
 | `target_native_ref` | Structured `NativeRef` identifying the native reference when the canonical event ID has not been resolved yet. The relation resolution stage resolves this to `target_event_id` via the `native_message_refs` table |
-| `key` | Type-specific data. For `reaction`, this is the emoji or reaction identifier |
-| `fallback_text` | Inline text used when the target adapter does not support this relation type natively (e.g., `[Alice] re: original msg > reply text`) |
-| `metadata` | Arbitrary key-value metadata frozen via `_FrozenDict` |
+| `key`               | Type-specific data. For `reaction`, this is the emoji or reaction identifier                                                                                                                                        |
+| `fallback_text`     | Inline text used when the target adapter does not support this relation type natively (e.g., `[Alice] re: original msg > reply text`)                                                                               |
+| `metadata`          | Arbitrary key-value metadata frozen via `_FrozenDict`                                                                                                                                                               |
 
 Relations are canonical. They are stored with the event and used by the relation resolution and delivery planning stages. Adapters and plugins read and write relations through the event model, not through ad-hoc metadata fields.
-
 
 ---
 
@@ -111,7 +109,6 @@ class NativeRef(msgspec.Struct, frozen=True):
 ```
 
 When a `CanonicalEvent` carries an `EventRelation` with `target_native_ref` set (and `target_event_id` is `None`), the relation resolution stage queries `native_message_refs` by `(adapter, native_channel_id, native_message_id)` to find the canonical `event_id`.
-
 
 ---
 
@@ -131,19 +128,18 @@ class EventMetadata(msgspec.Struct, frozen=True):
 
 ### Namespace Definitions
 
-| Namespace | Purpose | Example Fields |
-|-----------|---------|---------------|
-| `transport` | Transport layer details | `protocol` (`"meshcore-tcp"`, `"lxmf"`, `"mqtt"`), `gateway_id`, `delivery_method`, `delivery_confirmed`, `transport_encrypted`, `signature_valid`, `propagation_state` |
-| `routing` | Routing context | `matched_routes` (tuple), `fanout_group` |
-| `radio` | Radio-specific data | `frequency`, `snr`, `rssi`, `channel_index` |
-| `telemetry` | Device state at event time | `metrics` dict (frozen) |
-| `native` | Unnormalized native fields | `data` dict (frozen) |
-| `custom` | Plugin/extension data | Key-value pairs from plugins, reverse-DNS namespaced (frozen) |
+| Namespace   | Purpose                    | Example Fields                                                                                                                                                          |
+| ----------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `transport` | Transport layer details    | `protocol` (`"meshcore-tcp"`, `"lxmf"`, `"mqtt"`), `gateway_id`, `delivery_method`, `delivery_confirmed`, `transport_encrypted`, `signature_valid`, `propagation_state` |
+| `routing`   | Routing context            | `matched_routes` (tuple), `fanout_group`                                                                                                                                |
+| `radio`     | Radio-specific data        | `frequency`, `snr`, `rssi`, `channel_index`                                                                                                                             |
+| `telemetry` | Device state at event time | `metrics` dict (frozen)                                                                                                                                                 |
+| `native`    | Unnormalized native fields | `data` dict (frozen)                                                                                                                                                    |
+| `custom`    | Plugin/extension data      | Key-value pairs from plugins, reverse-DNS namespaced (frozen)                                                                                                           |
 
 The `native` namespace is a temporary holding area. The enrichment stage normalizes `native` fields into their proper namespaces when possible.
 
 All `dict` fields in metadata are frozen via `_FrozenDict` — a `dict` subclass that raises `TypeError` on all mutation methods. Nested dicts and lists are recursively frozen. This provides deep immutability compatible with msgspec serialization.
-
 
 ---
 
@@ -151,31 +147,30 @@ All `dict` fields in metadata are frozen via `_FrozenDict` — a `dict` subclass
 
 The canonical event kind registry. Every constant is a plain `str` following `<domain>.<action>` naming. Extensible by plugins via `plugin.custom`.
 
-| Kind | Description | Domain |
-|------|-------------|--------|
-| `message.created` | A new message has entered the system | message |
-| `message.text` | Plain text message payload | message |
-| `message.reacted` | A reaction was attached to a message | message |
-| `message.edited` | An existing message body was edited | message |
-| `message.deleted` | A message was soft- or hard-deleted | message |
-| `message.file` | A file attachment message | message |
-| `telemetry.received` | Raw telemetry data received from a node | telemetry |
-| `telemetry.position` | Geographic-position telemetry report | telemetry |
-| `presence.changed` | A node or user's presence state changed | presence |
-| `identity.updated` | Identity material (keys, profile) was updated | identity |
-| `delivery.accepted` | Delivery plan accepted by target adapter | delivery |
-| `delivery.queued` | Message enqueued for delivery | delivery |
-| `delivery.sent` | Message handed off to transport layer | delivery |
-| `delivery.confirmed` | Transport-level acknowledgement received | delivery |
-| `delivery.failed` | Delivery attempt failed | delivery |
-| `system.audit` | Audit-log entry produced by the framework | system |
-| `system.lifecycle` | Lifecycle event (start, stop, reload) | system |
-| `plugin.custom` | Reserved for plugin-defined custom events | plugin |
+| Kind                 | Description                                   | Domain    |
+| -------------------- | --------------------------------------------- | --------- |
+| `message.created`    | A new message has entered the system          | message   |
+| `message.text`       | Plain text message payload                    | message   |
+| `message.reacted`    | A reaction was attached to a message          | message   |
+| `message.edited`     | An existing message body was edited           | message   |
+| `message.deleted`    | A message was soft- or hard-deleted           | message   |
+| `message.file`       | A file attachment message                     | message   |
+| `telemetry.received` | Raw telemetry data received from a node       | telemetry |
+| `telemetry.position` | Geographic-position telemetry report          | telemetry |
+| `presence.changed`   | A node or user's presence state changed       | presence  |
+| `identity.updated`   | Identity material (keys, profile) was updated | identity  |
+| `delivery.accepted`  | Delivery plan accepted by target adapter      | delivery  |
+| `delivery.queued`    | Message enqueued for delivery                 | delivery  |
+| `delivery.sent`      | Message handed off to transport layer         | delivery  |
+| `delivery.confirmed` | Transport-level acknowledgement received      | delivery  |
+| `delivery.failed`    | Delivery attempt failed                       | delivery  |
+| `system.audit`       | Audit-log entry produced by the framework     | system    |
+| `system.lifecycle`   | Lifecycle event (start, stop, reload)         | system    |
+| `plugin.custom`      | Reserved for plugin-defined custom events     | plugin    |
 
 **Registration pattern**: The schema registry maps `(event_kind, schema_version)` to a validation function. New kinds are registered at adapter/plugin load time.
 
 **Non-routeable kinds**: `delivery.*`, `system.audit`, and `system.lifecycle` are system/audit events that do not flow through normal user routes unless explicitly enabled by the operator.
-
 
 ---
 
@@ -209,12 +204,11 @@ The canonical event kind registry. Every constant is a plain `str` following `<d
 
 ### Handling Unknown Versions
 
-| Scenario | Behavior |
-|----------|----------|
-| Consumer sees higher version (future) | Treat all known fields normally, ignore unknown fields |
-| Consumer sees lower version (old) | Populate any new fields with defaults if possible, otherwise leave unset |
-| Consumer understands version N | Can read any version <= N |
-
+| Scenario                              | Behavior                                                                 |
+| ------------------------------------- | ------------------------------------------------------------------------ |
+| Consumer sees higher version (future) | Treat all known fields normally, ignore unknown fields                   |
+| Consumer sees lower version (old)     | Populate any new fields with defaults if possible, otherwise leave unset |
+| Consumer understands version N        | Can read any version <= N                                                |
 
 ---
 
@@ -236,20 +230,18 @@ These rules are non-negotiable. No code path may violate them.
 
 7. **Constructor input isolation**: Mutable inputs (lists, dicts) passed to the constructor are defensively copied. Mutating the original after construction does not affect the event.
 
-
 ---
 
 ## 8. Event Record Taxonomy
 
 Not every record in the pipeline has the same semantic weight. Four classes:
 
-| Record Class | `EventRecordKind` Value | Purpose | Storage |
-|-------------|---------|---------|---------|
-| **Source Event** | `source_event` | Initial canonical event produced by an adapter codec. | Always stored in the canonical event log. |
-| **Derived Event** | `derived_event` | Produced by enrichment, transform, or policy stages. | Stored if semantically meaningful. |
-| **Delivery Artifact** | `delivery_artifact` | Target-specific rendering for a particular adapter. | Stored as a `rendered_payload` record, **not** as a canonical event. |
-| **Receipt Event** | `receipt_event` | Records the outcome of a delivery attempt. | Phase 1: rows in `delivery_receipts` table. |
-
+| Record Class          | `EventRecordKind` Value | Purpose                                               | Storage                                                              |
+| --------------------- | ----------------------- | ----------------------------------------------------- | -------------------------------------------------------------------- |
+| **Source Event**      | `source_event`          | Initial canonical event produced by an adapter codec. | Always stored in the canonical event log.                            |
+| **Derived Event**     | `derived_event`         | Produced by enrichment, transform, or policy stages.  | Stored if semantically meaningful.                                   |
+| **Delivery Artifact** | `delivery_artifact`     | Target-specific rendering for a particular adapter.   | Stored as a `rendered_payload` record, **not** as a canonical event. |
+| **Receipt Event**     | `receipt_event`         | Records the outcome of a delivery attempt.            | Phase 1: rows in `delivery_receipts` table.                          |
 
 ---
 
@@ -330,7 +322,6 @@ CREATE INDEX idx_native_refs_adapter_native ON native_message_refs(adapter, nati
 CREATE INDEX idx_native_refs_relation ON native_message_refs(adapter, native_relation_id);
 ```
 
-
 ---
 
 ## 10. Relation Persistence Rules
@@ -348,14 +339,13 @@ The `relations` tuple on a `CanonicalEvent` is **not** duplicated inside the `ca
 3. If found, the relation is updated: `target_event_id` is set, `target_native_ref` is cleared.
 4. If not found, the relation remains unresolved. The native ref is preserved. Routing and rendering continue without error. `fallback_text` may be used by the delivery stage.
 
-
 ---
 
 ## 11. Package Location
 
 Per the package tree, the event model lives in:
 
-```
+```text
 core/events/
     __init__.py
     canonical.py          # CanonicalEvent, EventRelation, NativeRef, etc.
@@ -365,20 +355,19 @@ core/events/
     bus.py                # Event bus (not part of this contract)
 ```
 
-
 ---
 
 ## 12. Protocol-Neutral Readiness (Future)
 
 The canonical event model is designed to be transport-agnostic. The following extensions are reserved for future protocol-neutral integration (e.g., webhooks, request/response adapters) but are **not** implemented in Phase 1:
 
-| Concept | Reserved Location | Notes |
-|---------|-------------------|-------|
-| **Correlation IDs** | `trace_id` field | Already present; supports distributed tracing across transports |
-| **Idempotency keys** | `metadata.custom["idempotency_key"]` | Plugins/adapters may set this for deduplication |
-| **Principal/auth context** | `metadata.custom["principal"]` | Reserved for future auth context; not populated in Phase 1 |
-| **Request/response lineage** | `lineage` + `parent_event_id` | Existing mechanism supports request-response correlation |
-| **Inbound provenance** | `source_adapter` + `source_transport_id` | Already present; extensible for new transports |
-| **Webhook readiness** | docs/contracts only | No HTTP/webhook server implemented; schema and field contracts are transport-neutral, ready for future adapter implementation |
+| Concept                      | Reserved Location                        | Notes                                                                                                                         |
+| ---------------------------- | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| **Correlation IDs**          | `trace_id` field                         | Already present; supports distributed tracing across transports                                                               |
+| **Idempotency keys**         | `metadata.custom["idempotency_key"]`     | Plugins/adapters may set this for deduplication                                                                               |
+| **Principal/auth context**   | `metadata.custom["principal"]`           | Reserved for future auth context; not populated in Phase 1                                                                    |
+| **Request/response lineage** | `lineage` + `parent_event_id`            | Existing mechanism supports request-response correlation                                                                      |
+| **Inbound provenance**       | `source_adapter` + `source_transport_id` | Already present; extensible for new transports                                                                                |
+| **Webhook readiness**        | docs/contracts only                      | No HTTP/webhook server implemented; schema and field contracts are transport-neutral, ready for future adapter implementation |
 
 These are documented here so that future protocol adapters can rely on existing fields rather than requiring schema changes.

@@ -1,4 +1,5 @@
 """Matrix adapter CLI commands: auth login, auth status."""
+
 from __future__ import annotations
 
 import getpass
@@ -28,12 +29,14 @@ async def _adapter_matrix_auth_login(args: object) -> None:
 
     # Step 2: Tristate dispatch ----------------------------------------------
     # Count how many auth-relevant flags were explicitly provided.
-    provided = sum([
-        homeserver is not None,
-        user_id is not None,
-        password_cli is not None,
-        password_stdin,
-    ])
+    provided = sum(
+        [
+            homeserver is not None,
+            user_id is not None,
+            password_cli is not None,
+            password_stdin,
+        ]
+    )
 
     password: str | None = None
 
@@ -55,9 +58,7 @@ async def _adapter_matrix_auth_login(args: object) -> None:
 
         # Determine if user_id is a full MXID (contains ':')
         user_is_mxid = (
-            user_id is not None
-            and user_id.startswith("@")
-            and ":" in user_id
+            user_id is not None and user_id.startswith("@") and ":" in user_id
         )
 
         # Homeserver is available if explicitly given or derivable from MXID
@@ -190,10 +191,14 @@ async def _adapter_matrix_auth_status(credentials_path: Path | None = None) -> N
         Optional explicit path to the credentials file.  When omitted
         the default sidecar path is used.
     """
-    from medre.config.adapters import matrix_credentials
     from medre.adapters.matrix.auth import check_credentials_completeness
+    from medre.config.adapters import matrix_credentials
 
-    path = credentials_path if credentials_path is not None else matrix_credentials.get_credentials_path()
+    path = (
+        credentials_path
+        if credentials_path is not None
+        else matrix_credentials.get_credentials_path()
+    )
 
     if not path.exists():
         print(f"No credentials file at: {path}")

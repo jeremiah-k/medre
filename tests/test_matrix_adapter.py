@@ -9,16 +9,19 @@ import logging
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from medre.adapters import FakeMatrixAdapter
-from medre.core.contracts.adapter import AdapterContext, AdapterDeliveryResult, AdapterRole
 from medre.adapters.matrix.adapter import MatrixAdapter
-from medre.config.adapters.matrix import MatrixConfig
 from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
-from medre.core.events import CanonicalEvent, EventMetadata, EventRelation, NativeRef
+from medre.config.adapters.matrix import MatrixConfig
+from medre.core.contracts.adapter import (
+    AdapterContext,
+    AdapterDeliveryResult,
+    AdapterRole,
+)
+from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.events.kinds import EventKind
 from medre.core.rendering.renderer import RenderingResult
 
@@ -197,7 +200,9 @@ class TestFakeMatrixRenderingBoundary:
 class TestFakeMatrixAdapterImmutability:
     """Canonical events remain immutable through delivery."""
 
-    async def test_adapter_does_not_mutate_canonical_event(self, make_adapter_context) -> None:
+    async def test_adapter_does_not_mutate_canonical_event(
+        self, make_adapter_context
+    ) -> None:
         adapter = FakeMatrixAdapter("m")
         ctx = make_adapter_context("m")
         await adapter.start(ctx)
@@ -450,7 +455,8 @@ class TestMEDREOriginLoopSuppression:
             **envelope.to_content(),
         }
         event = _make_fake_nio_event(
-            sender="@alice:example.com", content=content,
+            sender="@alice:example.com",
+            content=content,
         )
         room = _make_fake_room()
 
@@ -474,7 +480,8 @@ class TestMEDREOriginLoopSuppression:
             **envelope.to_content(),
         }
         event = _make_fake_nio_event(
-            sender="@alice:example.com", content=content,
+            sender="@alice:example.com",
+            content=content,
         )
         room = _make_fake_room()
 
@@ -510,7 +517,8 @@ class TestMEDREOriginLoopSuppression:
             "medre": {"envelope": "not a dict"},
         }
         event = _make_fake_nio_event(
-            sender="@alice:example.com", content=content,
+            sender="@alice:example.com",
+            content=content,
         )
         room = _make_fake_room()
 
@@ -581,21 +589,24 @@ class TestRoomAllowlist:
 
         # Test room1
         event1 = _make_fake_nio_event(
-            sender="@alice:example.com", event_id="$evt-r1",
+            sender="@alice:example.com",
+            event_id="$evt-r1",
         )
         room1 = _make_fake_room(room_id="!room1:server")
         await adapter._on_room_message(room1, event1)
 
         # Test room2
         event2 = _make_fake_nio_event(
-            sender="@alice:example.com", event_id="$evt-r2",
+            sender="@alice:example.com",
+            event_id="$evt-r2",
         )
         room2 = _make_fake_room(room_id="!room2:server")
         await adapter._on_room_message(room2, event2)
 
         # Test denied room
         event3 = _make_fake_nio_event(
-            sender="@alice:example.com", event_id="$evt-r3",
+            sender="@alice:example.com",
+            event_id="$evt-r3",
         )
         room3 = _make_fake_room(room_id="!room3:server")
         await adapter._on_room_message(room3, event3)
@@ -812,7 +823,8 @@ class TestInboundDiagnosticsCounters:
             **envelope.to_content(),
         }
         event = _make_fake_nio_event(
-            sender="@alice:example.com", content=content,
+            sender="@alice:example.com",
+            content=content,
         )
         room = _make_fake_room()
         await adapter._on_room_message(room, event)
@@ -850,11 +862,13 @@ class TestInboundDiagnosticsCounters:
 
         # 1 third-party message -> published
         await adapter._on_room_message(
-            _make_fake_room(), _make_fake_nio_event(sender="@alice:example.com"),
+            _make_fake_room(),
+            _make_fake_nio_event(sender="@alice:example.com"),
         )
         # 1 self-message -> suppressed
         await adapter._on_room_message(
-            _make_fake_room(), _make_fake_nio_event(sender="@bot:example.com"),
+            _make_fake_room(),
+            _make_fake_nio_event(sender="@bot:example.com"),
         )
         # 1 wrong room -> filtered
         await adapter._on_room_message(
@@ -863,7 +877,8 @@ class TestInboundDiagnosticsCounters:
         )
         # 1 more third-party -> published
         await adapter._on_room_message(
-            _make_fake_room(), _make_fake_nio_event(sender="@carol:example.com"),
+            _make_fake_room(),
+            _make_fake_nio_event(sender="@carol:example.com"),
         )
 
         assert adapter._inbound_published == 2
@@ -906,7 +921,8 @@ class TestInboundDiagnosticsCounters:
 
         # Process a few events
         await adapter._on_room_message(
-            _make_fake_room(), _make_fake_nio_event(sender="@alice:example.com"),
+            _make_fake_room(),
+            _make_fake_nio_event(sender="@alice:example.com"),
         )
         diag = adapter.diagnostics()
 

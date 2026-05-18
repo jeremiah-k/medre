@@ -3,12 +3,12 @@
 ## Overview
 
 The MEDRE CLI separates **core product commands** from **adapter/plugin contributed
-commands**.  Core commands are defined directly in `main.py`.  Contributed commands
+commands**. Core commands are defined directly in `main.py`. Contributed commands
 live under reserved top-level namespaces and are registered through the
 contribution registry in `contrib.py`.
 
 This separation ensures that `medre --help` never imports optional SDK packages
-(nio, meshtastic, RNS, LXMF).  Parser construction and help formatting touch only
+(nio, meshtastic, RNS, LXMF). Parser construction and help formatting touch only
 `argparse` — no transport code is loaded until the user explicitly invokes a
 subcommand that needs it.
 
@@ -16,42 +16,42 @@ subcommand that needs it.
 
 These are defined directly in `_build_parser()` inside `main.py`:
 
-| Command | Description |
-|---------|-------------|
-| `config check` | Validate config file |
-| `config sample` | Print sample config |
-| `routes validate` | Validate route configuration |
-| `routes topology` | Print route topology preview |
-| `routes list` | List configured routes |
-| `run` | Start the runtime |
-| `diagnostics` | Pre-flight runtime snapshot |
-| `inspect` | Read-only event/receipt investigation |
-| `replay` | Re-execute stored events |
-| `smoke` | Local validation tooling |
-| `trace` | Timeline assembly |
-| `evidence` | Support bundle collection |
-| `recover` | Recovery classification |
-| `paths` | Print resolved paths |
-| `version` | Print version |
-| `adapters` | List available adapters |
+| Command           | Description                           |
+| ----------------- | ------------------------------------- |
+| `config check`    | Validate config file                  |
+| `config sample`   | Print sample config                   |
+| `routes validate` | Validate route configuration          |
+| `routes topology` | Print route topology preview          |
+| `routes list`     | List configured routes                |
+| `run`             | Start the runtime                     |
+| `diagnostics`     | Pre-flight runtime snapshot           |
+| `inspect`         | Read-only event/receipt investigation |
+| `replay`          | Re-execute stored events              |
+| `smoke`           | Local validation tooling              |
+| `trace`           | Timeline assembly                     |
+| `evidence`        | Support bundle collection             |
+| `recover`         | Recovery classification               |
+| `paths`           | Print resolved paths                  |
+| `version`         | Print version                         |
+| `adapters`        | List available adapters               |
 
 ## Contributed command namespaces
 
 Adapter and plugin commands live under reserved namespaces:
 
-| Namespace | Purpose | Current subcommands |
-|-----------|---------|-------------------|
+| Namespace | Purpose                     | Current subcommands         |
+| --------- | --------------------------- | --------------------------- |
 | `adapter` | Adapter-specific operations | `adapter matrix auth login` |
-| `plugin` | Plugin extensions | *(not yet populated)* |
+| `plugin`  | Plugin extensions           | _(not yet populated)_       |
 
 ## Registration
 
 Contributed commands are registered through
 `contrib.register_builtin_contributors(subparsers)`, called at the end of
-`_build_parser()`.  Each namespace has a private `_register_*` helper in
+`_build_parser()`. Each namespace has a private `_register_*` helper in
 `contrib.py` that adds the argparse subparsers and arguments.
 
-No external plugin discovery mechanism exists yet.  All contributors are
+No external plugin discovery mechanism exists yet. All contributors are
 built-in and registered in deterministic order.
 
 ## Dispatch
@@ -62,7 +62,7 @@ and lazy-imports only the command module needed for that specific invocation.
 
 ## Lazy-load invariant
 
-`medre --help` must not import any optional SDK.  This is enforced by:
+`medre --help` must not import any optional SDK. This is enforced by:
 
 1. `contrib.py` imports nothing SDK-related at module level.
 2. `dispatch_contribution()` uses `from .adapters.matrix.cli import _auth_matrix_login`
@@ -78,13 +78,13 @@ DISALLOWED_TOPLEVEL = ("matrix", "meshtastic", "lxmf", "meshcore")
 ```
 
 - Transport names (matrix, meshtastic, lxmf, meshcore) must never appear as a
-  top-level command.  They belong under a namespace (`adapter matrix`, etc.).
+  top-level command. They belong under a namespace (`adapter matrix`, etc.).
 - Only `adapter` and `plugin` are valid top-level namespaces for
   contributed commands.
 
 ## Current state
 
-Only `adapter matrix auth login` exists today.  The `plugin` namespace
-is reserved but not yet populated.  When new adapter-specific commands are
+Only `adapter matrix auth login` exists today. The `plugin` namespace
+is reserved but not yet populated. When new adapter-specific commands are
 needed, they should be added as `_register_matrix_contributions` helpers in
 `contrib.py` and called from `register_builtin_contributors()`.

@@ -29,22 +29,20 @@ the ``lxmf`` and ``RNS`` packages are not installed.
 
 from __future__ import annotations
 
-import asyncio
 import importlib
 import re
-from pathlib import Path
-from typing import Any
-
-import pytest
-
-from medre.adapters.lxmf.compat import HAS_LXMF
-
 
 # Capture SDK presence in sys.modules at module-load time, BEFORE any
 # fake adapter imports in test methods.  This establishes a baseline so
 # the sys.modules guard test can detect whether the fake adapter itself
 # introduced the SDK (vs. it being loaded by a prior test or compat).
 import sys as _sys
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from medre.adapters.lxmf.compat import HAS_LXMF
 
 _SESSION_BASELINE_SDK_MODULES: frozenset[str] = frozenset(
     sdk for sdk in ("lxmf", "LXMF", "RNS") if sdk in _sys.modules
@@ -55,7 +53,9 @@ _SESSION_BASELINE_SDK_MODULES: frozenset[str] = frozenset(
 # Helpers
 # ---------------------------------------------------------------------------
 
-_SRC_ROOT = Path(__file__).resolve().parent.parent / "src" / "medre" / "adapters" / "lxmf"
+_SRC_ROOT = (
+    Path(__file__).resolve().parent.parent / "src" / "medre" / "adapters" / "lxmf"
+)
 """Root directory of LXMF adapter source files."""
 
 _TESTS_DIR = Path(__file__).resolve().parent
@@ -176,15 +176,14 @@ class TestLxmfSdkImportBoundary:
         to runtime methods — not module-level.
         """
         if filepath.name in ("compat.py", "session.py"):
-            pytest.skip(
-                "compat.py / session.py are designated SDK interaction sites"
-            )
+            pytest.skip("compat.py / session.py are designated SDK interaction sites")
 
         source = _read_source(filepath)
         violations = _scan_for_patterns(source, _LXMF_SDK_IMPORTS)
-        assert violations == [], (
-            f"{filepath.name} contains banned lxmf/RNS SDK imports:\n"
-            + "\n".join(violations)
+        assert (
+            violations == []
+        ), f"{filepath.name} contains banned lxmf/RNS SDK imports:\n" + "\n".join(
+            violations
         )
 
     def test_compat_defines_has_lxmf(self) -> None:
@@ -217,9 +216,10 @@ class TestLxmfCrossTransportBoundary:
         """LXMF modules must not import MeshCore, Matrix, or Meshtastic."""
         source = _read_source(filepath)
         violations = _scan_for_patterns(source, _CROSS_TRANSPORT_PREFIXES)
-        assert violations == [], (
-            f"{filepath.name} contains cross-transport imports:\n"
-            + "\n".join(violations)
+        assert (
+            violations == []
+        ), f"{filepath.name} contains cross-transport imports:\n" + "\n".join(
+            violations
         )
 
 
@@ -269,15 +269,14 @@ class TestLxmfFakeAdapterOperability:
         import sys
 
         sdk_names = ("lxmf", "LXMF", "RNS")
-        import importlib
 
         importlib.import_module("medre.adapters.fake_lxmf")
         for sdk in sdk_names:
             if sdk in _SESSION_BASELINE_SDK_MODULES:
                 continue  # SDK was loaded before this test session.
-            assert sdk not in sys.modules, (
-                f"Importing FakeLxmfAdapter leaked '{sdk}' into sys.modules"
-            )
+            assert (
+                sdk not in sys.modules
+            ), f"Importing FakeLxmfAdapter leaked '{sdk}' into sys.modules"
 
     def test_fake_adapter_instantiation(self) -> None:
         """FakeLxmfAdapter can be instantiated with fake config.
@@ -406,11 +405,15 @@ class TestLxmfDiagnosticSafety:
                 if stripped.startswith("#"):
                     continue
                 if pattern in stripped.lower():
-                    if any(
-                        kw in stripped
-                        for kw in ("return", "=", "yield", "[", "{")
-                    ) and '"""' not in stripped and "'''" not in stripped:
-                        if "no " not in stripped.lower() and "must not" not in stripped.lower():
+                    if (
+                        any(kw in stripped for kw in ("return", "=", "yield", "[", "{"))
+                        and '"""' not in stripped
+                        and "'''" not in stripped
+                    ):
+                        if (
+                            "no " not in stripped.lower()
+                            and "must not" not in stripped.lower()
+                        ):
                             pytest.fail(
                                 f"{filepath.name}:{i}: potential secret leak: {stripped}"
                             )

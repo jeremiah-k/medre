@@ -11,7 +11,6 @@ exists, what that ambiguity means for MEDRE's operational use, and what
 mitigation paths might exist in the future. It does not provide legal advice,
 render compatibility opinions, or propose runtime changes.
 
-
 ## 1. Scope
 
 - Confirmed text of the Reticulum License as applied to RNS and LXMF.
@@ -29,7 +28,6 @@ render compatibility opinions, or propose runtime changes.
 - Implementing subprocess boundaries, adapter extraction, or feature work.
 - Contacting upstream maintainers or negotiating license terms.
 
-
 ## 3. Confirmed License Text Observations
 
 All observations in this section are verified against local copies of the
@@ -44,14 +42,14 @@ inserted between the grant and the attribution requirement.
 
 Key structural facts:
 
-| Property | RNS (Reticulum) | LXMF |
-|----------|-----------------|------|
-| **License name** | Reticulum License | Reticulum License |
-| **Copyright holder** | Mark Qvist (2016-2026) | Mark Qvist (2020-2025) |
-| **setup.py `license` field** | `"Reticulum License"` | `"Reticulum License"` |
-| **OSI approval** | Not listed on OSI approved list | Same |
-| **SPDX identifier** | None assigned | Same |
-| **Identical text** | Yes | Yes (same two restrictions) |
+| Property                     | RNS (Reticulum)                 | LXMF                        |
+| ---------------------------- | ------------------------------- | --------------------------- |
+| **License name**             | Reticulum License               | Reticulum License           |
+| **Copyright holder**         | Mark Qvist (2016-2026)          | Mark Qvist (2020-2025)      |
+| **setup.py `license` field** | `"Reticulum License"`           | `"Reticulum License"`       |
+| **OSI approval**             | Not listed on OSI approved list | Same                        |
+| **SPDX identifier**          | None assigned                   | Same                        |
+| **Identical text**           | Yes                             | Yes (same two restrictions) |
 
 The license is not approved by the Open Source Initiative (OSI). It does not
 appear in the SPDX license list. No standard classifier (e.g., `License :: 
@@ -115,7 +113,6 @@ MEDRE declares `license = "GPL-3.0-or-later"` in
 `pyproject.toml` (updated from MIT 2026-05-12). MEDRE depends on RNS/LXMF as optional transport
 dependencies, not as core dependencies. The RNS/LXMF code is not included in
 MEDRE's distribution; it is fetched at install time via `pip install lxmf`.
-
 
 ## 4. Unresolved Questions
 
@@ -185,8 +182,7 @@ OSI's definition?
 Discrimination Against Fields of Endeavor") states that licenses must not
 restrict anyone from using the software in a specific field. The harm clause
 restricts use in systems designed to harm humans. The AI/ML exclusion
-restricts use in model training. Both could be argued to violate OSD section
-6. If so, the license is not "open source" by OSI's definition, even though
+restricts use in model training. Both could be argued to violate OSD section 6. If so, the license is not "open source" by OSI's definition, even though
 it grants broad permissions.
 
 This does not affect whether the software can be used. It affects how the
@@ -214,7 +210,6 @@ separation.
 **Status:** Unresolved in terms of formal legal opinion. The practical
 observation is that optional dependency installation puts the onus on the
 user, not on MEDRE.
-
 
 ## 5. Operational Implications for MEDRE
 
@@ -254,7 +249,6 @@ Contracts 34, 37, and 38 already flag the non-standard license as a
 observations behind those flags. Any future release criteria or distribution
 documentation should reference this document rather than repeating the
 analysis.
-
 
 ## 6. Possible Future Mitigation Directions
 
@@ -320,23 +314,21 @@ encryption functionality without referencing the RNS source code.
 This is a theoretical option with extremely high cost. It is mentioned for
 completeness, not as a practical near-term direction.
 
-
 ## 7. Sources Consulted
 
-| Source | Location | What was examined |
-|--------|----------|-------------------|
-| RNS LICENSE file | `/home/jeremiah/dev/Reticulum/LICENSE` | Full text (29 lines) |
-| LXMF LICENSE file | `/home/jeremiah/dev/LXMF/LICENSE` | Full text (29 lines) |
-| Zen of Reticulum (RNS) | `/home/jeremiah/dev/Reticulum/Zen of Reticulum.md` | Harm Principle (lines 268-287), Preserving Human Agency (lines 299-313), Public Domain Protocol (lines 289-297) |
-| Zen of Reticulum (LXMF copy) | `/home/jeremiah/dev/LXMF/Zen of Reticulum.md` | Same sections, identical text |
-| RNS Contributing.md | `/home/jeremiah/dev/Reticulum/Contributing.md` | CLA (lines 56-58), Generative AI Policy (lines 50-54) |
-| RNS setup.py | `/home/jeremiah/dev/Reticulum/setup.py` | License field, classifiers |
-| LXMF setup.py | `/home/jeremiah/dev/LXMF/setup.py` | License field, classifiers, dependency on `rns>=1.2.0` |
-| MEDRE pyproject.toml | `pyproject.toml` | `license = "GPL-3.0-or-later"` |
-| Contract 34 (Dependency Reality Audit) | `docs/contracts/34-dependency-reality-audit.md` | Prior Reticulum License flag (section 4.4) |
-| Contract 37 (Transport Maturity Classification) | `docs/contracts/37-transport-maturity-classification.md` | Non-standard license risk flag (section 7.2) |
-| Contract 38 (Release Candidate Criteria) | `docs/contracts/38-release-candidate-criteria.md` | License documentation blocker (section 4.4) |
-
+| Source                                          | Location                                                 | What was examined                                                                                               |
+| ----------------------------------------------- | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| RNS LICENSE file                                | `/home/jeremiah/dev/Reticulum/LICENSE`                   | Full text (29 lines)                                                                                            |
+| LXMF LICENSE file                               | `/home/jeremiah/dev/LXMF/LICENSE`                        | Full text (29 lines)                                                                                            |
+| Zen of Reticulum (RNS)                          | `/home/jeremiah/dev/Reticulum/Zen of Reticulum.md`       | Harm Principle (lines 268-287), Preserving Human Agency (lines 299-313), Public Domain Protocol (lines 289-297) |
+| Zen of Reticulum (LXMF copy)                    | `/home/jeremiah/dev/LXMF/Zen of Reticulum.md`            | Same sections, identical text                                                                                   |
+| RNS Contributing.md                             | `/home/jeremiah/dev/Reticulum/Contributing.md`           | CLA (lines 56-58), Generative AI Policy (lines 50-54)                                                           |
+| RNS setup.py                                    | `/home/jeremiah/dev/Reticulum/setup.py`                  | License field, classifiers                                                                                      |
+| LXMF setup.py                                   | `/home/jeremiah/dev/LXMF/setup.py`                       | License field, classifiers, dependency on `rns>=1.2.0`                                                          |
+| MEDRE pyproject.toml                            | `pyproject.toml`                                         | `license = "GPL-3.0-or-later"`                                                                                  |
+| Contract 34 (Dependency Reality Audit)          | `docs/contracts/34-dependency-reality-audit.md`          | Prior Reticulum License flag (section 4.4)                                                                      |
+| Contract 37 (Transport Maturity Classification) | `docs/contracts/37-transport-maturity-classification.md` | Non-standard license risk flag (section 7.2)                                                                    |
+| Contract 38 (Release Candidate Criteria)        | `docs/contracts/38-release-candidate-criteria.md`        | License documentation blocker (section 4.4)                                                                     |
 
 ## 8. Summary
 

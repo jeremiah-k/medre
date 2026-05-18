@@ -17,7 +17,6 @@ import pytest
 
 from medre.cli import main
 
-
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -28,17 +27,19 @@ EXAMPLES_SMOKE_CONFIG = REPO_ROOT / "examples" / "configs" / "fake-bridge-smoke.
 
 # Optional SDK module names (import names and fork import names) that must
 # NOT appear in sys.modules after fake-only CLI operations.
-OPTIONAL_SDK_MODULES: frozenset[str] = frozenset({
-    "nio",
-    "mindroom_nio",
-    "meshtastic",
-    "mtjk",
-    "meshcore",
-    "meshcore_py",
-    "RNS",
-    "LXMF",
-    "lxmf",
-})
+OPTIONAL_SDK_MODULES: frozenset[str] = frozenset(
+    {
+        "nio",
+        "mindroom_nio",
+        "meshtastic",
+        "mtjk",
+        "meshcore",
+        "meshcore_py",
+        "RNS",
+        "LXMF",
+        "lxmf",
+    }
+)
 
 
 def optional_sdks_in_modules() -> set[str]:
@@ -121,20 +122,24 @@ def seed_via_smoke_cli(tmp_path: Path) -> tuple[str, Path]:
     stderr_buf = io.StringIO()
     with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
         with pytest.raises(SystemExit) as exc_info:
-            main([
-                "smoke",
-                "--config", config_path,
-                "--storage-path", str(db_path),
-                "--json",
-            ])
+            main(
+                [
+                    "smoke",
+                    "--config",
+                    config_path,
+                    "--storage-path",
+                    str(db_path),
+                    "--json",
+                ]
+            )
     assert exc_info.value.code == 0, (
         f"Smoke seed failed (exit={exc_info.value.code}): "
         f"stderr={stderr_buf.getvalue()}"
     )
     report = json.loads(stdout_buf.getvalue())
-    assert report["status"] == "passed", (
-        f"Smoke report not passed: {report.get('fail_reasons', [])}"
-    )
+    assert (
+        report["status"] == "passed"
+    ), f"Smoke report not passed: {report.get('fail_reasons', [])}"
     event_id = report["event_id"]
     assert isinstance(event_id, str) and len(event_id) > 0
 

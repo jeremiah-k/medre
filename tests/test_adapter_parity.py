@@ -20,20 +20,11 @@ import asyncio
 import inspect
 import logging
 from datetime import datetime, timezone
-from types import MappingProxyType
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from medre.core.contracts.adapter import (
-    AdapterContext,
-    AdapterDeliveryResult,
-    AdapterInfo,
-    AdapterPermanentError,
-    AdapterRole,
-    AdapterSendError,
-)
 from medre.adapters.fake_lxmf import FakeLxmfAdapter
 from medre.adapters.fake_matrix import FakeMatrixAdapter
 from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
@@ -41,8 +32,14 @@ from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
 from medre.config.adapters.lxmf import LxmfConfig
 from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.config.adapters.meshtastic import MeshtasticConfig
+from medre.core.contracts.adapter import (
+    AdapterContext,
+    AdapterDeliveryResult,
+    AdapterInfo,
+    AdapterPermanentError,
+    AdapterSendError,
+)
 from medre.core.rendering.renderer import RenderingResult
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -237,17 +234,23 @@ class TestFakeAdapterTypeError:
         return FakeLxmfAdapter()
 
     @pytest.mark.asyncio
-    async def test_matrix_raises_permanent(self, fake_matrix: FakeMatrixAdapter) -> None:
+    async def test_matrix_raises_permanent(
+        self, fake_matrix: FakeMatrixAdapter
+    ) -> None:
         with pytest.raises(AdapterPermanentError, match="RenderingResult only"):
             await fake_matrix.deliver("not_a_result")  # type: ignore[arg-type]
 
     @pytest.mark.asyncio
-    async def test_meshcore_raises_permanent(self, fake_meshcore: FakeMeshCoreAdapter) -> None:
+    async def test_meshcore_raises_permanent(
+        self, fake_meshcore: FakeMeshCoreAdapter
+    ) -> None:
         with pytest.raises(AdapterPermanentError, match="RenderingResult only"):
             await fake_meshcore.deliver("not_a_result")  # type: ignore[arg-type]
 
     @pytest.mark.asyncio
-    async def test_meshtastic_raises_permanent(self, fake_meshtastic: FakeMeshtasticAdapter) -> None:
+    async def test_meshtastic_raises_permanent(
+        self, fake_meshtastic: FakeMeshtasticAdapter
+    ) -> None:
         with pytest.raises(AdapterPermanentError, match="RenderingResult only"):
             await fake_meshtastic.deliver("not_a_result")  # type: ignore[arg-type]
 
@@ -346,12 +349,14 @@ class TestFakeAdapterDeliveryResultFields:
     async def test_lxmf_returns_delivery_result(self) -> None:
         adapter = FakeLxmfAdapter()
         await adapter.start(_make_ctx("p_lxmf"))
-        result = _make_rendering_result(payload={
-            "content": "hello",
-            "title": "",
-            "fields": None,
-            "destination_hash": "",
-        })
+        result = _make_rendering_result(
+            payload={
+                "content": "hello",
+                "title": "",
+                "fields": None,
+                "destination_hash": "",
+            }
+        )
         dr = await adapter.deliver(result)
         assert dr is not None
         assert isinstance(dr, AdapterDeliveryResult)
@@ -448,7 +453,6 @@ class TestRealAdapterDeliverErrors:
     async def test_meshcore_real_permanent_for_bad_input(self) -> None:
         """MeshCore real adapter raises AdapterPermanentError for non-RenderingResult."""
         from medre.adapters.meshcore.adapter import MeshCoreAdapter
-        from medre.adapters.meshcore.errors import MeshCoreConnectionError
 
         config = MeshCoreConfig(adapter_id="parity_mc", connection_type="fake")
         adapter = MeshCoreAdapter(config)
@@ -462,7 +466,6 @@ class TestRealAdapterDeliverErrors:
         """MeshCore real adapter converts MeshCoreSendError to AdapterSendError."""
         from medre.adapters.meshcore.adapter import MeshCoreAdapter
         from medre.adapters.meshcore.errors import MeshCoreSendError
-        from medre.adapters.meshcore.session import MeshCoreSession
 
         config = MeshCoreConfig(adapter_id="parity_mc2", connection_type="fake")
         adapter = MeshCoreAdapter(config)
@@ -494,7 +497,6 @@ class TestRealAdapterDeliverErrors:
     async def test_meshcore_real_transient_on_network_error(self) -> None:
         """MeshCore real adapter converts OSError to AdapterSendError."""
         from medre.adapters.meshcore.adapter import MeshCoreAdapter
-        from medre.adapters.meshcore.session import MeshCoreSession
 
         config = MeshCoreConfig(adapter_id="parity_mc3", connection_type="fake")
         adapter = MeshCoreAdapter(config)
@@ -602,14 +604,17 @@ class TestRealAdapterDeliverErrors:
 
         # LxmfSession uses __slots__; patch on the class.
         with patch.object(
-            LxmfSession, "send_text",
+            LxmfSession,
+            "send_text",
             AsyncMock(side_effect=LxmfSendError("router unavailable")),
         ):
-            result = _make_rendering_result(payload={
-                "content": "hello",
-                "title": "",
-                "destination_hash": "ab" * 16,
-            })
+            result = _make_rendering_result(
+                payload={
+                    "content": "hello",
+                    "title": "",
+                    "destination_hash": "ab" * 16,
+                }
+            )
             with pytest.raises(AdapterSendError) as exc_info:
                 await adapter.deliver(result)
             assert exc_info.value.transient is True
@@ -625,14 +630,17 @@ class TestRealAdapterDeliverErrors:
         await adapter.start(_make_ctx("parity_lx4"))
 
         with patch.object(
-            LxmfSession, "send_text",
+            LxmfSession,
+            "send_text",
             AsyncMock(side_effect=OSError("network unreachable")),
         ):
-            result = _make_rendering_result(payload={
-                "content": "hello",
-                "title": "",
-                "destination_hash": "ab" * 16,
-            })
+            result = _make_rendering_result(
+                payload={
+                    "content": "hello",
+                    "title": "",
+                    "destination_hash": "ab" * 16,
+                }
+            )
             with pytest.raises(AdapterSendError) as exc_info:
                 await adapter.deliver(result)
             assert exc_info.value.transient is True
@@ -710,14 +718,17 @@ class TestRealAdapterDeliveryResultShape:
 
         # Mock session.send_text to return a (native_id, delivery_state) tuple
         with patch.object(
-            LxmfSession, "send_text",
+            LxmfSession,
+            "send_text",
             AsyncMock(return_value=("fake_hash_123", LxmfDeliveryState.OUTBOUND)),
         ):
-            result = _make_rendering_result(payload={
-                "content": "hello",
-                "title": "",
-                "destination_hash": "ab" * 16,
-            })
+            result = _make_rendering_result(
+                payload={
+                    "content": "hello",
+                    "title": "",
+                    "destination_hash": "ab" * 16,
+                }
+            )
             dr = await adapter.deliver(result)
             assert dr is not None
             assert dr.native_message_id == "fake_hash_123"

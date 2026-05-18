@@ -13,7 +13,6 @@ from tests.helpers.cli import (
     _run_cli_both,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -28,8 +27,7 @@ def _clean_config_env(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture()
 def config_with_routes(tmp_path: Path) -> Path:
     p = tmp_path / "config.toml"
-    p.write_text(
-        """\
+    p.write_text("""\
 [runtime]
 name = "test-routes"
 
@@ -60,8 +58,7 @@ source_adapters = ["main"]
 dest_adapters = ["radio"]
 directionality = "source_to_dest"
 enabled = true
-"""
-    )
+""")
     return p
 
 
@@ -86,9 +83,7 @@ class TestDiagnostics:
         parsed = json.loads(output)
         assert isinstance(parsed, dict)
 
-    def test_diagnostics_json_has_adapters_key(
-        self, config_with_routes: Path
-    ) -> None:
+    def test_diagnostics_json_has_adapters_key(self, config_with_routes: Path) -> None:
         """Diagnostics JSON contains adapter information."""
         output = _run_cli("diagnostics", "--config", str(config_with_routes))
         parsed = json.loads(output)
@@ -163,7 +158,10 @@ encryption_mode = "plaintext"
         return p
 
     def test_refresh_health_produces_json(
-        self, fake_single_config: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        fake_single_config: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """--refresh-health with fake adapters produces parseable JSON."""
         for var in ("MEDRE_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME"):
@@ -171,14 +169,19 @@ encryption_mode = "plaintext"
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
 
         output = _run_cli(
-            "diagnostics", "--refresh-health",
-            "--config", str(fake_single_config),
+            "diagnostics",
+            "--refresh-health",
+            "--config",
+            str(fake_single_config),
         )
         parsed = json.loads(output)
         assert isinstance(parsed, dict)
 
     def test_refresh_health_has_live_health(
-        self, fake_single_config: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        fake_single_config: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """--refresh-health populates health.live_health (not null)."""
         for var in ("MEDRE_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME"):
@@ -186,8 +189,10 @@ encryption_mode = "plaintext"
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
 
         output = _run_cli(
-            "diagnostics", "--refresh-health",
-            "--config", str(fake_single_config),
+            "diagnostics",
+            "--refresh-health",
+            "--config",
+            str(fake_single_config),
         )
         parsed = json.loads(output)
         health = parsed["health"]
@@ -196,7 +201,10 @@ encryption_mode = "plaintext"
         assert health["scope"] == "live"
 
     def test_refresh_health_has_poll_count(
-        self, fake_single_config: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        fake_single_config: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """--refresh-health snapshot has poll_count=1 from single refresh."""
         for var in ("MEDRE_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME"):
@@ -204,15 +212,20 @@ encryption_mode = "plaintext"
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
 
         output = _run_cli(
-            "diagnostics", "--refresh-health",
-            "--config", str(fake_single_config),
+            "diagnostics",
+            "--refresh-health",
+            "--config",
+            str(fake_single_config),
         )
         parsed = json.loads(output)
         live_health = parsed["health"]["live_health"]
         assert live_health["poll_count"] == 1
 
     def test_refresh_health_has_adapter_entries(
-        self, fake_single_config: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        fake_single_config: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """--refresh-health populates per-adapter live health entries."""
         for var in ("MEDRE_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME"):
@@ -220,8 +233,10 @@ encryption_mode = "plaintext"
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
 
         output = _run_cli(
-            "diagnostics", "--refresh-health",
-            "--config", str(fake_single_config),
+            "diagnostics",
+            "--refresh-health",
+            "--config",
+            str(fake_single_config),
         )
         parsed = json.loads(output)
         adapters = parsed["health"]["live_health"]["adapters"]
@@ -234,11 +249,13 @@ encryption_mode = "plaintext"
         assert "fake_or_live" in entry
 
     def test_refresh_health_startup_failure_exits_4(
-        self, config_with_routes: Path,
+        self,
+        config_with_routes: Path,
     ) -> None:
         """--refresh-health startup failure exits EXIT_STARTUP (4)."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
         from medre.cli import EXIT_STARTUP
-        from unittest.mock import patch, MagicMock, AsyncMock
         from medre.runtime.errors import RuntimeStartupError
 
         fake_app = MagicMock()
@@ -256,16 +273,20 @@ encryption_mode = "plaintext"
         ):
             with pytest.raises(SystemExit) as exc_info:
                 _run_cli(
-                    "diagnostics", "--refresh-health",
-                    "--config", str(config_with_routes),
+                    "diagnostics",
+                    "--refresh-health",
+                    "--config",
+                    str(config_with_routes),
                 )
         assert exc_info.value.code == EXIT_STARTUP
 
     def test_refresh_health_startup_failure_no_traceback(
-        self, config_with_routes: Path,
+        self,
+        config_with_routes: Path,
     ) -> None:
         """Startup failure produces clean error, no traceback."""
-        from unittest.mock import patch, MagicMock, AsyncMock
+        from unittest.mock import AsyncMock, MagicMock, patch
+
         from medre.runtime.errors import RuntimeStartupError
 
         fake_app = MagicMock()
@@ -282,19 +303,23 @@ encryption_mode = "plaintext"
             return_value=fake_app,
         ):
             stdout, stderr = _run_cli_both(
-                "diagnostics", "--refresh-health",
-                "--config", str(config_with_routes),
+                "diagnostics",
+                "--refresh-health",
+                "--config",
+                str(config_with_routes),
             )
         assert "Traceback" not in stdout
         assert "Traceback" not in stderr
         assert "Runtime startup failed:" in stderr
 
     def test_refresh_health_build_error_exits_3(
-        self, config_with_routes: Path,
+        self,
+        config_with_routes: Path,
     ) -> None:
         """--refresh-health build failure exits EXIT_BUILD (3)."""
-        from medre.cli import EXIT_BUILD
         from unittest.mock import patch
+
+        from medre.cli import EXIT_BUILD
 
         with patch(
             "medre.runtime.builder.RuntimeBuilder.build",
@@ -302,8 +327,10 @@ encryption_mode = "plaintext"
         ):
             with pytest.raises(SystemExit) as exc_info:
                 _run_cli(
-                    "diagnostics", "--refresh-health",
-                    "--config", str(config_with_routes),
+                    "diagnostics",
+                    "--refresh-health",
+                    "--config",
+                    str(config_with_routes),
                 )
         assert exc_info.value.code == EXIT_BUILD
 
@@ -313,26 +340,34 @@ encryption_mode = "plaintext"
 
         with pytest.raises(SystemExit) as exc_info:
             _run_cli(
-                "diagnostics", "--refresh-health",
-                "--config", str(tmp_path / "missing.toml"),
+                "diagnostics",
+                "--refresh-health",
+                "--config",
+                str(tmp_path / "missing.toml"),
             )
         assert exc_info.value.code == EXIT_CONFIG
 
     def test_refresh_health_no_adapters_exits_2(
-        self, config_no_adapters: Path,
+        self,
+        config_no_adapters: Path,
     ) -> None:
         """--refresh-health with no enabled adapters exits EXIT_CONFIG (2)."""
         from medre.cli import EXIT_CONFIG
 
         with pytest.raises(SystemExit) as exc_info:
             _run_cli(
-                "diagnostics", "--refresh-health",
-                "--config", str(config_no_adapters),
+                "diagnostics",
+                "--refresh-health",
+                "--config",
+                str(config_no_adapters),
             )
         assert exc_info.value.code == EXIT_CONFIG
 
     def test_refresh_health_startup_health_remains_frozen(
-        self, fake_single_config: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        fake_single_config: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """startup.startup_health is frozen/separate from live health."""
         for var in ("MEDRE_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME"):
@@ -340,8 +375,10 @@ encryption_mode = "plaintext"
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
 
         output = _run_cli(
-            "diagnostics", "--refresh-health",
-            "--config", str(fake_single_config),
+            "diagnostics",
+            "--refresh-health",
+            "--config",
+            str(fake_single_config),
         )
         parsed = json.loads(output)
         assert "startup" in parsed
@@ -354,7 +391,8 @@ encryption_mode = "plaintext"
         assert health["live_health"] is not None
 
     def test_plain_diagnostics_unchanged_by_refresh_flag(
-        self, config_with_routes: Path,
+        self,
+        config_with_routes: Path,
     ) -> None:
         """Plain 'medre diagnostics' (no --refresh-health) still works."""
         output = _run_cli("diagnostics", "--config", str(config_with_routes))

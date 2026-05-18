@@ -16,9 +16,9 @@ Public symbols
 """
 
 from medre.core.rendering.renderer import (
+    Renderer,
     RenderingPipeline,
     RenderingResult,
-    Renderer,
 )
 from medre.core.rendering.text import TextRenderer
 

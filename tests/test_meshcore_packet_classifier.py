@@ -4,8 +4,6 @@ vs channel messages, missing fields, ACK detection, and edge cases.
 
 from __future__ import annotations
 
-import pytest
-
 from medre.adapters.meshcore.packet_classifier import MeshCorePacketClassifier
 
 

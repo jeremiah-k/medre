@@ -18,17 +18,13 @@ from pathlib import Path
 import pytest
 
 from medre.cli import main
-
 from tests.helpers.alpha_cli import (
     EXAMPLES_SMOKE_CONFIG,
-    REPO_ROOT,
     SRC_DIR,
-    clean_path_env,
     optional_sdks_in_modules,
     smoke_config_path,
     write_replay_config,
 )
-
 
 # ---------------------------------------------------------------------------
 # Tests: smoke seeds DB
@@ -45,12 +41,16 @@ class TestAlphaSmokeSeedsCLI:
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             with pytest.raises(SystemExit) as exc_info:
-                main([
-                    "smoke",
-                    "--config", smoke_config_path(),
-                    "--storage-path", str(db_path),
-                    "--json",
-                ])
+                main(
+                    [
+                        "smoke",
+                        "--config",
+                        smoke_config_path(),
+                        "--storage-path",
+                        str(db_path),
+                        "--json",
+                    ]
+                )
         assert exc_info.value.code == 0
         assert db_path.exists(), "SQLite DB should exist after smoke"
 
@@ -65,12 +65,16 @@ class TestAlphaSmokeSeedsCLI:
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             with pytest.raises(SystemExit) as exc_info:
-                main([
-                    "smoke",
-                    "--config", smoke_config_path(),
-                    "--storage-path", str(db_path),
-                    "--json",
-                ])
+                main(
+                    [
+                        "smoke",
+                        "--config",
+                        smoke_config_path(),
+                        "--storage-path",
+                        str(db_path),
+                        "--json",
+                    ]
+                )
         assert exc_info.value.code == 0
         report = json.loads(stdout_buf.getvalue())
         assert isinstance(report["event_id"], str)
@@ -116,10 +120,16 @@ class TestAlphaE2EProductPathCLI:
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             with pytest.raises(SystemExit) as exc_info:
-                main([
-                    "smoke", "--config", cfg,
-                    "--storage-path", str(db_path), "--json",
-                ])
+                main(
+                    [
+                        "smoke",
+                        "--config",
+                        cfg,
+                        "--storage-path",
+                        str(db_path),
+                        "--json",
+                    ]
+                )
         assert exc_info.value.code == 0
         report = json.loads(stdout_buf.getvalue())
         assert report["status"] == "passed"
@@ -129,20 +139,32 @@ class TestAlphaE2EProductPathCLI:
         # --- Phase 2: inspect receipts ---
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
-            main([
-                "inspect", "receipts",
-                "--event", event_id, "--storage-path", str(db_path),
-            ])
+            main(
+                [
+                    "inspect",
+                    "receipts",
+                    "--event",
+                    event_id,
+                    "--storage-path",
+                    str(db_path),
+                ]
+            )
         assert "sent" in stdout_buf.getvalue()
         assert event_id in stdout_buf.getvalue()
 
         # --- Phase 3a: timeline ---
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
-            main([
-                "inspect", "event", event_id,
-                "--timeline", "--storage-path", str(db_path),
-            ])
+            main(
+                [
+                    "inspect",
+                    "event",
+                    event_id,
+                    "--timeline",
+                    "--storage-path",
+                    str(db_path),
+                ]
+            )
         tl = json.loads(stdout_buf.getvalue())
         assert tl["event"]["event_id"] == event_id
         assert any(e.get("entry_type") == "receipt" for e in tl["timeline"])
@@ -150,10 +172,16 @@ class TestAlphaE2EProductPathCLI:
         # --- Phase 3b: evidence ---
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
-            main([
-                "inspect", "event", event_id,
-                "--evidence", "--storage-path", str(db_path),
-            ])
+            main(
+                [
+                    "inspect",
+                    "event",
+                    event_id,
+                    "--evidence",
+                    "--storage-path",
+                    str(db_path),
+                ]
+            )
         ev = json.loads(stdout_buf.getvalue())
         assert ev["evidence"]["status"] in ("partial", "passed")
         assert (
@@ -164,10 +192,16 @@ class TestAlphaE2EProductPathCLI:
         # --- Phase 3c: recovery (inspect subsumes recover command) ---
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
-            main([
-                "inspect", "event", event_id,
-                "--recovery", "--storage-path", str(db_path),
-            ])
+            main(
+                [
+                    "inspect",
+                    "event",
+                    event_id,
+                    "--recovery",
+                    "--storage-path",
+                    str(db_path),
+                ]
+            )
         rc = json.loads(stdout_buf.getvalue())
         assert rc["event"]["event_id"] == event_id
         assert "recovery" in rc
@@ -178,35 +212,51 @@ class TestAlphaE2EProductPathCLI:
         # 4a: dry_run — no side effects
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
-            main([
-                "replay", "--config", replay_cfg,
-                "--mode", "dry_run", "--event", event_id, "--json",
-            ])
+            main(
+                [
+                    "replay",
+                    "--config",
+                    replay_cfg,
+                    "--mode",
+                    "dry_run",
+                    "--event",
+                    event_id,
+                    "--json",
+                ]
+            )
         dry = json.loads(stdout_buf.getvalue())
         assert dry["mode"] == "dry_run"
         assert dry["events_scanned"] >= 1
         assert dry["events_replayed"] >= 1
         # Taxonomy: by_status must contain all four canonical keys.
         for status_key in ("passed", "skipped", "failed", "error"):
-            assert status_key in dry.get("by_status", {}), (
-                f"Replay dry_run by_status missing taxonomy key {status_key!r}"
-            )
+            assert status_key in dry.get(
+                "by_status", {}
+            ), f"Replay dry_run by_status missing taxonomy key {status_key!r}"
 
         # 4b: best_effort — creates replay receipts
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
-            main([
-                "replay", "--config", replay_cfg,
-                "--mode", "best_effort", "--event", event_id, "--json",
-            ])
+            main(
+                [
+                    "replay",
+                    "--config",
+                    replay_cfg,
+                    "--mode",
+                    "best_effort",
+                    "--event",
+                    event_id,
+                    "--json",
+                ]
+            )
         be = json.loads(stdout_buf.getvalue())
         assert be["mode"] == "best_effort"
         assert be["events_replayed"] >= 1
         # Taxonomy: by_status must contain all four canonical keys.
         for status_key in ("passed", "skipped", "failed", "error"):
-            assert status_key in be.get("by_status", {}), (
-                f"Replay best_effort by_status missing taxonomy key {status_key!r}"
-            )
+            assert status_key in be.get(
+                "by_status", {}
+            ), f"Replay best_effort by_status missing taxonomy key {status_key!r}"
 
 
 # ===================================================================
@@ -235,18 +285,14 @@ class TestSubprocessPythonM:
     def test_version(self) -> None:
         """``python -m medre version`` exits 0 with version info."""
         proc = self._run("version")
-        assert proc.returncode == 0, (
-            f"Exit {proc.returncode}: stderr={proc.stderr!r}"
-        )
+        assert proc.returncode == 0, f"Exit {proc.returncode}: stderr={proc.stderr!r}"
         assert "medre" in proc.stdout.lower()
         assert "Python" in proc.stdout
 
     def test_help(self) -> None:
         """``python -m medre --help`` exits 0 with usage info."""
         proc = self._run("--help")
-        assert proc.returncode == 0, (
-            f"Exit {proc.returncode}: stderr={proc.stderr!r}"
-        )
+        assert proc.returncode == 0, f"Exit {proc.returncode}: stderr={proc.stderr!r}"
         assert "usage" in proc.stdout.lower() or "medre" in proc.stdout.lower()
 
     def test_version_output_format(self) -> None:
@@ -254,9 +300,7 @@ class TestSubprocessPythonM:
         proc = self._run("version")
         assert proc.returncode == 0
         first_line = proc.stdout.strip().splitlines()[0]
-        assert first_line.startswith("medre "), (
-            f"Unexpected first line: {first_line!r}"
-        )
+        assert first_line.startswith("medre "), f"Unexpected first line: {first_line!r}"
 
     def test_no_optional_sdks_in_subprocess(self) -> None:
         """Subprocess ``python -m medre version`` does not import optional SDKs.
@@ -292,7 +336,9 @@ class TestSubprocessPythonM:
         )
 
         with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".py", delete=False,
+            mode="w",
+            suffix=".py",
+            delete=False,
         ) as tf:
             tf.write(check_script)
             script_path = tf.name
@@ -308,20 +354,19 @@ class TestSubprocessPythonM:
         finally:
             os.unlink(script_path)
 
-        assert proc.returncode == 0, (
-            f"Check script failed: stderr={proc.stderr!r}"
-        )
+        assert proc.returncode == 0, f"Check script failed: stderr={proc.stderr!r}"
         leaked = proc.stdout.strip()
-        assert not leaked, (
-            f"Optional SDKs leaked into sys.modules by version: {leaked}"
-        )
+        assert not leaked, f"Optional SDKs leaked into sys.modules by version: {leaked}"
 
     def test_subprocess_smoke_with_source_config(self) -> None:
         """``python -m medre smoke --config <examples config>`` passes."""
         if not EXAMPLES_SMOKE_CONFIG.is_file():
             pytest.skip("Source-tree example config not available")
         proc = self._run(
-            "smoke", "--config", str(EXAMPLES_SMOKE_CONFIG), "--json",
+            "smoke",
+            "--config",
+            str(EXAMPLES_SMOKE_CONFIG),
+            "--json",
         )
         assert proc.returncode == 0, (
             f"Smoke failed (code={proc.returncode}): "
@@ -367,9 +412,9 @@ class TestConfigSampleToSmoke:
         with redirect_stdout(stdout_buf2), redirect_stderr(stderr_buf2):
             main(["config", "check", "--config", str(cfg_path)])
         output = stdout_buf2.getvalue()
-        assert "Config valid" in output, (
-            f"config check did not produce 'Config valid': {output[:300]!r}"
-        )
+        assert (
+            "Config valid" in output
+        ), f"config check did not produce 'Config valid': {output[:300]!r}"
 
     def test_sample_config_smoke_passes(self, tmp_path: Path) -> None:
         """``smoke --config <sample>`` passes or fails gracefully.
@@ -390,7 +435,7 @@ class TestConfigSampleToSmoke:
 
         stdout_buf2 = io.StringIO()
         with redirect_stdout(stdout_buf2), redirect_stderr(io.StringIO()):
-            with pytest.raises(SystemExit) as exc_info:
+            with pytest.raises(SystemExit):
                 main(["smoke", "--config", str(cfg_path), "--json"])
         # Exit code may be 0 or 1 depending on route policies.
         # The key invariant: valid JSON output, no crash.
@@ -417,10 +462,16 @@ class TestConfigSampleToSmoke:
         stdout_buf2 = io.StringIO()
         with redirect_stdout(stdout_buf2), redirect_stderr(io.StringIO()):
             with pytest.raises(SystemExit):
-                main([
-                    "smoke", "--config", str(cfg_path),
-                    "--storage-path", db_path, "--json",
-                ])
+                main(
+                    [
+                        "smoke",
+                        "--config",
+                        str(cfg_path),
+                        "--storage-path",
+                        db_path,
+                        "--json",
+                    ]
+                )
         report = json.loads(stdout_buf2.getvalue())
         assert "status" in report
         assert report["storage_backend"] == "sqlite"
@@ -448,9 +499,9 @@ class TestConfigSampleToSmoke:
 
         after = optional_sdks_in_modules()
         leaked = after - before
-        assert not leaked, (
-            f"config check + smoke leaked optional SDKs: {sorted(leaked)}"
-        )
+        assert (
+            not leaked
+        ), f"config check + smoke leaked optional SDKs: {sorted(leaked)}"
 
 
 # ===================================================================
@@ -477,11 +528,13 @@ class TestFirstRunSourceCheckout:
         output = stdout_buf.getvalue()
         lines = output.strip().splitlines()
         assert lines[0].startswith("medre ")
-        assert any("Python" in l for l in lines)
-        assert any("Platform" in l for l in lines)
+        assert any("Python" in line for line in lines)
+        assert any("Platform" in line for line in lines)
 
     def test_step2_paths(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """``medre paths`` resolves MEDRE_HOME paths."""
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
@@ -520,26 +573,28 @@ class TestFirstRunSourceCheckout:
         with redirect_stdout(stdout_buf2), redirect_stderr(stderr_buf2):
             main(["config", "check", "--config", str(cfg_path)])
         output = stdout_buf2.getvalue()
-        assert "Config valid" in output, (
-            f"config check failed: {output[:300]!r}"
-        )
+        assert "Config valid" in output, f"config check failed: {output[:300]!r}"
 
     def test_step5_smoke_with_examples_config(self, tmp_path: Path) -> None:
         """``smoke --config examples/configs/fake-bridge-smoke.toml`` passes
         with storage-path for later inspection."""
-        assert EXAMPLES_SMOKE_CONFIG.is_file(), (
-            f"Source-tree example config not found: {EXAMPLES_SMOKE_CONFIG}"
-        )
+        assert (
+            EXAMPLES_SMOKE_CONFIG.is_file()
+        ), f"Source-tree example config not found: {EXAMPLES_SMOKE_CONFIG}"
         db_path = tmp_path / "walkthrough-smoke.db"
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             with pytest.raises(SystemExit) as exc_info:
-                main([
-                    "smoke",
-                    "--config", str(EXAMPLES_SMOKE_CONFIG),
-                    "--storage-path", str(db_path),
-                    "--json",
-                ])
+                main(
+                    [
+                        "smoke",
+                        "--config",
+                        str(EXAMPLES_SMOKE_CONFIG),
+                        "--storage-path",
+                        str(db_path),
+                        "--json",
+                    ]
+                )
         assert exc_info.value.code == 0
         report = json.loads(stdout_buf.getvalue())
         assert report["status"] == "passed"
@@ -553,22 +608,31 @@ class TestFirstRunSourceCheckout:
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             with pytest.raises(SystemExit):
-                main([
-                    "smoke",
-                    "--config", str(EXAMPLES_SMOKE_CONFIG),
-                    "--storage-path", str(db_path),
-                    "--json",
-                ])
+                main(
+                    [
+                        "smoke",
+                        "--config",
+                        str(EXAMPLES_SMOKE_CONFIG),
+                        "--storage-path",
+                        str(db_path),
+                        "--json",
+                    ]
+                )
         report = json.loads(stdout_buf.getvalue())
         event_id = report["event_id"]
 
         stdout_buf2 = io.StringIO()
         with redirect_stdout(stdout_buf2), redirect_stderr(io.StringIO()):
-            main([
-                "inspect", "receipts",
-                "--event", event_id,
-                "--storage-path", str(db_path),
-            ])
+            main(
+                [
+                    "inspect",
+                    "receipts",
+                    "--event",
+                    event_id,
+                    "--storage-path",
+                    str(db_path),
+                ]
+            )
         output = stdout_buf2.getvalue()
         assert "sent" in output
 
@@ -578,21 +642,30 @@ class TestFirstRunSourceCheckout:
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             with pytest.raises(SystemExit):
-                main([
-                    "smoke",
-                    "--config", str(EXAMPLES_SMOKE_CONFIG),
-                    "--storage-path", str(db_path),
-                    "--json",
-                ])
+                main(
+                    [
+                        "smoke",
+                        "--config",
+                        str(EXAMPLES_SMOKE_CONFIG),
+                        "--storage-path",
+                        str(db_path),
+                        "--json",
+                    ]
+                )
         event_id = json.loads(stdout_buf.getvalue())["event_id"]
 
         stdout_buf2 = io.StringIO()
         with redirect_stdout(stdout_buf2), redirect_stderr(io.StringIO()):
-            main([
-                "inspect", "event", event_id,
-                "--timeline",
-                "--storage-path", str(db_path),
-            ])
+            main(
+                [
+                    "inspect",
+                    "event",
+                    event_id,
+                    "--timeline",
+                    "--storage-path",
+                    str(db_path),
+                ]
+            )
         result = json.loads(stdout_buf2.getvalue())
         assert "event" in result
         assert "timeline" in result
@@ -605,21 +678,30 @@ class TestFirstRunSourceCheckout:
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             with pytest.raises(SystemExit):
-                main([
-                    "smoke",
-                    "--config", str(EXAMPLES_SMOKE_CONFIG),
-                    "--storage-path", str(db_path),
-                    "--json",
-                ])
+                main(
+                    [
+                        "smoke",
+                        "--config",
+                        str(EXAMPLES_SMOKE_CONFIG),
+                        "--storage-path",
+                        str(db_path),
+                        "--json",
+                    ]
+                )
         event_id = json.loads(stdout_buf.getvalue())["event_id"]
 
         stdout_buf2 = io.StringIO()
         with redirect_stdout(stdout_buf2), redirect_stderr(io.StringIO()):
-            main([
-                "inspect", "event", event_id,
-                "--evidence",
-                "--storage-path", str(db_path),
-            ])
+            main(
+                [
+                    "inspect",
+                    "event",
+                    event_id,
+                    "--evidence",
+                    "--storage-path",
+                    str(db_path),
+                ]
+            )
         result = json.loads(stdout_buf2.getvalue())
         assert "event" in result
         assert "evidence" in result
@@ -633,24 +715,33 @@ class TestFirstRunSourceCheckout:
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             with pytest.raises(SystemExit):
-                main([
-                    "smoke",
-                    "--config", str(EXAMPLES_SMOKE_CONFIG),
-                    "--storage-path", str(db_path),
-                    "--json",
-                ])
+                main(
+                    [
+                        "smoke",
+                        "--config",
+                        str(EXAMPLES_SMOKE_CONFIG),
+                        "--storage-path",
+                        str(db_path),
+                        "--json",
+                    ]
+                )
         event_id = json.loads(stdout_buf.getvalue())["event_id"]
 
         replay_cfg = write_replay_config(tmp_path, db_path)
         stdout_buf2 = io.StringIO()
         with redirect_stdout(stdout_buf2), redirect_stderr(io.StringIO()):
-            main([
-                "replay",
-                "--config", replay_cfg,
-                "--mode", "dry_run",
-                "--event", event_id,
-                "--json",
-            ])
+            main(
+                [
+                    "replay",
+                    "--config",
+                    replay_cfg,
+                    "--mode",
+                    "dry_run",
+                    "--event",
+                    event_id,
+                    "--json",
+                ]
+            )
         summary = json.loads(stdout_buf2.getvalue())
         assert summary["mode"] == "dry_run"
         assert summary["events_scanned"] >= 1
@@ -681,12 +772,16 @@ class TestFirstRunSourceCheckout:
         stdout_buf3 = io.StringIO()
         with redirect_stdout(stdout_buf3), redirect_stderr(io.StringIO()):
             with pytest.raises(SystemExit) as exc_info:
-                main([
-                    "smoke",
-                    "--config", str(EXAMPLES_SMOKE_CONFIG),
-                    "--storage-path", str(db_path),
-                    "--json",
-                ])
+                main(
+                    [
+                        "smoke",
+                        "--config",
+                        str(EXAMPLES_SMOKE_CONFIG),
+                        "--storage-path",
+                        str(db_path),
+                        "--json",
+                    ]
+                )
         assert exc_info.value.code == 0
         report = json.loads(stdout_buf3.getvalue())
         assert report["status"] == "passed"
@@ -695,32 +790,47 @@ class TestFirstRunSourceCheckout:
         # 4. Inspect receipts.
         stdout_buf4 = io.StringIO()
         with redirect_stdout(stdout_buf4), redirect_stderr(io.StringIO()):
-            main([
-                "inspect", "receipts",
-                "--event", event_id,
-                "--storage-path", str(db_path),
-            ])
+            main(
+                [
+                    "inspect",
+                    "receipts",
+                    "--event",
+                    event_id,
+                    "--storage-path",
+                    str(db_path),
+                ]
+            )
         assert "sent" in stdout_buf4.getvalue()
 
         # 5. Inspect event --timeline.
         stdout_buf5 = io.StringIO()
         with redirect_stdout(stdout_buf5), redirect_stderr(io.StringIO()):
-            main([
-                "inspect", "event", event_id,
-                "--timeline",
-                "--storage-path", str(db_path),
-            ])
+            main(
+                [
+                    "inspect",
+                    "event",
+                    event_id,
+                    "--timeline",
+                    "--storage-path",
+                    str(db_path),
+                ]
+            )
         tl = json.loads(stdout_buf5.getvalue())
         assert "timeline" in tl
 
         # 6. Inspect event --evidence.
         stdout_buf6 = io.StringIO()
         with redirect_stdout(stdout_buf6), redirect_stderr(io.StringIO()):
-            main([
-                "inspect", "event", event_id,
-                "--evidence",
-                "--storage-path", str(db_path),
-            ])
+            main(
+                [
+                    "inspect",
+                    "event",
+                    event_id,
+                    "--evidence",
+                    "--storage-path",
+                    str(db_path),
+                ]
+            )
         ev = json.loads(stdout_buf6.getvalue())
         assert "evidence" in ev
 
@@ -745,18 +855,16 @@ class TestOptionalSDKBoundaries:
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             main(["version"])
         after = optional_sdks_in_modules()
-        assert not (after - before), (
-            f"version leaked SDKs: {sorted(after - before)}"
-        )
+        assert not (after - before), f"version leaked SDKs: {sorted(after - before)}"
 
     def test_config_sample_no_sdk_leak(self) -> None:
         before = optional_sdks_in_modules()
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             main(["config", "sample"])
         after = optional_sdks_in_modules()
-        assert not (after - before), (
-            f"config sample leaked SDKs: {sorted(after - before)}"
-        )
+        assert not (
+            after - before
+        ), f"config sample leaked SDKs: {sorted(after - before)}"
 
     def test_config_check_no_sdk_leak(self, tmp_path: Path) -> None:
         stdout_buf = io.StringIO()
@@ -769,9 +877,9 @@ class TestOptionalSDKBoundaries:
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             main(["config", "check", "--config", str(cfg)])
         after = optional_sdks_in_modules()
-        assert not (after - before), (
-            f"config check leaked SDKs: {sorted(after - before)}"
-        )
+        assert not (
+            after - before
+        ), f"config check leaked SDKs: {sorted(after - before)}"
 
     def test_smoke_no_sdk_leak(self) -> None:
         """``medre smoke`` with fake-bridge-smoke.toml does not import SDKs."""
@@ -784,9 +892,7 @@ class TestOptionalSDKBoundaries:
             except SystemExit:
                 pass
         after = optional_sdks_in_modules()
-        assert not (after - before), (
-            f"smoke leaked SDKs: {sorted(after - before)}"
-        )
+        assert not (after - before), f"smoke leaked SDKs: {sorted(after - before)}"
 
     def test_smoke_json_no_sdk_leak(self) -> None:
         """``medre smoke --json`` with fake config does not import SDKs."""
@@ -795,15 +901,20 @@ class TestOptionalSDKBoundaries:
         before = optional_sdks_in_modules()
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             try:
-                main([
-                    "smoke", "--config", str(EXAMPLES_SMOKE_CONFIG), "--json",
-                ])
+                main(
+                    [
+                        "smoke",
+                        "--config",
+                        str(EXAMPLES_SMOKE_CONFIG),
+                        "--json",
+                    ]
+                )
             except SystemExit:
                 pass
         after = optional_sdks_in_modules()
-        assert not (after - before), (
-            f"smoke --json leaked SDKs: {sorted(after - before)}"
-        )
+        assert not (
+            after - before
+        ), f"smoke --json leaked SDKs: {sorted(after - before)}"
 
     def test_smoke_with_storage_no_sdk_leak(self, tmp_path: Path) -> None:
         """``medre smoke --storage-path`` does not import SDKs."""
@@ -813,16 +924,22 @@ class TestOptionalSDKBoundaries:
         before = optional_sdks_in_modules()
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             try:
-                main([
-                    "smoke", "--config", str(EXAMPLES_SMOKE_CONFIG),
-                    "--storage-path", db_path, "--json",
-                ])
+                main(
+                    [
+                        "smoke",
+                        "--config",
+                        str(EXAMPLES_SMOKE_CONFIG),
+                        "--storage-path",
+                        db_path,
+                        "--json",
+                    ]
+                )
             except SystemExit:
                 pass
         after = optional_sdks_in_modules()
-        assert not (after - before), (
-            f"smoke --storage-path leaked SDKs: {sorted(after - before)}"
-        )
+        assert not (
+            after - before
+        ), f"smoke --storage-path leaked SDKs: {sorted(after - before)}"
 
     def test_inspect_no_sdk_leak(self, tmp_path: Path) -> None:
         """``inspect receipts`` and ``inspect event`` do not import SDKs."""
@@ -833,32 +950,49 @@ class TestOptionalSDKBoundaries:
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             with pytest.raises(SystemExit):
-                main([
-                    "smoke", "--config", str(EXAMPLES_SMOKE_CONFIG),
-                    "--storage-path", str(db_path), "--json",
-                ])
+                main(
+                    [
+                        "smoke",
+                        "--config",
+                        str(EXAMPLES_SMOKE_CONFIG),
+                        "--storage-path",
+                        str(db_path),
+                        "--json",
+                    ]
+                )
         event_id = json.loads(stdout_buf.getvalue())["event_id"]
 
         before = optional_sdks_in_modules()
 
         # Inspect receipts.
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-            main([
-                "inspect", "receipts",
-                "--event", event_id,
-                "--storage-path", str(db_path),
-            ])
+            main(
+                [
+                    "inspect",
+                    "receipts",
+                    "--event",
+                    event_id,
+                    "--storage-path",
+                    str(db_path),
+                ]
+            )
         after_receipts = optional_sdks_in_modules()
-        assert not (after_receipts - before), (
-            f"inspect receipts leaked SDKs: {sorted(after_receipts - before)}"
-        )
+        assert not (
+            after_receipts - before
+        ), f"inspect receipts leaked SDKs: {sorted(after_receipts - before)}"
 
         # Inspect event --timeline.
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-            main([
-                "inspect", "event", event_id,
-                "--timeline", "--storage-path", str(db_path),
-            ])
+            main(
+                [
+                    "inspect",
+                    "event",
+                    event_id,
+                    "--timeline",
+                    "--storage-path",
+                    str(db_path),
+                ]
+            )
         after_timeline = optional_sdks_in_modules()
         assert not (after_timeline - before), (
             f"inspect event --timeline leaked SDKs: "
@@ -867,10 +1001,16 @@ class TestOptionalSDKBoundaries:
 
         # Inspect event --evidence.
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-            main([
-                "inspect", "event", event_id,
-                "--evidence", "--storage-path", str(db_path),
-            ])
+            main(
+                [
+                    "inspect",
+                    "event",
+                    event_id,
+                    "--evidence",
+                    "--storage-path",
+                    str(db_path),
+                ]
+            )
         after_evidence = optional_sdks_in_modules()
         assert not (after_evidence - before), (
             f"inspect event --evidence leaked SDKs: "

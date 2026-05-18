@@ -16,7 +16,7 @@ from __future__ import annotations
 import io
 import json
 import os
-from contextlib import redirect_stdout, redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -25,7 +25,6 @@ import pytest
 
 from medre.cli import main
 from medre.runtime.evidence import collect_evidence_bundle
-
 
 # ---------------------------------------------------------------------------
 # Sample TOML configs
@@ -380,7 +379,9 @@ class TestEvidenceRedaction:
         assert "tok_secret_abc" not in raw
 
     @pytest.mark.asyncio
-    async def test_config_summary_adapter_metadata_only(self, config_fake: Path) -> None:
+    async def test_config_summary_adapter_metadata_only(
+        self, config_fake: Path
+    ) -> None:
         """Config summary adapters have only safe metadata fields."""
         report = await collect_evidence_bundle(str(config_fake))
         adapters = report["sections"]["config_summary"]["data"]["adapters"]
@@ -452,7 +453,8 @@ class TestEvidenceStorage:
         event_id, _ = await _make_populated_db(db_path)
 
         report = await collect_evidence_bundle(
-            str(config_fake), event_id=event_id,
+            str(config_fake),
+            event_id=event_id,
         )
         storage_section = report["sections"]["storage"]
         assert storage_section["status"] == "passed"
@@ -466,7 +468,8 @@ class TestEvidenceStorage:
         await _make_populated_db(db_path)
 
         report = await collect_evidence_bundle(
-            str(config_fake), event_id="nonexistent-event-id",
+            str(config_fake),
+            event_id="nonexistent-event-id",
         )
         storage_section = report["sections"]["storage"]
         assert storage_section["status"] == "partial"
@@ -479,7 +482,8 @@ class TestEvidenceStorage:
         await _make_populated_db(db_path)
 
         report = await collect_evidence_bundle(
-            str(config_fake), replay_run_id="nonexistent-run",
+            str(config_fake),
+            replay_run_id="nonexistent-run",
         )
         storage_section = report["sections"]["storage"]
         # No receipts match, but the section itself is ok (storage worked).
@@ -636,20 +640,24 @@ class TestEvidenceCli:
                 main(["evidence", "--config", "/nonexistent.toml", "--json"])
         assert exc_info.value.code == 2  # EXIT_CONFIG
         # Error is reported in the JSON bundle, not as a traceback on stderr.
-        assert "Traceback" not in stderr_buf.getvalue(), (
-            f"Expected no traceback for bad config, got:\n{stderr_buf.getvalue()}"
-        )
+        assert (
+            "Traceback" not in stderr_buf.getvalue()
+        ), f"Expected no traceback for bad config, got:\n{stderr_buf.getvalue()}"
         bundle = json.loads(stdout_buf.getvalue())
         assert bundle["status"] == "error"
-        assert any("config" in e.lower() for e in bundle["errors"]), (
-            f"Expected config-related error message, got: {bundle['errors']}"
-        )
+        assert any(
+            "config" in e.lower() for e in bundle["errors"]
+        ), f"Expected config-related error message, got: {bundle['errors']}"
 
     def test_evidence_cli_event_arg(self, config_fake: Path) -> None:
         """CLI evidence --event passes event_id to bundle."""
         result = _run_cli_json(
-            "evidence", "--config", str(config_fake), "--json",
-            "--event", "ev-123",
+            "evidence",
+            "--config",
+            str(config_fake),
+            "--json",
+            "--event",
+            "ev-123",
         )
         storage = result["sections"]["storage"]
         # DB doesn't exist, so it'll be partial, but event_id was passed.
@@ -658,8 +666,12 @@ class TestEvidenceCli:
     def test_evidence_cli_replay_run_arg(self, config_fake: Path) -> None:
         """CLI evidence --replay-run passes replay_run_id to bundle."""
         result = _run_cli_json(
-            "evidence", "--config", str(config_fake), "--json",
-            "--replay-run", "run-456",
+            "evidence",
+            "--config",
+            str(config_fake),
+            "--json",
+            "--replay-run",
+            "run-456",
         )
         storage = result["sections"]["storage"]
         # Missing DB so partial, but replay_run_id was passed.
@@ -681,7 +693,8 @@ class TestIncidentSummary:
         event_id, _ = await _make_populated_db(db_path)
 
         report = await collect_evidence_bundle(
-            str(config_fake), event_id=event_id,
+            str(config_fake),
+            event_id=event_id,
         )
         summary = report["sections"]["storage"]["data"]["incident_summary"]
         assert summary["event_id"] == event_id
@@ -708,7 +721,8 @@ class TestIncidentSummary:
         )
 
         report = await collect_evidence_bundle(
-            str(config_fake), event_id=event_id,
+            str(config_fake),
+            event_id=event_id,
         )
         summary = report["sections"]["storage"]["data"]["incident_summary"]
         assert summary["classification"] == "retryable"
@@ -728,7 +742,8 @@ class TestIncidentSummary:
         )
 
         report = await collect_evidence_bundle(
-            str(config_fake), event_id=event_id,
+            str(config_fake),
+            event_id=event_id,
         )
         summary = report["sections"]["storage"]["data"]["incident_summary"]
         assert summary["classification"] == "permanent"
@@ -746,7 +761,8 @@ class TestIncidentSummary:
         )
 
         report = await collect_evidence_bundle(
-            str(config_fake), event_id=event_id,
+            str(config_fake),
+            event_id=event_id,
         )
         summary = report["sections"]["storage"]["data"]["incident_summary"]
         assert summary["classification"] == "operational"
@@ -765,13 +781,16 @@ class TestIncidentSummary:
         )
 
         report = await collect_evidence_bundle(
-            str(config_fake), event_id=event_id,
+            str(config_fake),
+            event_id=event_id,
         )
         summary = report["sections"]["storage"]["data"]["incident_summary"]
         assert summary["replay_receipts_present"] is True
 
     @pytest.mark.asyncio
-    async def test_incident_summary_recommended_commands(self, config_fake: Path) -> None:
+    async def test_incident_summary_recommended_commands(
+        self, config_fake: Path
+    ) -> None:
         """Recommended commands are populated based on classification."""
         db_path = str(config_fake.parent / "state" / "test_evidence.db")
         event_id = await _make_populated_db_with_failure(
@@ -782,7 +801,8 @@ class TestIncidentSummary:
         )
 
         report = await collect_evidence_bundle(
-            str(config_fake), event_id=event_id,
+            str(config_fake),
+            event_id=event_id,
         )
         summary = report["sections"]["storage"]["data"]["incident_summary"]
         cmds = summary["recommended_commands"]
@@ -791,7 +811,9 @@ class TestIncidentSummary:
         assert "inspect" in cmd_text
 
     @pytest.mark.asyncio
-    async def test_incident_summary_absent_without_event(self, config_fake: Path) -> None:
+    async def test_incident_summary_absent_without_event(
+        self, config_fake: Path
+    ) -> None:
         """incident_summary is not present when --event is not provided."""
         db_path = str(config_fake.parent / "state" / "test_evidence.db")
         await _make_populated_db(db_path)
@@ -807,14 +829,21 @@ class TestIncidentSummary:
         event_id, _ = await _make_populated_db(db_path)
 
         report = await collect_evidence_bundle(
-            str(config_fake), event_id=event_id,
+            str(config_fake),
+            event_id=event_id,
         )
         summary = report["sections"]["storage"]["data"]["incident_summary"]
         required_fields = [
-            "event_id", "event_kind", "source_adapter",
-            "first_failure_kind", "classification",
-            "replay_receipts_present", "native_refs_present",
-            "receipt_count", "failed_count", "sent_count",
+            "event_id",
+            "event_kind",
+            "source_adapter",
+            "first_failure_kind",
+            "classification",
+            "replay_receipts_present",
+            "native_refs_present",
+            "receipt_count",
+            "failed_count",
+            "sent_count",
             "recommended_commands",
             "commands",
         ]
@@ -828,7 +857,8 @@ class TestIncidentSummary:
         event_id, _ = await _make_populated_db(db_path)
 
         report = await collect_evidence_bundle(
-            str(config_fake), event_id=event_id,
+            str(config_fake),
+            event_id=event_id,
         )
         summary = report["sections"]["storage"]["data"]["incident_summary"]
         raw = json.dumps(summary, sort_keys=True)
@@ -836,7 +866,8 @@ class TestIncidentSummary:
 
     @pytest.mark.asyncio
     async def test_incident_summary_commands_shape(
-        self, config_fake: Path,
+        self,
+        config_fake: Path,
     ) -> None:
         """incident_summary commands has primary (inspect-first) and specialized."""
         db_path = str(config_fake.parent / "state" / "test_evidence.db")
@@ -848,7 +879,8 @@ class TestIncidentSummary:
         )
 
         report = await collect_evidence_bundle(
-            str(config_fake), event_id=event_id,
+            str(config_fake),
+            event_id=event_id,
         )
         summary = report["sections"]["storage"]["data"]["incident_summary"]
         cmds = summary["commands"]
@@ -859,15 +891,15 @@ class TestIncidentSummary:
 
         # Primary commands are inspect-first (no trace/evidence/recover prefix).
         for cmd in cmds["primary"]:
-            assert not cmd.startswith("medre trace "), (
-                f"Primary command should not start with 'medre trace': {cmd}"
-            )
-            assert not cmd.startswith("medre evidence "), (
-                f"Primary command should not start with 'medre evidence': {cmd}"
-            )
-            assert not cmd.startswith("medre recover "), (
-                f"Primary command should not start with 'medre recover': {cmd}"
-            )
+            assert not cmd.startswith(
+                "medre trace "
+            ), f"Primary command should not start with 'medre trace': {cmd}"
+            assert not cmd.startswith(
+                "medre evidence "
+            ), f"Primary command should not start with 'medre evidence': {cmd}"
+            assert not cmd.startswith(
+                "medre recover "
+            ), f"Primary command should not start with 'medre recover': {cmd}"
 
         # Specialized includes the evidence bundle command.
         ev_cmds = [c for c in cmds["specialized"] if c.startswith("medre evidence ")]
@@ -909,15 +941,16 @@ class TestEvidenceStorageSectionEquivalence:
         config_report = await collect_evidence_bundle(str(config_fake))
         path_report = await collect_evidence_bundle(storage_path=db_path)
 
-        config_storage = _comparable_storage_data(
-            config_report["sections"]["storage"]
-        )
-        path_storage = _comparable_storage_data(
-            path_report["sections"]["storage"]
-        )
+        config_storage = _comparable_storage_data(config_report["sections"]["storage"])
+        path_storage = _comparable_storage_data(path_report["sections"]["storage"])
         assert config_storage["status"] == path_storage["status"]
-        assert config_storage["data"]["event_count"] == path_storage["data"]["event_count"]
-        assert config_storage["data"]["receipt_count"] == path_storage["data"]["receipt_count"]
+        assert (
+            config_storage["data"]["event_count"] == path_storage["data"]["event_count"]
+        )
+        assert (
+            config_storage["data"]["receipt_count"]
+            == path_storage["data"]["receipt_count"]
+        )
         assert config_storage["data"]["db_exists"] == path_storage["data"]["db_exists"]
 
     @pytest.mark.asyncio
@@ -927,23 +960,27 @@ class TestEvidenceStorageSectionEquivalence:
         event_id, _ = await _make_populated_db(db_path)
 
         config_report = await collect_evidence_bundle(
-            str(config_fake), event_id=event_id,
+            str(config_fake),
+            event_id=event_id,
         )
         path_report = await collect_evidence_bundle(
-            storage_path=db_path, event_id=event_id,
+            storage_path=db_path,
+            event_id=event_id,
         )
 
-        config_storage = _comparable_storage_data(
-            config_report["sections"]["storage"]
-        )
-        path_storage = _comparable_storage_data(
-            path_report["sections"]["storage"]
-        )
+        config_storage = _comparable_storage_data(config_report["sections"]["storage"])
+        path_storage = _comparable_storage_data(path_report["sections"]["storage"])
         assert config_storage["status"] == path_storage["status"]
         assert config_storage["data"]["event"] == path_storage["data"]["event"]
-        assert config_storage["data"]["incident_summary"] == path_storage["data"]["incident_summary"]
+        assert (
+            config_storage["data"]["incident_summary"]
+            == path_storage["data"]["incident_summary"]
+        )
         assert config_storage["data"]["timeline"] == path_storage["data"]["timeline"]
-        assert config_storage["data"]["native_refs_for_event"] == path_storage["data"]["native_refs_for_event"]
+        assert (
+            config_storage["data"]["native_refs_for_event"]
+            == path_storage["data"]["native_refs_for_event"]
+        )
 
     @pytest.mark.asyncio
     async def test_equivalent_missing_db(self, config_fake: Path) -> None:
@@ -955,12 +992,8 @@ class TestEvidenceStorageSectionEquivalence:
 
         path_report = await collect_evidence_bundle(storage_path=db_path)
 
-        config_storage = _comparable_storage_data(
-            config_report["sections"]["storage"]
-        )
-        path_storage = _comparable_storage_data(
-            path_report["sections"]["storage"]
-        )
+        config_storage = _comparable_storage_data(config_report["sections"]["storage"])
+        path_storage = _comparable_storage_data(path_report["sections"]["storage"])
         assert config_storage["status"] == path_storage["status"] == "partial"
         assert config_storage["data"]["db_exists"] is False
         assert path_storage["data"]["db_exists"] is False
@@ -977,14 +1010,24 @@ class TestEvidenceStorageSectionEquivalence:
         )
 
         config_report = await collect_evidence_bundle(
-            str(config_fake), event_id=event_id,
+            str(config_fake),
+            event_id=event_id,
         )
         path_report = await collect_evidence_bundle(
-            storage_path=db_path, event_id=event_id,
+            storage_path=db_path,
+            event_id=event_id,
         )
 
-        config_summary = config_report["sections"]["storage"]["data"]["incident_summary"]
+        config_summary = config_report["sections"]["storage"]["data"][
+            "incident_summary"
+        ]
         path_summary = path_report["sections"]["storage"]["data"]["incident_summary"]
-        assert config_summary["classification"] == path_summary["classification"] == "retryable"
+        assert (
+            config_summary["classification"]
+            == path_summary["classification"]
+            == "retryable"
+        )
         assert config_summary["failed_count"] == path_summary["failed_count"] == 1
-        assert config_summary["first_failure_kind"] == path_summary["first_failure_kind"]
+        assert (
+            config_summary["first_failure_kind"] == path_summary["first_failure_kind"]
+        )

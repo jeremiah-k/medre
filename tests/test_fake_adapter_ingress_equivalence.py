@@ -20,16 +20,14 @@ from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.events.kinds import EventKind
 from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.storage.sqlite import SQLiteStorage
-
 from tests.helpers.bridge import (
     make_adapter_context,
     make_pipeline_config,
     make_text_packet,
 )
-
 
 # ===================================================================
 # 1. FakeMatrixAdapter ingress equivalence
@@ -44,9 +42,7 @@ class TestFakeMatrixAdapterIngressEquivalence:
         self, temp_storage: SQLiteStorage
     ) -> None:
         """Both paths produce identical delivery receipts and accounting."""
-        fake_target = FakeMeshtasticAdapter(
-            MeshtasticConfig(adapter_id="fake-target")
-        )
+        fake_target = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="fake-target"))
 
         route = Route(
             id="equiv-route",
@@ -187,9 +183,7 @@ class TestFakeMatrixAdapterIngressEquivalence:
         self, temp_storage: SQLiteStorage
     ) -> None:
         """Both paths increment RuntimeAccounting identically."""
-        fake_target = FakeMeshtasticAdapter(
-            MeshtasticConfig(adapter_id="acc-target")
-        )
+        fake_target = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="acc-target"))
 
         route = Route(
             id="acc-equiv-route",
@@ -304,9 +298,7 @@ class TestFakeMeshtasticAdapterIngressEquivalence:
         await runner.start()
 
         # Path A: simulate_inbound
-        fake_mesh = FakeMeshtasticAdapter(
-            MeshtasticConfig(adapter_id="fmesh-eq-src")
-        )
+        fake_mesh = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="fmesh-eq-src"))
         ctx = make_adapter_context("fmesh-eq-src", runner)
         await fake_mesh.start(ctx)
 

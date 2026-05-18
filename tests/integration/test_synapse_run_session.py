@@ -32,39 +32,39 @@ Only ``"sync_loop"`` proves full Matrix adapter ingress.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import time
-import urllib.request
 from datetime import datetime, timezone
 from typing import Any, cast
-from unittest.mock import AsyncMock
 
 import pytest
 
-from medre.core.contracts.adapter import AdapterContext
 from medre.adapters.fake_matrix import FakeMatrixAdapter
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.compat import HAS_NIO
-from medre.config.adapters.matrix import MatrixConfig
 from medre.adapters.matrix.renderer import MatrixRenderer
+from medre.config.adapters.matrix import MatrixConfig
+from medre.core.contracts.adapter import AdapterContext
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.events.bus import EventBus
 from medre.core.planning import FallbackResolver, RelationResolver
 from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.storage import SQLiteStorage
 from medre.core.storage.backend import StorageBackend
 
-from .conftest import SynapseEnvironment, _write_artifact_json, _write_run_metadata, _RUN_ARTIFACT_DIR
+from .conftest import (
+    _RUN_ARTIFACT_DIR,
+    SynapseEnvironment,
+    _write_artifact_json,
+    _write_run_metadata,
+)
 from .test_synapse_bridge_smoke import (
-    IngressResult,
     _INBOUND_FALLBACK,
     _INBOUND_SYNC_LOOP,
     _wait_for_sync_or_fallback,
-    _classify_fallback_reason,
 )
 
 logger = logging.getLogger(__name__)
@@ -75,7 +75,9 @@ pytestmark = pytest.mark.docker
 if not HAS_NIO:
     pytestmark = [
         pytest.mark.docker,
-        pytest.mark.skip(reason="mindroom-nio not installed; run: pip install '.[matrix]'"),
+        pytest.mark.skip(
+            reason="mindroom-nio not installed; run: pip install '.[matrix]'"
+        ),
     ]
 
 
@@ -97,9 +99,11 @@ def _make_matrix_config(env: SynapseEnvironment) -> MatrixConfig:
 
 
 def _make_adapter_context_for_pipeline(
-    adapter_id: str, runner: PipelineRunner,
+    adapter_id: str,
+    runner: PipelineRunner,
 ) -> AdapterContext:
     """Create an AdapterContext wired to a PipelineRunner's ingress handler."""
+
     async def _publish(event: Any) -> None:
         await runner.ingress_handler(event)
 
@@ -152,7 +156,9 @@ class TestSynapseRunSession:
     """
 
     async def test_run_session_matrix_sync_ingress(
-        self, synapse_env: SynapseEnvironment, temp_storage: SQLiteStorage,
+        self,
+        synapse_env: SynapseEnvironment,
+        temp_storage: SQLiteStorage,
     ) -> None:
         """Full run-session: Matrix source (Synapse) -> fake target.
 
@@ -204,12 +210,14 @@ class TestSynapseRunSession:
 
         # Wire adapters to pipeline ingress.
         matrix_ctx = _make_adapter_context_for_pipeline(
-            "synapse-run-session-bot", runner,
+            "synapse-run-session-bot",
+            runner,
         )
         await matrix_adapter.start(matrix_ctx)
 
         fake_ctx = _make_adapter_context_for_pipeline(
-            "fake-out-session", runner,
+            "fake-out-session",
+            runner,
         )
         await fake_out.start(fake_ctx)
 
@@ -255,21 +263,19 @@ class TestSynapseRunSession:
                 native_channel_id=synapse_env.test_room_id,
                 native_message_id=ingress.native_event_id,
             )
-            assert canonical_id is not None, (
-                f"Expected native ref for event {ingress.native_event_id!r}"
-            )
+            assert (
+                canonical_id is not None
+            ), f"Expected native ref for event {ingress.native_event_id!r}"
 
             # -- Assert: delivery receipt with status="sent" --
             receipts = await temp_storage.list_receipts_for_event(
                 canonical_id,
             )
-            assert len(receipts) >= 1, (
-                "Expected at least one delivery receipt"
-            )
+            assert len(receipts) >= 1, "Expected at least one delivery receipt"
             receipt_status = receipts[0].status
-            assert receipt_status == "sent", (
-                f"Expected receipt status 'sent', got {receipt_status!r}"
-            )
+            assert (
+                receipt_status == "sent"
+            ), f"Expected receipt status 'sent', got {receipt_status!r}"
 
             # -- Assert: accounting counters --
             counters = accounting.snapshot()
@@ -334,7 +340,8 @@ class TestSynapseRunSession:
             # Assert report shape.
             assert report["status"] == "passed"
             assert report["ingress_path"] in (
-                _INBOUND_SYNC_LOOP, _INBOUND_FALLBACK,
+                _INBOUND_SYNC_LOOP,
+                _INBOUND_FALLBACK,
             )
             assert report["event_id"] is not None
             assert len(report["receipts"]) >= 1
@@ -395,11 +402,13 @@ class TestSynapseRunSession:
 
     @pytest.mark.xfail(
         reason="Strict sync_loop ingress is not yet reliable; "
-               "xfail proves the test exists and tracks progress",
+        "xfail proves the test exists and tracks progress",
         strict=False,
     )
     async def test_strict_sync_loop(
-        self, synapse_env: SynapseEnvironment, temp_storage: SQLiteStorage,
+        self,
+        synapse_env: SynapseEnvironment,
+        temp_storage: SQLiteStorage,
     ) -> None:
         """FAILS (xfail) if fallback is used — proves strict sync goal.
 
@@ -442,12 +451,14 @@ class TestSynapseRunSession:
         await runner.start()
 
         matrix_ctx = _make_adapter_context_for_pipeline(
-            "synapse-run-session-bot", runner,
+            "synapse-run-session-bot",
+            runner,
         )
         await matrix_adapter.start(matrix_ctx)
 
         fake_ctx = _make_adapter_context_for_pipeline(
-            "fake-out-strict-sess", runner,
+            "fake-out-strict-sess",
+            runner,
         )
         await fake_out.start(fake_ctx)
 
@@ -471,7 +482,9 @@ class TestSynapseRunSession:
             await runner.stop()
 
     async def test_sync_with_fallback(
-        self, synapse_env: SynapseEnvironment, temp_storage: SQLiteStorage,
+        self,
+        synapse_env: SynapseEnvironment,
+        temp_storage: SQLiteStorage,
     ) -> None:
         """Passes regardless of ingress path; reports which path was used.
 
@@ -513,12 +526,14 @@ class TestSynapseRunSession:
         await runner.start()
 
         matrix_ctx = _make_adapter_context_for_pipeline(
-            "synapse-run-session-bot", runner,
+            "synapse-run-session-bot",
+            runner,
         )
         await matrix_adapter.start(matrix_ctx)
 
         fake_ctx = _make_adapter_context_for_pipeline(
-            "fake-out-fb-sess", runner,
+            "fake-out-fb-sess",
+            runner,
         )
         await fake_out.start(fake_ctx)
 
@@ -554,15 +569,16 @@ class TestSynapseRunSession:
             )
 
             assert ingress.ingress_path in (
-                _INBOUND_SYNC_LOOP, _INBOUND_FALLBACK,
+                _INBOUND_SYNC_LOOP,
+                _INBOUND_FALLBACK,
             )
 
             if ingress.ingress_path == _INBOUND_FALLBACK:
                 assert ingress.fallback_reason in (
-                    "sync_not_running", "sync_error", "sync_timeout",
-                ), (
-                    f"Unexpected fallback_reason: {ingress.fallback_reason!r}"
-                )
+                    "sync_not_running",
+                    "sync_error",
+                    "sync_timeout",
+                ), f"Unexpected fallback_reason: {ingress.fallback_reason!r}"
 
             # Persist fallback-tolerant artifact when collection is enabled.
             if _RUN_ARTIFACT_DIR is not None:

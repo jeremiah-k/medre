@@ -85,6 +85,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from medre.adapters.meshcore.compat import HAS_MESHCORE
+
 # ---------------------------------------------------------------------------
 # Module-level marker — entire file is tagged "live" so it is excluded by the
 # default ``addopts = "-m 'not live'"`` in pyproject.toml.
@@ -143,9 +145,6 @@ def _validate_env() -> tuple[str, str]:
 
 _LIVE_SKIP_REASON, _CONNECTION_TYPE = _validate_env()
 _LIVE_ENV_SET = _CONNECTION_TYPE != ""
-
-# Also check for SDK availability.
-from medre.adapters.meshcore.compat import HAS_MESHCORE
 
 require_live = pytest.mark.skipif(
     not (_LIVE_ENV_SET and HAS_MESHCORE),
@@ -244,9 +243,10 @@ class TestMeshCoreLiveSmoke:
         try:
             await adapter.start(ctx)
             info = await adapter.health_check()
-            assert info.health in ("healthy", "degraded"), (
-                f"Expected healthy or degraded, got {info.health!r}"
-            )
+            assert info.health in (
+                "healthy",
+                "degraded",
+            ), f"Expected healthy or degraded, got {info.health!r}"
         finally:
             await adapter.stop()
 
@@ -323,7 +323,6 @@ class TestMeshCoreLiveSmoke:
     async def test_send_channel_message(self):
         """Send a channel message and verify no error is raised."""
         from medre.adapters.meshcore.adapter import MeshCoreAdapter
-        from medre.adapters.meshcore.errors import MeshCoreSendError
 
         config = _make_config()
         adapter = MeshCoreAdapter(config)
@@ -332,7 +331,7 @@ class TestMeshCoreLiveSmoke:
         try:
             await adapter.start(ctx)
             assert adapter._session is not None
-            result = await adapter._session.send_text(
+            await adapter._session.send_text(
                 contact_id="",
                 text="MEDRE live smoke: send test",
                 channel_index=int(MESHCORE_CHANNEL_INDEX),
@@ -391,7 +390,7 @@ class TestMeshCoreLiveSmoke:
         ctx = _make_context()
 
         try:
-            for i in range(3):
+            for _i in range(3):
                 await adapter.start(ctx)
                 assert adapter._session is not None
                 assert adapter._session.connected is True

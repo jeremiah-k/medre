@@ -14,7 +14,6 @@ from tests.helpers.cli import (
     _run_cli_both,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -50,28 +49,18 @@ class TestRunErrors:
 
     def test_run_missing_config_no_traceback(self, tmp_path: Path) -> None:
         """Missing config causes clear error, not raw traceback."""
-        _, stderr = _run_cli_both(
-            "run", "--config", str(tmp_path / "missing.toml")
-        )
+        _, stderr = _run_cli_both("run", "--config", str(tmp_path / "missing.toml"))
         assert "Traceback" not in stderr
         assert "Config error:" in stderr
 
-    def test_run_no_adapters_exits_nonzero(
-        self, config_no_adapters: Path
-    ) -> None:
+    def test_run_no_adapters_exits_nonzero(self, config_no_adapters: Path) -> None:
         """Run with no enabled adapters exits nonzero with clear message."""
-        _, stderr = _run_cli_both(
-            "run", "--config", str(config_no_adapters)
-        )
+        _, stderr = _run_cli_both("run", "--config", str(config_no_adapters))
         assert "no adapters enabled" in stderr.lower() or "error" in stderr.lower()
 
-    def test_run_no_adapters_clear_message(
-        self, config_no_adapters: Path
-    ) -> None:
+    def test_run_no_adapters_clear_message(self, config_no_adapters: Path) -> None:
         """Error message mentions adapters, not a traceback."""
-        _, stderr = _run_cli_both(
-            "run", "--config", str(config_no_adapters)
-        )
+        _, stderr = _run_cli_both("run", "--config", str(config_no_adapters))
         assert "Traceback" not in stderr
         assert "adapter" in stderr.lower()
 
@@ -108,16 +97,15 @@ class TestRunExitCodes:
             "medre.runtime.builder.RuntimeBuilder.build",
             side_effect=RuntimeError("simulated missing SDK dependency"),
         ):
-            _, stderr = _run_cli_both(
-                "run", "--config", str(config_with_routes)
-            )
+            _, stderr = _run_cli_both("run", "--config", str(config_with_routes))
         assert "Traceback" not in stderr
         assert "Runtime build error:" in stderr
 
     def test_build_error_exit_code(self, config_with_routes: Path) -> None:
         """Runtime build failure exits with EXIT_BUILD (3)."""
-        from medre.cli import EXIT_BUILD
         from unittest.mock import patch
+
+        from medre.cli import EXIT_BUILD
 
         with patch(
             "medre.runtime.builder.RuntimeBuilder.build",
@@ -153,8 +141,9 @@ class TestRunExitCodes:
 
     def test_diagnostics_build_error_exit_code(self, config_with_routes: Path) -> None:
         """Diagnostics build failure exits with EXIT_BUILD (3)."""
-        from medre.cli import EXIT_BUILD
         from unittest.mock import patch
+
+        from medre.cli import EXIT_BUILD
 
         with patch(
             "medre.runtime.builder.RuntimeBuilder.build",
@@ -168,16 +157,19 @@ class TestRunExitCodes:
         self, config_with_routes: Path
     ) -> None:
         """All adapters failing construction exits EXIT_BUILD (3), not EXIT_STARTUP (4)."""
+        from unittest.mock import MagicMock, patch
+
         from medre.cli import EXIT_BUILD
-        from unittest.mock import patch, MagicMock
 
         fake_app = MagicMock()
         fake_app.adapters = {}
-        fake_app.build_failures = [MagicMock(
-            transport="matrix",
-            adapter_id="main",
-            error=RuntimeError("missing SDK"),
-        )]
+        fake_app.build_failures = [
+            MagicMock(
+                transport="matrix",
+                adapter_id="main",
+                error=RuntimeError("missing SDK"),
+            )
+        ]
 
         with patch(
             "medre.runtime.builder.RuntimeBuilder.build",
@@ -191,15 +183,17 @@ class TestRunExitCodes:
         self, config_with_routes: Path
     ) -> None:
         """All adapters build failure produces clean error, no traceback."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
 
         fake_app = MagicMock()
         fake_app.adapters = {}
-        fake_app.build_failures = [MagicMock(
-            transport="matrix",
-            adapter_id="main",
-            error=RuntimeError("missing SDK"),
-        )]
+        fake_app.build_failures = [
+            MagicMock(
+                transport="matrix",
+                adapter_id="main",
+                error=RuntimeError("missing SDK"),
+            )
+        ]
 
         with patch(
             "medre.runtime.builder.RuntimeBuilder.build",
@@ -213,8 +207,9 @@ class TestRunExitCodes:
         self, config_with_routes: Path
     ) -> None:
         """All adapters build OK but fail start() exits EXIT_STARTUP (4)."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
         from medre.cli import EXIT_STARTUP
-        from unittest.mock import patch, MagicMock, AsyncMock
         from medre.runtime.errors import RuntimeStartupError
 
         fake_app = MagicMock()
@@ -235,11 +230,10 @@ class TestRunExitCodes:
                 _run_cli("run", "--config", str(config_with_routes))
         assert exc_info.value.code == EXIT_STARTUP
 
-    def test_startup_error_no_traceback(
-        self, config_with_routes: Path
-    ) -> None:
+    def test_startup_error_no_traceback(self, config_with_routes: Path) -> None:
         """Startup failure produces clean error message, no traceback."""
-        from unittest.mock import patch, MagicMock, AsyncMock
+        from unittest.mock import AsyncMock, MagicMock, patch
+
         from medre.runtime.errors import RuntimeStartupError
 
         fake_app = MagicMock()
@@ -264,16 +258,19 @@ class TestRunExitCodes:
         self, config_with_routes: Path
     ) -> None:
         """Diagnostics with all adapters failing construction exits EXIT_BUILD (3)."""
+        from unittest.mock import MagicMock, patch
+
         from medre.cli import EXIT_BUILD
-        from unittest.mock import patch, MagicMock
 
         fake_app = MagicMock()
         fake_app.adapters = {}
-        fake_app.build_failures = [MagicMock(
-            transport="matrix",
-            adapter_id="main",
-            error=RuntimeError("missing SDK"),
-        )]
+        fake_app.build_failures = [
+            MagicMock(
+                transport="matrix",
+                adapter_id="main",
+                error=RuntimeError("missing SDK"),
+            )
+        ]
 
         with patch(
             "medre.runtime.builder.RuntimeBuilder.build",
@@ -297,25 +294,23 @@ class TestRunExitCodes:
         self, config_no_adapters: Path
     ) -> None:
         """Zero enabled adapters mentions 'no adapters enabled', not build failure."""
-        _, stderr = _run_cli_both(
-            "diagnostics", "--config", str(config_no_adapters)
-        )
+        _, stderr = _run_cli_both("diagnostics", "--config", str(config_no_adapters))
         assert "no adapters enabled" in stderr.lower()
         assert "failed to construct" not in stderr.lower()
 
-    def test_diagnostics_partial_build_succeeds(
-        self, config_with_routes: Path
-    ) -> None:
+    def test_diagnostics_partial_build_succeeds(self, config_with_routes: Path) -> None:
         """Diagnostics with some adapters built, some failed, exits EXIT_OK (0)."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
 
         fake_app = MagicMock()
         fake_app.adapters = {"matrix.main": MagicMock()}
-        fake_app.build_failures = [MagicMock(
-            transport="matrix",
-            adapter_id="backup",
-            error=RuntimeError("missing SDK"),
-        )]
+        fake_app.build_failures = [
+            MagicMock(
+                transport="matrix",
+                adapter_id="backup",
+                error=RuntimeError("missing SDK"),
+            )
+        ]
 
         with patch(
             "medre.runtime.builder.RuntimeBuilder.build",
@@ -372,8 +367,9 @@ meshnet_name = "FakeMesh"
 
     def test_sample_config_parses(self) -> None:
         """generate_sample_config() produces valid TOML."""
-        from medre.config.sample import generate_sample_config
         import tomllib
+
+        from medre.config.sample import generate_sample_config
 
         sample = generate_sample_config()
         parsed = tomllib.loads(sample)
@@ -382,13 +378,15 @@ meshnet_name = "FakeMesh"
 
     @pytest.mark.asyncio
     async def test_fake_runtime_assembles_from_config(
-        self, fake_config: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        fake_config: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """A config with adapter_kind='fake' assembles into a working MedreApp."""
         from medre.config.loader import load_config
-        from medre.config.paths import resolve
-        from medre.runtime.builder import RuntimeBuilder
         from medre.runtime.app import RuntimeState
+        from medre.runtime.builder import RuntimeBuilder
 
         for var in ("MEDRE_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME"):
             monkeypatch.delenv(var, raising=False)

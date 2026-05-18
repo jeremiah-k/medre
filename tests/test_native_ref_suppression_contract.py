@@ -29,11 +29,10 @@ from medre.core.events.bus import EventBus
 from medre.core.planning import FallbackResolver, RelationResolver
 from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.storage import SQLiteStorage
 from medre.core.storage.backend import StorageBackend
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -72,7 +71,9 @@ def _build_runner(
     target = FakePresentationAdapter(adapter_id=target_adapter)
     route = Route(
         id="dedup-route",
-        source=RouteSource(adapter=source_adapter, event_kinds=("message.created",), channel=None),
+        source=RouteSource(
+            adapter=source_adapter, event_kinds=("message.created",), channel=None
+        ),
         targets=[RouteTarget(adapter=target_adapter)],
     )
     rp = RenderingPipeline()
@@ -96,7 +97,12 @@ async def _restart_runner(
     source_adapter: str = "src",
     target_adapter: str = "target",
 ) -> PipelineRunner:
-    runner = _build_runner(storage, accounting, source_adapter=source_adapter, target_adapter=target_adapter)
+    runner = _build_runner(
+        storage,
+        accounting,
+        source_adapter=source_adapter,
+        target_adapter=target_adapter,
+    )
     await runner.start()
     return runner
 
@@ -116,12 +122,18 @@ class TestNullChannelSuppressed:
         accounting = RuntimeAccounting()
         runner = await _restart_runner(temp_storage, accounting)
 
-        ref = NativeRef(adapter="src", native_channel_id=None, native_message_id="null-ch-001")
+        ref = NativeRef(
+            adapter="src", native_channel_id=None, native_message_id="null-ch-001"
+        )
         try:
-            out1 = await runner.handle_ingress(_make_event_with_ref(f"nc-{uuid.uuid4()}", ref))
+            out1 = await runner.handle_ingress(
+                _make_event_with_ref(f"nc-{uuid.uuid4()}", ref)
+            )
             assert len(out1) == 1
 
-            out2 = await runner.handle_ingress(_make_event_with_ref(f"nc-dup-{uuid.uuid4()}", ref))
+            out2 = await runner.handle_ingress(
+                _make_event_with_ref(f"nc-dup-{uuid.uuid4()}", ref)
+            )
             assert out2 == []
 
             assert await _count_events(temp_storage) == 1
@@ -138,16 +150,24 @@ class TestNullChannelSuppressed:
 
 
 class TestExplicitChannelSuppressed:
-    async def test_explicit_channel_suppressed(self, temp_storage: SQLiteStorage) -> None:
+    async def test_explicit_channel_suppressed(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
         accounting = RuntimeAccounting()
         runner = await _restart_runner(temp_storage, accounting)
 
-        ref = NativeRef(adapter="src", native_channel_id="ch-0", native_message_id="explicit-001")
+        ref = NativeRef(
+            adapter="src", native_channel_id="ch-0", native_message_id="explicit-001"
+        )
         try:
-            out1 = await runner.handle_ingress(_make_event_with_ref(f"ec-{uuid.uuid4()}", ref))
+            out1 = await runner.handle_ingress(
+                _make_event_with_ref(f"ec-{uuid.uuid4()}", ref)
+            )
             assert len(out1) == 1
 
-            out2 = await runner.handle_ingress(_make_event_with_ref(f"ec-dup-{uuid.uuid4()}", ref))
+            out2 = await runner.handle_ingress(
+                _make_event_with_ref(f"ec-dup-{uuid.uuid4()}", ref)
+            )
             assert out2 == []
 
             assert await _count_events(temp_storage) == 1
@@ -164,19 +184,31 @@ class TestExplicitChannelSuppressed:
 
 
 class TestDifferentAdaptersSameMessageId:
-    async def test_different_adapters_same_message_id(self, temp_storage: SQLiteStorage) -> None:
+    async def test_different_adapters_same_message_id(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
         accounting = RuntimeAccounting()
         runner = await _restart_runner(temp_storage, accounting)
 
-        ref_a = NativeRef(adapter="adapter-A", native_channel_id="ch-0", native_message_id="shared-id")
-        ref_b = NativeRef(adapter="adapter-B", native_channel_id="ch-0", native_message_id="shared-id")
+        ref_a = NativeRef(
+            adapter="adapter-A", native_channel_id="ch-0", native_message_id="shared-id"
+        )
+        ref_b = NativeRef(
+            adapter="adapter-B", native_channel_id="ch-0", native_message_id="shared-id"
+        )
         try:
             out_a = await runner.handle_ingress(
-                _make_event_with_ref(f"da-{uuid.uuid4()}", ref_a, source_adapter="adapter-A"))
+                _make_event_with_ref(
+                    f"da-{uuid.uuid4()}", ref_a, source_adapter="adapter-A"
+                )
+            )
             assert out_a == []  # no route matches adapter-A/adapter-B source
 
             out_b = await runner.handle_ingress(
-                _make_event_with_ref(f"db-{uuid.uuid4()}", ref_b, source_adapter="adapter-B"))
+                _make_event_with_ref(
+                    f"db-{uuid.uuid4()}", ref_b, source_adapter="adapter-B"
+                )
+            )
             assert out_b == []
 
             assert await _count_events(temp_storage) == 2
@@ -193,18 +225,30 @@ class TestDifferentAdaptersSameMessageId:
 
 
 class TestSameAdapterDifferentChannel:
-    async def test_same_adapter_different_channel(self, temp_storage: SQLiteStorage) -> None:
+    async def test_same_adapter_different_channel(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
         accounting = RuntimeAccounting()
         runner = await _restart_runner(temp_storage, accounting)
 
-        ref_0 = NativeRef(adapter="src", native_channel_id="ch-0", native_message_id="shared-mid")
-        ref_1 = NativeRef(adapter="src", native_channel_id="ch-1", native_message_id="shared-mid")
+        ref_0 = NativeRef(
+            adapter="src", native_channel_id="ch-0", native_message_id="shared-mid"
+        )
+        ref_1 = NativeRef(
+            adapter="src", native_channel_id="ch-1", native_message_id="shared-mid"
+        )
         try:
-            out_0 = await runner.handle_ingress(_make_event_with_ref(f"sch-{uuid.uuid4()}", ref_0))
+            out_0 = await runner.handle_ingress(
+                _make_event_with_ref(f"sch-{uuid.uuid4()}", ref_0)
+            )
             assert len(out_0) == 1
 
-            out_1 = await runner.handle_ingress(_make_event_with_ref(f"sch2-{uuid.uuid4()}", ref_1))
-            assert len(out_1) == 1, "Different channel should produce different dedup key"
+            out_1 = await runner.handle_ingress(
+                _make_event_with_ref(f"sch2-{uuid.uuid4()}", ref_1)
+            )
+            assert (
+                len(out_1) == 1
+            ), "Different channel should produce different dedup key"
 
             assert await _count_events(temp_storage) == 2
             snap = accounting.snapshot()
@@ -220,16 +264,23 @@ class TestSameAdapterDifferentChannel:
 
 
 class TestEmptyStringIdBypassesSuppression:
-    async def test_empty_string_id_bypasses_suppression(self, temp_storage: SQLiteStorage) -> None:
+    async def test_empty_string_id_bypasses_suppression(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
         accounting = RuntimeAccounting()
         runner = await _restart_runner(temp_storage, accounting)
 
-        ref_empty = NativeRef(adapter="src", native_channel_id="ch-0", native_message_id="")
+        ref_empty = NativeRef(
+            adapter="src", native_channel_id="ch-0", native_message_id=""
+        )
         try:
             for i in range(2):
                 out = await runner.handle_ingress(
-                    _make_event_with_ref(f"empty-{i}-{uuid.uuid4()}", ref_empty))
-                assert len(out) == 1, f"Event {i} with empty message_id should be accepted"
+                    _make_event_with_ref(f"empty-{i}-{uuid.uuid4()}", ref_empty)
+                )
+                assert (
+                    len(out) == 1
+                ), f"Event {i} with empty message_id should be accepted"
 
             assert await _count_events(temp_storage) == 2
             snap = accounting.snapshot()
@@ -250,9 +301,12 @@ class TestRestartPersistence:
     same native ref again, same suppression behavior."""
 
     async def test_null_channel_persists_after_restart(
-        self, temp_storage: SQLiteStorage,
+        self,
+        temp_storage: SQLiteStorage,
     ) -> None:
-        ref = NativeRef(adapter="src", native_channel_id=None, native_message_id="restart-null")
+        ref = NativeRef(
+            adapter="src", native_channel_id=None, native_message_id="restart-null"
+        )
         accounting = RuntimeAccounting()
         runner = await _restart_runner(temp_storage, accounting)
         try:
@@ -262,7 +316,9 @@ class TestRestartPersistence:
 
         runner2 = await _restart_runner(temp_storage, accounting)
         try:
-            out = await runner2.handle_ingress(_make_event_with_ref(f"rn-dup-{uuid.uuid4()}", ref))
+            out = await runner2.handle_ingress(
+                _make_event_with_ref(f"rn-dup-{uuid.uuid4()}", ref)
+            )
             assert out == [], "Suppression should persist after restart"
             assert await _count_events(temp_storage) == 1
             snap = accounting.snapshot()
@@ -272,9 +328,14 @@ class TestRestartPersistence:
             await runner2.stop()
 
     async def test_explicit_channel_persists_after_restart(
-        self, temp_storage: SQLiteStorage,
+        self,
+        temp_storage: SQLiteStorage,
     ) -> None:
-        ref = NativeRef(adapter="src", native_channel_id="ch-0", native_message_id="restart-explicit")
+        ref = NativeRef(
+            adapter="src",
+            native_channel_id="ch-0",
+            native_message_id="restart-explicit",
+        )
         accounting = RuntimeAccounting()
         runner = await _restart_runner(temp_storage, accounting)
         try:
@@ -284,7 +345,9 @@ class TestRestartPersistence:
 
         runner2 = await _restart_runner(temp_storage, accounting)
         try:
-            out = await runner2.handle_ingress(_make_event_with_ref(f"re-dup-{uuid.uuid4()}", ref))
+            out = await runner2.handle_ingress(
+                _make_event_with_ref(f"re-dup-{uuid.uuid4()}", ref)
+            )
             assert out == []
             snap = accounting.snapshot()
             assert snap["inbound_accepted"] == 1
@@ -293,23 +356,40 @@ class TestRestartPersistence:
             await runner2.stop()
 
     async def test_different_adapters_still_accepted_after_restart(
-        self, temp_storage: SQLiteStorage,
+        self,
+        temp_storage: SQLiteStorage,
     ) -> None:
         accounting = RuntimeAccounting()
         runner = await _restart_runner(temp_storage, accounting)
-        ref_a = NativeRef(adapter="adapter-A", native_channel_id="ch-0", native_message_id="restart-shared")
+        ref_a = NativeRef(
+            adapter="adapter-A",
+            native_channel_id="ch-0",
+            native_message_id="restart-shared",
+        )
         try:
             await runner.handle_ingress(
-                _make_event_with_ref(f"rda-{uuid.uuid4()}", ref_a, source_adapter="adapter-A"))
+                _make_event_with_ref(
+                    f"rda-{uuid.uuid4()}", ref_a, source_adapter="adapter-A"
+                )
+            )
         finally:
             await runner.stop()
 
         runner2 = await _restart_runner(temp_storage, accounting)
-        ref_b = NativeRef(adapter="adapter-B", native_channel_id="ch-0", native_message_id="restart-shared")
+        ref_b = NativeRef(
+            adapter="adapter-B",
+            native_channel_id="ch-0",
+            native_message_id="restart-shared",
+        )
         try:
             out = await runner2.handle_ingress(
-                _make_event_with_ref(f"rdb-{uuid.uuid4()}", ref_b, source_adapter="adapter-B"))
-            assert out == [], "No route matches adapter-B source; event accepted via storage"
+                _make_event_with_ref(
+                    f"rdb-{uuid.uuid4()}", ref_b, source_adapter="adapter-B"
+                )
+            )
+            assert (
+                out == []
+            ), "No route matches adapter-B source; event accepted via storage"
             assert await _count_events(temp_storage) == 2
             snap = accounting.snapshot()
             assert snap["inbound_accepted"] == 2
@@ -318,20 +398,29 @@ class TestRestartPersistence:
             await runner2.stop()
 
     async def test_different_channels_still_accepted_after_restart(
-        self, temp_storage: SQLiteStorage,
+        self,
+        temp_storage: SQLiteStorage,
     ) -> None:
         accounting = RuntimeAccounting()
         runner = await _restart_runner(temp_storage, accounting)
-        ref_0 = NativeRef(adapter="src", native_channel_id="ch-0", native_message_id="restart-ch-mid")
+        ref_0 = NativeRef(
+            adapter="src", native_channel_id="ch-0", native_message_id="restart-ch-mid"
+        )
         try:
-            await runner.handle_ingress(_make_event_with_ref(f"rch-{uuid.uuid4()}", ref_0))
+            await runner.handle_ingress(
+                _make_event_with_ref(f"rch-{uuid.uuid4()}", ref_0)
+            )
         finally:
             await runner.stop()
 
         runner2 = await _restart_runner(temp_storage, accounting)
-        ref_1 = NativeRef(adapter="src", native_channel_id="ch-1", native_message_id="restart-ch-mid")
+        ref_1 = NativeRef(
+            adapter="src", native_channel_id="ch-1", native_message_id="restart-ch-mid"
+        )
         try:
-            out = await runner2.handle_ingress(_make_event_with_ref(f"rch2-{uuid.uuid4()}", ref_1))
+            out = await runner2.handle_ingress(
+                _make_event_with_ref(f"rch2-{uuid.uuid4()}", ref_1)
+            )
             assert len(out) == 1, "Different channel should be accepted after restart"
             assert await _count_events(temp_storage) == 2
             snap = accounting.snapshot()
@@ -341,19 +430,26 @@ class TestRestartPersistence:
             await runner2.stop()
 
     async def test_empty_string_still_bypasses_after_restart(
-        self, temp_storage: SQLiteStorage,
+        self,
+        temp_storage: SQLiteStorage,
     ) -> None:
-        ref_empty = NativeRef(adapter="src", native_channel_id="ch-0", native_message_id="")
+        ref_empty = NativeRef(
+            adapter="src", native_channel_id="ch-0", native_message_id=""
+        )
         accounting = RuntimeAccounting()
         runner = await _restart_runner(temp_storage, accounting)
         try:
-            await runner.handle_ingress(_make_event_with_ref(f"rem-{uuid.uuid4()}", ref_empty))
+            await runner.handle_ingress(
+                _make_event_with_ref(f"rem-{uuid.uuid4()}", ref_empty)
+            )
         finally:
             await runner.stop()
 
         runner2 = await _restart_runner(temp_storage, accounting)
         try:
-            out = await runner2.handle_ingress(_make_event_with_ref(f"rem2-{uuid.uuid4()}", ref_empty))
+            out = await runner2.handle_ingress(
+                _make_event_with_ref(f"rem2-{uuid.uuid4()}", ref_empty)
+            )
             assert len(out) == 1, "Empty message_id should bypass dedup after restart"
             assert await _count_events(temp_storage) == 2
             snap = accounting.snapshot()

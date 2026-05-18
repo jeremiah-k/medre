@@ -14,16 +14,23 @@ from unittest.mock import AsyncMock
 import pytest
 
 from medre.adapters import FakeMeshtasticAdapter
-from medre.core.contracts.adapter import AdapterContext, AdapterDeliveryResult, AdapterPermanentError, AdapterRole, AdapterSendError
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
-from medre.config.adapters.meshtastic import MeshtasticConfig
+from medre.adapters.meshtastic.errors import (
+    MeshtasticConnectionError,
+    MeshtasticSendError,
+)
 from medre.adapters.meshtastic.session import MeshtasticSession
+from medre.config.adapters.meshtastic import MeshtasticConfig
+from medre.core.contracts.adapter import (
+    AdapterContext,
+    AdapterDeliveryResult,
+    AdapterPermanentError,
+    AdapterRole,
+    AdapterSendError,
+)
 from medre.core.events import CanonicalEvent, EventMetadata
-from medre.adapters.meshtastic.errors import MeshtasticConnectionError, MeshtasticSendError
 from medre.core.events.kinds import EventKind
 from medre.core.rendering.renderer import RenderingResult
-
-
 
 
 def _make_config(**overrides) -> MeshtasticConfig:
@@ -42,7 +49,8 @@ def _make_rendering_result(
         event_id=event_id,
         target_adapter=target_adapter,
         target_channel=target_channel,
-        payload=payload or {"text": "hello mesh", "channel_index": 0, "meshnet_name": ""},
+        payload=payload
+        or {"text": "hello mesh", "channel_index": 0, "meshnet_name": ""},
     )
 
 
@@ -82,38 +90,47 @@ class TestMeshtasticAdapterCapabilities:
 
     def test_capabilities_text_true(self) -> None:
         from medre.adapters.fake_meshtastic import _FAKE_MESHTASTIC_CAPABILITIES
+
         assert _FAKE_MESHTASTIC_CAPABILITIES.text is True
 
     def test_capabilities_replies_unsupported(self) -> None:
         from medre.adapters.fake_meshtastic import _FAKE_MESHTASTIC_CAPABILITIES
+
         assert _FAKE_MESHTASTIC_CAPABILITIES.replies == "unsupported"
 
     def test_capabilities_reactions_unsupported(self) -> None:
         from medre.adapters.fake_meshtastic import _FAKE_MESHTASTIC_CAPABILITIES
+
         assert _FAKE_MESHTASTIC_CAPABILITIES.reactions == "unsupported"
 
     def test_capabilities_edits_unsupported(self) -> None:
         from medre.adapters.fake_meshtastic import _FAKE_MESHTASTIC_CAPABILITIES
+
         assert _FAKE_MESHTASTIC_CAPABILITIES.edits == "unsupported"
 
     def test_capabilities_deletes_unsupported(self) -> None:
         from medre.adapters.fake_meshtastic import _FAKE_MESHTASTIC_CAPABILITIES
+
         assert _FAKE_MESHTASTIC_CAPABILITIES.deletes == "unsupported"
 
     def test_capabilities_attachments_false(self) -> None:
         from medre.adapters.fake_meshtastic import _FAKE_MESHTASTIC_CAPABILITIES
+
         assert _FAKE_MESHTASTIC_CAPABILITIES.attachments is False
 
     def test_capabilities_direct_messages_false(self) -> None:
         from medre.adapters.fake_meshtastic import _FAKE_MESHTASTIC_CAPABILITIES
+
         assert _FAKE_MESHTASTIC_CAPABILITIES.direct_messages is False
 
     def test_capabilities_max_text_bytes_512(self) -> None:
         from medre.adapters.fake_meshtastic import _FAKE_MESHTASTIC_CAPABILITIES
+
         assert _FAKE_MESHTASTIC_CAPABILITIES.max_text_bytes == 512
 
     def test_capabilities_max_text_chars_512(self) -> None:
         from medre.adapters.fake_meshtastic import _FAKE_MESHTASTIC_CAPABILITIES
+
         assert _FAKE_MESHTASTIC_CAPABILITIES.max_text_chars == 512
 
 
@@ -127,6 +144,7 @@ class TestRealMeshtasticCapabilities:
 
     def test_real_adapter_capabilities_match_fake(self) -> None:
         from medre.adapters.fake_meshtastic import _FAKE_MESHTASTIC_CAPABILITIES
+
         config = _make_config()
         adapter = MeshtasticAdapter(config)
         real_caps = adapter._capabilities
@@ -136,7 +154,9 @@ class TestRealMeshtasticCapabilities:
         assert real_caps.edits == _FAKE_MESHTASTIC_CAPABILITIES.edits
         assert real_caps.deletes == _FAKE_MESHTASTIC_CAPABILITIES.deletes
         assert real_caps.attachments == _FAKE_MESHTASTIC_CAPABILITIES.attachments
-        assert real_caps.direct_messages == _FAKE_MESHTASTIC_CAPABILITIES.direct_messages
+        assert (
+            real_caps.direct_messages == _FAKE_MESHTASTIC_CAPABILITIES.direct_messages
+        )
         assert real_caps.max_text_bytes == _FAKE_MESHTASTIC_CAPABILITIES.max_text_bytes
         assert real_caps.max_text_chars == _FAKE_MESHTASTIC_CAPABILITIES.max_text_chars
 
@@ -209,9 +229,13 @@ class TestFakeMeshtasticAdapterDeliver:
 
     async def test_deliver_does_not_reformat(self) -> None:
         adapter = FakeMeshtasticAdapter()
-        result = _make_rendering_result(payload={
-            "text": "original", "channel_index": 0, "meshnet_name": "",
-        })
+        result = _make_rendering_result(
+            payload={
+                "text": "original",
+                "channel_index": 0,
+                "meshnet_name": "",
+            }
+        )
         await adapter.deliver(result)
         assert adapter.delivered_payloads[0] is result
 
@@ -231,7 +255,9 @@ class TestFakeMeshtasticAdapterDeliver:
             payload={"body": "hello"},
             metadata=EventMetadata(),
         )
-        with pytest.raises((TypeError, AdapterPermanentError), match="RenderingResult only"):
+        with pytest.raises(
+            (TypeError, AdapterPermanentError), match="RenderingResult only"
+        ):
             await adapter.deliver(event)
 
     async def test_deliver_failure_raises_send_error(self) -> None:
@@ -329,7 +355,9 @@ class TestFakeMeshtasticAdapterSimulateInbound:
         with pytest.raises(RuntimeError, match="has not been started"):
             await adapter.simulate_inbound(packet)
 
-    async def test_simulate_inbound_ignores_non_text(self, make_adapter_context) -> None:
+    async def test_simulate_inbound_ignores_non_text(
+        self, make_adapter_context
+    ) -> None:
         adapter = FakeMeshtasticAdapter()
         ctx = make_adapter_context("mesh-1")
         await adapter.start(ctx)
@@ -490,7 +518,9 @@ class TestMeshtasticAdapterLifecycle:
             payload={"body": "hello"},
             metadata=EventMetadata(),
         )
-        with pytest.raises((TypeError, AdapterPermanentError), match="RenderingResult only"):
+        with pytest.raises(
+            (TypeError, AdapterPermanentError), match="RenderingResult only"
+        ):
             await adapter.deliver(event)
 
     async def test_simulate_inbound(
@@ -581,6 +611,7 @@ class TestMeshtasticAdapterConnectionModes:
     @staticmethod
     def _make_fake_interface_class(name: str):
         """Create a fake interface class that records its constructor args."""
+
         class FakeInterface:
             _instances = []
 
@@ -603,20 +634,20 @@ class TestMeshtasticAdapterConnectionModes:
 
     def _patch_session_create_client(self, adapter, FakeClass, monkeypatch):
         """Patch MeshtasticSession._create_client to return a FakeClass instance."""
+
         def fake_create_client(session_self):
             return FakeClass()
-        monkeypatch.setattr(
-            MeshtasticSession, "_create_client", fake_create_client
-        )
-        monkeypatch.setattr(
-            "medre.adapters.meshtastic.session.HAS_MESHTASTIC", True
-        )
+
+        monkeypatch.setattr(MeshtasticSession, "_create_client", fake_create_client)
+        monkeypatch.setattr("medre.adapters.meshtastic.session.HAS_MESHTASTIC", True)
         # Skip pubsub subscription — these tests use fake clients without pubsub.
         monkeypatch.setattr(
             MeshtasticSession, "_subscribe_callbacks", lambda self: None
         )
 
-    async def test_tcp_mode_with_monkeypatched_client(self, make_adapter_context, monkeypatch) -> None:
+    async def test_tcp_mode_with_monkeypatched_client(
+        self, make_adapter_context, monkeypatch
+    ) -> None:
         """TCP mode creates TCPInterface(hostname, portNumber) via session."""
         FakeTCP = self._make_fake_interface_class("FakeTCPInterface")
         config = _make_config(
@@ -634,7 +665,9 @@ class TestMeshtasticAdapterConnectionModes:
 
         monkeypatch.setattr(MeshtasticSession, "_create_client", fake_create_client)
         monkeypatch.setattr("medre.adapters.meshtastic.session.HAS_MESHTASTIC", True)
-        monkeypatch.setattr(MeshtasticSession, "_subscribe_callbacks", lambda self: None)
+        monkeypatch.setattr(
+            MeshtasticSession, "_subscribe_callbacks", lambda self: None
+        )
 
         ctx = make_adapter_context("mesh-1")
         await adapter.start(ctx)
@@ -646,7 +679,9 @@ class TestMeshtasticAdapterConnectionModes:
         await adapter.stop()
         assert adapter._session is None
 
-    async def test_serial_mode_with_monkeypatched_client(self, make_adapter_context, monkeypatch) -> None:
+    async def test_serial_mode_with_monkeypatched_client(
+        self, make_adapter_context, monkeypatch
+    ) -> None:
         """Serial mode creates SerialInterface(devPath) via session."""
         FakeSerial = self._make_fake_interface_class("FakeSerialInterface")
         config = _make_config(
@@ -660,7 +695,9 @@ class TestMeshtasticAdapterConnectionModes:
 
         monkeypatch.setattr(MeshtasticSession, "_create_client", fake_create_client)
         monkeypatch.setattr("medre.adapters.meshtastic.session.HAS_MESHTASTIC", True)
-        monkeypatch.setattr(MeshtasticSession, "_subscribe_callbacks", lambda self: None)
+        monkeypatch.setattr(
+            MeshtasticSession, "_subscribe_callbacks", lambda self: None
+        )
 
         ctx = make_adapter_context("mesh-1")
         await adapter.start(ctx)
@@ -670,7 +707,9 @@ class TestMeshtasticAdapterConnectionModes:
 
         await adapter.stop()
 
-    async def test_ble_mode_with_monkeypatched_client(self, make_adapter_context, monkeypatch) -> None:
+    async def test_ble_mode_with_monkeypatched_client(
+        self, make_adapter_context, monkeypatch
+    ) -> None:
         """BLE mode creates BLEInterface(address) via session."""
         FakeBLE = self._make_fake_interface_class("FakeBLEInterface")
         config = _make_config(
@@ -684,7 +723,9 @@ class TestMeshtasticAdapterConnectionModes:
 
         monkeypatch.setattr(MeshtasticSession, "_create_client", fake_create_client)
         monkeypatch.setattr("medre.adapters.meshtastic.session.HAS_MESHTASTIC", True)
-        monkeypatch.setattr(MeshtasticSession, "_subscribe_callbacks", lambda self: None)
+        monkeypatch.setattr(
+            MeshtasticSession, "_subscribe_callbacks", lambda self: None
+        )
 
         ctx = make_adapter_context("mesh-1")
         await adapter.start(ctx)
@@ -703,14 +744,16 @@ class TestMeshtasticAdapterConnectionModes:
         )
         adapter = MeshtasticAdapter(config)
         with pytest.raises(MeshtasticConnectionError, match="mtjk not installed"):
-            await adapter.start(AdapterContext(
-                adapter_id="mesh-1",
-                event_bus=None,
-                publish_inbound=AsyncMock(),
-                logger=__import__("logging").getLogger("test"),
-                clock=lambda: datetime.now(timezone.utc),
-                shutdown_event=asyncio.Event(),
-            ))
+            await adapter.start(
+                AdapterContext(
+                    adapter_id="mesh-1",
+                    event_bus=None,
+                    publish_inbound=AsyncMock(),
+                    logger=__import__("logging").getLogger("test"),
+                    clock=lambda: datetime.now(timezone.utc),
+                    shutdown_event=asyncio.Event(),
+                )
+            )
 
     async def test_stop_closes_client(self, make_adapter_context, monkeypatch) -> None:
         """stop() calls client.close() on the real client via session."""
@@ -767,6 +810,7 @@ class TestMeshtasticAdapterPubsubSubscription:
 
         def fake_create_client(session_self):
             return FakeClient()
+
         monkeypatch.setattr(MeshtasticSession, "_create_client", fake_create_client)
 
         _patch_pubsub(monkeypatch, subscribe_fn=fake_subscribe)
@@ -777,9 +821,7 @@ class TestMeshtasticAdapterPubsubSubscription:
         assert subscribed[0] == ("_on_receive", "meshtastic.receive")
         await adapter.stop()
 
-    async def test_subscription_failure_during_start_raises(
-        self, monkeypatch
-    ) -> None:
+    async def test_subscription_failure_during_start_raises(self, monkeypatch) -> None:
         """start() raises MeshtasticConnectionError when subscription fails."""
 
         class FakeClient:
@@ -793,6 +835,7 @@ class TestMeshtasticAdapterPubsubSubscription:
 
         def fake_create_client(session_self):
             return FakeClient()
+
         monkeypatch.setattr(MeshtasticSession, "_create_client", fake_create_client)
 
         _patch_pubsub(
@@ -801,18 +844,18 @@ class TestMeshtasticAdapterPubsubSubscription:
         )
 
         with pytest.raises(MeshtasticConnectionError, match="meshtastic.receive"):
-            await adapter.start(AdapterContext(
-                adapter_id="mesh-1",
-                event_bus=None,
-                publish_inbound=AsyncMock(),
-                logger=__import__("logging").getLogger("test"),
-                clock=lambda: datetime.now(timezone.utc),
-                shutdown_event=asyncio.Event(),
-            ))
+            await adapter.start(
+                AdapterContext(
+                    adapter_id="mesh-1",
+                    event_bus=None,
+                    publish_inbound=AsyncMock(),
+                    logger=__import__("logging").getLogger("test"),
+                    clock=lambda: datetime.now(timezone.utc),
+                    shutdown_event=asyncio.Event(),
+                )
+            )
 
-    async def test_start_failure_closes_client(
-        self, monkeypatch
-    ) -> None:
+    async def test_start_failure_closes_client(self, monkeypatch) -> None:
         """When subscription fails, start() closes the client before re-raising."""
         closed_flag = {"closed": False}
 
@@ -827,6 +870,7 @@ class TestMeshtasticAdapterPubsubSubscription:
 
         def fake_create_client(session_self):
             return FakeClient()
+
         monkeypatch.setattr(MeshtasticSession, "_create_client", fake_create_client)
 
         _patch_pubsub(
@@ -835,21 +879,24 @@ class TestMeshtasticAdapterPubsubSubscription:
         )
 
         with pytest.raises(MeshtasticConnectionError):
-            await adapter.start(AdapterContext(
-                adapter_id="mesh-1",
-                event_bus=None,
-                publish_inbound=AsyncMock(),
-                logger=__import__("logging").getLogger("test"),
-                clock=lambda: datetime.now(timezone.utc),
-                shutdown_event=asyncio.Event(),
-            ))
+            await adapter.start(
+                AdapterContext(
+                    adapter_id="mesh-1",
+                    event_bus=None,
+                    publish_inbound=AsyncMock(),
+                    logger=__import__("logging").getLogger("test"),
+                    clock=lambda: datetime.now(timezone.utc),
+                    shutdown_event=asyncio.Event(),
+                )
+            )
 
-        assert closed_flag["closed"], "Client should be closed after subscription failure"
+        assert closed_flag[
+            "closed"
+        ], "Client should be closed after subscription failure"
 
-    async def test_start_failure_no_orphaned_state(
-        self, monkeypatch
-    ) -> None:
+    async def test_start_failure_no_orphaned_state(self, monkeypatch) -> None:
         """After subscription failure, adapter is not started and session is None."""
+
         class FakeClient:
             def close(self):
                 pass
@@ -861,6 +908,7 @@ class TestMeshtasticAdapterPubsubSubscription:
 
         def fake_create_client(session_self):
             return FakeClient()
+
         monkeypatch.setattr(MeshtasticSession, "_create_client", fake_create_client)
 
         _patch_pubsub(
@@ -869,14 +917,16 @@ class TestMeshtasticAdapterPubsubSubscription:
         )
 
         with pytest.raises(MeshtasticConnectionError):
-            await adapter.start(AdapterContext(
-                adapter_id="mesh-1",
-                event_bus=None,
-                publish_inbound=AsyncMock(),
-                logger=__import__("logging").getLogger("test"),
-                clock=lambda: datetime.now(timezone.utc),
-                shutdown_event=asyncio.Event(),
-            ))
+            await adapter.start(
+                AdapterContext(
+                    adapter_id="mesh-1",
+                    event_bus=None,
+                    publish_inbound=AsyncMock(),
+                    logger=__import__("logging").getLogger("test"),
+                    clock=lambda: datetime.now(timezone.utc),
+                    shutdown_event=asyncio.Event(),
+                )
+            )
 
         assert adapter._started is False
         assert adapter._client is None
@@ -886,6 +936,7 @@ class TestMeshtasticAdapterPubsubSubscription:
         self, monkeypatch
     ) -> None:
         """health_check() returns 'unknown' after subscription failure and cleanup."""
+
         class FakeClient:
             def close(self):
                 pass
@@ -897,6 +948,7 @@ class TestMeshtasticAdapterPubsubSubscription:
 
         def fake_create_client(session_self):
             return FakeClient()
+
         monkeypatch.setattr(MeshtasticSession, "_create_client", fake_create_client)
 
         _patch_pubsub(
@@ -905,14 +957,16 @@ class TestMeshtasticAdapterPubsubSubscription:
         )
 
         with pytest.raises(MeshtasticConnectionError):
-            await adapter.start(AdapterContext(
-                adapter_id="mesh-1",
-                event_bus=None,
-                publish_inbound=AsyncMock(),
-                logger=__import__("logging").getLogger("test"),
-                clock=lambda: datetime.now(timezone.utc),
-                shutdown_event=asyncio.Event(),
-            ))
+            await adapter.start(
+                AdapterContext(
+                    adapter_id="mesh-1",
+                    event_bus=None,
+                    publish_inbound=AsyncMock(),
+                    logger=__import__("logging").getLogger("test"),
+                    clock=lambda: datetime.now(timezone.utc),
+                    shutdown_event=asyncio.Event(),
+                )
+            )
 
         # After failed start, client is cleaned up, health should be "unknown"
         info = await adapter.health_check()
@@ -935,6 +989,7 @@ class TestMeshtasticAdapterPubsubSubscription:
 
         def fake_create_client(session_self):
             return FakeClient()
+
         monkeypatch.setattr(MeshtasticSession, "_create_client", fake_create_client)
 
         _patch_pubsub(
@@ -944,14 +999,16 @@ class TestMeshtasticAdapterPubsubSubscription:
         )
 
         with pytest.raises(MeshtasticConnectionError):
-            await adapter.start(AdapterContext(
-                adapter_id="mesh-1",
-                event_bus=None,
-                publish_inbound=AsyncMock(),
-                logger=__import__("logging").getLogger("test"),
-                clock=lambda: datetime.now(timezone.utc),
-                shutdown_event=asyncio.Event(),
-            ))
+            await adapter.start(
+                AdapterContext(
+                    adapter_id="mesh-1",
+                    event_bus=None,
+                    publish_inbound=AsyncMock(),
+                    logger=__import__("logging").getLogger("test"),
+                    clock=lambda: datetime.now(timezone.utc),
+                    shutdown_event=asyncio.Event(),
+                )
+            )
 
         # stop should not try to unsubscribe since subscription never succeeded
         await adapter.stop()
@@ -985,9 +1042,7 @@ class TestMeshtasticAdapterTaskScheduling:
         # Task should have been discarded after completion
         assert len(adapter._background_tasks) == 0
 
-    async def test_stop_cancels_background_tasks(
-        self, make_adapter_context
-    ) -> None:
+    async def test_stop_cancels_background_tasks(self, make_adapter_context) -> None:
         config = _make_config(connection_type="fake")
         adapter = MeshtasticAdapter(config)
         ctx = make_adapter_context("mesh-1")
@@ -1033,6 +1088,7 @@ class TestMeshtasticAdapterTaskScheduling:
     async def test_no_ensure_future(self) -> None:
         """Verify _on_packet does not use asyncio.ensure_future."""
         import inspect
+
         source = inspect.getsource(MeshtasticAdapter._on_packet)
         assert "ensure_future" not in source
         assert "create_task" in source
@@ -1099,10 +1155,13 @@ class TestMeshtasticAdapterQueueOwnership:
         # Patch session to use our fake client
         monkeypatch.setattr("medre.adapters.meshtastic.session.HAS_MESHTASTIC", True)
         monkeypatch.setattr(
-            MeshtasticSession, "_create_client",
+            MeshtasticSession,
+            "_create_client",
             lambda self: fake_client,
         )
-        monkeypatch.setattr(MeshtasticSession, "_subscribe_callbacks", lambda self: None)
+        monkeypatch.setattr(
+            MeshtasticSession, "_subscribe_callbacks", lambda self: None
+        )
 
         ctx = make_adapter_context("mesh-1")
         await adapter.start(ctx)
@@ -1145,6 +1204,7 @@ class TestMeshtasticAdapterSendSemantics:
     async def test_queue_process_one_without_send_fn_returns_none(self) -> None:
         """process_one without send_fn returns None (scaffold mode)."""
         from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
+
         queue = MeshtasticOutboundQueue()
         await queue.enqueue({"text": "test"}, 0)
         result = await queue.process_one()
@@ -1153,6 +1213,7 @@ class TestMeshtasticAdapterSendSemantics:
     async def test_queue_process_one_with_send_fn_returns_result(self) -> None:
         """process_one with send_fn returns AdapterDeliveryResult."""
         from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
+
         queue = MeshtasticOutboundQueue(delay_between_messages=0.0)
         await queue.enqueue({"text": "test", "channel_index": 0}, 0)
 
@@ -1167,6 +1228,7 @@ class TestMeshtasticAdapterSendSemantics:
     async def test_queue_process_one_extracts_id_from_object(self) -> None:
         """process_one captures packet id from objects with .id attribute."""
         from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
+
         queue = MeshtasticOutboundQueue(delay_between_messages=0.0)
         await queue.enqueue({"text": "test"}, 3)
 
@@ -1181,6 +1243,7 @@ class TestMeshtasticAdapterSendSemantics:
     async def test_queue_process_one_handles_none_send_result(self) -> None:
         """process_one handles send_fn returning None gracefully."""
         from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
+
         queue = MeshtasticOutboundQueue(delay_between_messages=0.0)
         await queue.enqueue({"text": "test"}, 0)
 
@@ -1194,6 +1257,7 @@ class TestMeshtasticAdapterSendSemantics:
     async def test_queue_process_one_tracks_failures(self) -> None:
         """process_one increments total_failed on send_fn exception."""
         from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
+
         queue = MeshtasticOutboundQueue(delay_between_messages=0.0)
         await queue.enqueue({"text": "test"}, 0)
 
@@ -1321,6 +1385,7 @@ class TestMeshtasticSessionUnit:
         )
         diag = session.diagnostics()
         from medre.adapters.meshtastic.session import MeshtasticSessionDiagnostics
+
         assert isinstance(diag, MeshtasticSessionDiagnostics)
         assert diag.connected is False
         assert diag.reconnecting is False
@@ -1395,6 +1460,7 @@ class TestMeshtasticSessionUnit:
             raise ConnectionError("nope")
 
         import medre.adapters.meshtastic.session as session_mod
+
         original_create = session_mod.MeshtasticSession._create_client
         session_mod.MeshtasticSession._create_client = always_fail
 

@@ -24,7 +24,6 @@ from medre.core.events.canonical import (
 )
 from medre.core.events.metadata import EventMetadata
 
-
 # ---------------------------------------------------------------------------
 # Relation resolver
 # ---------------------------------------------------------------------------

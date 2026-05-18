@@ -35,18 +35,16 @@ Constraints
 
 from __future__ import annotations
 
-import asyncio
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
 import pytest
 
 from medre.config.model import (
     AdapterConfigSet,
-    LxmfRuntimeConfig,
     LoggingConfig,
+    LxmfRuntimeConfig,
     MatrixRuntimeConfig,
     MeshCoreRuntimeConfig,
     MeshtasticRuntimeConfig,
@@ -61,29 +59,23 @@ from medre.core.events.canonical import CanonicalEvent
 from medre.core.events.metadata import EventMetadata, RoutingMetadata
 from medre.core.routing.stats import RouteStats
 from medre.core.storage.replay import (
+    _MAX_SUMMARY_ERRORS,
     ReplayMode,
     ReplayResult,
     ReplayRouteAttribution,
     ReplayState,
-    ReplaySummary,
     _build_summary,
-    _MAX_ERROR_LENGTH,
-    _MAX_SUMMARY_ERRORS,
 )
 from medre.runtime.app import MedreApp, RuntimeState
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.capacity import CapacityController
 from medre.runtime.snapshot import (
-    _MAX_ADAPTERS,
-    _MAX_BUILD_FAILURES,
-    _MAX_ROUTES,
     build_runtime_snapshot,
 )
-
-# Reuse existing harness helpers.
-from tests.test_soak_harness import DiagnosticsSnapshot, SoakRuntime
 from tests.test_soak_foundations_v2 import _count_asyncio_tasks
 
+# Reuse existing harness helpers.
+from tests.test_soak_harness import SoakRuntime
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -269,9 +261,9 @@ class TestMassiveRouteGraphChurn:
         assert len(snap) == 200
         for rid, entry in snap.items():
             if "last_error" in entry and entry["last_error"]:
-                assert len(entry["last_error"]) <= 512, (
-                    f"{rid}: error string too long: {len(entry['last_error'])}"
-                )
+                assert (
+                    len(entry["last_error"]) <= 512
+                ), f"{rid}: error string too long: {len(entry['last_error'])}"
 
 
 # ===================================================================
@@ -288,7 +280,9 @@ class TestCombinedSixAxisChurn:
 
     @pytest.mark.asyncio
     async def test_15_cycle_six_axis_session(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """15 cycles: build with varying adapters → start → capacity acquire →
         deliver → ReplayMetrics churn → diagnostics → capacity release → stop.
@@ -401,7 +395,8 @@ class TestRepeatedSnapshotExport:
 
     @pytest.mark.asyncio
     async def test_50_snapshot_exports_identical(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """50 consecutive snapshots under delivery load: top-level key
         structure must be identical and every snapshot must be JSON-safe.
@@ -411,7 +406,7 @@ class TestRepeatedSnapshotExport:
 
         structures: list[frozenset[str]] = []
         serialized_ok = 0
-        for i in range(50):
+        for _i in range(50):
             await soak.deliver_events(count=1)
             raw = build_runtime_snapshot(soak.app)
             # Verify JSON round-trip.
@@ -426,19 +421,18 @@ class TestRepeatedSnapshotExport:
         assert serialized_ok == 50
         first = structures[0]
         for idx, struct in enumerate(structures[1:], 1):
-            assert struct == first, (
-                f"Snapshot {idx} key set differs from snapshot 0"
-            )
+            assert struct == first, f"Snapshot {idx} key set differs from snapshot 0"
 
     @pytest.mark.asyncio
     async def test_60_snapshot_json_round_trips(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """60 snapshots: each must be JSON-serializable and parseable."""
         await soak.start()
         assert soak.app is not None
 
-        for i in range(60):
+        for _i in range(60):
             await soak.deliver_events(count=1)
             raw = soak.app.diagnostic_snapshot()
             serialized = json.dumps(raw, sort_keys=True, default=str)
@@ -453,7 +447,9 @@ class TestRepeatedSnapshotExport:
 
     @pytest.mark.asyncio
     async def test_40_snapshot_structure_stable_under_degraded(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """40 snapshots from varying adapter counts: key structure constant."""
         structures: list[frozenset[str]] = []
@@ -474,9 +470,7 @@ class TestRepeatedSnapshotExport:
 
         first = structures[0]
         for idx, struct in enumerate(structures[1:], 1):
-            assert struct == first, (
-                f"Snapshot structure changed at cycle {idx}"
-            )
+            assert struct == first, f"Snapshot structure changed at cycle {idx}"
 
 
 # ===================================================================
@@ -689,7 +683,9 @@ class TestBoundedSnapshotGrowthEscalating:
 
     @pytest.mark.asyncio
     async def test_snapshot_size_bounded_escalating_adapters(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Snapshot size bounded across 1→2→3→4→4→4→4→4 adapter cycles
         with delivery in each."""
@@ -718,20 +714,21 @@ class TestBoundedSnapshotGrowthEscalating:
             await app.stop()
 
         # Max size should not exceed 4× the min size (adapter variation only).
-        assert max(sizes) <= min(sizes) * 4 + 200, (
-            f"Snapshot size grew unboundedly: {sizes}"
-        )
+        assert (
+            max(sizes) <= min(sizes) * 4 + 200
+        ), f"Snapshot size grew unboundedly: {sizes}"
 
     @pytest.mark.asyncio
     async def test_snapshot_key_count_constant_under_load(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """Snapshot top-level key count stays constant under 30 captures."""
         await soak.start()
         assert soak.app is not None
 
         key_counts: set[int] = set()
-        for i in range(30):
+        for _i in range(30):
             await soak.deliver_events(count=2)
             raw = build_runtime_snapshot(soak.app)
             key_counts.add(len(raw))
@@ -739,9 +736,7 @@ class TestBoundedSnapshotGrowthEscalating:
         await soak.stop()
 
         # Key count must be constant across all captures.
-        assert len(key_counts) == 1, (
-            f"Snapshot key count varied: {key_counts}"
-        )
+        assert len(key_counts) == 1, f"Snapshot key count varied: {key_counts}"
 
 
 # ===================================================================
@@ -759,7 +754,8 @@ class TestTaskCleanupMassiveCombinedStress:
 
     @pytest.mark.asyncio
     async def test_15_combined_stress_cycles_no_leak(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """15 cycles: start → capacity → deliver → replay metrics →
         route stats → diagnostics → stop. No task accumulation."""
@@ -813,13 +809,14 @@ class TestTaskCleanupMassiveCombinedStress:
 
     @pytest.mark.asyncio
     async def test_10_rapid_build_start_stop_capacity(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """10 rapid build→start→capacity→stop with fresh CC each cycle."""
         task_counts: list[int] = []
 
         for _ in range(10):
-            baseline = _count_asyncio_tasks()
+            _count_asyncio_tasks()
 
             await soak.start_fresh()
             assert soak.app is not None
@@ -834,9 +831,7 @@ class TestTaskCleanupMassiveCombinedStress:
 
         max_count = max(task_counts)
         min_count = min(task_counts)
-        assert max_count - min_count <= 2, (
-            f"Task count drifted: {task_counts}"
-        )
+        assert max_count - min_count <= 2, f"Task count drifted: {task_counts}"
 
 
 # ===================================================================
@@ -853,7 +848,9 @@ class TestMultiAdapterDegradedCycling:
 
     @pytest.mark.asyncio
     async def test_non_monotonic_adapter_cycling(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """1→4→2→3→1→4 adapters: each cycle must start, deliver, and stop."""
         counts = [1, 4, 2, 3, 1, 4]
@@ -873,7 +870,7 @@ class TestMultiAdapterDegradedCycling:
 
             # Delivery.
             for i in range(2):
-                for aid, adapter in app.adapters.items():
+                for _aid, adapter in app.adapters.items():
                     try:
                         if hasattr(adapter, "simulate_inbound"):
                             if hasattr(adapter, "make_text_event"):
@@ -897,7 +894,9 @@ class TestMultiAdapterDegradedCycling:
 
     @pytest.mark.asyncio
     async def test_degraded_cycling_diagnostics_consistent(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Diagnostics across non-monotonic adapter cycling: all "running"."""
         counts = [4, 2, 1, 3, 4]
@@ -1000,14 +999,15 @@ class TestSnapshotExportJsonRoundTrip:
 
     @pytest.mark.asyncio
     async def test_55_captures_round_trip_stable(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """55 captures: each serializes → parses → same keys as first."""
         await soak.start()
         assert soak.app is not None
 
         structures: list[frozenset[str]] = []
-        for i in range(55):
+        for _i in range(55):
             await soak.deliver_events(count=1)
             raw = soak.app.diagnostic_snapshot()
 
@@ -1019,16 +1019,13 @@ class TestSnapshotExportJsonRoundTrip:
         await soak.stop()
 
         first = structures[0]
-        mismatches = [
-            idx for idx, s in enumerate(structures[1:], 1) if s != first
-        ]
-        assert not mismatches, (
-            f"Structure mismatched at captures: {mismatches}"
-        )
+        mismatches = [idx for idx, s in enumerate(structures[1:], 1) if s != first]
+        assert not mismatches, f"Structure mismatched at captures: {mismatches}"
 
     @pytest.mark.asyncio
     async def test_50_runtime_snapshot_round_trips(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """50 build_runtime_snapshot round-trips: all JSON-serializable
         with stable key structures."""
@@ -1049,16 +1046,15 @@ class TestSnapshotExportJsonRoundTrip:
         await soak.stop()
 
         first = structures[0]
-        mismatches = [
-            idx for idx, s in enumerate(structures[1:], 1) if s != first
-        ]
-        assert not mismatches, (
-            f"Snapshot key structures mismatched at captures: {mismatches}"
-        )
+        mismatches = [idx for idx, s in enumerate(structures[1:], 1) if s != first]
+        assert (
+            not mismatches
+        ), f"Snapshot key structures mismatched at captures: {mismatches}"
 
     @pytest.mark.asyncio
     async def test_snapshot_adapters_always_4_under_load(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """25 snapshots under load: adapter count always 4."""
         await soak.start()
@@ -1068,8 +1064,8 @@ class TestSnapshotExportJsonRoundTrip:
             await soak.deliver_events(count=2)
             raw = build_runtime_snapshot(soak.app)
             adapters = raw.get("adapters", {})
-            assert len(adapters) == 4, (
-                f"Adapter count changed at iteration {i}: {len(adapters)}"
-            )
+            assert (
+                len(adapters) == 4
+            ), f"Adapter count changed at iteration {i}: {len(adapters)}"
 
         await soak.stop()

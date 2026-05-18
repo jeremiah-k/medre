@@ -18,20 +18,20 @@ mesh radio protocol.
 
 ### 1.1 MeshCore Python Library
 
-| Source | Location | Format |
-|--------|----------|--------|
-| meshcore_py source | `/home/jeremiah/dev/meshcore/meshcore_py/` | Python package |
-| Import name | `meshcore` | `import meshcore` |
-| Entry point | `MeshCore` class | TCP, Serial, BLE constructors |
-| Event types | `meshcore.EventType` | Enum |
-| Commands | `meshcore.commands` | Async send API |
+| Source             | Location                                   | Format                        |
+| ------------------ | ------------------------------------------ | ----------------------------- |
+| meshcore_py source | `/home/jeremiah/dev/meshcore/meshcore_py/` | Python package                |
+| Import name        | `meshcore`                                 | `import meshcore`             |
+| Entry point        | `MeshCore` class                           | TCP, Serial, BLE constructors |
+| Event types        | `meshcore.EventType`                       | Enum                          |
+| Commands           | `meshcore.commands`                        | Async send API                |
 
 ### 1.2 MeshCore Firmware
 
-| Source | Location | Format |
-|--------|----------|--------|
-| Firmware source | `/home/jeremiah/dev/meshcore/MeshCore/` | C/C++ |
-| Radio protocol | Custom binary, no protobuf | LoRa frames, max 255 bytes |
+| Source          | Location                                | Format                     |
+| --------------- | --------------------------------------- | -------------------------- |
+| Firmware source | `/home/jeremiah/dev/meshcore/MeshCore/` | C/C++                      |
+| Radio protocol  | Custom binary, no protobuf              | LoRa frames, max 255 bytes |
 
 All behavioral facts below are extracted from these sources.
 
@@ -44,12 +44,12 @@ All behavioral facts below are extracted from these sources.
 MeshCore uses **Ed25519 keypair identity**. Each node has a 32-byte public key
 represented as a hex string. There is no numeric node number.
 
-| Property | Value |
-|----------|-------|
-| Key type | Ed25519 |
-| Public key size | 32 bytes |
-| Public key format | hex string (64 hex chars) |
-| Node hash | first N bytes of pubkey hex (configurable: 1, 2, or 3 bytes) |
+| Property          | Value                                                        |
+| ----------------- | ------------------------------------------------------------ |
+| Key type          | Ed25519                                                      |
+| Public key size   | 32 bytes                                                     |
+| Public key format | hex string (64 hex chars)                                    |
+| Node hash         | first N bytes of pubkey hex (configurable: 1, 2, or 3 bytes) |
 
 ### 2.2 Contact-Based Addressing
 
@@ -71,12 +71,12 @@ contact = {
 
 ### 2.3 Addressing Implications for MEDRE
 
-| Finding | Status |
-|---------|--------|
-| No broadcast address concept | **Confirmed**. Send to specific pubkey or use flood. |
-| No numeric node ID | **Confirmed**. Identity is always pubkey hex. |
-| Contact list is dict keyed by pubkey hex | **Confirmed**. |
-| Node hash is truncated pubkey, not a separate ID | **Confirmed**. |
+| Finding                                          | Status                                               |
+| ------------------------------------------------ | ---------------------------------------------------- |
+| No broadcast address concept                     | **Confirmed**. Send to specific pubkey or use flood. |
+| No numeric node ID                               | **Confirmed**. Identity is always pubkey hex.        |
+| Contact list is dict keyed by pubkey hex         | **Confirmed**.                                       |
+| Node hash is truncated pubkey, not a separate ID | **Confirmed**.                                       |
 
 ---
 
@@ -114,22 +114,22 @@ Channel messages arrive as `EventType.CHANNEL_MSG_RECV` with a payload dict:
 
 ### 3.3 Native Feature Gaps
 
-| Feature | Meshtastic | MeshCore |
-|---------|-----------|----------|
-| Reply-to (replyId) | `decoded.replyId` (int) | **No native mechanism**. Replies are application-level convention in text. |
-| Reactions/emoji | `decoded.emoji` (int flag) | **No native mechanism**. |
-| Wire format | Protobuf `MeshPacket` | **Custom binary** (no protobuf). |
+| Feature            | Meshtastic                 | MeshCore                                                                   |
+| ------------------ | -------------------------- | -------------------------------------------------------------------------- |
+| Reply-to (replyId) | `decoded.replyId` (int)    | **No native mechanism**. Replies are application-level convention in text. |
+| Reactions/emoji    | `decoded.emoji` (int flag) | **No native mechanism**.                                                   |
+| Wire format        | Protobuf `MeshPacket`      | **Custom binary** (no protobuf).                                           |
 
 ### 3.4 Key Packet Shape Findings for MEDRE
 
-| Finding | Status |
-|---------|--------|
+| Finding                                                      | Status        |
+| ------------------------------------------------------------ | ------------- |
 | Direct messages carry `pubkey_prefix` (truncated sender key) | **Confirmed** |
-| Channel messages carry `channel_idx` | **Confirmed** |
-| Both carry `sender_timestamp`, `txt_type`, `text` | **Confirmed** |
-| No native `replyId` field exists | **Confirmed** |
-| No native `emoji`/reaction field exists | **Confirmed** |
-| No protobuf involved at any layer | **Confirmed** |
+| Channel messages carry `channel_idx`                         | **Confirmed** |
+| Both carry `sender_timestamp`, `txt_type`, `text`            | **Confirmed** |
+| No native `replyId` field exists                             | **Confirmed** |
+| No native `emoji`/reaction field exists                      | **Confirmed** |
+| No protobuf involved at any layer                            | **Confirmed** |
 
 ---
 
@@ -142,6 +142,7 @@ event = await meshcore.commands.send_msg(dst, msg, timestamp=None)
 ```
 
 Returns an `Event` with:
+
 - `type == EventType.MSG_SENT`
 - `payload["expected_ack"]`: 4-byte hex string (CRC of sent message)
 - `payload["suggested_timeout"]`: int, suggested ACK timeout in milliseconds
@@ -165,12 +166,12 @@ ACK events arrive separately via the event dispatcher:
 
 ### 4.4 Send-Result Implications for MEDRE
 
-| MEDRE Concern | MeshCore Behavior |
-|---------------|-------------------|
+| MEDRE Concern              | MeshCore Behavior                                                   |
+| -------------------------- | ------------------------------------------------------------------- |
 | Outbound native message ID | `expected_ack` (4 bytes hex) acts as the delivery correlation token |
-| Send returns synchronously | Returns Event immediately; ACK is async |
-| Retry logic | Available via `send_msg_with_retry` or manual ACK watching |
-| ACK timeout | `suggested_timeout` provided by firmware |
+| Send returns synchronously | Returns Event immediately; ACK is async                             |
+| Retry logic                | Available via `send_msg_with_retry` or manual ACK watching          |
+| ACK timeout                | `suggested_timeout` provided by firmware                            |
 
 ---
 
@@ -184,19 +185,19 @@ subscription filtering.
 
 ### 5.2 Event Attributes
 
-| Event Type | Attributes |
-|------------|-----------|
+| Event Type         | Attributes                                  |
+| ------------------ | ------------------------------------------- |
 | `CONTACT_MSG_RECV` | `{"pubkey_prefix": "...", "txt_type": int}` |
-| `CHANNEL_MSG_RECV` | `{"channel_idx": int, "txt_type": int}` |
+| `CHANNEL_MSG_RECV` | `{"channel_idx": int, "txt_type": int}`     |
 
 ### 5.3 Event Types Relevant to MEDRE
 
-| EventType | Purpose |
-|-----------|---------|
-| `CONTACT_MSG_RECV` | Direct (private) message received |
-| `CHANNEL_MSG_RECV` | Channel (group) message received |
-| `MSG_SENT` | Outbound message sent, carries `expected_ack` |
-| `ACK` | Delivery acknowledgment, carries `code` |
+| EventType          | Purpose                                       |
+| ------------------ | --------------------------------------------- |
+| `CONTACT_MSG_RECV` | Direct (private) message received             |
+| `CHANNEL_MSG_RECV` | Channel (group) message received              |
+| `MSG_SENT`         | Outbound message sent, carries `expected_ack` |
+| `ACK`              | Delivery acknowledgment, carries `code`       |
 
 ---
 
@@ -221,13 +222,13 @@ Optional, configurable `max_attempts`. Not enabled by default.
 
 ### 6.3 Connection Implications for MEDRE
 
-| MEDRE Concern | MeshCore Behavior |
-|---------------|-------------------|
+| MEDRE Concern            | MeshCore Behavior              |
+| ------------------------ | ------------------------------ |
 | Multiple transport types | TCP, Serial, BLE all supported |
-| Default TCP port | 4000 |
-| Default serial baudrate | 115200 |
-| BLE pairing | Pin-based optional |
-| Reconnect | Optional, configurable |
+| Default TCP port         | 4000                           |
+| Default serial baudrate  | 115200                         |
+| BLE pairing              | Pin-based optional             |
+| Reconnect                | Optional, configurable         |
 
 ---
 
@@ -239,24 +240,24 @@ Optional, configurable `max_attempts`. Not enabled by default.
 
 ### 7.1 Frame Structure
 
-| Field | Size | Description |
-|-------|------|-------------|
-| Route type | 2 bits | Flood vs direct, optional transport codes |
-| Payload type | 4 bits | Message kind |
-| Version | 2 bits | Protocol version |
-| Payload | variable | Up to 255 bytes total frame |
+| Field        | Size     | Description                               |
+| ------------ | -------- | ----------------------------------------- |
+| Route type   | 2 bits   | Flood vs direct, optional transport codes |
+| Payload type | 4 bits   | Message kind                              |
+| Version      | 2 bits   | Protocol version                          |
+| Payload      | variable | Up to 255 bytes total frame               |
 
 ### 7.2 Payload Types
 
-| Code | Name | Description |
-|------|------|-------------|
-| 0 | REQ | Request |
-| 1 | RESPONSE | Response |
-| 2 | TXT_MSG | Text message |
-| 3 | ACK | Acknowledgment |
-| 4 | ADVERT | Advertisement |
-| 5 | GRP_TXT | Group text |
-| 6 | GRP_DATA | Group data |
+| Code | Name     | Description    |
+| ---- | -------- | -------------- |
+| 0    | REQ      | Request        |
+| 1    | RESPONSE | Response       |
+| 2    | TXT_MSG  | Text message   |
+| 3    | ACK      | Acknowledgment |
+| 4    | ADVERT   | Advertisement  |
+| 5    | GRP_TXT  | Group text     |
+| 6    | GRP_DATA | Group data     |
 
 ### 7.3 Encryption
 
@@ -269,72 +270,72 @@ Optional, configurable `max_attempts`. Not enabled by default.
 
 ## 8. Key Differences from Meshtastic
 
-| Aspect | Meshtastic | MeshCore |
-|--------|-----------|----------|
-| Identity | NodeNum (int) + fromId (str) | Ed25519 public key (hex) |
-| Addressing | Broadcast + DM by NodeNum | Contact-based by pubkey |
-| Wire format | Protobuf `MeshPacket` | Custom binary (LoRa frame) |
-| Send return | `MeshPacket` with `id` field | Event with `expected_ack` + `suggested_timeout` |
-| ACK | ROUTING_APP protobuf | Separate ACK event with CRC code |
-| Reply | `decoded.replyId` (int) | No native reply mechanism |
-| Reactions | `decoded.emoji` (int flag) | No native reactions |
-| Encryption | Optional per-packet | Always-on E2EE by default |
-| Node discovery | NodeInfo broadcast + node DB | Contact advertisement + contact list |
-| Channel model | Channel index + channel settings | Channel index + channel secret |
+| Aspect         | Meshtastic                       | MeshCore                                        |
+| -------------- | -------------------------------- | ----------------------------------------------- |
+| Identity       | NodeNum (int) + fromId (str)     | Ed25519 public key (hex)                        |
+| Addressing     | Broadcast + DM by NodeNum        | Contact-based by pubkey                         |
+| Wire format    | Protobuf `MeshPacket`            | Custom binary (LoRa frame)                      |
+| Send return    | `MeshPacket` with `id` field     | Event with `expected_ack` + `suggested_timeout` |
+| ACK            | ROUTING_APP protobuf             | Separate ACK event with CRC code                |
+| Reply          | `decoded.replyId` (int)          | No native reply mechanism                       |
+| Reactions      | `decoded.emoji` (int flag)       | No native reactions                             |
+| Encryption     | Optional per-packet              | Always-on E2EE by default                       |
+| Node discovery | NodeInfo broadcast + node DB     | Contact advertisement + contact list            |
+| Channel model  | Channel index + channel settings | Channel index + channel secret                  |
 
 ---
 
 ## 9. What Remains Unverified
 
-| Area | Status | Risk |
-|------|--------|------|
+| Area                                                            | Status                     | Risk   |
+| --------------------------------------------------------------- | -------------------------- | ------ |
 | Real Python callback packet shapes match MEDRE fixtures exactly | Not verified with hardware | Medium |
-| TCP/Serial/BLE connection lifecycle nuances | Not tested | Medium |
-| ACK correlation and timeout behavior details | Not verified | Medium |
-| Channel message encryption/decryption details | Deferred | Low |
-| Message retry and delivery confirmation edge cases | Not verified | Low |
-| Contact advertisement and discovery timing | Not verified | Low |
-| `txt_type` field meaning and possible values | Not verified | Low |
-| `pubkey_prefix` truncation length in real callbacks | Not verified | Low |
-| Payload size limits and message fragmentation | Not verified | Low |
-| Flood message behavior and scope | Not verified | Low |
+| TCP/Serial/BLE connection lifecycle nuances                     | Not tested                 | Medium |
+| ACK correlation and timeout behavior details                    | Not verified               | Medium |
+| Channel message encryption/decryption details                   | Deferred                   | Low    |
+| Message retry and delivery confirmation edge cases              | Not verified               | Low    |
+| Contact advertisement and discovery timing                      | Not verified               | Low    |
+| `txt_type` field meaning and possible values                    | Not verified               | Low    |
+| `pubkey_prefix` truncation length in real callbacks             | Not verified               | Low    |
+| Payload size limits and message fragmentation                   | Not verified               | Low    |
+| Flood message behavior and scope                                | Not verified               | Low    |
 
 ---
 
 ## 10. MEDRE Assumptions Supported
 
-| MEDRE Assumption | MeshCore Evidence | Verdict |
-|---|---|---|
-| Identity is pubkey hex, not numeric node ID | Confirmed. Ed25519 keypair, no NodeNum. | **Supported** |
-| Contact list is dict keyed by pubkey | Confirmed. `meshcore.contacts` dict. | **Supported** |
-| Direct messages carry truncated sender pubkey | Confirmed. `pubkey_prefix` in CONTACT_MSG_RECV. | **Supported** |
-| Channel messages carry channel index | Confirmed. `channel_idx` in CHANNEL_MSG_RECV. | **Supported** |
-| No native reply mechanism | Confirmed. No replyId field exists. | **Supported** |
-| No native reaction mechanism | Confirmed. No emoji field exists. | **Supported** |
-| Send returns correlation token for ACK | Confirmed. `expected_ack` + `suggested_timeout`. | **Supported** |
-| ACK events arrive separately from sends | Confirmed. EventType.ACK with code. | **Supported** |
-| Multiple connection transports supported | Confirmed. TCP, Serial, BLE constructors. | **Supported** |
-| Always-on E2EE | Confirmed. AES-128 + HMAC, no toggle. | **Supported** |
-| Event dispatcher with attribute filtering | Confirmed. Attributes on all message events. | **Supported** |
+| MEDRE Assumption                              | MeshCore Evidence                                | Verdict       |
+| --------------------------------------------- | ------------------------------------------------ | ------------- |
+| Identity is pubkey hex, not numeric node ID   | Confirmed. Ed25519 keypair, no NodeNum.          | **Supported** |
+| Contact list is dict keyed by pubkey          | Confirmed. `meshcore.contacts` dict.             | **Supported** |
+| Direct messages carry truncated sender pubkey | Confirmed. `pubkey_prefix` in CONTACT_MSG_RECV.  | **Supported** |
+| Channel messages carry channel index          | Confirmed. `channel_idx` in CHANNEL_MSG_RECV.    | **Supported** |
+| No native reply mechanism                     | Confirmed. No replyId field exists.              | **Supported** |
+| No native reaction mechanism                  | Confirmed. No emoji field exists.                | **Supported** |
+| Send returns correlation token for ACK        | Confirmed. `expected_ack` + `suggested_timeout`. | **Supported** |
+| ACK events arrive separately from sends       | Confirmed. EventType.ACK with code.              | **Supported** |
+| Multiple connection transports supported      | Confirmed. TCP, Serial, BLE constructors.        | **Supported** |
+| Always-on E2EE                                | Confirmed. AES-128 + HMAC, no toggle.            | **Supported** |
+| Event dispatcher with attribute filtering     | Confirmed. Attributes on all message events.     | **Supported** |
 
 ---
 
 ## 11. MEDRE Assumptions Still Scaffold
 
-| MEDRE Assumption | Status | Action Required |
-|---|---|---|
-| MeshCore adapter connection lifecycle | **Scaffold**. No real connection code. | Wire `MeshCore.create_tcp()` etc. in real adapter. |
-| Outbound message delivery correlation | **Scaffold**. No ACK watching implemented. | Use `expected_ack` / ACK event correlation. |
-| Contact-based sender resolution | **Scaffold**. No contact list lookup. | Map `pubkey_prefix` to contact for sender identity. |
-| Channel message routing | **Scaffold**. No channel subscription logic. | Subscribe to CHANNEL_MSG_RECV with attribute filter. |
-| Flood message handling | **Scaffold**. No flood send/receive support. | Future tranche. |
-| Message retry logic | **Scaffold**. No retry implementation. | Use `send_msg_with_retry` or manual retry. |
-| `txt_type` field handling | **Scaffold**. Values not documented. | Map txt_type to MEDRE text categories when known. |
-| Payload size limits | **Scaffold**. 255-byte frame limit not enforced. | Enforce in renderer/adapter. |
-| Reconnection behavior | **Scaffold**. Auto-reconnect not wired. | Configure `max_attempts` in connection setup. |
+| MEDRE Assumption                      | Status                                           | Action Required                                      |
+| ------------------------------------- | ------------------------------------------------ | ---------------------------------------------------- |
+| MeshCore adapter connection lifecycle | **Scaffold**. No real connection code.           | Wire `MeshCore.create_tcp()` etc. in real adapter.   |
+| Outbound message delivery correlation | **Scaffold**. No ACK watching implemented.       | Use `expected_ack` / ACK event correlation.          |
+| Contact-based sender resolution       | **Scaffold**. No contact list lookup.            | Map `pubkey_prefix` to contact for sender identity.  |
+| Channel message routing               | **Scaffold**. No channel subscription logic.     | Subscribe to CHANNEL_MSG_RECV with attribute filter. |
+| Flood message handling                | **Scaffold**. No flood send/receive support.     | Future tranche.                                      |
+| Message retry logic                   | **Scaffold**. No retry implementation.           | Use `send_msg_with_retry` or manual retry.           |
+| `txt_type` field handling             | **Scaffold**. Values not documented.             | Map txt_type to MEDRE text categories when known.    |
+| Payload size limits                   | **Scaffold**. 255-byte frame limit not enforced. | Enforce in renderer/adapter.                         |
+| Reconnection behavior                 | **Scaffold**. Auto-reconnect not wired.          | Configure `max_attempts` in connection setup.        |
 
 ---
 
-*This document was produced by auditing available reference sources. It does
+_This document was produced by auditing available reference sources. It does
 not replace hardware-verified testing. All findings are based on source code
-analysis, not live radio captures.*
+analysis, not live radio captures._

@@ -32,8 +32,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from medre.config.loader import load_config
 from medre.config.env import apply_env_overrides
+from medre.config.loader import load_config
 from medre.core.events.canonical import CanonicalEvent
 from medre.observability.sanitization import sanitize_error
 from medre.runtime.builder import RuntimeBuilder
@@ -45,14 +45,14 @@ from .evidence import (
     _pick_source_adapter,
     _poll_for_receipts,
 )
-from .report import _build_cross_linked_commands, _LIMITATIONS
+from .report import _LIMITATIONS, _build_cross_linked_commands
 from .scenario import (
     _expected_failure_kind,
     _inject_scenario,
     _observed_failure_kind,
     _operator_interpretation,
-    scenario_category,
     _simulation_method,
+    scenario_category,
 )
 
 __all__ = ["run_bridge_session", "DEFAULT_INGRESS_MODE"]
@@ -60,10 +60,12 @@ __all__ = ["run_bridge_session", "DEFAULT_INGRESS_MODE"]
 _logger = logging.getLogger(__name__)
 
 # Supported ingress modes for run-session injection.
-_SUPPORTED_INGRESS_MODES: frozenset[str] = frozenset({
-    "direct_pipeline",
-    "adapter_callback",
-})
+_SUPPORTED_INGRESS_MODES: frozenset[str] = frozenset(
+    {
+        "direct_pipeline",
+        "adapter_callback",
+    }
+)
 
 #: Default ingress mode: inject events directly into the pipeline via
 #: :meth:`~medre.core.engine.pipeline.PipelineRunner.handle_ingress`.
@@ -80,7 +82,9 @@ def _default_smoke_config_path() -> str | None:
     this_dir = Path(__file__).resolve().parent
     candidate = (
         this_dir.parent.parent.parent.parent
-        / "examples" / "configs" / "fake-bridge-smoke.toml"
+        / "examples"
+        / "configs"
+        / "fake-bridge-smoke.toml"
     )
     if candidate.is_file():
         return str(candidate)
@@ -118,7 +122,9 @@ def _resolve_paths(
     storage_provided = storage_path is not None
     if not storage_provided:
         tmp = tempfile.NamedTemporaryFile(
-            suffix=".db", prefix="medre-session-", delete=False,
+            suffix=".db",
+            prefix="medre-session-",
+            delete=False,
         )
         storage_path = tmp.name
         tmp.close()
@@ -235,7 +241,9 @@ async def run_bridge_session(
     config = dataclasses.replace(
         config,
         storage=dataclasses.replace(
-            config.storage, backend="sqlite", path=storage_path,
+            config.storage,
+            backend="sqlite",
+            path=storage_path,
         ),
     )
 
@@ -291,7 +299,10 @@ async def run_bridge_session(
     scenario_error: str | None = None
     if is_failure_scenario:
         scenario_error = await _inject_scenario(
-            app, scenario, source_aid, ingress_mode=ingress_mode,
+            app,
+            scenario,
+            source_aid,
+            ingress_mode=ingress_mode,
         )
 
     # Inject multiple events if message_count > 1.
@@ -342,16 +353,17 @@ async def run_bridge_session(
         try:
             stored_event = await storage.get(primary_event_id)
         except Exception as exc:
-            collection_errors.append(
-                f"Stored event lookup error: {exc}"
-            )
+            collection_errors.append(f"Stored event lookup error: {exc}")
 
     # Native refs (must be collected before stop closes storage).
     all_native_refs: list[dict[str, str]] = []
     for eid in event_ids:
         event_receipts = [r for r in all_receipts if r.event_id == eid]
         refs = await _collect_native_refs(
-            app, event_receipts, eid, collection_errors,
+            app,
+            event_receipts,
+            eid,
+            collection_errors,
         )
         all_native_refs.extend(refs)
 
@@ -366,7 +378,9 @@ async def run_bridge_session(
     snap: dict[str, Any] = {}
     try:
         snap = build_runtime_snapshot(
-            app, now_fn=now_fn, monotonic_fn=monotonic_fn,
+            app,
+            now_fn=now_fn,
+            monotonic_fn=monotonic_fn,
         )
     except Exception as exc:
         collection_errors.append(f"Snapshot build error: {exc}")
@@ -395,27 +409,15 @@ async def run_bridge_session(
 
     # Target adapters and route IDs from outcomes, falling back to receipts.
     if all_outcomes:
-        target_adapters = sorted({
-            o.target_adapter
-            for o in all_outcomes
-            if o.status == "success"
-        })
-        route_ids = sorted({
-            o.route_id
-            for o in all_outcomes
-            if o.route_id
-        })
+        target_adapters = sorted(
+            {o.target_adapter for o in all_outcomes if o.status == "success"}
+        )
+        route_ids = sorted({o.route_id for o in all_outcomes if o.route_id})
     else:
-        target_adapters = sorted({
-            r.target_adapter
-            for r in all_receipts
-            if r.status == "sent"
-        })
-        route_ids = sorted({
-            r.route_id
-            for r in all_receipts
-            if r.route_id
-        })
+        target_adapters = sorted(
+            {r.target_adapter for r in all_receipts if r.status == "sent"}
+        )
+        route_ids = sorted({r.route_id for r in all_receipts if r.route_id})
 
     # Receipt summaries
     receipt_summaries = [
@@ -440,22 +442,29 @@ async def run_bridge_session(
     # -- Step 9: Build report -----------------------------------------------
     event_stored = stored_event is not None
     has_sent_receipt = any(r.status == "sent" for r in all_receipts)
-    has_success = any(o.status == "success" for o in all_outcomes) if all_outcomes else has_sent_receipt
-    delivered_count = (
-        accounting.get("outbound_delivered", 0) if accounting else 0
+    has_success = (
+        any(o.status == "success" for o in all_outcomes)
+        if all_outcomes
+        else has_sent_receipt
     )
+    delivered_count = accounting.get("outbound_delivered", 0) if accounting else 0
 
     if is_failure_scenario:
         # Failure scenarios: passed means the expected failure was observed.
-        scenario_cat = scenario_category(scenario)
-        sim_method = _simulation_method(scenario)
+        scenario_category(scenario)
+        _simulation_method(scenario)
 
         if scenario == "degraded_live_health":
             # Health scenario — not a failure_kind scenario.
             # Check if runtime is still running and health is degraded.
-            adapter_health_entries = snap.get("health", {}).get(
-                "live_health", {},
-            ).get("adapters", {})
+            adapter_health_entries = (
+                snap.get("health", {})
+                .get(
+                    "live_health",
+                    {},
+                )
+                .get("adapters", {})
+            )
             observed_health = "degraded"
             for _aid, entry in adapter_health_entries.items():
                 if entry.get("health") == "degraded":
@@ -464,10 +473,7 @@ async def run_bridge_session(
             else:
                 # No degraded entry found — may still be OK if we patched it.
                 observed_health = "unknown"
-            passed = (
-                scenario_error is None
-                and observed_health == "degraded"
-            )
+            passed = scenario_error is None and observed_health == "degraded"
             fail_reasons: list[str] = []
             if scenario_error is not None:
                 fail_reasons.append(f"Scenario setup failed: {scenario_error}")
@@ -483,10 +489,7 @@ async def run_bridge_session(
             else:
                 observed = _observed_failure_kind(all_outcomes)
             expected = _expected_failure_kind(scenario)
-            passed = (
-                observed == expected
-                and scenario_error is None
-            )
+            passed = observed == expected and scenario_error is None
             fail_reasons = []
             if scenario_error is not None:
                 fail_reasons.append(f"Scenario setup failed: {scenario_error}")
@@ -534,7 +537,9 @@ async def run_bridge_session(
         }
 
     commands = _build_cross_linked_commands(
-        primary_event_id, resolved_config_path, snapshot_path,
+        primary_event_id,
+        resolved_config_path,
+        snapshot_path,
         storage_path=storage_path,
     )
 
@@ -605,9 +610,14 @@ async def run_bridge_session(
         if scenario == "degraded_live_health":
             # Health scenario — use health-specific fields instead of
             # failure_kind fields.
-            adapter_health_entries = snap.get("health", {}).get(
-                "live_health", {},
-            ).get("adapters", {})
+            adapter_health_entries = (
+                snap.get("health", {})
+                .get(
+                    "live_health",
+                    {},
+                )
+                .get("adapters", {})
+            )
             observed_health = "unknown"
             for _aid, entry in adapter_health_entries.items():
                 if entry.get("health") == "degraded":
@@ -619,7 +629,9 @@ async def run_bridge_session(
             # Failure-kind scenarios.
             report["expected_failure_kind"] = _expected_failure_kind(scenario)
             if ingress_mode == "adapter_callback" and not all_outcomes:
-                report["observed_failure_kind"] = _observed_failure_kind(all_receipts, use_receipts=True)
+                report["observed_failure_kind"] = _observed_failure_kind(
+                    all_receipts, use_receipts=True
+                )
             else:
                 report["observed_failure_kind"] = _observed_failure_kind(all_outcomes)
     else:

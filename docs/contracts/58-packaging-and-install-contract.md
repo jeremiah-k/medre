@@ -29,19 +29,19 @@ and what import boundaries must hold.
 
 ## 3. Package Metadata
 
-| Property | Value | Notes |
-|----------|-------|-------|
-| **Distribution name** | `medre` | Single-word, lowercase |
-| **Version** | `0.1.0` | Semantic dotted notation |
-| **License** | `GPL-3.0-or-later` | See contract 42 for governance context |
-| **Status classifier** | `Development Status :: 4 - Beta` | Pre-beta; not production-ready |
-| **Requires Python** | `>=3.11` | |
-| **Build system** | `setuptools>=68` | |
-| **Source layout** | `src/` (via `[tool.setuptools.packages.find]`) | |
+| Property              | Value                                          | Notes                                  |
+| --------------------- | ---------------------------------------------- | -------------------------------------- |
+| **Distribution name** | `medre`                                        | Single-word, lowercase                 |
+| **Version**           | `0.1.0`                                        | Semantic dotted notation               |
+| **License**           | `GPL-3.0-or-later`                             | See contract 42 for governance context |
+| **Status classifier** | `Development Status :: 4 - Beta`               | Pre-beta; not production-ready         |
+| **Requires Python**   | `>=3.11`                                       |                                        |
+| **Build system**      | `setuptools>=68`                               |                                        |
+| **Source layout**     | `src/` (via `[tool.setuptools.packages.find]`) |                                        |
 
 ### 3.1 Console Script Entry Point
 
-```
+```bash
 medre = "medre.cli:main"
 ```
 
@@ -53,9 +53,9 @@ The `medre` command-line tool is the sole console script. It invokes
 
 The base install (`pip install medre`) has a **single** required dependency:
 
-| Dependency | Version | Purpose |
-|------------|---------|---------|
-| `msgspec` | `==0.21.1` | High-performance structured serialization for canonical events |
+| Dependency | Version    | Purpose                                                        |
+| ---------- | ---------- | -------------------------------------------------------------- |
+| `msgspec`  | `==0.21.1` | High-performance structured serialization for canonical events |
 
 No transport SDK is required by the base install.
 
@@ -63,14 +63,14 @@ No transport SDK is required by the base install.
 
 Optional extras follow the convention `pip install medre[extra]`.
 
-| Extra | SDK / Distribution | Import guard | Purpose |
-|-------|--------------------|--------------|---------|
-| `matrix` | `mindroom-nio>=0.25.3` | `medre.adapters.matrix.compat.HAS_NIO` | Matrix presentation adapter |
-| `matrix-e2e` | `mindroom-nio[e2e]>=0.25.3` | `medre.adapters.matrix.compat.HAS_E2EE` | Matrix with E2EE support |
-| `meshtastic` | `mtjk>=2.7.8`, `PyPubSub>=4.0` | `medre.adapters.meshtastic.compat.HAS_MESHTASTIC` | Meshtastic radio transport |
-| `meshcore` | `meshcore>=2.3.7` | `medre.adapters.meshcore.compat.HAS_MESHCORE` | MeshCore radio transport |
-| `lxmf` | `lxmf>=0.9.6` | `medre.adapters.lxmf.compat.HAS_LXMF` | LXMF/Reticulum transport |
-| `dev` | `pytest>=8.0`, `pytest-asyncio>=0.24` | N/A | Development / test tooling |
+| Extra        | SDK / Distribution                    | Import guard                                      | Purpose                     |
+| ------------ | ------------------------------------- | ------------------------------------------------- | --------------------------- |
+| `matrix`     | `mindroom-nio>=0.25.3`                | `medre.adapters.matrix.compat.HAS_NIO`            | Matrix presentation adapter |
+| `matrix-e2e` | `mindroom-nio[e2e]>=0.25.3`           | `medre.adapters.matrix.compat.HAS_E2EE`           | Matrix with E2EE support    |
+| `meshtastic` | `mtjk>=2.7.8`, `PyPubSub>=4.0`        | `medre.adapters.meshtastic.compat.HAS_MESHTASTIC` | Meshtastic radio transport  |
+| `meshcore`   | `meshcore>=2.3.7`                     | `medre.adapters.meshcore.compat.HAS_MESHCORE`     | MeshCore radio transport    |
+| `lxmf`       | `lxmf>=0.9.6`                         | `medre.adapters.lxmf.compat.HAS_LXMF`             | LXMF/Reticulum transport    |
+| `dev`        | `pytest>=8.0`, `pytest-asyncio>=0.24` | N/A                                               | Development / test tooling  |
 
 ### 5.1 Extra Properties
 
@@ -111,13 +111,13 @@ module references, never via direct `import nio` / `import meshtastic` / etc.
 
 Compat flags:
 
-| Flag | Type | `True` when |
-|------|------|-------------|
-| `HAS_NIO` | `bool` | `nio` package importable |
-| `HAS_E2EE` | `bool` | `nio.crypto.ENCRYPTION_ENABLED` is truthy |
-| `HAS_MESHTASTIC` | `bool` | `meshtastic` (from `mtjk`) importable |
-| `HAS_MESHCORE` | `bool` | `meshcore` importable |
-| `HAS_LXMF` | `bool` | Both `RNS` and `LXMF` importable |
+| Flag             | Type   | `True` when                               |
+| ---------------- | ------ | ----------------------------------------- |
+| `HAS_NIO`        | `bool` | `nio` package importable                  |
+| `HAS_E2EE`       | `bool` | `nio.crypto.ENCRYPTION_ENABLED` is truthy |
+| `HAS_MESHTASTIC` | `bool` | `meshtastic` (from `mtjk`) importable     |
+| `HAS_MESHCORE`   | `bool` | `meshcore` importable                     |
+| `HAS_LXMF`       | `bool` | Both `RNS` and `LXMF` importable          |
 
 ### 6.4 Forbidden Transitive Imports
 
@@ -135,14 +135,14 @@ module load time:
 
 All fake adapters are importable and instantiable without optional SDKs:
 
-| Fake adapter | Module | Constructor args |
-|--------------|--------|------------------|
-| `FakeTransportAdapter` | `medre.adapters.fake_transport` | `adapter_id: str` |
-| `FakeMatrixAdapter` | `medre.adapters.fake_matrix` | `adapter_id: str` |
-| `FakeMeshtasticAdapter` | `medre.adapters.fake_meshtastic` | `config: MeshtasticConfig` |
-| `FakeMeshCoreAdapter` | `medre.adapters.fake_meshcore` | `config: MeshCoreConfig` |
-| `FakeLxmfAdapter` | `medre.adapters.fake_lxmf` | `config: LxmfConfig` |
-| `FakePresentationAdapter` | `medre.adapters.fake_presentation` | `adapter_id: str` |
+| Fake adapter              | Module                             | Constructor args           |
+| ------------------------- | ---------------------------------- | -------------------------- |
+| `FakeTransportAdapter`    | `medre.adapters.fake_transport`    | `adapter_id: str`          |
+| `FakeMatrixAdapter`       | `medre.adapters.fake_matrix`       | `adapter_id: str`          |
+| `FakeMeshtasticAdapter`   | `medre.adapters.fake_meshtastic`   | `config: MeshtasticConfig` |
+| `FakeMeshCoreAdapter`     | `medre.adapters.fake_meshcore`     | `config: MeshCoreConfig`   |
+| `FakeLxmfAdapter`         | `medre.adapters.fake_lxmf`         | `config: LxmfConfig`       |
+| `FakePresentationAdapter` | `medre.adapters.fake_presentation` | `adapter_id: str`          |
 
 All are re-exported from `medre.adapters.__init__`.
 
@@ -172,6 +172,7 @@ complete, fake-buildable TOML config from code and is the installed-package
 config access path.
 
 Decision rationale (alpha):
+
 - Moving examples into the package source tree would break doc references,
   test paths, and the `medre smoke` default config path.
 - `medre config sample` already provides a working config from any install.

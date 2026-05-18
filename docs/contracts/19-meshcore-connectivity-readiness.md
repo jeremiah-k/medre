@@ -10,6 +10,7 @@ This document audits MeshCore's connectivity readiness for MEDRE: what the SDK p
 **Tranche status**: Readiness documentation only. No production connection, no hardware testing, no default dependency.
 
 **Audit method**: Downloaded `meshcore-2.3.7-py3-none-any.whl` from PyPI, extracted, and read all source files. No local installation. No hardware. Inspection commands used:
+
 ```bash
 pip install meshcore --dry-run          # confirm PyPI availability, deps
 pip download meshcore==2.3.7 --no-deps -d /tmp/meshcore_inspect
@@ -17,26 +18,26 @@ cd /tmp/meshcore_inspect && unzip -q meshcore-2.3.7-py3-none-any.whl -d meshcore
 # Then Read tool on all .py files under meshcore_extracted/meshcore/
 ```
 
-
 ## 1. SDK Availability
 
 ### 1.1 Package Identity
 
-| Property | Value | Status |
-|----------|-------|--------|
-| Package name | `meshcore` | CONFIRMED (PyPI) |
-| Version audited | 2.3.7 | CONFIRMED (PyPI download, Apr 25 2026) |
-| Previous version audited | 2.2.5 | CONFIRMED (historical, local source tree) |
-| License | MIT | CONFIRMED (PyPI metadata) |
-| PyPI | `pip install meshcore` | CONFIRMED |
-| Source | `https://github.com/fdlamotte/meshcore_py` | INFERRED (PyPI Homepage field; repo returned 404 at time of audit) |
-| Import | `import meshcore` | CONFIRMED (`__init__.py` exports) |
-| Entry point | `meshcore.MeshCore` | CONFIRMED (`meshcore/meshcore.py` class `MeshCore`) |
-| Python | >=3.10 | CONFIRMED (PyPI metadata) |
-| Dependencies | `bleak`, `pyserial-asyncio-fast`, `pycryptodome`, `pycayennelpp` | CONFIRMED (imports in source) |
-| Locally installed | No | CONFIRMED (`pip show meshcore` → NOT_INSTALLED) |
+| Property                 | Value                                                            | Status                                                             |
+| ------------------------ | ---------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Package name             | `meshcore`                                                       | CONFIRMED (PyPI)                                                   |
+| Version audited          | 2.3.7                                                            | CONFIRMED (PyPI download, Apr 25 2026)                             |
+| Previous version audited | 2.2.5                                                            | CONFIRMED (historical, local source tree)                          |
+| License                  | MIT                                                              | CONFIRMED (PyPI metadata)                                          |
+| PyPI                     | `pip install meshcore`                                           | CONFIRMED                                                          |
+| Source                   | `https://github.com/fdlamotte/meshcore_py`                       | INFERRED (PyPI Homepage field; repo returned 404 at time of audit) |
+| Import                   | `import meshcore`                                                | CONFIRMED (`__init__.py` exports)                                  |
+| Entry point              | `meshcore.MeshCore`                                              | CONFIRMED (`meshcore/meshcore.py` class `MeshCore`)                |
+| Python                   | >=3.10                                                           | CONFIRMED (PyPI metadata)                                          |
+| Dependencies             | `bleak`, `pyserial-asyncio-fast`, `pycryptodome`, `pycayennelpp` | CONFIRMED (imports in source)                                      |
+| Locally installed        | No                                                               | CONFIRMED (`pip show meshcore` → NOT_INSTALLED)                    |
 
 **Public `__all__` exports** (CONFIRMED from `__init__.py`):
+
 ```python
 __all__ = [
     "BinaryReqType", "BLEConnection", "ConnectionManager",
@@ -50,7 +51,6 @@ __all__ = [
 MEDRE's core tests pass without any MeshCore package installed. The adapter uses `FakeMeshCoreAdapter` with deterministic fixture data. Adding `meshcore` as a required dependency would impose `bleak`, `pyserial-asyncio-fast`, and `pycayennelpp` on all MEDRE installations, including those that never touch MeshCore hardware.
 
 MeshCore remains an optional, user-installed dependency. The live smoke harness (documented in `docs/runbooks/meshcore-live-smoke.md`) is the only path that requires it.
-
 
 ## 2. Confirmed Findings
 
@@ -81,6 +81,7 @@ mc = await MeshCore.create_ble(address=None, client=None, device=None,
 ```
 
 **Return behavior** (CONFIRMED from `meshcore.py` lines 92-108):
+
 1. Creates transport object → creates MeshCore wrapping it → calls `mc.connect()`.
 2. `mc.connect()` calls `connection_manager.connect()`, which calls transport `.connect()`.
 3. If transport `.connect()` returns `None`, `mc.connect()` raises `ConnectionError("Failed to connect to device")`.
@@ -94,12 +95,14 @@ mc = await MeshCore.create_ble(address=None, client=None, device=None,
 The entire SDK is async-native (CONFIRMED). All transport classes use `asyncio.Protocol`. `connect()`, `disconnect()`, `send_msg()`, `send_chan_msg()`, `subscribe()`, `wait_for_event()` are all coroutines. No synchronous wrappers exist. This matches MEDRE's async adapter model directly.
 
 **Dispatcher lifecycle** (CONFIRMED from `events.py`):
+
 - `EventDispatcher.start()` must be called before any dispatch. Creates the internal `asyncio.Queue`.
 - `EventDispatcher.stop()` drains the queue, waits for in-flight async callbacks, then cancels the processing task.
 - `MeshCore.connect()` calls `dispatcher.start()` automatically.
 - `MeshCore.disconnect()` calls `dispatcher.stop()` automatically.
 
 **Command handler** (CONFIRMED from `commands/__init__.py`):
+
 - `mc.commands` is a `CommandHandler` that inherits from `DeviceCommands`, `ContactCommands`, `MessagingCommands`, `BinaryCommandHandler`, `ControlDataCommandHandler`.
 - Default timeout: 15.0 seconds (`CommandHandlerBase.DEFAULT_TIMEOUT`).
 - Commands are serialized through an `asyncio.Lock` (lazy-created on first access).
@@ -159,29 +162,29 @@ ErrorMessages = {
 
 MEDRE-relevant event types CONFIRMED in `meshcore/events.py` (v2.3.7). The full enum has 50+ values; only MEDRE-relevant ones listed:
 
-| EventType | Value | Purpose | Status |
-|-----------|-------|---------|--------|
-| `CONTACT_MSG_RECV` | `"contact_message"` | Direct message received | CONFIRMED |
-| `CHANNEL_MSG_RECV` | `"channel_message"` | Channel message received | CONFIRMED |
-| `ACK` | `"acknowledgement"` | Message delivery acknowledgment | CONFIRMED |
-| `MSG_SENT` | `"message_sent"` | Outbound send confirmation | CONFIRMED |
-| `MESSAGES_WAITING` | `"messages_waiting"` | Device has queued messages | CONFIRMED |
-| `NO_MORE_MSGS` | `"no_more_messages"` | Message queue empty | CONFIRMED |
-| `OK` | `"command_ok"` | Generic command success | CONFIRMED |
-| `ERROR` | `"command_error"` | Generic command failure | CONFIRMED |
-| `CONNECTED` | `"connected"` | Transport connected | CONFIRMED |
-| `DISCONNECTED` | `"disconnected"` | Transport disconnected | CONFIRMED |
-| `SELF_INFO` | `"self_info"` | Device identity/config on appstart | CONFIRMED |
-| `CONTACTS` | `"contacts"` | Contact list response | CONFIRMED |
-| `NEW_CONTACT` | `"new_contact"` | New contact discovered | CONFIRMED |
-| `NEXT_CONTACT` | `"next_contact"` | Paginated contact response | CONFIRMED |
-| `CURRENT_TIME` | `"time_update"` | Device time update | CONFIRMED |
-| `BATTERY` | `"battery_info"` | Battery status | CONFIRMED |
-| `DEVICE_INFO` | `"device_info"` | Device info response | CONFIRMED |
-| `ADVERT_PATH` | `"advert_path"` | Advertisement path data | CONFIRMED |
-| `AUTOADD_CONFIG` | `"autoadd_config"` | Auto-add configuration | CONFIRMED |
-| `LOGIN_SUCCESS` | `"login_success"` | Remote login succeeded | CONFIRMED |
-| `LOGIN_FAILED` | `"login_failed"` | Remote login failed | CONFIRMED |
+| EventType          | Value                | Purpose                            | Status    |
+| ------------------ | -------------------- | ---------------------------------- | --------- |
+| `CONTACT_MSG_RECV` | `"contact_message"`  | Direct message received            | CONFIRMED |
+| `CHANNEL_MSG_RECV` | `"channel_message"`  | Channel message received           | CONFIRMED |
+| `ACK`              | `"acknowledgement"`  | Message delivery acknowledgment    | CONFIRMED |
+| `MSG_SENT`         | `"message_sent"`     | Outbound send confirmation         | CONFIRMED |
+| `MESSAGES_WAITING` | `"messages_waiting"` | Device has queued messages         | CONFIRMED |
+| `NO_MORE_MSGS`     | `"no_more_messages"` | Message queue empty                | CONFIRMED |
+| `OK`               | `"command_ok"`       | Generic command success            | CONFIRMED |
+| `ERROR`            | `"command_error"`    | Generic command failure            | CONFIRMED |
+| `CONNECTED`        | `"connected"`        | Transport connected                | CONFIRMED |
+| `DISCONNECTED`     | `"disconnected"`     | Transport disconnected             | CONFIRMED |
+| `SELF_INFO`        | `"self_info"`        | Device identity/config on appstart | CONFIRMED |
+| `CONTACTS`         | `"contacts"`         | Contact list response              | CONFIRMED |
+| `NEW_CONTACT`      | `"new_contact"`      | New contact discovered             | CONFIRMED |
+| `NEXT_CONTACT`     | `"next_contact"`     | Paginated contact response         | CONFIRMED |
+| `CURRENT_TIME`     | `"time_update"`      | Device time update                 | CONFIRMED |
+| `BATTERY`          | `"battery_info"`     | Battery status                     | CONFIRMED |
+| `DEVICE_INFO`      | `"device_info"`      | Device info response               | CONFIRMED |
+| `ADVERT_PATH`      | `"advert_path"`      | Advertisement path data            | CONFIRMED |
+| `AUTOADD_CONFIG`   | `"autoadd_config"`   | Auto-add configuration             | CONFIRMED |
+| `LOGIN_SUCCESS`    | `"login_success"`    | Remote login succeeded             | CONFIRMED |
+| `LOGIN_FAILED`     | `"login_failed"`     | Remote login failed                | CONFIRMED |
 
 Additional event types exist for advanced features (telemetry, binary data, tracing, stats, ACL, MMA, etc.) — see `events.py` source for complete list.
 
@@ -212,6 +215,7 @@ Additional event types exist for advanced features (telemetry, binary data, trac
 ### 2.8 Auto-Reconnect
 
 Optional via constructor parameter `auto_reconnect=True`. CONFIRMED from `connection_manager.py`:
+
 - Flat 1-second delay between attempts: `await asyncio.sleep(1)`. CONFIRMED.
 - Configurable `max_reconnect_attempts`. CONFIRMED.
 - On reconnect success: emits `CONNECTED` with `{"connection_info": result, "reconnected": True}`. CONFIRMED.
@@ -237,6 +241,7 @@ async def disconnect(self):
 ### 2.10 Exception Classes / Failure Modes
 
 The SDK does NOT define custom exception classes. CONFIRMED (no `exceptions.py`, no custom exception types).
+
 - Transport failure: raises `ConnectionError("Failed to connect to device")`. CONFIRMED.
 - Invalid destination: raises `ValueError`. CONFIRMED (`_validate_destination`).
 - BLE without bleak: raises `ImportError("BLE requires 'bleak' package to be installed")`. CONFIRMED.
@@ -248,7 +253,6 @@ The SDK does NOT define custom exception classes. CONFIRMED (no `exceptions.py`,
 ### 2.11 Zero MeshCore Materials in MEDRE
 
 No `meshcore` imports exist anywhere in the MEDRE codebase. The adapter uses fake delivery only. Contract 64 confirmed this; it remains true. CONFIRMED (`pip show meshcore` → NOT_INSTALLED).
-
 
 ## 3. Send Semantics
 
@@ -263,17 +267,20 @@ result = await mc.commands.send_msg(dst, msg, timestamp=None, attempt=0)
 CONFIRMED from `commands/messaging.py` lines 82-101.
 
 **Parameters:**
+
 - `dst`: public key hex string, contact dict (with `"public_key"` field), or raw bytes (truncated to 6 bytes by default via `_validate_destination`). CONFIRMED.
 - `msg`: text string. CONFIRMED.
 - `timestamp`: optional Unix timestamp. Defaults to `int(time.time())`. CONFIRMED.
 - `attempt`: attempt number (1 byte, little-endian), included in the wire packet. CONFIRMED.
 
 **On success** returns `Event` with:
+
 - `type == EventType.MSG_SENT`. CONFIRMED (awaited event types list).
 - `payload["expected_ack"]`: raw bytes. INFERRED as ~4 bytes CRC-like correlation token (payload shape comes from response parser, not from send code).
 - `payload["suggested_timeout"]`: int. INFERRED as milliseconds (firmware-recommended ACK timeout).
 
 **On failure** returns `Event` with:
+
 - `type == EventType.ERROR`. CONFIRMED.
 - `payload` contains `{"reason": "..."}`. CONFIRMED.
 
@@ -298,15 +305,18 @@ result = await mc.commands.send_chan_msg(chan, msg, timestamp=None)
 CONFIRMED from `commands/messaging.py` lines 167-189.
 
 **Parameters:**
+
 - `chan`: integer channel index (1 byte, little-endian). CONFIRMED.
 - `msg`: text string. CONFIRMED.
 - `timestamp`: optional int (Unix) or 4 bytes. Defaults to `int(time.time()).to_bytes(4, "little")`. CONFIRMED (explicit int|bytes type union).
 
 **On success** returns `Event` with:
+
 - `type == EventType.OK`. CONFIRMED (awaited event types list).
 - Payload contains success confirmation.
 
 **On failure** returns `Event` with:
+
 - `type == EventType.ERROR`. CONFIRMED.
 - Payload contains error details.
 
@@ -355,7 +365,6 @@ However, `expected_ack` is a correlation token, not a sequentially assigned ID. 
 
 **Do not assume real outbound IDs are sequential.** The fake adapter's behavior is an implementation convenience, not a reflection of MeshCore's actual wire behavior.
 
-
 ## 4. Inferred Findings
 
 These are reasonable conclusions from source analysis but have not been confirmed with live hardware.
@@ -367,6 +376,7 @@ MeshCore targets LoRa companion radio nodes running MeshCore firmware. The SDK R
 ### 4.2 Message Fetching Model
 
 MeshCore uses a pull model for incoming messages. CONFIRMED from `meshcore.py` `start_auto_message_fetching()`:
+
 - The device emits `MESSAGES_WAITING` events when messages are queued.
 - The client calls `get_msg()` to fetch the next one. CONFIRMED from `commands/messaging.py`.
 - Auto-fetching (`start_auto_message_fetching()`) subscribes to `MESSAGES_WAITING` and loops `get_msg()` until `NO_MORE_MSGS` or `ERROR`. CONFIRMED.
@@ -376,6 +386,7 @@ MeshCore uses a pull model for incoming messages. CONFIRMED from `meshcore.py` `
 ### 4.3 Connection Lifecycle
 
 The `connect()` method (CONFIRMED from `meshcore.py`):
+
 1. Calls `dispatcher.start()` to create queue and start processing task.
 2. Calls `connection_manager.connect()` which calls transport `.connect()`.
 3. If transport returns `None`, raises `ConnectionError`.
@@ -408,7 +419,6 @@ The `connect()` method (CONFIRMED from `meshcore.py`):
 - Receive frame format: searches for `0x3e` start byte, 2-byte little-endian length, then payload.
 - Same frame parsing logic as serial (shared handle_rx pattern).
 - TCP disconnect threshold counter for detecting silent disconnections.
-
 
 ## 5. Unknown Findings
 
@@ -446,19 +456,18 @@ The SDK README shows port 4000 in examples. Is this a firmware default? Is it co
 
 BLE supports optional PIN pairing. How this interacts with MeshCore's Ed25519 identity model, whether PIN is required or optional per device, and platform-specific behavior (macOS vs. Linux vs. Windows) are not documented beyond the SDK README.
 
-
 ## 6. Current MEDRE Adapter Scaffold Status
 
 ### 6.1 What Exists
 
-| Component | File | Status |
-|-----------|------|--------|
-| Adapter | `adapters/meshcore/adapter.py` | Scaffold. `start()` raises `MeshCoreConnectionError` for non-fake types. `deliver()` returns `None`. |
-| Config | `medre/config/adapters/meshcore.py` | Complete. Supports `fake`, `tcp`, `serial`, `ble` connection types. Has `host`, `port`, `serial_port`, `default_channel` fields. |
-| Codec | `adapters/meshcore/codec.py` | Scaffold. Converts MeshCore-shaped event dicts to `CanonicalEvent`. |
-| Classifier | `adapters/meshcore/packet_classifier.py` | Scaffold. Classifies by event type, detects ACKs. |
-| Renderer | `adapters/meshcore/renderer.py` | Scaffold. Builds payloads for outbound. |
-| Errors | `adapters/meshcore/errors.py` | Complete. `MeshCoreConnectionError`, `MeshCoreConfigError`. |
+| Component  | File                                     | Status                                                                                                                           |
+| ---------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Adapter    | `adapters/meshcore/adapter.py`           | Scaffold. `start()` raises `MeshCoreConnectionError` for non-fake types. `deliver()` returns `None`.                             |
+| Config     | `medre/config/adapters/meshcore.py`      | Complete. Supports `fake`, `tcp`, `serial`, `ble` connection types. Has `host`, `port`, `serial_port`, `default_channel` fields. |
+| Codec      | `adapters/meshcore/codec.py`             | Scaffold. Converts MeshCore-shaped event dicts to `CanonicalEvent`.                                                              |
+| Classifier | `adapters/meshcore/packet_classifier.py` | Scaffold. Classifies by event type, detects ACKs.                                                                                |
+| Renderer   | `adapters/meshcore/renderer.py`          | Scaffold. Builds payloads for outbound.                                                                                          |
+| Errors     | `adapters/meshcore/errors.py`            | Complete. `MeshCoreConnectionError`, `MeshCoreConfigError`.                                                                      |
 
 ### 6.2 What Is Missing
 
@@ -484,34 +493,33 @@ default_channel: int = 0
 ```
 
 Missing config fields that would be needed:
+
 - `ble_address` and `ble_pin` for BLE connections.
 - `auto_reconnect` and `max_reconnect_attempts`.
 - `default_timeout` for command timeouts (SDK default: 15.0 seconds).
 - `cx_dly` for serial connection delay (SDK default: 0.1 in create_serial).
 - `debug` and `only_error` for logging control.
 
-
 ## 7. Protocol Comparison with Meshtastic
 
-| Aspect | Meshtastic | MeshCore |
-|--------|-----------|----------|
-| Wire format | Protobuf `MeshPacket` | Custom binary (no protobuf) |
-| Identity | NodeNum (int) + fromId (str) | Ed25519 public key (hex) |
-| Addressing | Broadcast + DM by NodeNum | Contact-based by pubkey |
-| Send return | `MeshPacket` with incrementing `id` | `Event` with `expected_ack` CRC + `suggested_timeout` |
-| Channel send | `sendText(channelIndex=...)` | `send_chan_msg(chan, msg)` returns `OK`/`ERROR` |
-| ACK | `ROUTING_APP` protobuf | Separate `ACK` event with code attribute |
-| Reply threading | `replyId` (int) field | No native mechanism |
-| Reactions | `emoji` (int) field | No native mechanism |
-| Encryption | Optional per-packet | Always-on E2EE |
-| Callback model | Sync pubsub (`meshtastic.pub`) | Async EventDispatcher with queue + attribute filters |
-| Disconnect method | N/A (stream-based) | `await mc.disconnect()` (NOT `close()`) |
-| Message fetching | Push (pubsub fires on receive) | Pull (`MESSAGES_WAITING` → `get_msg()`) |
-| SDK maturity | Fork `mtjk` v2.7.8 | `meshcore` v2.3.7 (PyPI) |
-| MEDRE real client code | Exists (`_create_client`), untested | None |
+| Aspect                 | Meshtastic                          | MeshCore                                              |
+| ---------------------- | ----------------------------------- | ----------------------------------------------------- |
+| Wire format            | Protobuf `MeshPacket`               | Custom binary (no protobuf)                           |
+| Identity               | NodeNum (int) + fromId (str)        | Ed25519 public key (hex)                              |
+| Addressing             | Broadcast + DM by NodeNum           | Contact-based by pubkey                               |
+| Send return            | `MeshPacket` with incrementing `id` | `Event` with `expected_ack` CRC + `suggested_timeout` |
+| Channel send           | `sendText(channelIndex=...)`        | `send_chan_msg(chan, msg)` returns `OK`/`ERROR`       |
+| ACK                    | `ROUTING_APP` protobuf              | Separate `ACK` event with code attribute              |
+| Reply threading        | `replyId` (int) field               | No native mechanism                                   |
+| Reactions              | `emoji` (int) field                 | No native mechanism                                   |
+| Encryption             | Optional per-packet                 | Always-on E2EE                                        |
+| Callback model         | Sync pubsub (`meshtastic.pub`)      | Async EventDispatcher with queue + attribute filters  |
+| Disconnect method      | N/A (stream-based)                  | `await mc.disconnect()` (NOT `close()`)               |
+| Message fetching       | Push (pubsub fires on receive)      | Pull (`MESSAGES_WAITING` → `get_msg()`)               |
+| SDK maturity           | Fork `mtjk` v2.7.8                  | `meshcore` v2.3.7 (PyPI)                              |
+| MEDRE real client code | Exists (`_create_client`), untested | None                                                  |
 
 These protocols are not compatible at the wire level. Bridging would require application-level message translation, not protocol-level relay.
-
 
 ## 8. Production Connectivity Readiness Assessment
 
@@ -543,20 +551,18 @@ MeshCore is third out of four adapters in readiness (per contract 16):
 - MeshCore is a recommended or supported transport for MEDRE.
 - Any timeline for production MeshCore support.
 
-
 ## 9. Contract Cross-References
 
-| Topic | Contract |
-|-------|----------|
-| MeshCore source audit (identity, packets, wire protocol) | `64-meshcore-source-audit.md` |
-| Production connectivity readiness per adapter | `16-production-connectivity-readiness.md` |
-| Operational readiness gaps | `18-operational-readiness-gaps.md` |
-| Live smoke runbook | `docs/runbooks/meshcore-live-smoke.md` |
-| Adapter runtime contract | `02-adapter-runtime-contract.md` |
-| Adapter baseline consolidation | `15-adapter-baseline-consolidation.md` |
+| Topic                                                    | Contract                                  |
+| -------------------------------------------------------- | ----------------------------------------- |
+| MeshCore source audit (identity, packets, wire protocol) | `64-meshcore-source-audit.md`             |
+| Production connectivity readiness per adapter            | `16-production-connectivity-readiness.md` |
+| Operational readiness gaps                               | `18-operational-readiness-gaps.md`        |
+| Live smoke runbook                                       | `docs/runbooks/meshcore-live-smoke.md`    |
+| Adapter runtime contract                                 | `02-adapter-runtime-contract.md`          |
+| Adapter baseline consolidation                           | `15-adapter-baseline-consolidation.md`    |
 
 Contract 16 is the readiness authority. Where this document and Contract 16 conflict on readiness facts, Contract 16 takes precedence.
-
 
 ## 10. Explicit Out-of-Scope
 
@@ -567,4 +573,4 @@ Contract 16 is the readiness authority. Where this document and Contract 16 conf
 - No bridge design between MeshCore and Meshtastic.
 - No timeline or priority for MeshCore production support.
 
-*This document records readiness state. It does not advance it.*
+_This document records readiness state. It does not advance it._

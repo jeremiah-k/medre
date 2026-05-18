@@ -33,11 +33,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from medre.core.contracts.adapter import AdapterContext
 from medre.adapters.matrix.adapter import MatrixAdapter
-from medre.config.adapters.matrix import MatrixConfig
 from medre.adapters.matrix.errors import MatrixConnectionError
-
+from medre.config.adapters.matrix import MatrixConfig
+from medre.core.contracts.adapter import AdapterContext
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -163,9 +162,7 @@ class TestMatrixAdapterStart:
         adapter = MatrixAdapter(config)
         try:
             await adapter.start(_make_context())
-            assert (
-                mock_nio.AsyncClient.return_value.add_event_callback.call_count == 3
-            )
+            assert mock_nio.AsyncClient.return_value.add_event_callback.call_count == 3
         finally:
             await adapter.stop()
 
@@ -174,7 +171,9 @@ class TestMatrixAdapterStart:
         config = _make_config()
         adapter = MatrixAdapter(config)
         with patch("medre.adapters.matrix.adapter.HAS_NIO", False):
-            with pytest.raises(MatrixConnectionError, match="mindroom-nio not installed"):
+            with pytest.raises(
+                MatrixConnectionError, match="mindroom-nio not installed"
+            ):
                 await adapter.start(_make_context())
         assert adapter._client is None
         assert adapter._sync_task is None
@@ -193,7 +192,10 @@ class TestMatrixAdapterStart:
         """start() raises when asyncio.create_task fails."""
         config = _make_config()
         adapter = MatrixAdapter(config)
-        with patch("medre.adapters.matrix.session.asyncio.create_task", side_effect=RuntimeError("sync failed")):
+        with patch(
+            "medre.adapters.matrix.session.asyncio.create_task",
+            side_effect=RuntimeError("sync failed"),
+        ):
             with pytest.raises(MatrixConnectionError, match="failed to start sync"):
                 await adapter.start(_make_context())
         # Client should be cleaned up
@@ -386,6 +388,7 @@ class TestMatrixAdapterSyncFailure:
 
         # Mock sleep to skip backoff delays
         original_sleep = asyncio.sleep
+
         async def _fast_sleep(delay):
             if delay <= 0:
                 await original_sleep(0)
@@ -414,6 +417,7 @@ class TestMatrixAdapterSyncFailure:
         mock_nio.AsyncClient.return_value.sync_forever = _failing_sync
 
         original_sleep = asyncio.sleep
+
         async def _fast_sleep(delay):
             if delay <= 0:
                 await original_sleep(0)
@@ -442,6 +446,7 @@ class TestMatrixAdapterSyncFailure:
         mock_nio.AsyncClient.return_value.sync_forever = _failing_sync
 
         original_sleep = asyncio.sleep
+
         async def _fast_sleep(delay):
             if delay <= 0:
                 await original_sleep(0)
@@ -469,6 +474,7 @@ class TestMatrixAdapterSyncFailure:
             raise RuntimeError("sync failed")
 
         original_sleep = asyncio.sleep
+
         async def _fast_sleep(delay):
             if delay <= 0:
                 await original_sleep(0)

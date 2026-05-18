@@ -18,7 +18,6 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -41,7 +40,6 @@ from medre.core.storage.replay import (
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.capacity import CapacityController
 from medre.runtime.routes import RouteConfig, RouteConfigSet
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -164,7 +162,7 @@ async def test_cancelled_during_replay_stage(cancel_env) -> None:
     swallowed) and should NOT create a false successful delivery receipt.
     """
     env = cancel_env
-    event = await env.seed(_make_event(event_id="evt-cancel"))
+    await env.seed(_make_event(event_id="evt-cancel"))
 
     # Insert a blocking adapter by monkeypatching the secondary adapter's
     # deliver method to wait on an asyncio.Event (never resolves).
@@ -222,9 +220,9 @@ async def test_cancelled_during_replay_stage(cancel_env) -> None:
             "SELECT * FROM delivery_receipts WHERE event_id = ? AND source = 'replay'",
             ("evt-cancel",),
         )
-        assert len(receipt_rows) == 0, (
-            "Cancelled replay should not produce a delivery receipt"
-        )
+        assert (
+            len(receipt_rows) == 0
+        ), "Cancelled replay should not produce a delivery receipt"
     finally:
         # Unblock the adapter so teardown doesn't hang.
         blocker_event.set()
@@ -313,18 +311,17 @@ async def test_shutdown_during_replay(cancel_env) -> None:
         # Some events should have been rejected due to shutdown.
         deliver_results = [r for r in results if r.stage == "deliver"]
         errors = [
-            r for r in deliver_results
+            r
+            for r in deliver_results
             if r.status == "error" and "shutdown" in (r.error or "").lower()
         ]
         # At least the events after the first should be shutdown-rejected.
-        assert len(errors) >= 1, (
-            "Expected at least one shutdown rejection during replay"
-        )
+        assert (
+            len(errors) >= 1
+        ), "Expected at least one shutdown rejection during replay"
 
         # Partial results (for completed events) have correct receipts.
-        passed_deliver = [
-            r for r in deliver_results if r.status == "passed"
-        ]
+        passed_deliver = [r for r in deliver_results if r.status == "passed"]
         # The first event might have passed before shutdown.
         for dr in passed_deliver:
             assert dr.output is not None
@@ -397,9 +394,9 @@ async def test_replay_capacity_slot_released_on_exception(
         await asyncio.wait_for(reached_deliver.wait(), timeout=5.0)
 
         # Replay should be using 1 slot.
-        assert cc.replay_current == 1, (
-            f"Expected 1 replay slot in use, got {cc.replay_current}"
-        )
+        assert (
+            cc.replay_current == 1
+        ), f"Expected 1 replay slot in use, got {cc.replay_current}"
 
         # Cancel the replay task.
         task.cancel()
@@ -433,9 +430,9 @@ async def test_replay_capacity_slot_released_on_exception(
         blocker.set()
 
         summary = await collect_replay_summary(replay.replay(request2))
-        assert summary.events_replayed >= 1, (
-            "Second replay should succeed after slot is released"
-        )
+        assert (
+            summary.events_replayed >= 1
+        ), "Second replay should succeed after slot is released"
     finally:
         blocker.set()
         secondary.deliver = original_deliver

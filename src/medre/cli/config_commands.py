@@ -1,11 +1,12 @@
 """Config-related CLI commands: paths, check, adapters, version."""
+
 from __future__ import annotations
 
 import importlib
 import os
 import sys
 
-from medre.config.paths import resolve, MedrePaths
+from medre.config.paths import resolve
 
 from .exit_codes import EXIT_CONFIG
 from .transports import TRANSPORTS
@@ -25,7 +26,7 @@ def _paths() -> None:
     medre_home = os.environ.get("MEDRE_HOME", "").strip()
 
     if medre_home:
-        print(f"Mode:     MEDRE_HOME")
+        print("Mode:     MEDRE_HOME")
         print(f"MEDRE_HOME: {medre_home}")
     else:
         print("Mode:     XDG")
@@ -53,8 +54,8 @@ def _paths() -> None:
 
 def _config_check(config_path: str | None) -> None:
     """Load and validate the config, printing a rich summary."""
-    from medre.config.loader import load_config
     from medre.config.errors import ConfigValidationError
+    from medre.config.loader import load_config
 
     try:
         config, source, paths = load_config(config_path)
@@ -92,7 +93,9 @@ def _config_check(config_path: str | None) -> None:
             total += 1
             status = "enabled" if ac.enabled else "disabled"
             kind = getattr(ac, "adapter_kind", "real")
-            print(f"  {transport}.{name}: {status}  (transport={transport}, adapter_kind={kind})")
+            print(
+                f"  {transport}.{name}: {status}  (transport={transport}, adapter_kind={kind})"
+            )
             if ac.enabled:
                 enabled_count += 1
             # Try adapter-specific validation.
@@ -116,7 +119,9 @@ def _config_check(config_path: str | None) -> None:
 
     # --- Adapter state roots ---
     enabled_adapters = config.adapters.all_configs()
-    enabled_for_roots = [(t, aid, rtc) for t, aid, rtc in enabled_adapters if rtc.enabled]
+    enabled_for_roots = [
+        (t, aid, rtc) for t, aid, rtc in enabled_adapters if rtc.enabled
+    ]
     if enabled_for_roots:
         print()
         print("Adapter state roots:")
@@ -139,7 +144,9 @@ def _config_check(config_path: str | None) -> None:
     print(f"  max_inflight_deliveries = {limits.max_inflight_deliveries}")
     print(f"  max_inflight_replay_events = {limits.max_inflight_replay_events}")
     print(f"  shutdown_drain_timeout_seconds = {limits.shutdown_drain_timeout_seconds}")
-    print(f"  delivery_acquire_timeout_seconds = {limits.delivery_acquire_timeout_seconds}")
+    print(
+        f"  delivery_acquire_timeout_seconds = {limits.delivery_acquire_timeout_seconds}"
+    )
 
     # Validate limits and append any errors
     try:
@@ -161,12 +168,16 @@ def _config_check(config_path: str | None) -> None:
             sources = ", ".join(route.source_adapters)
             dests = ", ".join(route.dest_adapters)
             on_off = "[ON]" if route.enabled else "[OFF]"
-            print(f"  {on_off} {route.route_id}: {status}  ({sources} --{direction}--> {dests})")
+            print(
+                f"  {on_off} {route.route_id}: {status}  ({sources} --{direction}--> {dests})"
+            )
 
         route_enabled = sum(1 for r in route_list if r.enabled)
         route_disabled = len(route_list) - route_enabled
         print()
-        print(f"  {len(route_list)} route(s) configured ({route_enabled} enabled, {route_disabled} disabled)")
+        print(
+            f"  {len(route_list)} route(s) configured ({route_enabled} enabled, {route_disabled} disabled)"
+        )
 
     # --- Summary ---
     print()
@@ -190,9 +201,7 @@ def _config_check(config_path: str | None) -> None:
         )
         print(f"  Adapters that will start: {', '.join(enabled_ids)}")
         if route_list:
-            enabled_route_ids = sorted(
-                r.route_id for r in route_list if r.enabled
-            )
+            enabled_route_ids = sorted(r.route_id for r in route_list if r.enabled)
             if enabled_route_ids:
                 print(f"  Routes that will activate: {', '.join(enabled_route_ids)}")
         limits = config.limits

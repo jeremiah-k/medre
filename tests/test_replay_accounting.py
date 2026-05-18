@@ -10,23 +10,19 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import AsyncMock
 
-import pytest
-
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.rendering import RenderingPipeline
 from medre.core.routing import Router
+from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.storage import SQLiteStorage
 from medre.core.storage.replay import (
     ReplayMode,
     ReplayRequest,
 )
-from medre.core.runtime.accounting import RuntimeAccounting
-
 from tests.helpers.replay import (
     StubPipeline,
     make_engine,
     make_second_event,
-    rendering_pipeline,
 )
 
 
@@ -115,7 +111,9 @@ class TestReplayAccounting:
             yield  # noqa: unreachable -- makes this an async generator
 
         with unittest.mock.patch.object(
-            engine, "_replay_event", _fake_replay_event,
+            engine,
+            "_replay_event",
+            _fake_replay_event,
         ):
             results = [r async for r in engine.replay(request)]
 

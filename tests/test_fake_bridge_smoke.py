@@ -36,8 +36,8 @@ from typing import Any
 import pytest
 
 from medre.adapters.fake_matrix import FakeMatrixAdapter
-from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
 from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
+from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
 from medre.config.model import (
     AdapterConfigSet,
     LoggingConfig,
@@ -45,12 +45,11 @@ from medre.config.model import (
     MeshCoreRuntimeConfig,
     MeshtasticRuntimeConfig,
     RuntimeConfig,
-    RuntimeLimits,
     RuntimeOptions,
     StorageConfig,
 )
 from medre.config.paths import MedrePaths, resolve
-from medre.core.events.canonical import CanonicalEvent, NativeRef
+from medre.core.events.canonical import CanonicalEvent
 from medre.core.events.kinds import EventKind
 from medre.core.events.metadata import EventMetadata
 from medre.core.rendering.renderer import RenderingResult
@@ -64,7 +63,6 @@ from medre.runtime.routes import (
     RouteDirectionality,
 )
 from medre.runtime.snapshot import SCHEMA_VERSION, build_runtime_snapshot
-
 
 # ---------------------------------------------------------------------------
 # Async helpers
@@ -224,9 +222,7 @@ def _route_mesh_to_mx(
 # ---------------------------------------------------------------------------
 
 
-async def _build_and_start(
-    config: RuntimeConfig, paths: MedrePaths
-) -> MedreApp:
+async def _build_and_start(config: RuntimeConfig, paths: MedrePaths) -> MedreApp:
     """Build a MedreApp from config and start it."""
     builder = RuntimeBuilder(config, paths)
     app = builder.build()
@@ -332,7 +328,8 @@ class TestMatrixToMeshtastic:
 
     @pytest.mark.asyncio
     async def test_event_stored_and_delivered(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Full pipeline: Matrix event stored, routed, rendered, delivered to Meshtastic."""
         config = _mx_mesh_config()
@@ -375,7 +372,9 @@ class TestMatrixToMeshtastic:
             # FakeMeshtasticClient generates sequential packet IDs.
             native_id = "1"  # first packet
             resolved = await app.storage.resolve_native_ref(
-                "fake_meshtastic", "0", native_id,
+                "fake_meshtastic",
+                "0",
+                native_id,
             )
             assert resolved is not None
             assert resolved == event.event_id
@@ -418,7 +417,8 @@ class TestMeshtasticToMatrix:
 
     @pytest.mark.asyncio
     async def test_mesh_inbound_routes_to_matrix(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Meshtastic text event bridges to Matrix with receipts and native refs."""
         config = _mx_mesh_config()
@@ -455,7 +455,9 @@ class TestMeshtasticToMatrix:
             # -- NativeMessageRef for outbound Matrix delivery --
             native_id = f"$fake_{event.event_id}"
             resolved = await app.storage.resolve_native_ref(
-                "fake_matrix", "", native_id,
+                "fake_matrix",
+                "",
+                native_id,
             )
             assert resolved is not None
             assert resolved == event.event_id
@@ -497,7 +499,8 @@ class TestBidirectionalBridge:
 
     @pytest.mark.asyncio
     async def test_bidirectional_routes_registered(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Bidirectional route config expands to two core Routes on the Router."""
         config = _mx_mesh_config()
@@ -540,7 +543,8 @@ class TestBidirectionalBridge:
 
     @pytest.mark.asyncio
     async def test_both_directions_deliver(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Events flow Matrix->Meshtastic AND Meshtastic->Matrix."""
         config = _mx_mesh_config()
@@ -580,15 +584,11 @@ class TestBidirectionalBridge:
             assert len(mesh.delivered_payloads) == 1
 
             # -- Two receipts total --
-            fwd_receipts = await app.storage.list_receipts_for_event(
-                fwd_event.event_id
-            )
+            fwd_receipts = await app.storage.list_receipts_for_event(fwd_event.event_id)
             assert len(fwd_receipts) == 1
             assert fwd_receipts[0].target_adapter == "fake_meshtastic"
 
-            rev_receipts = await app.storage.list_receipts_for_event(
-                rev_event.event_id
-            )
+            rev_receipts = await app.storage.list_receipts_for_event(rev_event.event_id)
             assert len(rev_receipts) == 1
             assert rev_receipts[0].target_adapter == "fake_matrix"
 
@@ -611,7 +611,8 @@ class TestFanoutDelivery:
 
     @pytest.mark.asyncio
     async def test_one_inbound_two_outbound(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Matrix event fans out to Meshtastic and MeshCore."""
         config = _mx_mesh_core_config()
@@ -661,13 +662,17 @@ class TestFanoutDelivery:
             # -- Two native refs persisted --
             # Meshtastic: sequential packet ID "1"
             mesh_resolved = await app.storage.resolve_native_ref(
-                "fake_meshtastic", "0", "1",
+                "fake_meshtastic",
+                "0",
+                "1",
             )
             assert mesh_resolved == event.event_id
 
             # MeshCore: first packet from its own sequential counter.
             core_resolved = await app.storage.resolve_native_ref(
-                "fake_meshcore", "0", "1",
+                "fake_meshcore",
+                "0",
+                "1",
             )
             assert core_resolved == event.event_id
 
@@ -685,7 +690,8 @@ class TestFanoutDelivery:
 
     @pytest.mark.asyncio
     async def test_fanout_one_target_fails_other_succeeds(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Error isolation: one fanout target fails, the other succeeds."""
         config = _mx_mesh_core_config()
@@ -736,7 +742,8 @@ class TestLoopPrevention:
 
     @pytest.mark.asyncio
     async def test_self_loop_guard_skips_delivery(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Pipeline skips delivery when target adapter == source adapter.
 
@@ -752,7 +759,9 @@ class TestLoopPrevention:
             adapters=AdapterConfigSet(
                 matrix={
                     "mx_a": MatrixRuntimeConfig(
-                        adapter_id="mx_a", enabled=True, adapter_kind="fake",
+                        adapter_id="mx_a",
+                        enabled=True,
+                        adapter_kind="fake",
                     ),
                 },
             ),
@@ -808,7 +817,8 @@ class TestLoopPrevention:
 
     @pytest.mark.asyncio
     async def test_no_loop_when_separate_adapters(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Cross-adapter routing (A -> B) does NOT trigger loop prevention."""
         config = _mx_mesh_config()
@@ -840,7 +850,8 @@ class TestReplyRelationPreservation:
 
     @pytest.mark.asyncio
     async def test_reply_event_stored_with_relations(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Reply event's relation tuple is preserved in storage after bridge."""
         config = _mx_mesh_config()
@@ -906,7 +917,8 @@ class TestReplyRelationPreservation:
 
     @pytest.mark.asyncio
     async def test_reply_with_fallback_text_renders_prefix(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Reply with fallback_text renders '[replying to: ...]' prefix."""
         config = _mx_mesh_config()
@@ -974,7 +986,8 @@ class TestRenderingContract:
 
     @pytest.mark.asyncio
     async def test_rendering_result_shape(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """RenderingResult has deterministic fields: event_id, target_adapter, payload."""
         config = _mx_mesh_config()
@@ -1006,7 +1019,8 @@ class TestRenderingContract:
 
     @pytest.mark.asyncio
     async def test_empty_payload_renders_empty_text(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Event with 'body' key (no 'text') renders body text via fallback."""
         config = _mx_mesh_config()
@@ -1035,7 +1049,8 @@ class TestRenderingContract:
 
     @pytest.mark.asyncio
     async def test_unsupported_event_kind_rejected_by_renderer(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Event kind not handled by any renderer produces RENDERER_FAILURE."""
         config = _mx_mesh_config()
@@ -1069,7 +1084,8 @@ class TestRenderingContract:
 
     @pytest.mark.asyncio
     async def test_no_truncation_for_long_text(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Text is passed through in full without truncation (no max length)."""
         config = _mx_mesh_config()
@@ -1102,7 +1118,8 @@ class TestSnapshotReflectsBridgeFlow:
 
     @pytest.mark.asyncio
     async def test_snapshot_after_bridge_delivery(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Snapshot includes accounting counters and route stats after flow."""
         config = _mx_mesh_config()
@@ -1155,7 +1172,8 @@ class TestRouteConfigThroughRuntime:
 
     @pytest.mark.asyncio
     async def test_config_route_registers_and_delivers(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """RouteConfig with source_to_dest registers and delivers events."""
         config = _mx_mesh_config()
@@ -1198,7 +1216,8 @@ class TestRouteConfigThroughRuntime:
 
     @pytest.mark.asyncio
     async def test_bidirectional_config_expands_two_routes(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Bidirectional RouteConfig produces two registered Routes."""
         config = _mx_mesh_config()
@@ -1225,12 +1244,20 @@ class TestRouteConfigThroughRuntime:
             assert ids == ["bidir", "bidir__rev_0"]
 
             # Forward route: matrix -> meshtastic.
-            fwd = app._registered_routes[0] if app._registered_routes[0].id == "bidir" else app._registered_routes[1]
+            fwd = (
+                app._registered_routes[0]
+                if app._registered_routes[0].id == "bidir"
+                else app._registered_routes[1]
+            )
             assert fwd.source.adapter == "fake_matrix"
             assert fwd.targets[0].adapter == "fake_meshtastic"
 
             # Reverse route: meshtastic -> matrix.
-            rev = app._registered_routes[1] if app._registered_routes[0].id == "bidir" else app._registered_routes[0]
+            rev = (
+                app._registered_routes[1]
+                if app._registered_routes[0].id == "bidir"
+                else app._registered_routes[0]
+            )
             assert rev.source.adapter == "fake_meshtastic"
             assert rev.targets[0].adapter == "fake_matrix"
         finally:
@@ -1238,7 +1265,8 @@ class TestRouteConfigThroughRuntime:
 
     @pytest.mark.asyncio
     async def test_policy_allowed_event_types_filter(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """BridgePolicy allowed_event_types maps to RouteSource.event_kinds."""
         config = _mx_mesh_config()
@@ -1302,7 +1330,8 @@ class TestRouteConfigThroughRuntime:
 
     @pytest.mark.asyncio
     async def test_disabled_route_not_registered(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Disabled route config is skipped during registration."""
         config = _mx_mesh_config()

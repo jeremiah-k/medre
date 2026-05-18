@@ -9,9 +9,9 @@ from typing import Any
 import pytest
 
 from medre.adapters.meshtastic.codec import MeshtasticCodec
-from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.adapters.meshtastic.errors import MeshtasticCodecError
-from medre.core.events.canonical import CanonicalEvent, NativeRef
+from medre.config.adapters.meshtastic import MeshtasticConfig
+from medre.core.events.canonical import CanonicalEvent
 from medre.core.events.kinds import EventKind
 
 

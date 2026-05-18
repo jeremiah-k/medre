@@ -6,7 +6,6 @@
 
 This runbook documents how delivery state works when MEDRE bridges events across transports. It covers what each transport can honestly report, where retry boundaries fall, how the pipeline records results, and what operators should expect when routing events through a multi-transport bridge.
 
-
 ## 1. Core Principle: Adapters Own Transport Delivery
 
 MEDRE separates two concerns:
@@ -17,84 +16,81 @@ MEDRE separates two concerns:
 
 This boundary is architectural. Nothing outside an adapter touches the transport connection. Nothing inside an adapter decides which events to route where.
 
-
 ## 2. Per-Transport Delivery Semantics
 
 Each transport has fundamentally different delivery guarantees. Operators must understand these differences to interpret receipt states and diagnose delivery issues correctly.
 
 ### Matrix
 
-| Property | Value |
-|----------|-------|
-| Transport type | Persistent async TCP (long-poll or WebSocket sync) |
-| Server acknowledgment | Yes — Synapse returns an `event_id` on successful `room_send` |
-| Delivery confirmation | Server-level. The message reached the homeserver. Not per-recipient read receipts. |
-| Retry semantics | Meaningful. Connection loss is detectable; reconnect and retry will attempt redelivery. |
-| Duplicate risk | Low on normal paths. Retries after connection loss may produce duplicates if the first send succeeded but the response was lost. |
+| Property               | Value                                                                                                                                                        |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Transport type         | Persistent async TCP (long-poll or WebSocket sync)                                                                                                           |
+| Server acknowledgment  | Yes — Synapse returns an `event_id` on successful `room_send`                                                                                                |
+| Delivery confirmation  | Server-level. The message reached the homeserver. Not per-recipient read receipts.                                                                           |
+| Retry semantics        | Meaningful. Connection loss is detectable; reconnect and retry will attempt redelivery.                                                                      |
+| Duplicate risk         | Low on normal paths. Retries after connection loss may produce duplicates if the first send succeeded but the response was lost.                             |
 | Receipt interpretation | `sent` with a populated `adapter_message_id` means the homeserver accepted the event. This is the strongest confirmation MEDRE can report for any transport. |
 
 Matrix is the only MEDRE transport where `sent` implies server-verified persistence. Even so, this is server-level only — it does not mean any recipient has read the message.
 
 ### Meshtastic
 
-| Property | Value |
-|----------|-------|
-| Transport type | LoRa radio (serial/TCP connection to a local node) |
-| Server acknowledgment | None. The local node queues the packet for radio transmission. No mesh-wide ACK exists. |
-| Delivery confirmation | None beyond local-node acceptance. Whether any remote node received the packet is unknown. |
-| Retry semantics | Limited. The adapter can retry if the local node connection fails, but cannot retry based on remote-node receipt. |
-| Duplicate risk | High. Radio environments cause packet loss. Operators routinely send duplicate messages to increase delivery probability. This is by design in LoRa mesh networks. |
-| Receipt interpretation | `sent` means the local node accepted the packet for transmission. It does not mean any other node received it. |
+| Property               | Value                                                                                                                                                              |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Transport type         | LoRa radio (serial/TCP connection to a local node)                                                                                                                 |
+| Server acknowledgment  | None. The local node queues the packet for radio transmission. No mesh-wide ACK exists.                                                                            |
+| Delivery confirmation  | None beyond local-node acceptance. Whether any remote node received the packet is unknown.                                                                         |
+| Retry semantics        | Limited. The adapter can retry if the local node connection fails, but cannot retry based on remote-node receipt.                                                  |
+| Duplicate risk         | High. Radio environments cause packet loss. Operators routinely send duplicate messages to increase delivery probability. This is by design in LoRa mesh networks. |
+| Receipt interpretation | `sent` means the local node accepted the packet for transmission. It does not mean any other node received it.                                                     |
 
 Meshtastic delivery is best-effort fire-and-forget at the radio layer. Expect packet loss. Expect to resend. Do not treat `sent` as delivered.
 
 ### MeshCore
 
-| Property | Value |
-|----------|-------|
-| Transport type | MeshCore radio (TCP/serial/BLE connection to a local node) |
-| Server acknowledgment | None beyond local-node acceptance. No mesh-wide ACK. |
-| Delivery confirmation | None. Same radio best-effort reality as Meshtastic. |
-| Retry semantics | Same as Meshtastic — retryable at the local-node connection level, not at the mesh delivery level. |
-| Duplicate risk | High. Same radio environment considerations. |
-| Receipt interpretation | `sent` means the local node accepted the packet. Nothing more. |
+| Property               | Value                                                                                              |
+| ---------------------- | -------------------------------------------------------------------------------------------------- |
+| Transport type         | MeshCore radio (TCP/serial/BLE connection to a local node)                                         |
+| Server acknowledgment  | None beyond local-node acceptance. No mesh-wide ACK.                                               |
+| Delivery confirmation  | None. Same radio best-effort reality as Meshtastic.                                                |
+| Retry semantics        | Same as Meshtastic — retryable at the local-node connection level, not at the mesh delivery level. |
+| Duplicate risk         | High. Same radio environment considerations.                                                       |
+| Receipt interpretation | `sent` means the local node accepted the packet. Nothing more.                                     |
 
 MeshCore and Meshtastic share the same delivery discipline: radio best-effort, no confirmation, duplicates are normal operational reality.
 
 ### LXMF (Reticulum)
 
-| Property | Value |
-|----------|-------|
-| Transport type | Store-and-forward over Reticulum (multi-hop mesh) |
-| Server acknowledgment | No single-server ACK. Reticulum uses link-level delivery with propagation delays. |
-| Delivery confirmation | Eventual. LXMF messages propagate across the Reticulum network over seconds to hours depending on path length and transport type. |
-| Retry semantics | Reticulum handles propagation internally. The adapter delivers to the local `LXMRouter` and trusts the network. Adapter-level retry covers local failures only. |
-| Duplicate risk | Low for well-behaved senders. Reticulum's delivery mechanism handles deduplication at the protocol level. |
+| Property               | Value                                                                                                                                                                |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Transport type         | Store-and-forward over Reticulum (multi-hop mesh)                                                                                                                    |
+| Server acknowledgment  | No single-server ACK. Reticulum uses link-level delivery with propagation delays.                                                                                    |
+| Delivery confirmation  | Eventual. LXMF messages propagate across the Reticulum network over seconds to hours depending on path length and transport type.                                    |
+| Retry semantics        | Reticulum handles propagation internally. The adapter delivers to the local `LXMRouter` and trusts the network. Adapter-level retry covers local failures only.      |
+| Duplicate risk         | Low for well-behaved senders. Reticulum's delivery mechanism handles deduplication at the protocol level.                                                            |
 | Receipt interpretation | `sent` means the local `LXMRouter` accepted the message for propagation. Delivery to the destination may take significant time. Do not assume instantaneous receipt. |
 
 LXMF is the only transport where `sent` means "accepted for eventual delivery" with a potentially long propagation window. The time between `sent` and actual destination receipt can range from seconds to hours depending on network topology.
-
 
 ## 3. Delivery Receipt States
 
 The pipeline records a `DeliveryReceipt` for each outbound delivery attempt. Receipts progress through these states:
 
-```
+```text
 accepted → queued → sent → confirmed
                   ↘ failed → dead_lettered
 ```
 
-| Status | Meaning |
-|--------|---------|
-| `accepted` | Pipeline has accepted the event for delivery. No transport contact yet. |
-| `queued` | Delivery plan created, waiting for adapter execution. |
-| `sent` | Adapter reported successful handoff to the transport. **This is not final delivery.** See per-transport table above for what `sent` actually means. |
-| `confirmed` | Adapter reported positive confirmation from the external system. Only Matrix currently reaches this state. Radio transports never reach `confirmed`. |
-| `failed` | Adapter reported a delivery failure. Classified by `DeliveryFailureKind`. |
-| `dead_lettered` | Delivery exhausted all retries and fallback strategies. Permanently failed. |
+| Status          | Meaning                                                                                                                                              |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `accepted`      | Pipeline has accepted the event for delivery. No transport contact yet.                                                                              |
+| `queued`        | Delivery plan created, waiting for adapter execution.                                                                                                |
+| `sent`          | Adapter reported successful handoff to the transport. **This is not final delivery.** See per-transport table above for what `sent` actually means.  |
+| `confirmed`     | Adapter reported positive confirmation from the external system. Only Matrix currently reaches this state. Radio transports never reach `confirmed`. |
+| `failed`        | Adapter reported a delivery failure. Classified by `DeliveryFailureKind`.                                                                            |
+| `dead_lettered` | Delivery exhausted all retries and fallback strategies. Permanently failed.                                                                          |
 
 Each receipt carries `attempt_number` and `parent_receipt_id` forming an explicit retry lineage. The first attempt is `attempt_number=1` with `parent_receipt_id=None`. Retries chain through the parent reference. The `source` column on each receipt distinguishes origin: `"live"` for original pipeline delivery, `"retry"` for RetryWorker-attempted delivery, and `"replay"` for operator-initiated replay delivery.
-
 
 ## 4. Retry Ownership Boundaries
 
@@ -102,13 +98,13 @@ Retry is **opt-in** — it is disabled by default. The `RetryWorker` only runs w
 
 Retry responsibility falls to different components depending on where the failure occurs:
 
-| Failure kind | Who owns retry | Notes |
-|---|---|---|
-| `PLANNER_FAILURE` | No retry — permanent | Config error |
-| `RENDERER_FAILURE` | No retry — permanent | Deterministic error |
+| Failure kind        | Who owns retry       | Notes                                                                                              |
+| ------------------- | -------------------- | -------------------------------------------------------------------------------------------------- |
+| `PLANNER_FAILURE`   | No retry — permanent | Config error                                                                                       |
+| `RENDERER_FAILURE`  | No retry — permanent | Deterministic error                                                                                |
 | `ADAPTER_TRANSIENT` | RetryWorker (opt-in) | Requires `RetryPolicy`; bounded by max attempts and backoff; retry receipts carry `source="retry"` |
-| `ADAPTER_PERMANENT` | No retry — permanent | Adapter determined unrecoverable |
-| `DEADLINE_EXCEEDED` | No retry | Plan deadline passed |
+| `ADAPTER_PERMANENT` | No retry — permanent | Adapter determined unrecoverable                                                                   |
+| `DEADLINE_EXCEEDED` | No retry             | Plan deadline passed                                                                               |
 
 **Frozen target semantics:** Retry uses the `target_adapter` and `target_channel` from the original failed receipt, not the current route config. Route targets, channel assignments, and adapter mappings may change between the original failure and a retry attempt, but the retry continues to target the originally recorded adapter and channel. Before executing the retry, the RetryWorker validates that the target adapter still exists at runtime. If the adapter has been removed from the configuration, the retry is not attempted and the receipt is dead-lettered. This ensures route config changes do not silently redirect in-flight retries while still guarding against retrying to a non-existent adapter.
 
@@ -121,7 +117,6 @@ Adapters own their internal reconnect logic (e.g., Matrix sync reconnection, Mes
 **Retry receipt attribution:** Each retry attempt produces a new `DeliveryReceipt` with `source="retry"`, linked to the original failure via `parent_receipt_id` and carrying an incremented `attempt_number`. This makes retry receipts distinguishable from live deliveries (`source="live"`) and replay deliveries (`source="replay"`) at the storage layer. Operators can filter by `source` to isolate retry outcomes from normal delivery and replay.
 
 **Capacity rejection semantics:** If the RetryWorker cannot acquire delivery capacity (the delivery semaphore is full), it emits a `retry_failed` event and reschedules the receipt for the next worker interval. No durable receipt is created for capacity rejection — the original failed receipt remains due with its `next_retry_at` updated to the next interval. The RetryWorker retries capacity acquisition on its next cycle; it does not dead-letter on capacity rejection.
-
 
 ## 5. Duplicate-Send Realities
 
@@ -137,7 +132,6 @@ Duplicate sends are an operational fact in bridge scenarios, not a bug:
 
 The runtime does not suppress duplicate sends. It delivers what the routes specify, to the targets the routes specify, and records what happens honestly.
 
-
 ## 6. Runtime Routing and Delivery Honesty
 
 The runtime's routing layer — the `Router` and `RouteEngine` — is a pure in-memory matching engine. It performs no I/O. It matches events against route source specifications and resolves target adapters. It does not know or care about transport delivery semantics.
@@ -150,16 +144,15 @@ The pipeline records delivery results honestly:
 
 The runtime never upgrades a receipt state based on assumptions. A `sent` receipt for Meshtastic stays `sent`. It does not become `confirmed` because the runtime has no basis for that claim. This honesty principle is non-negotiable — the receipts must be trustworthy as an audit trail.
 
-
 ## 7. Replay and Route Attribution
 
 The `ReplayEngine` supports re-processing historical events through pipeline stages. Two modes are relevant to bridge delivery state:
 
-| Mode | Route | Deliver | Side effects | Use case |
-|------|-------|---------|-------------|----------|
-| `RE_ROUTE` | Yes | No | None (read-only) | Re-evaluate which routes match historical events after a route config change. Useful for verifying that new routes would have matched past events. |
-| `BEST_EFFORT` | Yes | Yes | Adapter delivery | Re-deliver historical events through current routes and adapters. Use with caution — this produces real outbound messages. |
-| `DRY_RUN` | Yes | Skip | None (read-only) | Route and render without actually delivering. Preview what would happen. |
+| Mode          | Route | Deliver | Side effects     | Use case                                                                                                                                           |
+| ------------- | ----- | ------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `RE_ROUTE`    | Yes   | No      | None (read-only) | Re-evaluate which routes match historical events after a route config change. Useful for verifying that new routes would have matched past events. |
+| `BEST_EFFORT` | Yes   | Yes     | Adapter delivery | Re-deliver historical events through current routes and adapters. Use with caution — this produces real outbound messages.                         |
+| `DRY_RUN`     | Yes   | Skip    | None (read-only) | Route and render without actually delivering. Preview what would happen.                                                                           |
 
 Replay route attribution records which routes matched each historical event. This attribution is metadata about routing decisions, not about delivery outcomes. A route attribution says "this route would have matched" — it does not say "this message was delivered."
 
@@ -168,7 +161,6 @@ Replay route attribution records which routes matched each historical event. Thi
 **Test coverage note:** The replay pipeline integration path — including route matching, loop prevention via `_filter_replay_loops`, and `ReplayRouteAttribution` — is exercised by `test_replay_pipeline_integration.py` (which tests the real `PipelineRunner` replay path) and `test_replay_routing.py` (which covers route matching through the actual `Router`, `ReplayEngine`, and `_filter_replay_loops` code paths). Boundary tests in `test_architectural_boundaries.py` confirm that replay and routing modules remain free of transport SDK imports. Replay test purity is enforced: no replay test file imports live adapter packages or SDKs.
 
 Replay receipts carry `source="replay"` and a populated `replay_run_id` for audit traceability. This distinguishes replay-originated receipts from live deliveries at the storage layer. Traceability supports audit but does not prevent duplicate delivery — multiple BEST_EFFORT replays of the same event produce additional receipt rows, each with a different `replay_run_id`.
-
 
 ## 7a. Docker SDK-Boundary Bridge Validation
 
@@ -232,16 +224,15 @@ evidence available without real radio hardware or external accounts.
   matching the `run_session` shape (status, event_id, receipts, native_refs,
   ingress_path).
 
-| Provenance tier | Status | What is proven |
-|----------------|--------|---------------|
-| Fake bridge | **Proven** | Pipeline routing, rendering, receipts, accounting |
-| Adapter-wrapper | **Proven** | Per-transport adapter codec, renderer, session |
-| Docker SDK-boundary | **Proven** | Real SDK lifecycle, config, dependency resolution |
-| Docker SDK-boundary bridge smoke | **Proven** | Real Matrix SDK codec + pipeline routing + storage + accounting with genuine Synapse event_ids |
-| Docker cross-adapter (`matrix_to_meshtastic`) | **Proven** | Real Matrix nio SDK ingress + PipelineRunner routing + real Meshtastic mtjk SDK outbound to meshtasticd with real packet IDs |
-| Docker cross-adapter (`meshtastic_to_matrix`) | **Deferred** | Not proven at cross-adapter level. Meshtastic SDK lifecycle and outbound `sendText` proven, but inbound uses `simulate_inbound`/`wrapper_callback`. No real external Matrix target. Deferred until Matrix outbound is proven with real Synapse. |
-| Live network | **Not claimed** | No test against real external endpoints or real radio hardware |
-
+| Provenance tier                               | Status          | What is proven                                                                                                                                                                                                                                  |
+| --------------------------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Fake bridge                                   | **Proven**      | Pipeline routing, rendering, receipts, accounting                                                                                                                                                                                               |
+| Adapter-wrapper                               | **Proven**      | Per-transport adapter codec, renderer, session                                                                                                                                                                                                  |
+| Docker SDK-boundary                           | **Proven**      | Real SDK lifecycle, config, dependency resolution                                                                                                                                                                                               |
+| Docker SDK-boundary bridge smoke              | **Proven**      | Real Matrix SDK codec + pipeline routing + storage + accounting with genuine Synapse event_ids                                                                                                                                                  |
+| Docker cross-adapter (`matrix_to_meshtastic`) | **Proven**      | Real Matrix nio SDK ingress + PipelineRunner routing + real Meshtastic mtjk SDK outbound to meshtasticd with real packet IDs                                                                                                                    |
+| Docker cross-adapter (`meshtastic_to_matrix`) | **Deferred**    | Not proven at cross-adapter level. Meshtastic SDK lifecycle and outbound `sendText` proven, but inbound uses `simulate_inbound`/`wrapper_callback`. No real external Matrix target. Deferred until Matrix outbound is proven with real Synapse. |
+| Live network                                  | **Not claimed** | No test against real external endpoints or real radio hardware                                                                                                                                                                                  |
 
 ### 7a.1 Docker Artifact Bundle
 
@@ -249,26 +240,26 @@ The Docker bridge artifact collector (`scripts/ci/run-docker-bridge-artifacts.sh
 
 **Required files** (scenario-aware):
 
-| File | When required |
-|------|---------------|
-| `summary.json` | All scenarios |
-| `run-metadata.json` | All scenarios |
-| `config.toml` | All scenarios |
-| `synapse.log` | `matrix_to_meshtastic`, `bidirectional` |
-| `meshtasticd.log` | `matrix_to_meshtastic`, `meshtastic_to_matrix`, `bidirectional` |
+| File                | When required                                                   |
+| ------------------- | --------------------------------------------------------------- |
+| `summary.json`      | All scenarios                                                   |
+| `run-metadata.json` | All scenarios                                                   |
+| `config.toml`       | All scenarios                                                   |
+| `synapse.log`       | `matrix_to_meshtastic`, `bidirectional`                         |
+| `meshtasticd.log`   | `matrix_to_meshtastic`, `meshtastic_to_matrix`, `bidirectional` |
 
 For `matrix_to_meshtastic`, both `synapse.log` and `meshtasticd.log` are required because the scenario exercises the full cross-adapter path: real Synapse ingress through the nio SDK, PipelineRunner routing, and real Meshtastic adapter outbound delivery to meshtasticd. Both container logs are necessary evidence of SDK-to-SDK event flow.
 
 **Best-effort files** (present when the corresponding subsystem ran):
 
-| File | Meaning | When present |
-|------|---------|--------------|
-| `medre.log` | Runtime log. **Absent when PipelineRunner is used instead of full MedreApp** (the common case for Docker bridge artifact runs). | Full MedreApp runtime initialized. |
-| `receipts.json` | Delivery receipt snapshot. | At least one delivery attempted. |
-| `native-refs.json` | Inbound native message refs. | Inbound refs recorded. |
-| `inspect-timeline.json` | Per-event pipeline timeline. | Pipeline completed for at least one event. |
-| `evidence.json` | Full bridge evidence bundle. | Evidence collection succeeded. |
-| `final-snapshot.json` | Runtime shutdown snapshot. **Absent when PipelineRunner is used instead of full MedreApp**. | Full MedreApp graceful shutdown. |
+| File                    | Meaning                                                                                                                         | When present                               |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| `medre.log`             | Runtime log. **Absent when PipelineRunner is used instead of full MedreApp** (the common case for Docker bridge artifact runs). | Full MedreApp runtime initialized.         |
+| `receipts.json`         | Delivery receipt snapshot.                                                                                                      | At least one delivery attempted.           |
+| `native-refs.json`      | Inbound native message refs.                                                                                                    | Inbound refs recorded.                     |
+| `inspect-timeline.json` | Per-event pipeline timeline.                                                                                                    | Pipeline completed for at least one event. |
+| `evidence.json`         | Full bridge evidence bundle.                                                                                                    | Evidence collection succeeded.             |
+| `final-snapshot.json`   | Runtime shutdown snapshot. **Absent when PipelineRunner is used instead of full MedreApp**.                                     | Full MedreApp graceful shutdown.           |
 
 Missing best-effort files are explained in `summary.json` under `limitations`. For example: `"receipts.json absent: no deliveries attempted before failure"`.
 
@@ -295,7 +286,6 @@ pip install -e ".[matrix,meshtastic,dev]"
 ```
 
 For full artifact documentation, see [Docker Bridge Artifacts](docker-bridge-artifacts.md).
-
 
 ## 8. How to Validate MEDRE Bridge Operation
 
@@ -460,21 +450,20 @@ No live test files exist for Meshtastic, MeshCore, or LXMF.
   or room does not exist. Verify the `MATRIX_*` values.
 - 401/403: access token expired or wrong user. Regenerate the token.
 
-
 ### 8.4 Happy Path per Evidence Level
 
 For quick reference, each evidence level has **one** primary validation command.
 Use the table below to find the right command for the fidelity you need.
 
-| Evidence level | Primary command | What it proves | Limits |
-|---|---|---|---|
-| **Fake adapter bridge** | `PYTHONPATH=src medre smoke --json` | Full pipeline routing with zero dependencies | No real transports |
-| **Wrapper callback** | `pytest tests/test_matrix_wrapper_ingress.py -v` (or MeshCore/LXMF equivalents) | Adapter callback → pipeline → fake outbound | SDK is mocked; no real transport boundary |
-| **Docker Matrix** | `pytest tests/integration/test_synapse_bridge_smoke.py -m docker -v` | Real nio SDK against Synapse; sync-loop ingress tracked | Docker only; live Matrix claims not proven |
-| **Docker Meshtastic** | `pytest tests/integration/test_meshtasticd_sdk_bridge.py -m docker -v` | Real mtjk SDK lifecycle and outbound enqueue | Inbound pubsub unconfirmed; no real radio |
-| **Docker cross-adapter** | `./scripts/ci/run-docker-bridge-artifacts.sh matrix_to_meshtastic` | Real Matrix nio ingress + PipelineRunner + real Meshtastic SDK outbound to meshtasticd | Docker loopback only; no real radio or external Matrix |
-| **Live Matrix** | `MEDRE_* env vars set; pytest tests/test_matrix_live.py -m live -v` | Real homeserver connectivity | Smoke only; not sustained throughput |
-| **Live Meshtastic** | Manual: requires real node | Not yet tested through MEDRE | No live radio evidence claimed |
+| Evidence level           | Primary command                                                                 | What it proves                                                                         | Limits                                                 |
+| ------------------------ | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| **Fake adapter bridge**  | `PYTHONPATH=src medre smoke --json`                                             | Full pipeline routing with zero dependencies                                           | No real transports                                     |
+| **Wrapper callback**     | `pytest tests/test_matrix_wrapper_ingress.py -v` (or MeshCore/LXMF equivalents) | Adapter callback → pipeline → fake outbound                                            | SDK is mocked; no real transport boundary              |
+| **Docker Matrix**        | `pytest tests/integration/test_synapse_bridge_smoke.py -m docker -v`            | Real nio SDK against Synapse; sync-loop ingress tracked                                | Docker only; live Matrix claims not proven             |
+| **Docker Meshtastic**    | `pytest tests/integration/test_meshtasticd_sdk_bridge.py -m docker -v`          | Real mtjk SDK lifecycle and outbound enqueue                                           | Inbound pubsub unconfirmed; no real radio              |
+| **Docker cross-adapter** | `./scripts/ci/run-docker-bridge-artifacts.sh matrix_to_meshtastic`              | Real Matrix nio ingress + PipelineRunner + real Meshtastic SDK outbound to meshtasticd | Docker loopback only; no real radio or external Matrix |
+| **Live Matrix**          | `MEDRE_* env vars set; pytest tests/test_matrix_live.py -m live -v`             | Real homeserver connectivity                                                           | Smoke only; not sustained throughput                   |
+| **Live Meshtastic**      | Manual: requires real node                                                      | Not yet tested through MEDRE                                                           | No live radio evidence claimed                         |
 
 **Source-tree note:** The smoke command above relies on
 `examples/configs/fake-bridge-smoke.toml` from the source checkout (found
@@ -489,34 +478,32 @@ The sections below (§8.1–§8.3) describe each tier in depth — what passing
 proves, what failing means, and how to interpret results. The table above
 provides the single command to run for each level.
 
-
 ## 9. Operational Checklist
 
 When operating a multi-transport bridge:
 
 1. **Inspect first.** When something seems wrong, start with `medre inspect
-   event` and `medre inspect receipts` to understand what happened. These
+event` and `medre inspect receipts` to understand what happened. These
    read-only commands use `--storage-path` and need no config. For deeper
    investigation, use `medre inspect event --timeline` (covers `trace
-   event`), `medre inspect event --evidence` (covers `evidence --event`),
+event`), `medre inspect event --evidence` (covers `evidence --event`),
    or `medre inspect event --recovery` (covers `recover --event`). Reach
    for the specialized `trace`, `evidence`, and `recover` commands when
    you need standalone output or features beyond inspect flags.
 
 2. **Read receipts in transport context.** A `sent` receipt means different things for Matrix vs. Meshtastic vs. LXMF. Consult the per-transport table in section 2.
 
-2. **Expect radio packet loss.** Meshtastic and MeshCore targets will silently lose messages. This is normal. Monitor `sent` receipt counts, not delivery confirmations that do not exist.
+3. **Expect radio packet loss.** Meshtastic and MeshCore targets will silently lose messages. This is normal. Monitor `sent` receipt counts, not delivery confirmations that do not exist.
 
-3. **Do not over-retry radio transports.** Retrying a Meshtastic send five times does not guarantee delivery. It increases probability, but each retry adds radio congestion. Tune `RetryPolicy` per transport.
+4. **Do not over-retry radio transports.** Retrying a Meshtastic send five times does not guarantee delivery. It increases probability, but each retry adds radio congestion. Tune `RetryPolicy` per transport.
 
-4. **Account for LXMF propagation delay.** An LXMF `sent` receipt does not mean the destination has the message. Do not alert on "sent but no response" for LXMF targets.
+5. **Account for LXMF propagation delay.** An LXMF `sent` receipt does not mean the destination has the message. Do not alert on "sent but no response" for LXMF targets.
 
-5. **Distinguish retry layers.** Adapter reconnect is not the same as pipeline delivery retry. A Meshtastic adapter reconnecting to its local node is independent of the pipeline retrying a failed delivery.
+6. **Distinguish retry layers.** Adapter reconnect is not the same as pipeline delivery retry. A Meshtastic adapter reconnecting to its local node is independent of the pipeline retrying a failed delivery.
 
-6. **Use replay carefully.** Replay is a lower-level supported command for recovery scenarios. `BEST_EFFORT` replay produces real messages. Always verify route matching with `RE_ROUTE` or `DRY_RUN` first.
+7. **Use replay carefully.** Replay is a lower-level supported command for recovery scenarios. `BEST_EFFORT` replay produces real messages. Always verify route matching with `RE_ROUTE` or `DRY_RUN` first.
 
-7. **Trust receipt lineage.** The `attempt_number` and `parent_receipt_id` chain on receipts provides a complete audit trail. Use it to reconstruct what happened, not to assume what should have happened.
-
+8. **Trust receipt lineage.** The `attempt_number` and `parent_receipt_id` chain on receipts provides a complete audit trail. Use it to reconstruct what happened, not to assume what should have happened.
 
 ## 10. Route Attribution in Delivery Receipts
 
@@ -530,17 +517,16 @@ Every `DeliveryReceipt` now carries a `route_id` field identifying which route w
 
 **Where else attribution appears:**
 
-| Location | Field | Lifecycle |
-|----------|-------|-----------|
-| `RoutingMetadata.route_trace` | `tuple[str, ...]` | Ephemeral — on the in-flight event after route matching |
-| `DeliveryReceipt.route_id` | `str` | Persisted — stored with the receipt in storage |
-| `DeliveryOutcome.route_id` | `str` | Ephemeral — pipeline-internal result, not persisted |
-| `ReplayRouteAttribution.route_ids` | `tuple[str, ...]` | Replay result only — not persisted to events |
+| Location                           | Field             | Lifecycle                                               |
+| ---------------------------------- | ----------------- | ------------------------------------------------------- |
+| `RoutingMetadata.route_trace`      | `tuple[str, ...]` | Ephemeral — on the in-flight event after route matching |
+| `DeliveryReceipt.route_id`         | `str`             | Persisted — stored with the receipt in storage          |
+| `DeliveryOutcome.route_id`         | `str`             | Ephemeral — pipeline-internal result, not persisted     |
+| `ReplayRouteAttribution.route_ids` | `tuple[str, ...]` | Replay result only — not persisted to events            |
 
 **Attribution does not cross adapter boundaries.** Adapters do not receive or consume route attribution metadata. Attribution is orchestration-layer information for observability and audit.
 
 See: Contract 51 (Route Attribution), Contract 52 (Routed Delivery Result).
-
 
 ## 11. Route Loop Prevention
 
@@ -567,12 +553,12 @@ At pipeline Stage 1.5, `PipelineRunner.handle_ingress` checks each inbound event
 
 Native-ref dedup requires stable adapter-provided native IDs. Which adapters provide them:
 
-| Adapter | Native ID source | Stability |
-|---------|-----------------|-----------|
-| Matrix | `event_id` | Stable. Synapse-assigned, globally unique per event. |
-| Meshtastic | `packet_id` | Stable per packet, but may collide under high churn (IDs are small integers reused across sessions). |
-| MeshCore | `sender_timestamp` | Stable per node. Distinguishes messages from the same sender but is not globally unique across nodes. |
-| LXMF | `source_hash + nonce` combination | May vary depending on codec implementation. LXMF does not guarantee a globally unique, stable ID in all codec paths. |
+| Adapter    | Native ID source                  | Stability                                                                                                            |
+| ---------- | --------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Matrix     | `event_id`                        | Stable. Synapse-assigned, globally unique per event.                                                                 |
+| Meshtastic | `packet_id`                       | Stable per packet, but may collide under high churn (IDs are small integers reused across sessions).                 |
+| MeshCore   | `sender_timestamp`                | Stable per node. Distinguishes messages from the same sender but is not globally unique across nodes.                |
+| LXMF       | `source_hash + nonce` combination | May vary depending on codec implementation. LXMF does not guarantee a globally unique, stable ID in all codec paths. |
 
 **Native-ref dedup is NOT replay dedupe.** Replay (section 7) produces independent canonical events and receipts. Replayed events get new `event_id` values and new `DeliveryReceipt` rows. Native-ref dedup prevents echo from transport-layer re-delivery of the same physical packet; it does not suppress replay-originated events. Multiple `BEST_EFFORT` replays of the same original event will produce additional deliveries.
 
@@ -589,7 +575,6 @@ During delivery execution, `PipelineRunner._execute_single_delivery` inspects th
 - **Shutdown semantics under active ingress:** When the runtime initiates shutdown while ingress is active, existing deliveries complete or abort deterministically. New deliveries attempted after shutdown begins are rejected with `SHUTDOWN_REJECTION`. Events already persisted in SQLite survive shutdown. There is no ambiguous "maybe delivered" state — each in-flight delivery resolves to `sent`, `failed`, or is cancelled cleanly. In-flight deliveries that cannot complete are lost; they are not queued for retry after restart.
 
 See: Contract 49 (Routing and Bridge), Routing Correctness Runbook.
-
 
 ## 12. Soak Harness and Queue Pressure
 
@@ -632,12 +617,12 @@ When bridging events across transports with different speed profiles (e.g., Matr
 
 During bridge operation, monitor these signals:
 
-| Signal | Source | Interpretation |
-|--------|--------|----------------|
-| `capacity_rejections` growing | `CapacityController` | Delivery concurrency is insufficient for the load |
-| `total_dropped` growing | Meshtastic adapter | Outbound send rate cannot keep up with inbound rate |
-| `capacity_rejections` growing (replay) | `CapacityController` | Replay concurrency is insufficient |
-| High `delivery_current` sustained | `CapacityController` | Adapters are slow to complete deliveries |
+| Signal                                 | Source               | Interpretation                                      |
+| -------------------------------------- | -------------------- | --------------------------------------------------- |
+| `capacity_rejections` growing          | `CapacityController` | Delivery concurrency is insufficient for the load   |
+| `total_dropped` growing                | Meshtastic adapter   | Outbound send rate cannot keep up with inbound rate |
+| `capacity_rejections` growing (replay) | `CapacityController` | Replay concurrency is insufficient                  |
+| High `delivery_current` sustained      | `CapacityController` | Adapters are slow to complete deliveries            |
 
 **Remediation:**
 
@@ -646,7 +631,6 @@ During bridge operation, monitor these signals:
 - For Meshtastic specifically, consider whether the channel configuration and radio settings can be optimized for throughput.
 
 **Important:** MEDRE remains best-effort. Queue bounds prevent unbounded accumulation but do not prevent data loss under extreme pressure. No exactly-once guarantees. No transactional delivery guarantees. Radio transports remain probabilistic. The soak harness validates stability patterns for CI — it is not a substitute for operational monitoring with live transports.
-
 
 ## 13. Persistence of Bridge State
 
@@ -673,6 +657,7 @@ whether replay is warranted.
 
 1. Restart the runtime. Both adapters reconnect.
 2. **Inspect first.** Use read-only commands to understand the state:
+
    ```bash
    # Check a specific event (no config needed):
    medre inspect event <event_id> --storage-path /path/to/medre.sqlite
@@ -685,6 +670,7 @@ whether replay is warranted.
    medre inspect event <event_id> --storage-path /path/to/medre.sqlite --evidence
    medre inspect event <event_id> --storage-path /path/to/medre.sqlite --recovery
    ```
+
 3. Find orphaned events (stored but not delivered) via SQL:
    ```sql
    SELECT e.event_id, e.source_adapter, e.created_at
@@ -711,24 +697,23 @@ see [Replay Operation](replay-operation.md).
 
 ### Smoke Command Does Not Persist
 
-The ``medre smoke`` command uses in-memory storage by default. Receipts,
+The `medre smoke` command uses in-memory storage by default. Receipts,
 events, and accounting data produced during a default smoke run are not written
-to SQLite and are not inspectable with ``medre inspect`` after the process
+to SQLite and are not inspectable with `medre inspect` after the process
 exits. The JSON report printed to stdout is the only surviving record.
 
-Pass ``--storage-path <path>`` to persist evidence to a SQLite database that
-``medre inspect`` can query afterward. When ``--storage-path`` is provided, all
+Pass `--storage-path <path>` to persist evidence to a SQLite database that
+`medre inspect` can query afterward. When `--storage-path` is provided, all
 events, receipts, and native refs are written to the specified database file.
 
-For durable inspection of bridge delivery state, use ``medre run`` with
-``[storage] backend = "sqlite"`` and inspect the database afterward. See the
+For durable inspection of bridge delivery state, use `medre run` with
+`[storage] backend = "sqlite"` and inspect the database afterward. See the
 [Fake Bridge Smoke Runbook](fake-bridge-smoke-runbook.md#smoke-persistence-caveat)
 for details, the [Bridge Failure Drills](bridge-failure-drills.md) runbook
 for failure interpretation guidance, and the
 [Bridge Evidence Bundle](bridge-evidence-bundle.md) runbook for collecting
 smoke, drill, and inspect outputs as a single pre-runtime evidence package
-via ``medre evidence``.
-
+via `medre evidence`.
 
 ## 14. Explicit Non-Guarantees
 
@@ -749,7 +734,6 @@ The bridge operation layer explicitly does **not** provide:
 7. **Queue-bound delivery completeness.** Capacity semaphores and adapter-level queue bounds prevent unbounded memory accumulation but do not guarantee that every message is delivered. Under extreme pressure, messages are dropped or rejected to protect process stability.
 
 8. **Persistent in-flight recovery.** No in-flight delivery state survives shutdown. No replay resume after restart. Cancelled deliveries are lost.
-
 
 ## 15. Shutdown Snapshot and Bridge Evidence
 
@@ -773,6 +757,7 @@ The shutdown snapshot is particularly valuable for bridge operators because it p
 These values are process-local and non-durable. Without `--snapshot-on-shutdown`, they are lost when the process exits. With it, the snapshot file survives as a post-run artifact.
 
 **Caveats:**
+
 - The snapshot is a point-in-time capture, not a continuous log. It reflects the state after graceful shutdown completes (`lifecycle.runtime_state` will be `"stopped"`).
 - The RetryWorker is an opt-in background task that polls for transient-failure receipts with `next_retry_at` set. Retry receipts carry `source="retry"`. No final ACK guarantee. Runtime events are process-local.
 - Replay is manual and duplicate-risky. The snapshot may show replay receipts from earlier runs, but cannot tell you which delivery actually reached the remote side.
@@ -783,33 +768,32 @@ Bridge operators should distinguish between two categories of evidence:
 
 **Run-time evidence** (available while `medre run` is active):
 
-| Source | How to access | Lifecycle |
-|--------|--------------|-----------|
-| Log output | Console stdout/stderr, `{log_dir}/medre.log` | Written continuously during the run |
-| Runtime events buffer | `diagnostics.runtime_events` in snapshot | Bounded, process-local, lost on exit |
-| Accounting counters | `accounting` in snapshot | Process-local, reset on startup |
-| Capacity gauges | `capacity` in snapshot | Process-local, reset on startup |
-| Route delivery stats | `routes.stats` in snapshot | Process-local, reset on startup |
+| Source                | How to access                                | Lifecycle                            |
+| --------------------- | -------------------------------------------- | ------------------------------------ |
+| Log output            | Console stdout/stderr, `{log_dir}/medre.log` | Written continuously during the run  |
+| Runtime events buffer | `diagnostics.runtime_events` in snapshot     | Bounded, process-local, lost on exit |
+| Accounting counters   | `accounting` in snapshot                     | Process-local, reset on startup      |
+| Capacity gauges       | `capacity` in snapshot                       | Process-local, reset on startup      |
+| Route delivery stats  | `routes.stats` in snapshot                   | Process-local, reset on startup      |
 
 **Post-run evidence** (available after `medre run` exits):
 
-| Source | How to access | Lifecycle |
-|--------|--------------|-----------|
-| Delivery receipts | `medre inspect receipts` | Persisted in SQLite |
-| Canonical events | `medre inspect event` | Persisted in SQLite |
-| Event timelines | `medre inspect event --timeline` | Persisted in SQLite |
-| Event evidence bundles | `medre inspect event --evidence` | Persisted in SQLite |
-| Event recovery runbooks | `medre inspect event --recovery` | Persisted in SQLite |
-| Native message refs | `medre inspect native-ref` | Persisted in SQLite |
-| Replay receipts | `medre inspect receipts --replay-run` | Persisted in SQLite |
-| Shutdown snapshot | `{state_dir}/shutdown-snapshot.json` | File on disk (only with `--snapshot-on-shutdown`) |
-| Evidence bundle | `medre evidence --config <path> --json` | Re-generated on demand from SQLite |
-| Event trace | `medre inspect event <event_id> --timeline --storage-path <db>` | Re-generated on demand from SQLite |
+| Source                  | How to access                                                   | Lifecycle                                         |
+| ----------------------- | --------------------------------------------------------------- | ------------------------------------------------- |
+| Delivery receipts       | `medre inspect receipts`                                        | Persisted in SQLite                               |
+| Canonical events        | `medre inspect event`                                           | Persisted in SQLite                               |
+| Event timelines         | `medre inspect event --timeline`                                | Persisted in SQLite                               |
+| Event evidence bundles  | `medre inspect event --evidence`                                | Persisted in SQLite                               |
+| Event recovery runbooks | `medre inspect event --recovery`                                | Persisted in SQLite                               |
+| Native message refs     | `medre inspect native-ref`                                      | Persisted in SQLite                               |
+| Replay receipts         | `medre inspect receipts --replay-run`                           | Persisted in SQLite                               |
+| Shutdown snapshot       | `{state_dir}/shutdown-snapshot.json`                            | File on disk (only with `--snapshot-on-shutdown`) |
+| Evidence bundle         | `medre evidence --config <path> --json`                         | Re-generated on demand from SQLite                |
+| Event trace             | `medre inspect event <event_id> --timeline --storage-path <db>` | Re-generated on demand from SQLite                |
 
 **Key distinction:** Run-time evidence (counters, gauges, events buffer) is process-local memory that is lost when the process exits unless captured via `--snapshot-on-shutdown`. Post-run evidence (receipts, events, refs) is persisted in SQLite and survives process termination.
 
 For the full shutdown snapshot schema, see [Runtime Operation — Shutdown Snapshot](runtime-operation.md#shutdown-snapshot---snapshot-on-shutdown). For the evidence bundle report shape, see [Bridge Evidence Bundle](bridge-evidence-bundle.md).
-
 
 ## 16. Bridged Message Appearance
 
@@ -881,39 +865,38 @@ The source adapter label (e.g. `"meshtastic-radio-1"`, `"matrix-src"`) is:
 
 Reply threading preservation depends on the target renderer:
 
-| Target renderer | Reply support | What happens |
-|----------------|--------------|-------------|
-| Matrix | ✅ Supported | `m.relates_to` with `m.in_reply_to` added; body includes quoted fallback |
-| Meshtastic | ❌ Not supported | Reply relations are ignored; only body text is rendered |
-| MeshCore | ❌ Not supported | Same as Meshtastic — plain text only |
-| LXMF | Partial | Relations are recorded in the fields envelope but not used for display formatting |
+| Target renderer | Reply support    | What happens                                                                      |
+| --------------- | ---------------- | --------------------------------------------------------------------------------- |
+| Matrix          | ✅ Supported     | `m.relates_to` with `m.in_reply_to` added; body includes quoted fallback          |
+| Meshtastic      | ❌ Not supported | Reply relations are ignored; only body text is rendered                           |
+| MeshCore        | ❌ Not supported | Same as Meshtastic — plain text only                                              |
+| LXMF            | Partial          | Relations are recorded in the fields envelope but not used for display formatting |
 
 Reply context that survives the bridge: Matrix ↔ Matrix (full `m.relates_to`),
 any → Matrix (reply relation rendered with fallback text). Reply context that
 does **not** survive: any → radio transport (Meshtastic, MeshCore) — the reply
 relation is dropped at rendering time.
 
-
 ## 17. Opt-in Docker Bridge Artifact Collection
 
 An opt-in artifact collection path is available for producing structured
-evidence from Docker Matrix <-> Meshtastic bridge validation runs.  This path
+evidence from Docker Matrix <-> Meshtastic bridge validation runs. This path
 is **not** invoked by default CI — it requires explicit activation.
 
 **What it does:**
 
 1. Creates a timestamped run directory under
-   ``.ci-artifacts/docker-bridge-runs/<timestamp>/``.
+   `.ci-artifacts/docker-bridge-runs/<timestamp>/`.
 2. Runs Docker integration tests for a given scenario
-   (``matrix_to_meshtastic``, ``meshtastic_to_matrix``, ``bidirectional``).
+   (`matrix_to_meshtastic`, `meshtastic_to_matrix`, `bidirectional`).
 3. Captures pytest stdout/stderr, config snapshots, and inspect artifacts.
-4. Writes ``summary.json`` with structured evidence, **even on failure**.
+4. Writes `summary.json` with structured evidence, **even on failure**.
 5. Redacts tokens/passwords from all artifacts using
-   ``sanitize_for_log`` and ``sanitize_error``.
+   `sanitize_for_log` and `sanitize_error`.
 
-**Cross-adapter proof (``matrix_to_meshtastic``):**
+**Cross-adapter proof (`matrix_to_meshtastic`):**
 
-The ``matrix_to_meshtastic`` scenario proves real cross-adapter event flow:
+The `matrix_to_meshtastic` scenario proves real cross-adapter event flow:
 real Matrix nio SDK ingress through the sync loop, PipelineRunner routing
 through MeshtasticRenderer, and real Meshtastic mtjk SDK outbound delivery
 to meshtasticd returning a genuine packet ID. This is the strongest
@@ -926,19 +909,20 @@ accounts.
 ./scripts/ci/run-docker-bridge-artifacts.sh [scenario]
 ```
 
-**Required ``summary.json`` fields:**
-``status``, ``scenario``, ``matrix`` (container/room/event_id/ingress_path),
-``meshtastic`` (daemon/inbound/outbound), ``medre`` (event_id/receipt/native_refs/runtime/limitations),
-``errors``, ``limitations``.
+**Required `summary.json` fields:**
+`status`, `scenario`, `matrix` (container/room/event_id/ingress_path),
+`meshtastic` (daemon/inbound/outbound), `medre` (event_id/receipt/native_refs/runtime/limitations),
+`errors`, `limitations`.
 
 **Honesty requirements:**
+
 - No real external Matrix account or real radio is proven.
 - All services run on localhost in Docker containers (loopback only).
 - No automated queue draining, real pubsub Meshtastic inbound, or sustained
   throughput is claimed.
 - Limitations explicitly state localhost-only, container-local validation.
-- On failure, ``summary.json`` is written with ``status: "failed"`` or
-  ``"partial"`` and populated ``limitations``.
+- On failure, `summary.json` is written with `status: "failed"` or
+  `"partial"` and populated `limitations`.
 
 For full artifact documentation, the manual inspection walkthrough, and
 scenario-aware file lists, see [Docker Bridge Artifacts](docker-bridge-artifacts.md).

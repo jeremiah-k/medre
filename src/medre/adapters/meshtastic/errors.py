@@ -12,6 +12,7 @@ Hierarchy::
     ├── MeshtasticCodecError      — encode / decode failures
     └── MeshtasticPacketError     — malformed or unparseable packets
 """
+
 from __future__ import annotations
 
 

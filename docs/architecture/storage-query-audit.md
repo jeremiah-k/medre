@@ -3,6 +3,7 @@
 **Date:** 2026-05-15
 **Scope:** All SQLite query paths used by trace, recover, evidence, inspect, replay, native-ref resolution, and receipt lineage commands.
 **Source files audited:**
+
 - `src/medre/core/storage/sqlite.py` — all prepared statements and dynamic queries
 - `src/medre/cli/trace_commands.py` — trace event, trace replay
 - `src/medre/cli/inspect_commands.py` — inspect event, receipts, native-ref
@@ -23,26 +24,26 @@ columns that are never filtered on.
 
 ### Tables
 
-| Table | Row count estimate | Primary key |
-|-------|-------------------|-------------|
-| `canonical_events` | Per-event (grows with volume) | `event_id TEXT` |
-| `event_relations` | 0–N per event | `id INTEGER AUTOINCREMENT` |
-| `native_message_refs` | 0–N per event | `id TEXT` + `UNIQUE(adapter, native_channel_id, native_message_id)` |
-| `delivery_receipts` | 1–N per event per adapter (append-only) | `sequence INTEGER AUTOINCREMENT` |
-| `plugin_state` | Static / low volume | `PRIMARY KEY(plugin_id, key)` |
+| Table                 | Row count estimate                      | Primary key                                                         |
+| --------------------- | --------------------------------------- | ------------------------------------------------------------------- |
+| `canonical_events`    | Per-event (grows with volume)           | `event_id TEXT`                                                     |
+| `event_relations`     | 0–N per event                           | `id INTEGER AUTOINCREMENT`                                          |
+| `native_message_refs` | 0–N per event                           | `id TEXT` + `UNIQUE(adapter, native_channel_id, native_message_id)` |
+| `delivery_receipts`   | 1–N per event per adapter (append-only) | `sequence INTEGER AUTOINCREMENT`                                    |
+| `plugin_state`        | Static / low volume                     | `PRIMARY KEY(plugin_id, key)`                                       |
 
 ### Existing indexes (pre-audit)
 
-| Index | Columns | Purpose |
-|-------|---------|---------|
-| `idx_events_timestamp` | `(timestamp, event_id)` | Event timeline ORDER BY |
-| `idx_relations_event_id` | `(event_id, id)` | Relation lookup per event |
-| `idx_nrefs_event_id` | `(event_id)` | Native ref lookup per event |
-| `idx_receipts_plan` | `(delivery_plan_id, target_adapter, attempt_number, sequence)` | Plan receipt queries + delivery_status view |
-| `idx_receipts_event` | `(event_id, sequence)` | Receipt lookup per event |
-| `idx_receipts_source` | `(source, replay_run_id)` | Source+run filtering |
-| `idx_receipts_retry_due` | `(status, failure_kind, next_retry_at)` | RetryWorker due-receipt poll (Q13) |
-| `idx_receipts_parent_retry` | `(parent_receipt_id, source)` | NOT EXISTS subquery in list_due_retry_receipts (Q13) |
+| Index                       | Columns                                                        | Purpose                                              |
+| --------------------------- | -------------------------------------------------------------- | ---------------------------------------------------- |
+| `idx_events_timestamp`      | `(timestamp, event_id)`                                        | Event timeline ORDER BY                              |
+| `idx_relations_event_id`    | `(event_id, id)`                                               | Relation lookup per event                            |
+| `idx_nrefs_event_id`        | `(event_id)`                                                   | Native ref lookup per event                          |
+| `idx_receipts_plan`         | `(delivery_plan_id, target_adapter, attempt_number, sequence)` | Plan receipt queries + delivery_status view          |
+| `idx_receipts_event`        | `(event_id, sequence)`                                         | Receipt lookup per event                             |
+| `idx_receipts_source`       | `(source, replay_run_id)`                                      | Source+run filtering                                 |
+| `idx_receipts_retry_due`    | `(status, failure_kind, next_retry_at)`                        | RetryWorker due-receipt poll (Q13)                   |
+| `idx_receipts_parent_retry` | `(parent_receipt_id, source)`                                  | NOT EXISTS subquery in list_due_retry_receipts (Q13) |
 
 ---
 
@@ -50,21 +51,21 @@ columns that are never filtered on.
 
 Every distinct query shape found across the audited files.
 
-| # | Query | Table(s) | WHERE columns | ORDER BY | Frequency | Indexed? | Notes |
-|---|-------|----------|---------------|----------|-----------|----------|-------|
-| Q1 | `get(event_id)` | `canonical_events` | `event_id = ?` | — | per-inspect, per-trace, per-replay, per-evidence | ✅ PK | Hottest single-row lookup |
-| Q2 | `list_relations(event_id)` | `event_relations` | `event_id = ?` | `id ASC` | per-trace, per-recover, per-evidence | ✅ idx_relations_event_id | |
-| Q3 | `resolve_native_ref` | `native_message_refs` | `adapter = ?, native_channel_id IS ?, native_message_id = ?` | — | per-dedup-check, per-receipt in evidence | ✅ UNIQUE autoindex | Covers NULL channel via `IS ?` |
-| Q4 | `delivery_status(plan, adapter)` | `delivery_status` VIEW → `delivery_receipts` self-join | `delivery_plan_id = ?, target_adapter = ?` | — | per-delivery-check | ✅ idx_receipts_plan | View subquery groups by (plan, adapter) |
-| Q5 | `list_receipts_for_plan` | `delivery_receipts` | `delivery_plan_id = ?, target_adapter = ?` | `attempt_number ASC, sequence ASC` | per-plan-inspect | ✅ idx_receipts_plan | |
-| Q6 | `list_receipts_by_replay_run` | `delivery_receipts` | `replay_run_id = ?` | `sequence ASC` | per-trace-replay, per-inspect, per-evidence | ❌ **MISSING** | `idx_receipts_source(source, replay_run_id)` cannot serve `replay_run_id` alone; full scan |
-| Q7 | `list_receipts_for_event` | `delivery_receipts` | `event_id = ?` | `sequence ASC` | per-trace, per-inspect, per-recover, per-evidence, per-poll | ✅ idx_receipts_event | Hottest receipt query |
-| Q8 | `list_native_refs_for_event` | `native_message_refs` | `event_id = ?` | `created_at ASC` | per-trace, per-recover, per-evidence | ⚠️ Partial | `idx_nrefs_event_id(event_id)` covers WHERE but ORDER BY `created_at` requires extra sort |
-| Q9 | `query(EventFilter)` | `canonical_events` | Dynamic: `event_kind IN`, `source_adapter IN`, `timestamp >=`, `timestamp <=` | `timestamp ASC` | per-replay, per-broad-query | ✅ idx_events_timestamp | Compound filters; index covers timestamp range + ORDER BY |
-| Q10 | `query() relations batch` | `event_relations` | `event_id IN (?)` | — | per-query (batch) | ✅ idx_relations_event_id | Batch fetch after Q9 |
-| Q11 | `count_events` | `canonical_events` | — | — | per-evidence | N/A | Full scan, acceptable |
-| Q12 | `count_receipts` | `delivery_receipts` | — | — | per-evidence | N/A | Full scan, acceptable |
-| Q13 | `list_due_retry_receipts` | `delivery_receipts` | `status = 'failed', failure_kind = 'adapter_transient', next_retry_at IS NOT NULL, next_retry_at <= ?, attempt_number < ?, NOT EXISTS (child retry)` | `next_retry_at ASC, sequence ASC` | per-RetryWorker-cycle | ✅ idx_receipts_retry_due + idx_receipts_parent_retry | `max_attempts` parameterised (default 3); NOT EXISTS excludes receipts already handled by a child retry receipt |
+| #   | Query                            | Table(s)                                               | WHERE columns                                                                                                                                        | ORDER BY                           | Frequency                                                   | Indexed?                                              | Notes                                                                                                           |
+| --- | -------------------------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- | ----------------------------------------------------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Q1  | `get(event_id)`                  | `canonical_events`                                     | `event_id = ?`                                                                                                                                       | —                                  | per-inspect, per-trace, per-replay, per-evidence            | ✅ PK                                                 | Hottest single-row lookup                                                                                       |
+| Q2  | `list_relations(event_id)`       | `event_relations`                                      | `event_id = ?`                                                                                                                                       | `id ASC`                           | per-trace, per-recover, per-evidence                        | ✅ idx_relations_event_id                             |                                                                                                                 |
+| Q3  | `resolve_native_ref`             | `native_message_refs`                                  | `adapter = ?, native_channel_id IS ?, native_message_id = ?`                                                                                         | —                                  | per-dedup-check, per-receipt in evidence                    | ✅ UNIQUE autoindex                                   | Covers NULL channel via `IS ?`                                                                                  |
+| Q4  | `delivery_status(plan, adapter)` | `delivery_status` VIEW → `delivery_receipts` self-join | `delivery_plan_id = ?, target_adapter = ?`                                                                                                           | —                                  | per-delivery-check                                          | ✅ idx_receipts_plan                                  | View subquery groups by (plan, adapter)                                                                         |
+| Q5  | `list_receipts_for_plan`         | `delivery_receipts`                                    | `delivery_plan_id = ?, target_adapter = ?`                                                                                                           | `attempt_number ASC, sequence ASC` | per-plan-inspect                                            | ✅ idx_receipts_plan                                  |                                                                                                                 |
+| Q6  | `list_receipts_by_replay_run`    | `delivery_receipts`                                    | `replay_run_id = ?`                                                                                                                                  | `sequence ASC`                     | per-trace-replay, per-inspect, per-evidence                 | ❌ **MISSING**                                        | `idx_receipts_source(source, replay_run_id)` cannot serve `replay_run_id` alone; full scan                      |
+| Q7  | `list_receipts_for_event`        | `delivery_receipts`                                    | `event_id = ?`                                                                                                                                       | `sequence ASC`                     | per-trace, per-inspect, per-recover, per-evidence, per-poll | ✅ idx_receipts_event                                 | Hottest receipt query                                                                                           |
+| Q8  | `list_native_refs_for_event`     | `native_message_refs`                                  | `event_id = ?`                                                                                                                                       | `created_at ASC`                   | per-trace, per-recover, per-evidence                        | ⚠️ Partial                                            | `idx_nrefs_event_id(event_id)` covers WHERE but ORDER BY `created_at` requires extra sort                       |
+| Q9  | `query(EventFilter)`             | `canonical_events`                                     | Dynamic: `event_kind IN`, `source_adapter IN`, `timestamp >=`, `timestamp <=`                                                                        | `timestamp ASC`                    | per-replay, per-broad-query                                 | ✅ idx_events_timestamp                               | Compound filters; index covers timestamp range + ORDER BY                                                       |
+| Q10 | `query() relations batch`        | `event_relations`                                      | `event_id IN (?)`                                                                                                                                    | —                                  | per-query (batch)                                           | ✅ idx_relations_event_id                             | Batch fetch after Q9                                                                                            |
+| Q11 | `count_events`                   | `canonical_events`                                     | —                                                                                                                                                    | —                                  | per-evidence                                                | N/A                                                   | Full scan, acceptable                                                                                           |
+| Q12 | `count_receipts`                 | `delivery_receipts`                                    | —                                                                                                                                                    | —                                  | per-evidence                                                | N/A                                                   | Full scan, acceptable                                                                                           |
+| Q13 | `list_due_retry_receipts`        | `delivery_receipts`                                    | `status = 'failed', failure_kind = 'adapter_transient', next_retry_at IS NOT NULL, next_retry_at <= ?, attempt_number < ?, NOT EXISTS (child retry)` | `next_retry_at ASC, sequence ASC`  | per-RetryWorker-cycle                                       | ✅ idx_receipts_retry_due + idx_receipts_parent_retry | `max_attempts` parameterised (default 3); NOT EXISTS excludes receipts already handled by a child retry receipt |
 
 ---
 
@@ -212,45 +213,45 @@ receipt lineage, event replay traceability, and evidence bundle assembly.
 
 ### Receipts: ORDER BY sequence ASC (deterministic, append-only)
 
-`delivery_receipts.sequence` is an `INTEGER PRIMARY KEY AUTOINCREMENT`.  Every
-receipt is assigned a monotonically increasing sequence at INSERT time.  Ordering
+`delivery_receipts.sequence` is an `INTEGER PRIMARY KEY AUTOINCREMENT`. Every
+receipt is assigned a monotonically increasing sequence at INSERT time. Ordering
 by `sequence ASC` is deterministic and stable across restarts: SQLite
-auto-increment never reuses a value from a previous session.  All receipt query
+auto-increment never reuses a value from a previous session. All receipt query
 paths use this ordering.
 
 ### Events: ORDER BY timestamp ASC, event_id ASC tiebreaker
 
-Event queries use `ORDER BY timestamp ASC, event_id ASC`.  The `event_id`
+Event queries use `ORDER BY timestamp ASC, event_id ASC`. The `event_id`
 tiebreaker ensures deterministic ordering when two events share the same logical
-timestamp (set by the source adapter).  Events are ordered by their logical
+timestamp (set by the source adapter). Events are ordered by their logical
 occurrence time, not by storage insertion time.
 
 ### Native refs: ORDER BY created_at ASC, id ASC tiebreaker
 
-Native message refs for an event are ordered by `created_at ASC, id ASC`.  The
+Native message refs for an event are ordered by `created_at ASC, id ASC`. The
 `id` tiebreaker ensures deterministic ordering when multiple refs share the same
-timestamp.  Index `idx_nrefs_event_id(event_id)` covers the WHERE clause;
+timestamp. Index `idx_nrefs_event_id(event_id)` covers the WHERE clause;
 recommendation R2 proposes extending it to cover the ORDER BY as well.
 
 ### Replay receipts: grouped by replay_run_id
 
-Every replay receipt has `source='replay'` and a non-null `replay_run_id`.  All
+Every replay receipt has `source='replay'` and a non-null `replay_run_id`. All
 receipts produced by a single `medre replay --mode BEST_EFFORT` invocation share
-the same `replay_run_id`.  Multiple BEST_EFFORT runs of the same events produce
-different `replay_run_id` values.  The `replay_run_id` is unique per run, never
-null for replay receipts, and never shared across runs.  Replay receipts are not
+the same `replay_run_id`. Multiple BEST_EFFORT runs of the same events produce
+different `replay_run_id` values. The `replay_run_id` is unique per run, never
+null for replay receipts, and never shared across runs. Replay receipts are not
 grouped in sequence space; they are interleaved with live receipts in append
 order.
 
 ### Live/replay interleaving: determined by sequence (append order)
 
 Replay receipts are stored in the same `delivery_receipts` table as live
-receipts.  Because `sequence` is assigned at INSERT time, replay receipts always
-have a higher sequence than any receipt inserted before them.  When live events
+receipts. Because `sequence` is assigned at INSERT time, replay receipts always
+have a higher sequence than any receipt inserted before them. When live events
 are injected between replay runs, the sequence ordering reflects true append
 order:
 
-```
+```text
 ...original live (seq 1..160)...
 ...replay run A (seq 161..166)...
 ...new live events (seq 167..176)...
@@ -262,23 +263,22 @@ persistent in SQLite and never reused.
 
 ### Ordering stability across restart
 
-`sequence` is an auto-increment integer stored in the SQLite database file.  It
-survives crashes and restarts.  After restart, new receipts continue from the
-next auto-increment value with no gap filling.  Gaps in the sequence indicate
+`sequence` is an auto-increment integer stored in the SQLite database file. It
+survives crashes and restarts. After restart, new receipts continue from the
+next auto-increment value with no gap filling. Gaps in the sequence indicate
 lost in-flight deliveries (no receipt was written).
 
-`replay_run_id` is an operator-assigned string (or auto-generated UUID).  It is
-stored on each replay receipt and persists across restarts.  Repeated replays of
+`replay_run_id` is an operator-assigned string (or auto-generated UUID). It is
+stored on each replay receipt and persists across restarts. Repeated replays of
 the same event produce distinct `replay_run_id` values, making each run
 independently traceable.
 
-
 ### Indexes NOT recommended
 
-| Column | Why not |
-|--------|---------|
-| `canonical_events.event_kind` | Low-cardinality column; query Q9 always has ORDER BY timestamp which uses `idx_events_timestamp` |
-| `canonical_events.source_adapter` | Low-cardinality; always combined with timestamp range in practice |
-| `canonical_events.parent_event_id` | Never used in a WHERE clause |
+| Column                                | Why not                                                                                             |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `canonical_events.event_kind`         | Low-cardinality column; query Q9 always has ORDER BY timestamp which uses `idx_events_timestamp`    |
+| `canonical_events.source_adapter`     | Low-cardinality; always combined with timestamp range in practice                                   |
+| `canonical_events.parent_event_id`    | Never used in a WHERE clause                                                                        |
 | `delivery_receipts.parent_receipt_id` | Now indexed via `idx_receipts_parent_retry(parent_receipt_id, source)` for NOT EXISTS deduplication |
-| `delivery_receipts.status` | Low-cardinality; never queried alone |
+| `delivery_receipts.status`            | Low-cardinality; never queried alone                                                                |

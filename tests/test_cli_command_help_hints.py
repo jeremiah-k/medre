@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import io
 import re
-from contextlib import redirect_stdout, redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 
 from medre.cli.main import _build_parser
 
@@ -239,44 +239,52 @@ class TestPublicConstants:
 
     def test_transports_is_public(self) -> None:
         from medre.cli.transports import TRANSPORTS
+
         assert isinstance(TRANSPORTS, list)
         assert len(TRANSPORTS) > 0
 
     def test_radio_transports_is_public(self) -> None:
         from medre.cli.transport_constants import RADIO_TRANSPORTS
+
         assert isinstance(RADIO_TRANSPORTS, frozenset)
         assert len(RADIO_TRANSPORTS) > 0
 
     def test_no_private_transport_constant_in_transports_module(self) -> None:
         """transports.py must not still export _TRANSPORTS."""
         import medre.cli.transports as mod
-        assert not hasattr(mod, "_TRANSPORTS"), (
-            "transports.py still has private _TRANSPORTS — rename to TRANSPORTS"
-        )
+
+        assert not hasattr(
+            mod, "_TRANSPORTS"
+        ), "transports.py still has private _TRANSPORTS — rename to TRANSPORTS"
 
     def test_no_private_constant_in_transport_constants_module(self) -> None:
         """transport_constants.py must not still export _RADIO_TRANSPORTS."""
         import medre.cli.transport_constants as mod
-        assert not hasattr(mod, "_RADIO_TRANSPORTS"), (
-            "transport_constants.py still has private _RADIO_TRANSPORTS — rename to RADIO_TRANSPORTS"
-        )
+
+        assert not hasattr(
+            mod, "_RADIO_TRANSPORTS"
+        ), "transport_constants.py still has private _RADIO_TRANSPORTS — rename to RADIO_TRANSPORTS"
 
     def test_config_commands_imports_public(self) -> None:
         """config_commands.py imports TRANSPORTS (not _TRANSPORTS)."""
         import inspect
+
         import medre.cli.config_commands as mod
+
         source = inspect.getsource(mod)
-        assert "_TRANSPORTS" not in source, (
-            "config_commands.py still references _TRANSPORTS"
-        )
+        assert (
+            "_TRANSPORTS" not in source
+        ), "config_commands.py still references _TRANSPORTS"
         assert "TRANSPORTS" in source
 
     def test_recover_commands_imports_public(self) -> None:
         """recover_commands.py imports RADIO_TRANSPORTS (not _RADIO_TRANSPORTS)."""
         import inspect
+
         import medre.cli.recover_commands as mod
+
         source = inspect.getsource(mod)
-        assert "_RADIO_TRANSPORTS" not in source, (
-            "recover_commands.py still references _RADIO_TRANSPORTS"
-        )
+        assert (
+            "_RADIO_TRANSPORTS" not in source
+        ), "recover_commands.py still references _RADIO_TRANSPORTS"
         assert "RADIO_TRANSPORTS" in source

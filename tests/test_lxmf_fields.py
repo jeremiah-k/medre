@@ -5,8 +5,6 @@ envelope handling.
 
 from __future__ import annotations
 
-import pytest
-
 from medre.adapters.lxmf.fields import (
     FIELD_MEDRE_ENVELOPE,
     LXMF_NAMESPACE,
@@ -19,63 +17,47 @@ class TestEmbedEnvelope:
 
     def test_embed_adds_envelope_key(self) -> None:
         fields = {}
-        result = LxmfFieldsHelper.embed_envelope(
-            fields, "evt-1", (), {}
-        )
+        result = LxmfFieldsHelper.embed_envelope(fields, "evt-1", (), {})
         assert FIELD_MEDRE_ENVELOPE in result
 
     def test_embed_envelope_has_namespace(self) -> None:
-        result = LxmfFieldsHelper.embed_envelope(
-            {}, "evt-1", (), {}
-        )
+        result = LxmfFieldsHelper.embed_envelope({}, "evt-1", (), {})
         envelope = result[FIELD_MEDRE_ENVELOPE]
         assert LXMF_NAMESPACE in envelope
 
     def test_embed_envelope_contains_event_id(self) -> None:
-        result = LxmfFieldsHelper.embed_envelope(
-            {}, "evt-42", (), {}
-        )
+        result = LxmfFieldsHelper.embed_envelope({}, "evt-42", (), {})
         envelope = result[FIELD_MEDRE_ENVELOPE][LXMF_NAMESPACE]
         assert envelope["event_id"] == "evt-42"
 
     def test_embed_envelope_contains_schema_version(self) -> None:
-        result = LxmfFieldsHelper.embed_envelope(
-            {}, "evt-1", (), {}
-        )
+        result = LxmfFieldsHelper.embed_envelope({}, "evt-1", (), {})
         envelope = result[FIELD_MEDRE_ENVELOPE][LXMF_NAMESPACE]
         assert envelope["schema_version"] == 1
 
     def test_embed_envelope_contains_relations(self) -> None:
-        result = LxmfFieldsHelper.embed_envelope(
-            {}, "evt-1", (), {"key": "value"}
-        )
+        result = LxmfFieldsHelper.embed_envelope({}, "evt-1", (), {"key": "value"})
         envelope = result[FIELD_MEDRE_ENVELOPE][LXMF_NAMESPACE]
         assert isinstance(envelope["relations"], list)
         assert len(envelope["relations"]) == 0
 
     def test_embed_envelope_contains_metadata_keys(self) -> None:
         meta = {"source_hash": "ab", "timestamp": 42}
-        result = LxmfFieldsHelper.embed_envelope(
-            {}, "evt-1", (), meta
-        )
+        result = LxmfFieldsHelper.embed_envelope({}, "evt-1", (), meta)
         envelope = result[FIELD_MEDRE_ENVELOPE][LXMF_NAMESPACE]
         assert "source_hash" in envelope["metadata_keys"]
         assert "timestamp" in envelope["metadata_keys"]
 
     def test_embed_does_not_mutate_original(self) -> None:
         original = {0x01: "keep"}
-        result = LxmfFieldsHelper.embed_envelope(
-            original, "evt-1", (), {}
-        )
+        result = LxmfFieldsHelper.embed_envelope(original, "evt-1", (), {})
         assert FIELD_MEDRE_ENVELOPE not in original
         assert FIELD_MEDRE_ENVELOPE in result
         assert result[0x01] == "keep"
 
     def test_embed_preserves_existing_fields(self) -> None:
         existing = {0x01: "value1", 0x02: "value2"}
-        result = LxmfFieldsHelper.embed_envelope(
-            existing, "evt-1", (), {}
-        )
+        result = LxmfFieldsHelper.embed_envelope(existing, "evt-1", (), {})
         assert result[0x01] == "value1"
         assert result[0x02] == "value2"
 
@@ -88,7 +70,10 @@ class TestEmbedEnvelope:
 
     def test_embed_envelope_includes_source_transport_id(self) -> None:
         result = LxmfFieldsHelper.embed_envelope(
-            {}, "evt-1", (), {},
+            {},
+            "evt-1",
+            (),
+            {},
             source_transport_id="ab" * 16,
         )
         envelope = result[FIELD_MEDRE_ENVELOPE][LXMF_NAMESPACE]
@@ -96,7 +81,10 @@ class TestEmbedEnvelope:
 
     def test_embed_envelope_includes_source_channel_id(self) -> None:
         result = LxmfFieldsHelper.embed_envelope(
-            {}, "evt-1", (), {},
+            {},
+            "evt-1",
+            (),
+            {},
             source_channel_id="ch-1",
         )
         envelope = result[FIELD_MEDRE_ENVELOPE][LXMF_NAMESPACE]
@@ -105,22 +93,22 @@ class TestEmbedEnvelope:
     def test_embed_envelope_includes_lineage(self) -> None:
         lineage = ("evt-parent", "evt-grandparent")
         result = LxmfFieldsHelper.embed_envelope(
-            {}, "evt-1", (), {}, lineage=lineage,
+            {},
+            "evt-1",
+            (),
+            {},
+            lineage=lineage,
         )
         envelope = result[FIELD_MEDRE_ENVELOPE][LXMF_NAMESPACE]
         assert envelope["lineage"] == ["evt-parent", "evt-grandparent"]
 
     def test_embed_envelope_defaults_lineage_to_empty(self) -> None:
-        result = LxmfFieldsHelper.embed_envelope(
-            {}, "evt-1", (), {}
-        )
+        result = LxmfFieldsHelper.embed_envelope({}, "evt-1", (), {})
         envelope = result[FIELD_MEDRE_ENVELOPE][LXMF_NAMESPACE]
         assert envelope["lineage"] == []
 
     def test_embed_envelope_defaults_provenance_to_none_or_empty(self) -> None:
-        result = LxmfFieldsHelper.embed_envelope(
-            {}, "evt-1", (), {}
-        )
+        result = LxmfFieldsHelper.embed_envelope({}, "evt-1", (), {})
         envelope = result[FIELD_MEDRE_ENVELOPE][LXMF_NAMESPACE]
         assert envelope["source_adapter"] == ""
         assert envelope["source_transport_id"] is None
@@ -142,9 +130,7 @@ class TestEmbedEnvelope:
             key=None,
             fallback_text="reply to original",
         )
-        result = LxmfFieldsHelper.embed_envelope(
-            {}, "evt-1", (rel,), {}
-        )
+        result = LxmfFieldsHelper.embed_envelope({}, "evt-1", (rel,), {})
         envelope = result[FIELD_MEDRE_ENVELOPE][LXMF_NAMESPACE]
         assert len(envelope["relations"]) == 1
         ser = envelope["relations"][0]
@@ -165,9 +151,7 @@ class TestEmbedEnvelope:
             key=None,
             fallback_text=None,
         )
-        result = LxmfFieldsHelper.embed_envelope(
-            {}, "evt-1", (rel,), {}
-        )
+        result = LxmfFieldsHelper.embed_envelope({}, "evt-1", (rel,), {})
         envelope = result[FIELD_MEDRE_ENVELOPE][LXMF_NAMESPACE]
         ser = envelope["relations"][0]
         assert ser["target_native_ref"] is None
@@ -260,18 +244,14 @@ class TestRoundTrip:
 
     def test_round_trip_preserves_event_id(self) -> None:
         fields = {}
-        embedded = LxmfFieldsHelper.embed_envelope(
-            fields, "evt-round-trip", (), {}
-        )
+        embedded = LxmfFieldsHelper.embed_envelope(fields, "evt-round-trip", (), {})
         extracted = LxmfFieldsHelper.extract_envelope(embedded)
         assert extracted is not None
         assert extracted["event_id"] == "evt-round-trip"
 
     def test_round_trip_preserves_metadata_keys(self) -> None:
         meta = {"key1": "v1", "key2": "v2"}
-        embedded = LxmfFieldsHelper.embed_envelope(
-            {}, "evt-1", (), meta
-        )
+        embedded = LxmfFieldsHelper.embed_envelope({}, "evt-1", (), meta)
         extracted = LxmfFieldsHelper.extract_envelope(embedded)
         assert extracted is not None
         assert "key1" in extracted["metadata_keys"]
@@ -279,16 +259,17 @@ class TestRoundTrip:
 
     def test_round_trip_with_existing_fields(self) -> None:
         existing = {0x01: "data"}
-        embedded = LxmfFieldsHelper.embed_envelope(
-            existing, "evt-1", (), {}
-        )
+        embedded = LxmfFieldsHelper.embed_envelope(existing, "evt-1", (), {})
         extracted = LxmfFieldsHelper.extract_envelope(embedded)
         assert extracted is not None
         assert embedded[0x01] == "data"
 
     def test_round_trip_preserves_provenance(self) -> None:
         embedded = LxmfFieldsHelper.embed_envelope(
-            {}, "evt-1", (), {},
+            {},
+            "evt-1",
+            (),
+            {},
             source_adapter="lxmf-1",
             source_transport_id="ab" * 16,
             lineage=("evt-parent",),
@@ -309,9 +290,7 @@ class TestRoundTrip:
             key=None,
             fallback_text="replied",
         )
-        embedded = LxmfFieldsHelper.embed_envelope(
-            {}, "evt-1", (rel,), {}
-        )
+        embedded = LxmfFieldsHelper.embed_envelope({}, "evt-1", (rel,), {})
         extracted = LxmfFieldsHelper.extract_envelope(embedded)
         assert extracted is not None
         assert len(extracted["relations"]) == 1
