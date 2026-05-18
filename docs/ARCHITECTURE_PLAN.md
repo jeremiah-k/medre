@@ -181,7 +181,7 @@ medre/
 
 ### Tranche 1 (Port Extraction)
 
-Extracted adapter interface types from `adapters/base.py` into core, splitting pure value types into `core/ports.py` and the behavioral `BaseAdapter` ABC into `core/adapter_base.py`. This broke the core→adapters dependency inversion.
+**Historical**: Extracted adapter interface types from `adapters/base.py` into core, splitting pure value types into `core/ports.py` and the behavioral `BaseAdapter` ABC into `core/adapter_base.py`. This broke the core→adapters dependency inversion (later superseded by Tranche 3).
 
 ### Tranche 2 (Config Decoupling)
 

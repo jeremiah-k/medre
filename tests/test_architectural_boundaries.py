@@ -827,6 +827,13 @@ class TestConfigErrorCanonicalImports:
                     continue
                 if any(stripped.startswith(p) for p in self._FORBIDDEN_ERROR_IMPORTS):
                     violations.append(f"{py_file.relative_to(repo_root)}:{i}: {stripped}")
+        for py_file in sorted((repo_root / "tests").rglob("*.py")):
+            for i, line in enumerate(py_file.read_text().splitlines(), 1):
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#"):
+                    continue
+                if any(stripped.startswith(p) for p in self._FORBIDDEN_ERROR_IMPORTS):
+                    violations.append(f"{py_file.relative_to(repo_root)}:{i}: {stripped}")
 
         assert violations == [], (
             "ConfigError imports from dataclass modules found (must use medre.config.adapters.errors):\n"
@@ -845,3 +852,86 @@ class TestConfigErrorCanonicalImports:
         assert hasattr(mod, "LxmfConfigError")
         assert hasattr(mod, "MeshtasticConfigError")
         assert hasattr(mod, "MeshCoreConfigError")
+
+
+# ===================================================================
+# R) No active stale architecture references in docs
+# ===================================================================
+
+
+class TestNoActiveStaleDocsReferences:
+    """No active documentation should reference removed modules as if current.
+
+    Historical documents (explicitly marked as pre-refactor) are exempt.
+    docs/ARCHITECTURE_PLAN.md may mention removed modules only in
+    "removed/merged" historical context.
+    """
+
+    _STALE_PATTERNS = (
+        "BaseAdapter",
+        "medre.adapters.base",
+        "adapters/base.py",
+        "medre.core.ports",
+        "core/ports.py",
+        "medre.core.adapter_base",
+        "core/adapter_base.py",
+        "medre.adapters.matrix.config",
+        "medre.adapters.meshtastic.config",
+        "medre.adapters.meshcore.config",
+        "medre.adapters.lxmf.config",
+        "adapters/matrix/config.py",
+        "adapters/meshtastic/config.py",
+        "adapters/meshcore/config.py",
+        "adapters/lxmf/config.py",
+        "medre.adapters.matrix.errors.MatrixConfigError",
+        "medre.adapters.meshtastic.errors.MeshtasticConfigError",
+        "medre.adapters.meshcore.errors.MeshCoreConfigError",
+        "medre.adapters.lxmf.errors.LxmfConfigError",
+    )
+
+    _HISTORICAL_CONTEXT_WORDS = (
+        "removed",
+        "merged",
+        "replaced",
+        "deleted",
+        "superseded",
+        "do not exist",
+        "must not be imported",
+        "pre-refactor",
+        "historical",
+        "tranche",
+        "adaptercontract",
+        "renamed",
+    )
+
+    def test_no_active_stale_references_in_docs(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        docs_dir = repo_root / "docs"
+        assert docs_dir.exists()
+
+        violations: list[tuple[str, int, str]] = []
+
+        for md_file in sorted(docs_dir.rglob("*.md")):
+            text = md_file.read_text(encoding="utf-8")
+
+            # Exempt explicitly historical documents
+            if md_file.name == "66-release-hygiene-audit.md" and "pre-refactor architecture" in text:
+                continue
+
+            for i, line in enumerate(text.splitlines(), 1):
+                stripped = line.strip()
+                if not any(pattern in stripped for pattern in self._STALE_PATTERNS):
+                    continue
+
+                # Allow lines with historical-context markers (e.g. "removed",
+                # "merged", "replaced", "historical", "tranche", etc.)
+                lowered = stripped.lower()
+                if any(word in lowered for word in self._HISTORICAL_CONTEXT_WORDS):
+                    continue
+
+                violations.append((str(md_file.relative_to(repo_root)), i, stripped))
+
+        assert not violations, (
+            "Active stale architecture references found in docs:\n"
+            + "\n".join(f"{f}:{l}: {s}" for f, l, s in violations)
+        )

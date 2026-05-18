@@ -42,8 +42,8 @@ The MEDRE runtime is composed of the following layers, from top to bottom:
 │  └──────────────────────────────────┘   │
 ├─────────────────────────────────────────┤
 │  Adapters (medre.adapters.*)            │
-│  ┌─ Base ───────────────────────────┐   │
-│  │  BaseAdapter, AdapterContext     │   │
+│  ┌─ Contracts ──────────────────────┐   │
+│  │  AdapterContract, AdapterContext │   │
 │  └──────────────────────────────────┘   │
 │  ┌─ Per-Transport ──────────────────┐   │
 │  │  matrix / meshtastic / ...       │   │
@@ -66,7 +66,7 @@ Each layer has strict import boundaries documented below.
 
 ### 2.2 Runtime Must Not Import Concrete Adapter Packages
 
-`medre.runtime.*` must not import `medre.adapters.{matrix,meshcore,meshtastic,lxmf}`. It may import `medre.adapters.base` (protocol/base types).
+`medre.runtime.*` must not import `medre.adapters.{matrix,meshcore,meshtastic,lxmf}`. It may import `medre.core.contracts.adapter` (protocol/base types).
 
 ### 2.3 Core Routing Must Not Import Runtime
 

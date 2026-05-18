@@ -201,10 +201,10 @@ This applies to all diagnostic paths: adapter `diagnostics()`, session diagnosti
 
 ### 8.1 Adapter-Level Diagnostics
 
-All adapters expose `diagnostics() -> dict[str, Any]` defined on `BaseAdapter`:
+All adapters expose `diagnostics() -> dict[str, Any]` defined on `AdapterContract`:
 
 ```
-BaseAdapter.diagnostics() -> dict[str, Any]   # abstract
+AdapterContract.diagnostics() -> dict[str, Any]   # abstract
 ```
 
 Each adapter implements this by composing session-level diagnostics with adapter-level counters.

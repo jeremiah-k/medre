@@ -91,7 +91,7 @@ import medre
 import medre.config
 import medre.runtime
 import medre.adapters
-import medre.adapters.base
+import medre.core.contracts.adapter
 import medre.cli
 ```
 

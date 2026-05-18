@@ -45,15 +45,15 @@ src/medre/
     cli.py               (CLI entry point: medre run, config check, config sample)
     adapters/
         __init__.py      (re-exports base types + all fake adapters)
-        base.py          (BaseAdapter, AdapterContext, AdapterInfo, etc.)
+        base.py          (BaseAdapter — historical; now medre.core.contracts.adapter)
         fake_*.py        (6 fake adapters for testing)
-        matrix/          (10 files: adapter, codec, compat, config, errors,
+        matrix/          (9 files: adapter, codec, compat, errors,
                          metadata, relations, renderer, session)
-        meshtastic/      (11 files: adapter, codec, compat, config, errors,
+        meshtastic/      (10 files: adapter, codec, compat, errors,
                          packet_classifier, queue, renderer, session)
-        meshcore/        (10 files: adapter, codec, compat, config, errors,
+        meshcore/        (9 files: adapter, codec, compat, errors,
                          packet_classifier, renderer, session)
-        lxmf/           (11 files: adapter, codec, compat, config, errors,
+        lxmf/           (10 files: adapter, codec, compat, errors,
                          fields, packet_classifier, renderer, session)
     core/
         engine/          (pipeline runner)
@@ -110,7 +110,7 @@ The extras protect against two things:
 
 ### 4.3 What extras don't do
 
-Extras don't prevent code from being importable. `from medre.adapters.lxmf import LxmfAdapter` works whether or not `lxmf` is installed. The adapter code itself imports from `medre.adapters.base` and `medre.core.events`, which are always available. Only the SDK-specific imports inside `session.py` are gated by the compat guard.
+Extras don't prevent code from being importable. `from medre.adapters.lxmf import LxmfAdapter` works whether or not `lxmf` is installed. The adapter code itself imports from `medre.core.contracts.adapter` and `medre.core.events`, which are always available. Only the SDK-specific imports inside `session.py` are gated by the compat guard.
 
 This is a feature, not a bug. It means tests can import adapter modules without installing SDKs, as long as they use fake mode.
 
@@ -133,9 +133,9 @@ medre ships six fake adapters in the top-level `adapters/` directory:
 
 ### 5.2 What fake adapters prove
 
-The existence of working fake adapters proves that the adapter/session boundary is real. Each fake adapter implements the full `BaseAdapter` contract (start, stop, deliver, diagnostics, health) without importing any transport SDK. This means:
+The existence of working fake adapters proves that the adapter/session boundary is real. Each fake adapter implements the full `AdapterContract` contract (start, stop, deliver, diagnostics, health) without importing any transport SDK. This means:
 
-- The `BaseAdapter` contract is SDK-independent by design.
+- The `AdapterContract` contract is SDK-independent by design.
 - The adapter's public API (what the pipeline and runtime see) is transport-agnostic.
 - SDK-specific types never cross the adapter boundary (verified by contract 27, section 5.3).
 
@@ -213,7 +213,7 @@ The adapter never touches the SDK client directly. The session never touches the
 
 ### 7.2 Why this matters for distribution
 
-If medre ever splits into separate packages, the adapter/session boundary is the natural extraction seam. A hypothetical `medre-matrix` package would contain `medre.adapters.matrix.session`, `medre.adapters.matrix.compat`, and `medre.config.adapters.matrix`. The adapter itself would stay in core medre (or move to a thin adapter wrapper) because it depends on `BaseAdapter`, `CanonicalEvent`, and `RenderingResult`, which are core types.
+If medre ever splits into separate packages, the adapter/session boundary is the natural extraction seam. A hypothetical `medre-matrix` package would contain `medre.adapters.matrix.session`, `medre.adapters.matrix.compat`, and `medre.config.adapters.matrix`. The adapter itself would stay in core medre (or move to a thin adapter wrapper) because it depends on `AdapterContract`, `CanonicalEvent`, and `RenderingResult`, which are core types.
 
 The session has no dependency on core medre types. It takes a `MatrixConfig` (its own), a `message_callback` (a plain callable), and returns raw transport data to that callback. This is by design, not by accident.
 
@@ -237,7 +237,7 @@ Every adapter imports from:
 
 | Core module | What adapters use it for |
 |------------|-------------------------|
-| `medre.adapters.base` | `BaseAdapter`, `AdapterContext`, `AdapterInfo`, `AdapterCapabilities`, `AdapterDeliveryResult` |
+| `medre.core.contracts.adapter` | `AdapterContract`, `AdapterContext`, `AdapterInfo`, `AdapterCapabilities`, `AdapterDeliveryResult` |
 | `medre.core.events.canonical` | `CanonicalEvent`, `EventRelation`, `NativeRef` |
 | `medre.core.events.kinds` | `EventKind` |
 | `medre.core.rendering.renderer` | `RenderingResult` |
@@ -250,7 +250,7 @@ Nothing. Core has no imports from any adapter subpackage. The pipeline runner (`
 
 ### 8.3 What the coupling means
 
-The coupling is unidirectional: adapters depend on core, core does not depend on adapters. This means core could ship as a standalone package if needed, with adapters as separate packages that depend on core. The adapter framework (`BaseAdapter` and friends) lives in `medre.adapters.base`, which is part of the adapters package, not core. If adapters were extracted, the base classes would need to move to core or to a shared `medre-base` package.
+The coupling is unidirectional: adapters depend on core, core does not depend on adapters. This means core could ship as a standalone package if needed, with adapters as separate packages that depend on core. The adapter contract (`AdapterContract` and friends) already lives in `medre.core.contracts.adapter`, so no relocation would be needed for a future split.
 
 This is a deferred concern. The current structure works. The unidirectional dependency means extraction is possible, not that it should happen now.
 
@@ -261,7 +261,7 @@ These paths are analyzed for completeness. None is recommended or planned for be
 
 ### 9.1 Per-transport packages
 
-Split each transport adapter into its own `medre-matrix`, `medre-meshtastic`, `medre-meshcore`, `medre-lxmf` package. Core (`medre`) would ship the event model, base adapter classes, pipeline, routing, rendering, and storage. Each transport package would ship the adapter, session, codec, renderer, config, and compat modules for that transport.
+Split each transport adapter into its own `medre-matrix`, `medre-meshtastic`, `medre-meshcore`, `medre-lxmf` package. Core (`medre`) would ship the event model, adapter contract classes, pipeline, routing, rendering, and storage. Each transport package would ship the adapter, session, codec, renderer, config, and compat modules for that transport.
 
 **What makes this possible now:**
 - Clean adapter/session boundary (contract 31).
@@ -271,7 +271,7 @@ Split each transport adapter into its own `medre-matrix`, `medre-meshtastic`, `m
 - Optional extras already define the dependency grouping.
 
 **What makes this costly later:**
-- `BaseAdapter` lives in `medre.adapters.base`. Would need to move to `medre` core or a shared package.
+- `AdapterContract` already lives in `medre.core.contracts.adapter` (no relocation needed for extraction).
 - Test suite is integrated. Would need per-package test splitting.
 - Runner imports concrete adapters. Would need a registry or entry point mechanism.
 - Version coordination. Four transport packages plus core means five version numbers to manage.
@@ -287,15 +287,15 @@ Split each transport adapter into its own `medre-matrix`, `medre-meshtastic`, `m
 
 ### 9.2 Core/engine vs. adapters split
 
-Split into two packages: `medre-core` (event model, pipeline, routing, rendering, storage, observability) and `medre-adapters` (base adapter, all four transport adapters, fake adapters). `medre` would become a metapackage that depends on both.
+Split into two packages: `medre-core` (event model, pipeline, routing, rendering, storage, observability, adapter contracts) and `medre-adapters` (all four transport adapters, fake adapters). `medre` would become a metapackage that depends on both.
 
 **What makes this possible:**
 - Core has no adapter imports.
-- Adapter framework (`BaseAdapter`) is small and self-contained.
+- Adapter contract (`AdapterContract`) already lives in `medre.core.contracts.adapter`.
 - Pipeline takes adapters through injection.
 
 **What makes this costly:**
-- `BaseAdapter` depends on core types (`CanonicalEvent`, `RenderingResult`). If it stays in adapters, adapters depends on core. If it moves to core, the adapter protocol leaks into core.
+- `AdapterContract` depends on core types (`CanonicalEvent`, `RenderingResult`). It already lives in core, so no relocation needed, but the adapter protocol is part of the core API surface.
 - Fake adapters depend on both core types and adapter base classes. They'd need a home.
 - The current test suite tests adapters against the full pipeline. Splitting packages means splitting test infrastructure.
 
@@ -325,7 +325,7 @@ Replace the runner's concrete adapter imports with a registry based on Python en
 
 **What makes this possible:**
 - Runner already takes adapters through injection.
-- `BaseAdapter` contract is stable.
+- `AdapterContract` contract is stable.
 - Optional extras already define the grouping.
 
 **What makes this costly:**

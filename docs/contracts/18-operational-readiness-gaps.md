@@ -83,7 +83,7 @@ Contract 02 (`02-adapter-runtime-contract.md`) Section 6.2 defines `AdapterHealt
 
 The actual implementation does not use `AdapterHealth` anywhere. Instead:
 
-- `src/medre/adapters/base.py` defines `AdapterInfo` with a `health: str` field defaulting to `"unknown"`. This is a plain string, not a structured dataclass.
+- `src/medre/core/contracts/adapter.py` defines `AdapterInfo` with a `health: str` field defaulting to `"unknown"`. This is a plain string, not a structured dataclass.
 - All four adapters return `AdapterInfo` (not `AdapterHealth`) from `health_check()`.
 - The Matrix adapter sets `health` to one of `"healthy"`, `"unknown"`, or `"failed"` based on sync task and client login state.
 - The Meshtastic, MeshCore, and LXMF adapters set `health` to `"healthy"` if `_started` is true, otherwise `"unknown"`.
