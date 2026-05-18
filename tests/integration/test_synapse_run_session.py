@@ -61,10 +61,10 @@ from .conftest import (
     _write_artifact_json,
     _write_run_metadata,
 )
-from .test_synapse_bridge_smoke import (
-    _INBOUND_FALLBACK,
-    _INBOUND_SYNC_LOOP,
-    _wait_for_sync_or_fallback,
+from .synapse_helpers import (
+    INBOUND_FALLBACK as _INBOUND_FALLBACK,
+    INBOUND_SYNC_LOOP as _INBOUND_SYNC_LOOP,
+    wait_for_sync_or_fallback as _wait_for_sync_or_fallback,
 )
 
 logger = logging.getLogger(__name__)

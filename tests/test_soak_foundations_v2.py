@@ -23,7 +23,6 @@ Every test here:
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 
 import pytest
@@ -43,8 +42,11 @@ from medre.core.routing.stats import RouteStats
 from medre.runtime.app import RuntimeState
 from medre.runtime.builder import RuntimeBuilder
 
-# Reuse SoakRuntime and DiagnosticsSnapshot from existing harness.
-from tests.test_soak_harness import DiagnosticsSnapshot, SoakRuntime
+from tests.helpers.soak import (
+    DiagnosticsSnapshot,
+    SoakRuntime,
+    _count_asyncio_tasks,
+)
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -67,20 +69,6 @@ def _clean_path_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def soak(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SoakRuntime:
     """Provide a SoakRuntime instance."""
     return SoakRuntime(tmp_path=tmp_path, monkeypatch=monkeypatch)
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _count_asyncio_tasks() -> int:
-    """Return the number of currently alive asyncio tasks."""
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        return 0
-    return len([t for t in asyncio.all_tasks(loop) if not t.done()])
 
 
 # ===================================================================

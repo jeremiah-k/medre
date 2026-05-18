@@ -67,6 +67,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from tests.helpers.soak import (
+    _MESHTASTIC_CONNECTION_TYPE,
+    _make_meshtastic_config,
+    _validate_meshtastic_soak_env,
+)
+
 # ---------------------------------------------------------------------------
 # Soak duration configuration
 # ---------------------------------------------------------------------------
@@ -112,34 +118,6 @@ pytestmark_matrix = [
 # ---------------------------------------------------------------------------
 # Meshtastic soak — env gating (connection-type-aware, parity with live smoke)
 # ---------------------------------------------------------------------------
-
-_MESHTASTIC_CONNECTION_TYPE = os.environ.get("MESHTASTIC_CONNECTION_TYPE", "").lower()
-
-
-def _validate_meshtastic_soak_env() -> tuple[bool, str]:
-    """Check Meshtastic soak env vars, mirroring live smoke gating.
-
-    Returns (ok, reason).  ``ok`` is True when the required vars for the
-    selected connection type are present.
-    """
-    ct = _MESHTASTIC_CONNECTION_TYPE
-    if not ct:
-        return (
-            False,
-            "Set MESHTASTIC_CONNECTION_TYPE (tcp/serial/ble) for Meshtastic soak",
-        )
-    if ct == "tcp":
-        if not os.environ.get("MESHTASTIC_HOST"):
-            return False, "MESHTASTIC_HOST required for TCP soak"
-    elif ct == "serial":
-        if not os.environ.get("MESHTASTIC_SERIAL_PORT"):
-            return False, "MESHTASTIC_SERIAL_PORT required for serial soak"
-    elif ct == "ble":
-        if not os.environ.get("MESHTASTIC_BLE_ADDRESS"):
-            return False, "MESHTASTIC_BLE_ADDRESS required for BLE soak"
-    else:
-        return False, f"Unknown MESHTASTIC_CONNECTION_TYPE {ct!r}; use tcp/serial/ble"
-    return True, ""
 
 
 _meshtastic_soak_ok, _meshtastic_soak_reason = _validate_meshtastic_soak_env()
@@ -197,39 +175,6 @@ def _make_meshtastic_context() -> Any:
         clock=lambda: datetime.now(timezone.utc),
         shutdown_event=asyncio.Event(),
     )
-
-
-def _make_meshtastic_config() -> Any:
-    """Build a MeshtasticConfig from environment variables.
-
-    Supports tcp, serial, and ble connection types with the same env var
-    convention as the live smoke tests (``test_meshtastic_live.py``).
-    """
-    from medre.config.adapters.meshtastic import MeshtasticConfig
-
-    ct = _MESHTASTIC_CONNECTION_TYPE
-    if ct == "serial":
-        return MeshtasticConfig(
-            adapter_id="meshtastic-soak",
-            connection_type="serial",
-            serial_port=os.environ["MESHTASTIC_SERIAL_PORT"],
-            default_channel=int(os.environ.get("MESHTASTIC_CHANNEL_INDEX", "0")),
-        )
-    elif ct == "ble":
-        return MeshtasticConfig(
-            adapter_id="meshtastic-soak",
-            connection_type="ble",
-            ble_address=os.environ["MESHTASTIC_BLE_ADDRESS"],
-            default_channel=int(os.environ.get("MESHTASTIC_CHANNEL_INDEX", "0")),
-        )
-    else:  # tcp (default)
-        return MeshtasticConfig(
-            adapter_id="meshtastic-soak",
-            connection_type="tcp",
-            host=os.environ.get("MESHTASTIC_HOST"),
-            port=int(os.environ.get("MESHTASTIC_PORT", "4403")),
-            default_channel=int(os.environ.get("MESHTASTIC_CHANNEL_INDEX", "0")),
-        )
 
 
 # ---------------------------------------------------------------------------

@@ -1,7 +1,6 @@
 """Config sample and config check CLI workflows.
 
-Hub file for CLI workflow tests — other test files import fixtures and
-helpers from here.  Covers:
+Covers:
 
 1. ``medre config sample`` — round-trip (generate, parse, validate)
 2. ``medre config check`` — full output structure and adapter inventory
@@ -11,76 +10,19 @@ helpers from here.  Covers:
 
 from __future__ import annotations
 
-import io
 import os
 import tomllib
-from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 import pytest
 
-from medre.cli import main
-
-# ---------------------------------------------------------------------------
-# Shared config snippets
-# ---------------------------------------------------------------------------
-
-CONFIG_FAKE_MULTI = """\
-[runtime]
-name = "workflow-test"
-shutdown_timeout_seconds = 5
-
-[runtime.limits]
-max_inflight_deliveries = 50
-max_inflight_replay_events = 25
-shutdown_drain_timeout_seconds = 3
-delivery_acquire_timeout_seconds = 0.5
-
-[logging]
-level = "INFO"
-format = "text"
-
-[storage]
-backend = "memory"
-
-[adapters.matrix.fake_matrix]
-enabled = true
-adapter_kind = "fake"
-homeserver = "https://fake.local"
-user_id = "@bot:fake.local"
-access_token = "fake_tok"
-room_allowlist = ["!room:fake.local"]
-encryption_mode = "plaintext"
-
-[adapters.meshtastic.fake_mesh]
-enabled = true
-adapter_kind = "fake"
-connection_type = "fake"
-meshnet_name = "TestMesh"
-
-[routes.matrix_to_mesh]
-source_adapters = ["fake_matrix"]
-dest_adapters = ["fake_mesh"]
-directionality = "source_to_dest"
-enabled = true
-source_room = "!room:fake.local"
-dest_channel = "1"
-
-[routes.mesh_to_matrix]
-source_adapters = ["fake_mesh"]
-dest_adapters = ["fake_matrix"]
-directionality = "source_to_dest"
-enabled = false
-
-[routes.bidirectional_bridge]
-source_adapters = ["fake_matrix"]
-dest_adapters = ["fake_mesh"]
-directionality = "bidirectional"
-enabled = true
-
-[routes.bidirectional_bridge.policy]
-allowed_event_types = ["message"]
-"""
+from tests.helpers.cli import (
+    CONFIG_FAKE_MULTI,
+    CONFIG_SINGLE_ADAPTER,
+    _run_cli,
+    _run_cli_both,
+    _run_cli_raw,
+)
 
 CONFIG_MINIMAL_MEMORY = """\
 [runtime]
@@ -88,23 +30,6 @@ name = "minimal-workflow"
 
 [storage]
 backend = "memory"
-"""
-
-CONFIG_SINGLE_ADAPTER = """\
-[runtime]
-name = "single-adapter"
-
-[storage]
-backend = "memory"
-
-[adapters.matrix.solo]
-enabled = true
-adapter_kind = "fake"
-homeserver = "https://fake.local"
-user_id = "@bot:fake.local"
-access_token = "tok_single"
-room_allowlist = ["!room:fake.local"]
-encryption_mode = "plaintext"
 """
 
 
@@ -119,49 +44,6 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for key in list(os.environ):
         if key.startswith("MEDRE_") or key.startswith("XDG_"):
             monkeypatch.delenv(key, raising=False)
-
-
-# ---------------------------------------------------------------------------
-# CLI helper functions
-# ---------------------------------------------------------------------------
-
-
-def _run_cli(*args: str) -> str:
-    """Run CLI, capture stdout, return output. Propagate non-zero SystemExit."""
-    stdout = io.StringIO()
-    stderr = io.StringIO()
-    try:
-        with redirect_stdout(stdout), redirect_stderr(stderr):
-            main(list(args))
-    except SystemExit as e:
-        if e.code not in (None, 0):
-            raise
-    return stdout.getvalue()
-
-
-def _run_cli_both(*args: str) -> tuple[str, str]:
-    """Run CLI and return (stdout, stderr) pair."""
-    stdout = io.StringIO()
-    stderr = io.StringIO()
-    try:
-        with redirect_stdout(stdout), redirect_stderr(stderr):
-            main(list(args))
-    except SystemExit:
-        pass
-    return stdout.getvalue(), stderr.getvalue()
-
-
-def _run_cli_raw(*args: str) -> tuple[str, str, int | None]:
-    """Run CLI and return (stdout, stderr, exit_code)."""
-    stdout = io.StringIO()
-    stderr = io.StringIO()
-    code: int | None = 0
-    try:
-        with redirect_stdout(stdout), redirect_stderr(stderr):
-            main(list(args))
-    except SystemExit as e:
-        code = 1 if isinstance(e.code, str) else e.code
-    return stdout.getvalue(), stderr.getvalue(), code
 
 
 # ===================================================================

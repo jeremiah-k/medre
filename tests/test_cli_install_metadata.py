@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.test_cli_config_workflows import (
+from tests.helpers.cli import (
     _run_cli,
 )
 

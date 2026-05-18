@@ -53,10 +53,7 @@ from medre.runtime.capacity import CapacityController
 from medre.runtime.snapshot import (
     build_runtime_snapshot,
 )
-from tests.test_soak_foundations_v2 import _count_asyncio_tasks
-
-# Reuse existing harness helpers.
-from tests.test_soak_harness import SoakRuntime
+from tests.helpers.soak import _count_asyncio_tasks, SoakRuntime
 
 # ---------------------------------------------------------------------------
 # Fixtures

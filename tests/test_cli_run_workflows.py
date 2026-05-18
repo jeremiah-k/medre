@@ -26,7 +26,7 @@ from pathlib import Path
 import pytest
 
 from tests.helpers.async_utils import wait_until
-from tests.test_cli_config_workflows import (
+from tests.helpers.cli import (
     CONFIG_FAKE_MULTI,
     CONFIG_SINGLE_ADAPTER,
     _run_cli,

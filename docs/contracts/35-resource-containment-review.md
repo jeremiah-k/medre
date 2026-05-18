@@ -87,16 +87,16 @@ This is a review document. No runtime redesign is proposed.
 
 ### 3.5 Test Coverage
 
-Existing tests in `tests/test_matrix_session.py` cover:
+Existing tests in `tests/test_matrix_session.py` and its split files cover:
 
-- Start/stop lifecycle
-- Double-start protection
-- E2EE dependency detection (monkeypatchable)
-- Encryption mode behavior
-- Diagnostics keys
-- Encrypted room safety check
-- Sync failure logging
-- MegolmEvent handling
+- Start/stop lifecycle (`test_matrix_session.py`)
+- Double-start protection (`test_matrix_session.py`)
+- E2EE dependency detection (monkeypatchable) (`test_matrix_session.py`)
+- Encryption mode behavior (`test_matrix_session.py`, `test_matrix_session_config.py`)
+- Diagnostics keys (`test_matrix_session.py`)
+- Encrypted room safety check (`test_matrix_session_e2ee.py`)
+- Sync failure logging (`test_matrix_session_recovery.py`)
+- MegolmEvent handling (`test_matrix_session_e2ee.py`)
 
 ## 4. MeshtasticSession
 

@@ -19,25 +19,22 @@ Split files by behavioral domain, not by "coverage" or "misc". When a domain
 file approaches the target, split it by subdomain following the procedure in
 the [Next Modernization Wave](#next-modernization-wave) section below.
 
-### Allowlisted files (existing large files, above 1,500 lines)
+### Size enforcement
 
-These files predate the size policy and have not yet been split. Each must
-carry a TODO comment in the structure test explaining why it has not been
-split.
+There is **no oversized-test allowlist**. Every `test_*.py` file must stay at
+or below **1,500 lines** (`MAX_LINES`). The target remains below 1,200 lines.
+If a file approaches the hard cap, split it by behavioral domain following the
+procedure in [Splitting procedure](#splitting-procedure). Completed splits are
+listed in the [Completed Splits](#completed-splits) table as historical record,
+not as active allowlist entries.
 
-| File                           | Lines | Status                     |
-| ------------------------------ | ----- | -------------------------- |
-| `tests/test_matrix_session.py` | 2,241 | Allowlisted; pending split |
+#### Next-PR candidates near the cap
 
-| `tests/test_replay_routing.py` | 1,584 | Allowlisted; pending split |
-| `tests/test_storage.py` | 2,305 | Allowlisted; pending split |
-| `tests/test_canonical_events.py` | 1,992 | Allowlisted; pending split |
-| `tests/test_meshtastic_fake_bridge.py` | 1,540 | Allowlisted; pending split |
-| `tests/test_fake_runtime_smoke.py` | 1,506 | Allowlisted; pending split |
+These files are approaching the 1,500-line hard cap and should be split
+opportunistically by behavioral domain:
 
-No new test files may exceed 1,500 lines. Files in the allowlist above should
-be split according to the schedule in
-[Next Modernization Wave](#next-modernization-wave).
+- `test_runtime_snapshot.py` (1,462 lines) — highest priority
+- Any other 1,000+ line file should be split when convenient
 
 ### Splitting procedure
 
@@ -482,45 +479,16 @@ These files have been split by behavioral domain following the procedure above.
 | `tests/test_cli.py`                     | Split  | 9 domain files: `test_cli_command_help_hints`, `test_cli_config_workflows`, `test_cli_diagnostics_workflows`, `test_cli_install_metadata`, `test_cli_replay_surface`, `test_cli_route_workflows`, `test_cli_run_workflows`, `test_cli_scenario_crosscheck`, `test_cli_smoke_run_session`. Helper: `helpers/cli.py`. |
 | `tests/test_alpha_walkthrough_cli.py`   | Split  | 4 domain files: `test_alpha_cli_config_and_smoke`, `test_alpha_cli_inspect_flow`, `test_alpha_cli_replay_flow`, `test_alpha_cli_error_paths`. Helper: `helpers/alpha_cli.py`.                                                                                                                                       |
 | `tests/test_docker_bridge_artifacts.py` | Split  | 4 domain files: `test_docker_artifact_core`, `test_docker_artifact_plan`, `test_docker_artifact_metadata`, `test_docker_artifact_honesty`. Helper: `helpers/docker_artifacts.py`.                                                                                                                                   |
+| `tests/test_matrix_session.py`          | Split  | 3 domain files: `test_matrix_session_config` (encryption config), `test_matrix_session_e2ee` (Megolm, encrypted rooms, E2EE diagnostics), `test_matrix_session_recovery` (sync failure, reconnect, crypto store continuity, sync state resilience). Original retained at 460 lines (lifecycle, diagnostics, start behavior). |
+| `tests/test_storage.py`                 | Split  | 7 domain files: `test_storage_durability`, `test_storage_integrity`, `test_storage_invariants`, `test_storage_native_refs`, `test_storage_path_cli`, `test_storage_path_validation`, `test_storage_receipts`. Original retained at 231 lines. |
+| `tests/test_replay_routing.py`          | Split  | 3 domain files: `test_replay_routing_controls`, `test_replay_routing_durability`, `test_replay_routing_isolation`. Original retained at 422 lines. |
+| `tests/test_runtime_builder.py`         | Split  | 3 domain files: `test_runtime_builder_ordering` (build ordering, adapter ID propagation), `test_runtime_builder_paths` (Matrix store path derivation, ensure-dirs), `test_runtime_builder_routes` (degraded route validation). Original retained at 520 lines (construction, config, fakes). |
+| `tests/test_meshtastic_adapter.py`      | Split  | 1 domain file: `test_meshtastic_adapter_delivery` (send semantics, session boundary, session unit). Original retained at 755 lines (connection modes, queue ownership, lifecycle). |
+| `tests/test_meshtastic_fake_bridge.py`  | Split  | 2 domain files: `test_meshtastic_fake_bridge_errors`, `test_meshtastic_fake_bridge_session`. Original retained at 938 lines. |
+| `tests/test_fake_runtime_smoke.py`      | Split  | 2 domain files: `test_fake_runtime_soak` (diagnostics snapshots, replay delivery, happy path), `test_fake_runtime_startup_snapshot` (startup/shutdown integration, snapshot integration). Original retained at 931 lines. |
 
-## Next Modernization Wave
-
-The following allowlisted files should be split by subdomain. The suggested
-split targets are starting points; actual domains may shift during analysis.
-
-### Priority splits (largest files first)
-
-**`tests/test_matrix_session.py` (2,241 lines)**
-
-| Target file                                   | Domain                                             |
-| --------------------------------------------- | -------------------------------------------------- |
-| `tests/test_matrix_session_lifecycle.py`      | Session start, stop, health check                  |
-| `tests/test_matrix_session_sync_recovery.py`  | Initial sync, reconnection, error recovery         |
-| `tests/test_matrix_session_encryption.py`     | E2EE setup, encrypted room handling                |
-| `tests/test_matrix_session_delivery_retry.py` | Delivery attempts, retry budgets, failure handling |
-
-**`tests/test_storage.py` (2,305 lines)**
-
-| Target file                        | Domain                                               |
-| ---------------------------------- | ---------------------------------------------------- |
-| `tests/test_storage_sqlite.py`     | SQLite-specific: persistence, concurrent access, WAL |
-| `tests/test_storage_in_memory.py`  | In-memory backend: consistency, lifecycle            |
-| `tests/test_storage_inspect.py`    | Inspect queries: event, receipts, native refs        |
-| `tests/test_storage_durability.py` | Crash recovery, partial writes, schema validation    |
-
-**`tests/test_canonical_events.py` (1,992 lines)** -- domains TBD
-
-**`tests/test_replay_routing.py` (1,584 lines)** -- domains TBD
-
-### Analysis-pending splits
-
-These files need domain analysis before split targets can be defined:
-
-- `tests/test_meshtastic_fake_bridge.py` (1,540 lines) -- domains TBD
-- `tests/test_fake_runtime_smoke.py` (1,506 lines) -- domains TBD
-
-### CLI split — completed
+## CLI split — completed
 
 `test_cli.py` has been split into domain files (all under 1,500 lines). The
-monolith has been deleted. `test_cli` is listed in `DELETED_MONOLITHS` and
-removed from `LEGACY_ALLOWLIST` in `test_test_suite_structure.py`.
+monolith has been deleted. `test_cli` is listed in `DELETED_MONOLITHS` in
+`test_test_suite_structure.py`.
