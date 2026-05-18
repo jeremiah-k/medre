@@ -1409,7 +1409,7 @@ Plugins operate within capability-scoped boundaries:
 2. **Route permissions**: Plugins that emit events can only send to routes the operator has explicitly allowed for that plugin.
 3. **Rate limits**: Each plugin has configurable rate limits for event emission, storage queries, and API calls.
 4. **Sandboxing (future)**: Plugins may optionally run in a restricted execution environment (subprocess, WASM, or container) with limited system access.
-5. **API versioning**: Plugins declare the runtime plugin API version they target. The runtime supports plugins written for its own current and immediately prior major plugin API version so that plugins do not break across a single major runtime upgrade. This applies only to this runtime's native plugin API, not to any external or legacy system's plugin interface.
+5. **API versioning**: Plugins declare the runtime plugin API version they target. The runtime supports plugins written for its own current and immediately prior major plugin API version so that plugins do not break across a single major runtime upgrade. This applies only to this runtime's native plugin API, not to any external system's plugin interface.
 6. **Audit logging**: All plugin actions are logged with the plugin identity and capability used.
 
 ### 20.4 Plugin Context
@@ -1825,9 +1825,9 @@ MMRelay has a loose mapping between Meshtastic node numbers and Matrix user IDs.
 
 The following are explicitly out of scope for this project:
 
-- **Legacy data migration.** Importing data from MMRelay's SQLite database, configuration files, or plugin state is not required. Users start fresh.
-- **Legacy plugin compatibility.** MMRelay plugins will not work in this runtime. Plugin authors write against the new API.
-- **Legacy configuration compatibility.** Configuration files follow a new schema. No migration from old MMRelay config.
+- **MMRelay data migration.** Importing data from MMRelay's SQLite database, configuration files, or plugin state is not required. Users start fresh.
+- **MMRelay plugin compatibility.** MMRelay plugins will not work in this runtime. Plugin authors write against the native API.
+- **MMRelay configuration compatibility.** Configuration files follow a new schema. No migration from MMRelay config.
 - **Backward compatibility with MMRelay API.** This runtime does not expose MMRelay's API surface.
 - **Binary compatibility with MeshCore plugin protocol.** The MeshCore adapter in this runtime is a new implementation.
 - **Running alongside MMRelay.** This is a replacement, not a companion. Both could run simultaneously targeting different channels if needed, but no coordination between them is planned.

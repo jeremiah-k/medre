@@ -18,11 +18,13 @@ Exports:
 - `AdapterSendError`
 - `AdapterPermanentError`
 
-The following old modules **do not exist** and must not be imported:
+The following module names are noncanonical and must not be imported:
 
-- `medre.core.ports` (merged into `medre.core.contracts.adapter`)
-- `medre.core.adapter_base` (merged into `medre.core.contracts.adapter`)
-- `medre.adapters.base` (merged into `medre.core.contracts.adapter`)
+- `medre.core.ports` — does not exist
+- `medre.core.adapter_base` — does not exist
+- `medre.adapters.base` — does not exist
+
+Use `medre.core.contracts.adapter` instead.
 
 ### 0.2 Adapter Configuration — `medre.config.adapters.*`
 

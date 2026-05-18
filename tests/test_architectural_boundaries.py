@@ -893,13 +893,9 @@ class TestNoActiveStaleDocsReferences:
     )
 
     _ALLOWED_CONTEXT_WORDS = (
-        "removed",
-        "merged",
-        "replaced",
-        "deleted",
-        "superseded",
         "does not exist",
         "must not be imported",
+        "noncanonical",
     )
 
     def test_no_active_stale_references_in_docs(self) -> None:
@@ -963,17 +959,12 @@ class TestNoStaleWordingInDocs:
         "backward compatibility layer",
     )
 
-    # Lines containing any of these words are exempt — they are factual
-    # removal/merge statements, not transitional framing.
+    # Lines containing these phrases are exempt — they are factual
+    # noncanonical-module statements, not transitional framing.
     _EXEMPTION_WORDS = (
-        "replaced",
-        "removed",
         "does not exist",
-        "was deleted",
         "must not be imported",
-        "was merged",
-        "renamed",
-        "canonical",
+        "noncanonical",
         # Negation context — "no compatibility shims", "not a compatibility layer"
         "no ",
         "no.",

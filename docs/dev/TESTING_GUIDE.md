@@ -19,7 +19,7 @@ Split files by behavioral domain, not by "coverage" or "misc". When a domain
 file approaches the target, split it by subdomain following the procedure in
 the [Next Modernization Wave](#next-modernization-wave) section below.
 
-### Allowlisted files (legacy, above 1,500 lines)
+### Allowlisted files (existing large files, above 1,500 lines)
 
 These files predate the size policy and have not yet been split. Each must
 carry a TODO comment in the structure test explaining why it has not been
@@ -57,7 +57,7 @@ be split according to the schedule in
 ### Use pytest function style for new tests
 
 New tests must use pytest function style (module-level `async def` or `def`),
-not `unittest.TestCase`. Existing `TestCase` classes are acceptable as legacy
+not `unittest.TestCase`. Existing `TestCase` classes are acceptable as existing
 but should not be extended with new test methods.
 
 ```python
@@ -67,7 +67,7 @@ async def test_adapter_delivers_event(fake_adapter, canonical_event):
     assert result.status == "success"
 
 
-# Acceptable legacy: existing TestCase classes (do not extend)
+# Existing pattern: TestCase classes (do not extend with new methods)
 class TestLegacyStorage(unittest.TestCase):
     def setUp(self):
         self.store = InMemoryStorage()
