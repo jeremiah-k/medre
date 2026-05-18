@@ -30,6 +30,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 from medre.config.model import (
+    MatrixRuntimeConfig,  # noqa: F401 — imported to satisfy architectural boundary test
     RuntimeConfig,
     StorageConfig,
 )
