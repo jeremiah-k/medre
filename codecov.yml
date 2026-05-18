@@ -9,7 +9,238 @@ coverage:
         target: 40%
         threshold: 2%
 
+component_management:
+  default_rules:
+    statuses:
+      - type: project
+        target: auto
+        threshold: 3%
+      - type: patch
+        target: 40%
+        threshold: 5%
+
+  individual_components:
+    - component_id: core_contracts
+      name: Core Contracts
+      paths:
+        - src/medre/core/contracts/**
+      statuses:
+        - type: project
+          target: 75%
+          threshold: 3%
+        - type: patch
+          target: 70%
+          threshold: 5%
+
+    - component_id: core_events
+      name: Core Events
+      paths:
+        - src/medre/core/events/**
+        - src/medre/core/identity/**
+      statuses:
+        - type: project
+          target: 70%
+          threshold: 3%
+        - type: patch
+          target: 70%
+          threshold: 5%
+
+    - component_id: core_routing_planning
+      name: Core Routing & Planning
+      paths:
+        - src/medre/core/engine/**
+        - src/medre/core/routing/**
+        - src/medre/core/planning/**
+        - src/medre/core/policies/**
+        - src/medre/core/transforms/**
+      statuses:
+        - type: project
+          target: 65%
+          threshold: 4%
+        - type: patch
+          target: 60%
+          threshold: 5%
+
+    - component_id: core_storage_replay
+      name: Core Storage & Replay
+      paths:
+        - src/medre/core/storage/**
+      statuses:
+        - type: project
+          target: 70%
+          threshold: 3%
+        - type: patch
+          target: 70%
+          threshold: 5%
+
+    - component_id: core_rendering
+      name: Core Rendering
+      paths:
+        - src/medre/core/rendering/**
+      statuses:
+        - type: project
+          target: 70%
+          threshold: 3%
+        - type: patch
+          target: 65%
+          threshold: 5%
+
+    - component_id: core_runtime_diagnostics
+      name: Core Runtime & Diagnostics
+      paths:
+        - src/medre/core/runtime/**
+        - src/medre/core/diagnostics/**
+        - src/medre/core/lifecycle/**
+        - src/medre/core/observability/**
+      statuses:
+        - type: project
+          target: 65%
+          threshold: 4%
+        - type: patch
+          target: 60%
+          threshold: 5%
+
+    - component_id: configuration
+      name: Configuration
+      paths:
+        - src/medre/config/**
+      statuses:
+        - type: project
+          target: 75%
+          threshold: 3%
+        - type: patch
+          target: 75%
+          threshold: 5%
+
+    - component_id: runtime_orchestration
+      name: Runtime Orchestration
+      paths:
+        - src/medre/runtime/**
+      statuses:
+        - type: project
+          target: 55%
+          threshold: 5%
+        - type: patch
+          target: 50%
+          threshold: 7%
+
+    - component_id: cli
+      name: CLI
+      paths:
+        - src/medre/cli/**
+        - src/medre/__main__.py
+      statuses:
+        - type: project
+          target: 55%
+          threshold: 5%
+        - type: patch
+          target: 50%
+          threshold: 7%
+
+    - component_id: adapter_matrix
+      name: Matrix Adapter
+      paths:
+        - src/medre/adapters/matrix/**
+      statuses:
+        - type: project
+          target: 55%
+          threshold: 5%
+        - type: patch
+          target: 50%
+          threshold: 7%
+
+    - component_id: adapter_meshtastic
+      name: Meshtastic Adapter
+      paths:
+        - src/medre/adapters/meshtastic/**
+      statuses:
+        - type: project
+          target: 50%
+          threshold: 5%
+        - type: patch
+          target: 45%
+          threshold: 8%
+
+    - component_id: adapter_meshcore
+      name: MeshCore Adapter
+      paths:
+        - src/medre/adapters/meshcore/**
+      statuses:
+        - type: project
+          target: 45%
+          threshold: 6%
+        - type: patch
+          target: 40%
+          threshold: 8%
+
+    - component_id: adapter_lxmf
+      name: LXMF Adapter
+      paths:
+        - src/medre/adapters/lxmf/**
+      statuses:
+        - type: project
+          target: 45%
+          threshold: 6%
+        - type: patch
+          target: 40%
+          threshold: 8%
+
+    - component_id: fake_adapters
+      name: Fake Adapters
+      paths:
+        - src/medre/adapters/fake_matrix.py
+        - src/medre/adapters/fake_meshtastic.py
+        - src/medre/adapters/fake_meshcore.py
+        - src/medre/adapters/fake_lxmf.py
+        - src/medre/adapters/fake_presentation.py
+        - src/medre/adapters/fake_transport.py
+        - src/medre/adapters/__init__.py
+      statuses:
+        - type: project
+          target: 70%
+          threshold: 4%
+        - type: patch
+          target: 65%
+          threshold: 5%
+
+    - component_id: observability
+      name: Observability
+      paths:
+        - src/medre/observability/**
+      statuses:
+        - type: project
+          target: 60%
+          threshold: 5%
+        - type: patch
+          target: 55%
+          threshold: 7%
+
+    - component_id: interop_plugins
+      name: Interop & Plugins
+      paths:
+        - src/medre/interop/**
+        - src/medre/plugins/**
+      statuses:
+        - type: project
+          target: 40%
+          threshold: 8%
+        - type: patch
+          target: 35%
+          threshold: 10%
+
+    - component_id: package_surface
+      name: Package Surface
+      paths:
+        - src/medre/__init__.py
+      statuses:
+        - type: project
+          target: 80%
+          threshold: 5%
+        - type: patch
+          target: 80%
+          threshold: 10%
+
 comment:
-  layout: header, diff, flags
+  layout: header, diff, flags, components
   behavior: default
   require_changes: false
