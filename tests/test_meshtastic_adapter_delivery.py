@@ -371,11 +371,13 @@ def _install_fake_protobuf(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
             self.portnum: Any = None
             self.payload: bytes = b""
             self.emoji: int = 0
+            self.reply_id: int = 0
 
         def CopyFrom(self, other: "FakeData") -> None:
             self.portnum = other.portnum
             self.payload = other.payload
             self.emoji = other.emoji
+            self.reply_id = other.reply_id
 
     class FakeMeshPacket:
         def __init__(self) -> None:
@@ -430,7 +432,7 @@ class TestSessionStructuredSend:
         assert result is not None
         assert len(send_packet_calls) == 1
         pkt = send_packet_calls[0]["packet"]
-        assert pkt.reply_id == 42
+        assert pkt.decoded.reply_id == 42
         assert pkt.channel == 2
         assert send_packet_calls[0]["wantAck"] is False
 

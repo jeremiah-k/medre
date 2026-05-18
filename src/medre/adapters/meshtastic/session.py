@@ -496,10 +496,6 @@ class MeshtasticSession:
         mesh_packet = mesh_pb2.MeshPacket()
         mesh_packet.decoded.CopyFrom(data)
         mesh_packet.channel = channel_index
-        try:
-            setattr(mesh_packet, "reply_id", reply_id_int)
-        except AttributeError:
-            pass
         generate_packet_id = getattr(self._client, "_generatePacketId", None)
         if callable(generate_packet_id):
             try:

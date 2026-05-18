@@ -40,6 +40,7 @@ from collections import deque
 from types import MappingProxyType
 from typing import Any, Awaitable, Callable
 
+from medre.adapters.meshtastic.packet_snapshot import json_safe
 from medre.core.contracts.adapter import AdapterDeliveryResult
 
 _logger = logging.getLogger(__name__)
@@ -295,10 +296,10 @@ def _packet_snapshot(result: Any) -> dict[str, object]:
         for key in ("id", "packet_id", "channel", "reply_id", "to"):
             val = result.get(key)
             if val is not None:
-                snapshot[key] = val
+                snapshot[key] = json_safe(val)
     else:
         for attr in ("id", "channel", "reply_id", "to"):
             val = getattr(result, attr, None)
             if val is not None:
-                snapshot[attr] = val
+                snapshot[attr] = json_safe(val)
     return snapshot
